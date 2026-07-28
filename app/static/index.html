@@ -2,83 +2,186 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Duel · 人机对弈</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>双弈 · CEDAR TOY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <main>
-    <header>
-      <div>
-        <p class="eyebrow">HUMAN × BOUND AI</p>
-        <h1>Duel 人机对弈</h1>
-        <p class="subtitle">一房一局，纯单机，无匹配与社交关系。</p>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="返回 CEDAR TOY">
+        <span class="pixel-logo"></span>
+        <span>CEDAR TOY</span>
+      </a>
+      <div class="top-actions">
+        <span class="service-badge">DUEL / 双弈</span>
+        <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
       </div>
-      <button id="rulesButton" class="secondary" disabled>查看规则</button>
     </header>
 
-    <section class="setup card">
-      <label>你的 ID<input id="playerId" value="human-demo" maxlength="80"></label>
-      <label>棋种
-        <select id="gameType">
-          <option value="tictactoe">3×3 井字棋</option>
-          <option value="gomoku">15×15 五子棋</option>
-          <option value="othello">8×8 黑白棋</option>
-          <option value="connect4">7×6 四子连珠</option>
-          <option value="dots_boxes">5×5 点格棋</option>
-          <option value="jungle">7×9 斗兽棋</option>
-        </select>
-      </label>
-      <label>先手
-        <select id="mode">
-          <option value="human_first">人类先手</option>
-          <option value="ai_first">AI 先手</option>
-        </select>
-      </label>
-      <button id="createButton">创建房间</button>
-      <span class="or">或</span>
-      <label>房间号<input id="joinRoomId" maxlength="8" placeholder="ABCDEFGH"></label>
-      <button id="joinButton" class="secondary">加入房间</button>
-    </section>
-    <p id="notice" class="message" role="status"></p>
+    <main class="duel-main">
+      <section id="loadingView" class="gate-view pixel-card">
+        <span class="gate-glyph">棋</span>
+        <p class="eyebrow">LOADING BOUND PAIR...</p>
+      </section>
 
-    <section id="gamePanel" class="card hidden">
-      <div class="game-meta">
-        <div><span>房间</span><strong id="roomId">—</strong></div>
-        <div><span>状态</span><strong id="status">—</strong></div>
-        <div><span>轮次</span><strong id="turn">—</strong></div>
-        <div><span>版本</span><strong id="revision">0</strong></div>
-      </div>
-      <p id="message" class="message"></p>
-      <div class="play-layout">
-        <div class="board-column">
-          <div id="board" class="board" aria-label="棋盘"></div>
-          <div class="chat-compose">
-            <label>给 AI 留言
-              <textarea id="chatInput" maxlength="500" rows="3" placeholder="点击棋盘时随落子发送，或单独留言"></textarea>
-            </label>
-            <button id="sendMessageButton" class="secondary">只留言</button>
+      <section id="unboundView" class="gate-view pixel-card hidden">
+        <span class="gate-glyph">!</span>
+        <div>
+          <p class="eyebrow">IDENTITY REQUIRED</p>
+          <h1>请从 toy.cedarstar.org 首页登录进入</h1>
+          <p>双弈只服务于已经绑定的人类与小机，不提供游客房间或陌生人匹配。</p>
+        </div>
+        <a class="pixel-btn" href="https://toy.cedarstar.org/">返回首页登录 →</a>
+      </section>
+
+      <section id="lobbyView" class="lobby-view hidden">
+        <div class="hero pixel-card">
+          <div>
+            <span class="tag pink">HUMAN × BOUND AI</span>
+            <p class="eyebrow">MISSION: DUEL</p>
+            <h1>双弈</h1>
+            <p id="heroPair" class="hero-pair">你 × 你的小机</p>
           </div>
-          <div class="actions">
-            <button id="refreshButton" class="secondary">刷新</button>
-            <button id="resignButton" class="danger">认输</button>
+          <div class="hero-art" aria-hidden="true">
+            <span class="hero-piece human-piece">○</span>
+            <span class="hero-piece ai-piece">×</span>
+            <small>YOUR TURN_</small>
           </div>
         </div>
-        <aside class="timeline-panel">
-          <h2>对局时间线</h2>
-          <ol id="timeline" aria-live="polite"></ol>
-        </aside>
+
+        <p id="notice" class="notice" role="status"></p>
+
+        <div class="lobby-grid">
+          <section class="section-panel pixel-card room-panel">
+            <div class="section-head">
+              <div>
+                <span class="tag">ROOM LOG</span>
+                <h2>当前人机对的房间</h2>
+              </div>
+              <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
+            </div>
+            <div id="roomList" class="room-list"></div>
+          </section>
+
+          <section class="section-panel pixel-card create-panel">
+            <div class="section-head">
+              <div>
+                <span class="tag pink">NEW GAME</span>
+                <h2>开新对局</h2>
+              </div>
+            </div>
+            <label class="pixel-field">
+              <span>棋种</span>
+              <select id="gameType">
+                <option value="tictactoe">井字棋 / 3×3</option>
+                <option value="gomoku">五子棋 / 15×15</option>
+                <option value="othello">黑白棋 / 8×8</option>
+                <option value="connect4">四子连珠 / 7×6</option>
+                <option value="dots_boxes">点格棋 / 5×5 点阵</option>
+                <option value="jungle">斗兽棋 / 7×9</option>
+              </select>
+            </label>
+            <label class="pixel-field">
+              <span>谁先走</span>
+              <select id="mode">
+                <option value="human_first">你先手</option>
+                <option value="ai_first">你的小机先手</option>
+              </select>
+            </label>
+            <div class="create-note">
+              <span>●</span>
+              <p>房间自动属于当前人机对，无需交换房间号。</p>
+            </div>
+            <button id="createButton" class="pixel-btn wide" type="button">创建对局 →</button>
+          </section>
+        </div>
+      </section>
+
+      <section id="gameView" class="game-view hidden">
+        <div class="game-toolbar pixel-card">
+          <button id="backButton" class="pixel-btn secondary compact" type="button">← 房间列表</button>
+          <div class="game-heading">
+            <span id="gameBadge" class="tag pink">GAME</span>
+            <h1 id="gameTitle">双弈</h1>
+          </div>
+          <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
+        </div>
+
+        <div class="game-meta pixel-card">
+          <div><span>ROOM</span><strong id="roomId">—</strong></div>
+          <div><span>STATUS</span><strong id="status">—</strong></div>
+          <div><span>TURN</span><strong id="turn">—</strong></div>
+          <div><span>REV</span><strong id="revision">0</strong></div>
+        </div>
+
+        <p id="gameMessage" class="notice" role="status"></p>
+
+        <div class="play-layout">
+          <section class="board-panel pixel-card">
+            <div class="board-frame">
+              <div id="board" class="board" aria-label="棋盘"></div>
+            </div>
+            <div class="chat-compose">
+              <label class="pixel-field">
+                <span>给你的小机说句话</span>
+                <textarea id="chatInput" maxlength="500" rows="3" placeholder="随落子发送，或单独留言"></textarea>
+              </label>
+              <button id="sendMessageButton" class="pixel-btn secondary" type="button">只留言</button>
+            </div>
+            <div class="game-actions">
+              <button id="refreshButton" class="pixel-btn secondary" type="button">刷新局面</button>
+              <button id="resignButton" class="pixel-btn danger" type="button">认输</button>
+            </div>
+          </section>
+
+          <aside class="timeline-panel pixel-card">
+            <div class="section-head">
+              <div>
+                <span class="tag">LIVE LOG</span>
+                <h2>对局时间线</h2>
+              </div>
+            </div>
+            <ol id="timeline" aria-live="polite"></ol>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="双弈导航">
+      <a class="nav-item" href="/">
+        <span class="nav-icon">⌂</span>
+        <span class="nav-label">首页</span>
+      </a>
+      <button id="lobbyNavButton" class="nav-item active" type="button">
+        <span class="nav-icon">棋</span>
+        <span class="nav-label">房间</span>
+      </button>
+      <button id="bottomRefreshButton" class="nav-item" type="button">
+        <span class="nav-icon">↻</span>
+        <span class="nav-label">刷新</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="rulesScrim" class="drawer-scrim" aria-hidden="true">
+    <section class="rules-drawer" aria-labelledby="rulesTitle">
+      <div class="drawer-head">
+        <div>
+          <span class="tag pink">RULE BOOK</span>
+          <h2 id="rulesTitle">游戏规则</h2>
+        </div>
+        <button id="closeRulesButton" class="pixel-btn secondary drawer-close" type="button" aria-label="关闭规则">×</button>
       </div>
+      <p id="rulesText" class="rules-text"></p>
+      <div id="moveFormat" class="move-format"></div>
     </section>
-  </main>
+  </div>
 
-  <dialog id="rulesDialog">
-    <h2 id="rulesTitle">游戏规则</h2>
-    <p id="rulesText"></p>
-    <p id="moveFormat" class="format"></p>
-    <button id="closeRules">知道了</button>
-  </dialog>
-
+  <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

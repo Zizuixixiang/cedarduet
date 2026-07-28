@@ -34,6 +34,7 @@ AI /mcp/play ──────┘       │
 - 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
 - AI 的 `join/move/state/resign` 可附带最长 500 字的 `message`；人类可随落子说话或独立留言。独立留言不增加 revision，也不唤醒等待者。
 - AI 的返回包含一次性 `new_messages`：未读人类消息读取后即在 SQLite 标记，避免重复占用 token。网页时间线按顺序显示双方落子和发言。
+- 人类页面不接受自报身份或房间号。聚合层验证登录与绑定关系后，通过可信请求头注入当前人类、小机及小机名；`GET /api/whoami` 返回该人机对的房间列表，活跃对局优先。裸连 8772 只显示回主站登录的引导。
 - Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
 
 ## 目录
@@ -123,6 +124,17 @@ Content-Type: application/json
 ```
 
 该接口不会推进 revision，也不会唤醒 AI 的 `wait=true` 请求；留言会在 AI 超时返回、被落子唤醒或下次调用时送达。
+
+人类身份与房间列表由主站代理提供：
+
+```http
+GET /api/whoami
+X-Duel-Human-Player: <trusted human id>
+X-Duel-Ai-Player: <trusted ai id>
+X-Duel-Ai-Name: <percent-encoded machine name>
+```
+
+上述头只应由 loopback 聚合代理注入。网页不会展示或允许填写这些内部 ID。
 
 ## 自测
 

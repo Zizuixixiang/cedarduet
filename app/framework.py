@@ -156,6 +156,40 @@ def list_timeline(room_id: str, limit: int = 200) -> list[dict]:
         conn.close()
 
 
+def list_pair_rooms(human_player_id: str, ai_player_id: str) -> list[dict]:
+    """Return compact rooms for one trusted human/AI pair, active first."""
+    human_player_id = _player_id(human_player_id)
+    ai_player_id = _player_id(ai_player_id)
+    with write_transaction() as conn:
+        _archive_stale_rooms(conn)
+        rows = conn.execute(
+            """
+            SELECT room_id, game_type, mode, turn, revision, status, winner,
+                   created_at, updated_at, last_move_at
+            FROM rooms
+            WHERE human_player_id = ? AND ai_player_id = ?
+            ORDER BY
+                CASE status
+                    WHEN 'playing' THEN 0
+                    WHEN 'waiting' THEN 1
+                    WHEN 'finished' THEN 2
+                    ELSE 3
+                END,
+                updated_at DESC,
+                created_at DESC
+            LIMIT 100
+            """,
+            (human_player_id, ai_player_id),
+        ).fetchall()
+    return [
+        {
+            **dict(row),
+            "game_name": get_game(row["game_type"]).display_name,
+        }
+        for row in rows
+    ]
+
+
 def post_message(
     room_id: str,
     role: Role,

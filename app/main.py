@@ -2,6 +2,7 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,6 +14,7 @@ from .framework import (
     create_room,
     get_room,
     join_room,
+    list_pair_rooms,
     list_timeline,
     play_move,
     post_message,
@@ -84,7 +86,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.3.0",
+    version="0.4.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -181,7 +183,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.3.0"}
+    return {"ok": True, "service": "duel", "version": "0.4.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -197,6 +199,27 @@ async def styles():
 @app.get("/static/app.js", include_in_schema=False)
 async def javascript():
     return Response(APP_JS, media_type="text/javascript")
+
+
+@app.get("/api/whoami")
+async def human_whoami(request: Request):
+    human_player_id = request.headers.get("X-Duel-Human-Player")
+    ai_player_id = request.headers.get("X-Duel-Ai-Player")
+    if not human_player_id or not ai_player_id:
+        return {
+            "ok": True,
+            "bound": False,
+            "message": "请从 toy.cedarstar.org 首页登录进入",
+            "rooms": [],
+        }
+    ai_name = unquote(request.headers.get("X-Duel-Ai-Name", "")).strip() or "你的小机"
+    return {
+        "ok": True,
+        "bound": True,
+        "ai_name": ai_name,
+        "pair_label": f"你 × {ai_name}",
+        "rooms": list_pair_rooms(human_player_id, ai_player_id),
+    }
 
 
 @app.post("/api/rooms")
