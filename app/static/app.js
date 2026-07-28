@@ -7,6 +7,9 @@ function playerId() {
 }
 
 async function request(path, options = {}) {
+  if (window.location.pathname.startsWith("/duel") && path.startsWith("/api/")) {
+    path = `/duel${path}`;
+  }
   const response = await fetch(path, {
     headers: {"Content-Type": "application/json"},
     ...options,
@@ -28,7 +31,12 @@ function render(nextRoom, message = "") {
   $("gamePanel").classList.remove("hidden");
   $("rulesButton").disabled = false;
   $("roomId").textContent = room.room_id;
-  const statusText = {waiting: "等待加入", playing: "对局中", finished: "已结束"}[room.status];
+  const statusText = {
+    waiting: "等待加入",
+    playing: "对局中",
+    finished: "已结束",
+    archived: "已归档",
+  }[room.status];
   const winnerText = room.winner === "draw" ? "和棋" : `${room.winner} 胜`;
   $("status").textContent = room.winner ? `${statusText} · ${winnerText}` : statusText;
   $("turn").textContent = room.turn === "human" ? "人类" : "AI";
@@ -37,7 +45,7 @@ function render(nextRoom, message = "") {
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
   $("moveFormat").textContent = room.move_format;
-  $("resignButton").disabled = room.status === "finished";
+  $("resignButton").disabled = ["finished", "archived"].includes(room.status);
 
   const board = $("board");
   board.replaceChildren();
@@ -90,7 +98,7 @@ async function refresh() {
       `/api/rooms/${room.room_id}?player_id=${encodeURIComponent(playerId())}`
     );
     render(data.room);
-    if (room.status === "finished") stopPolling();
+    if (["finished", "archived"].includes(room.status)) stopPolling();
   } catch (error) { setMessage(error.message, true); }
 }
 

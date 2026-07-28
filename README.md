@@ -21,8 +21,11 @@ AI /mcp/play ──────┘       │
 
 - 一房一局。核心字段包括 `game_type`、`mode`、`board_state`、`turn`、`revision`、`status`、`winner`、`created_at`，另存双方 `player_id`。
 - 所有写操作先执行 `BEGIN IMMEDIATE`，再读取并校验旧状态，最后在同一事务内更新。
+- 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间；`new/join` 在写事务内检查容量。
 - AI 的 `move` 支持 `wait=false` 和 `wait=true`。后者落子提交后才等待，不持有数据库连接、事务或锁；人类落子会触发 `asyncio.Event`。唤醒后重新读取 SQLite 并检查 revision。
 - 单次等待最多 50 秒，超时返回顶层 `status: "still_waiting"`，调用方可稍后用 `state` 查看，或在下一次落子后再次等待。
+- 全局最多同时挂起 20 个等待；容量已满时落子仍成功，但按 `wait=false` 立即返回并附 `wait_downgraded: true`。
+- 活跃房间连续 7 天没有落子，会在下一次被读取或写入时惰性判和并改为 `archived`；无需后台定时器。
 - `rules_text` 与 `move_format` 由棋种插件提供，AI 和网页使用同一份内容。
 - Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
 
@@ -39,6 +42,7 @@ app/
 tests/
   play_tictactoe.py   完整 HTTP 对局及 wait=true 并发唤醒演示
   test_games.py       两个棋种的规则单测
+  test_capacity.py    房间容量、等待降级、惰性归档与 schema 迁移
 ```
 
 ## 本地启动
@@ -55,7 +59,7 @@ python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 
 打开 <http://127.0.0.1:8772/>。默认数据库为 `data/duel.db`，也可用 `DUEL_DB_PATH` 指定。
 
-本次建立项目时，`/proc/net/tcp` 与 `/proc/net/tcp6` 显示 8772 未监听，因此示例选择 8772。部署时如已被占用，应依次改用 8773、8774，并同步修改 supervisor 示例或启动命令。`duel.supervisord.conf.example` 只是配置样例，未安装也未启用。
+本项目选择 8772；部署时如已被占用，应依次改用 8773、8774，并同步修改 supervisor 示例或启动命令。当前 CedarToy 部署使用本目录 `.venv`，配置安装在 `/etc/supervisor/conf.d/cedartoy-duel.conf`，program 名为 `cedartoy-duel`。仓库内的 `duel.supervisord.conf.example` 是对应的可审查副本。
 
 ## AI HTTP 接口
 
@@ -103,7 +107,7 @@ AI 落子并等待人类回应：
 
 ```bash
 cd /opt/cedartoy/vendor/duel
-python3 -m unittest -v tests.test_games
+python3 -m unittest -v tests.test_games tests.test_capacity
 python3 tests/play_tictactoe.py
 ```
 
@@ -112,4 +116,3 @@ python3 tests/play_tictactoe.py
 ## License
 
 [PolyForm Noncommercial License 1.0.0](LICENSE)。允许非商业用途；商业使用不在本许可授权范围内。
-

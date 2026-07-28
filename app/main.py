@@ -29,13 +29,17 @@ INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 STYLES_CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 MAX_WAIT_SECONDS = 50.0
+MAX_CONCURRENT_WAITS = 20
 
 
 class RevisionEvents:
     """Single-process revision notification hub; SQLite remains the source of truth."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_waiters: int = MAX_CONCURRENT_WAITS) -> None:
         self._events: dict[str, asyncio.Event] = {}
+        self._max_waiters = max_waiters
+        self._waiting_count = 0
+        self._counter_lock = asyncio.Lock()
 
     def current(self, room_id: str) -> asyncio.Event:
         event = self._events.get(room_id)
@@ -49,6 +53,21 @@ class RevisionEvents:
         if event is not None:
             event.set()
 
+    async def try_acquire_wait_slot(self) -> bool:
+        async with self._counter_lock:
+            if self._waiting_count >= self._max_waiters:
+                return False
+            self._waiting_count += 1
+            return True
+
+    async def release_wait_slot(self) -> None:
+        async with self._counter_lock:
+            self._waiting_count = max(0, self._waiting_count - 1)
+
+    @property
+    def waiting_count(self) -> int:
+        return self._waiting_count
+
 
 revision_events = RevisionEvents()
 
@@ -61,7 +80,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.1.0",
+    version="0.2.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -126,7 +145,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.1.0"}
+    return {"ok": True, "service": "duel", "version": "0.2.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -146,13 +165,26 @@ async def javascript():
 
 @app.post("/api/rooms")
 async def human_create(body: CreateRoomBody):
-    room = create_room(body.game_type, body.mode, "human", body.player_id)
-    return response(room, f"房间 {room['room_id']} 已创建，等待 AI 加入。")
+    room = create_room(
+        body.game_type,
+        body.mode,
+        "human",
+        body.player_id,
+        opponent_id=body.opponent_id,
+    )
+    message = (
+        f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。"
+        if room["status"] == "playing"
+        else f"房间 {room['room_id']} 已创建，等待 AI 加入。"
+    )
+    return response(room, message)
 
 
 @app.post("/api/rooms/{room_id}/join")
 async def human_join(room_id: str, body: JoinRoomBody):
-    room = join_room(room_id, "human", body.player_id)
+    room = join_room(
+        room_id, "human", body.player_id, opponent_id=body.opponent_id
+    )
     revision_events.notify(room["room_id"])
     message = "已加入房间。" if room["status"] == "playing" else "已占据人类席位，等待 AI。"
     return response(room, message)
@@ -162,15 +194,22 @@ async def human_join(room_id: str, body: JoinRoomBody):
 async def human_state(
     room_id: str,
     player_id: str = Query(min_length=1, max_length=80),
+    opponent_id: str | None = Query(default=None, min_length=1, max_length=80),
 ):
-    room = get_room(room_id, "human", player_id)
+    room = get_room(
+        room_id, "human", player_id, opponent_id=opponent_id
+    )
     return response(room, "已读取最新局面。")
 
 
 @app.post("/api/rooms/{room_id}/move")
 async def human_move(room_id: str, body: MoveBody):
     room = play_move(
-        room_id, "human", body.player_id, {"row": body.row, "col": body.col}
+        room_id,
+        "human",
+        body.player_id,
+        {"row": body.row, "col": body.col},
+        opponent_id=body.opponent_id,
     )
     revision_events.notify(room["room_id"])
     return response(room, "人类落子成功，已通知等待中的 AI。")
@@ -178,7 +217,9 @@ async def human_move(room_id: str, body: MoveBody):
 
 @app.post("/api/rooms/{room_id}/resign")
 async def human_resign(room_id: str, body: ResignBody):
-    room = resign(room_id, "human", body.player_id)
+    room = resign(
+        room_id, "human", body.player_id, opponent_id=body.opponent_id
+    )
     revision_events.notify(room["room_id"])
     return response(room, "人类已认输。")
 
@@ -192,11 +233,21 @@ async def mcp_play(body: McpPlayBody):
             body.mode or "human_first",
             "ai",
             body.player_id,
+            opponent_id=body.opponent_id,
         )
+        if room["status"] == "playing":
+            message = (
+                f"已为绑定人类创建房间 {room['room_id']}，当前轮到 {room['turn']}；"
+                f"落子格式：{room['move_format']}"
+            )
+        else:
+            message = (
+                f"已创建房间 {room['room_id']}。请把房间号交给人类加入；"
+                f"落子时按此格式调用：{room['move_format']}"
+            )
         return response(
             room,
-            f"已创建房间 {room['room_id']}。请把房间号交给人类加入；"
-            f"落子时按此格式调用：{room['move_format']}",
+            message,
         )
 
     room_id = require(body.room_id, f"{body.action} 动作需要 room_id")
@@ -231,8 +282,19 @@ async def mcp_play(body: McpPlayBody):
             else "AI 落子成功，对局已经结束。",
         )
 
+    if not await revision_events.try_acquire_wait_slot():
+        downgraded = response(
+            room,
+            "AI 落子成功；当前已有 20 个挂起等待，请求已按 wait=false 立即返回。",
+        )
+        downgraded["wait_downgraded"] = True
+        return downgraded
+
     baseline = room["revision"]
-    changed = await wait_for_revision(room["room_id"], body.player_id, baseline)
+    try:
+        changed = await wait_for_revision(room["room_id"], body.player_id, baseline)
+    finally:
+        await revision_events.release_wait_slot()
     if changed is None:
         latest = get_room(room["room_id"], "ai", body.player_id)
         return response(

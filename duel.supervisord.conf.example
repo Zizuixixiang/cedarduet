@@ -1,5 +1,5 @@
 [program:cedartoy-duel]
-command=python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
+command=/opt/cedartoy/vendor/duel/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 directory=/opt/cedartoy/vendor/duel
 environment=DUEL_DB_PATH="/opt/cedartoy/vendor/duel/data/duel.db"
 autostart=true
@@ -11,4 +11,3 @@ stderr_logfile=/var/log/cedartoy-duel.err.log
 stdout_logfile=/var/log/cedartoy-duel.out.log
 user=root
 numprocs=1
-
