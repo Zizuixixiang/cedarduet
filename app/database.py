@@ -29,6 +29,21 @@ CREATE TABLE rooms (
 )
 """
 
+ROOM_MESSAGES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS room_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    sender TEXT NOT NULL CHECK (sender IN ('human', 'ai')),
+    text TEXT NOT NULL DEFAULT '',
+    revision_at_send INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'message'
+        CHECK (event_type IN ('message', 'move', 'resign')),
+    move_label TEXT,
+    read_by_ai INTEGER NOT NULL DEFAULT 0 CHECK (read_by_ai IN (0, 1))
+)
+"""
+
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +83,19 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_rooms_last_move_at
             ON rooms(status, last_move_at)
+            """
+        )
+        conn.execute(ROOM_MESSAGES_SCHEMA)
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_room_messages_timeline
+            ON room_messages(room_id, id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_room_messages_ai_unread
+            ON room_messages(room_id, sender, read_by_ai, id)
             """
         )
     finally:

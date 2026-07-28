@@ -31,8 +31,9 @@ h1 { font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(2.4rem, 7vw,
 }
 .setup { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 28px 0 18px; padding: 18px; }
 label { display: grid; gap: 6px; color: var(--muted); font-size: .8rem; }
-input, select, button { min-height: 42px; border-radius: 10px; border: 1px solid var(--line); font: inherit; }
-input, select { background: white; color: var(--ink); padding: 0 12px; }
+input, select, textarea, button { min-height: 42px; border-radius: 10px; border: 1px solid var(--line); font: inherit; }
+input, select, textarea { background: white; color: var(--ink); padding: 10px 12px; }
+textarea { resize: vertical; }
 button { border-color: var(--accent); background: var(--accent); color: white; cursor: pointer; padding: 0 18px; font-weight: 700; }
 button:hover { background: var(--accent-dark); }
 button:disabled { cursor: not-allowed; opacity: .45; }
@@ -45,10 +46,33 @@ button.danger { background: transparent; color: var(--danger); border-color: var
 .game-meta div { display: grid; gap: 4px; }
 .game-meta span { color: var(--muted); font-size: .72rem; text-transform: uppercase; }
 .game-meta strong { font-variant-numeric: tabular-nums; }
-.board { --size: 3; display: grid; grid-template-columns: repeat(var(--size), 1fr); width: min(78vw, 560px); aspect-ratio: 1; margin: 24px auto; border: 2px solid var(--ink); background: var(--ink); gap: 1px; }
+.play-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 22px; align-items: start; }
+.board-column { min-width: 0; }
+.board { --cols: 3; display: grid; grid-template-columns: repeat(var(--cols), 1fr); width: min(72vw, 560px); aspect-ratio: var(--board-ratio, 1); margin: 24px auto; border: 2px solid var(--ink); background: var(--ink); gap: 1px; }
 .cell { border: 0; border-radius: 0; padding: 0; min-height: 0; background: var(--card); color: var(--ink); font-size: clamp(1rem, 5vw, 3rem); }
 .board.large .cell { font-size: clamp(.5rem, 2vw, 1.15rem); }
 .cell:hover { background: #e2ede3; }
+.cell.selected { outline: 3px solid var(--accent); outline-offset: -3px; }
+.cell.water { background: #dcecf0; }
+.cell.trap { background: #efe2c5; }
+.cell.den { background: #d7c9a8; }
+.board.connect4 { border-radius: 12px; padding: 8px; background: #315f83; border-color: #315f83; }
+.board.connect4 .cell { border-radius: 50%; background: #edf2e8; }
+.board.dots { --cols: 9; aspect-ratio: 1; border: 0; background: transparent; gap: 0; }
+.dot { place-self: center; width: 11px; height: 11px; border-radius: 50%; background: var(--ink); z-index: 2; }
+.edge { min-height: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; }
+.edge.horizontal { height: 8px; align-self: center; }
+.edge.vertical { width: 8px; justify-self: center; }
+.edge.drawn { background: var(--accent); }
+.box { display: grid; place-items: center; color: var(--accent); font-weight: 800; background: rgba(32, 99, 70, .05); }
+.chat-compose { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin: 18px 0; }
+.chat-compose label { width: 100%; }
+.timeline-panel { border-left: 1px solid var(--line); padding-left: 20px; max-height: 660px; overflow: auto; }
+.timeline-panel h2 { margin: 24px 0 12px; font-size: 1rem; }
+.timeline-panel ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.timeline-panel li { padding: 10px; border-radius: 10px; background: var(--paper); font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+.timeline-panel li.ai { border-left: 3px solid var(--accent); }
+.timeline-panel li.human { border-left: 3px solid #bb7457; }
 .actions { display: flex; justify-content: center; gap: 10px; }
 dialog { max-width: 540px; border: 1px solid var(--line); border-radius: 16px; padding: 24px; color: var(--ink); }
 dialog::backdrop { background: rgba(20, 28, 23, .5); }
@@ -57,5 +81,7 @@ dialog::backdrop { background: rgba(20, 28, 23, .5); }
   main { padding-top: 24px; }
   header { align-items: start; flex-direction: column; }
   .game-meta { grid-template-columns: repeat(2, 1fr); }
+  .play-layout { grid-template-columns: 1fr; }
+  .timeline-panel { border-left: 0; border-top: 1px solid var(--line); padding: 0; }
+  .chat-compose { grid-template-columns: 1fr; }
 }
-

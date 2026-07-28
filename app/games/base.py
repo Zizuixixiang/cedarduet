@@ -1,5 +1,15 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass
+class MoveResult:
+    """Optional metadata returned by plugins after a legal move."""
+
+    state: dict[str, Any]
+    retain_turn: bool = False
+    note: str = ""
 
 
 class GamePlugin(ABC):
@@ -31,6 +41,15 @@ class GamePlugin(ABC):
         """Return X, O, draw, or None."""
         raise NotImplementedError
 
+    def format_move(
+        self, state: dict[str, Any], move: dict[str, Any], mark: str
+    ) -> str:
+        row = move.get("row")
+        col = move.get("col")
+        if isinstance(row, int) and isinstance(col, int) and 0 <= col < 26:
+            return f"{chr(ord('A') + col)}{row + 1}"
+        return str(move)
+
 
 def move_coordinates(move: dict[str, Any], size: int) -> tuple[int, int]:
     row = move.get("row")
@@ -45,4 +64,3 @@ def move_coordinates(move: dict[str, Any], size: int) -> tuple[int, int]:
     if not (0 <= row < size and 0 <= col < size):
         raise ValueError(f"坐标越界：row 和 col 必须在 0 到 {size - 1} 之间")
     return row, col
-

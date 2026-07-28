@@ -4,8 +4,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from .database import decode_room, write_transaction
+from .database import connect, decode_room, write_transaction
 from .games import get_game
+from .games.base import MoveResult
 
 Role = Literal["human", "ai"]
 ROOM_ID_RE = re.compile(r"^[A-Z0-9]{8}$")
@@ -13,6 +14,7 @@ PLAYER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$")
 PAIR_ACTIVE_ROOM_LIMIT = 3
 GLOBAL_ACTIVE_ROOM_LIMIT = 500
 STALE_ROOM_DAYS = 7
+MAX_MESSAGE_LENGTH = 500
 
 
 class DuelError(Exception):
@@ -56,7 +58,169 @@ def _decorate(room: dict) -> dict:
     result["rules_text"] = game.rules_text
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
+    result["action_note"] = room["board_state"].get("last_action_note", "")
     return result
+
+
+def _message_text(value: str | None, *, required: bool = False) -> str:
+    text = (value or "").strip()
+    if required and not text:
+        raise DuelError("留言内容不能为空")
+    if len(text) > MAX_MESSAGE_LENGTH:
+        raise DuelError(f"message 最长 {MAX_MESSAGE_LENGTH} 字")
+    return text
+
+
+def _record_event(
+    conn,
+    room_id: str,
+    sender: Role,
+    revision: int,
+    *,
+    event_type: str,
+    text: str = "",
+    move_label: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO room_messages (
+            room_id, sender, text, revision_at_send, created_at,
+            event_type, move_label, read_by_ai
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            room_id,
+            sender,
+            text,
+            revision,
+            _now(),
+            event_type,
+            move_label,
+            0 if sender == "human" and text else 1,
+        ),
+    )
+
+
+def _timeline_entry(row, room: dict) -> dict:
+    sender = row["sender"]
+    sender_name = room.get(f"{sender}_player_id") or (
+        "人类" if sender == "human" else "AI"
+    )
+    if row["event_type"] == "move":
+        display_text = f"{sender_name} 落 {row['move_label']}"
+        if row["text"]:
+            display_text += f"：{row['text']}"
+    elif row["event_type"] == "resign":
+        display_text = f"{sender_name} 认输"
+        if row["text"]:
+            display_text += f"：{row['text']}"
+    else:
+        display_text = f"{sender_name}：{row['text']}"
+    return {
+        "id": row["id"],
+        "sender": sender,
+        "sender_name": sender_name,
+        "text": row["text"],
+        "event_type": row["event_type"],
+        "move_label": row["move_label"],
+        "display_text": display_text,
+        "revision_at_send": row["revision_at_send"],
+        "created_at": row["created_at"],
+    }
+
+
+def list_timeline(room_id: str, limit: int = 200) -> list[dict]:
+    room_id = _room_id(room_id)
+    conn = connect()
+    try:
+        room_row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if room_row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(room_row)
+        rows = conn.execute(
+            """
+            SELECT * FROM (
+                SELECT * FROM room_messages
+                WHERE room_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+            )
+            ORDER BY id
+            """,
+            (room_id, limit),
+        ).fetchall()
+        return [_timeline_entry(row, room) for row in rows]
+    finally:
+        conn.close()
+
+
+def post_message(
+    room_id: str,
+    role: Role,
+    player_id: str,
+    text: str,
+    opponent_id: str | None = None,
+) -> dict:
+    """Store speech without changing room revision or waking move waiters."""
+    room_id = _room_id(room_id)
+    player_id = _player_id(player_id)
+    text = _message_text(text, required=True)
+    with write_transaction() as conn:
+        _archive_stale_rooms(conn, room_id)
+        row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(row)
+        _assert_player(room, role, player_id)
+        _assert_opponent(room, role, opponent_id)
+        if room["status"] not in {"waiting", "playing"}:
+            raise DuelError("对局已经结束，不能继续留言", 409)
+        _record_event(
+            conn, room_id, role, room["revision"],
+            event_type="message", text=text,
+        )
+    return _decorate(room)
+
+
+def read_new_human_messages(room_id: str, ai_player_id: str) -> list[dict]:
+    """Atomically consume human speech for the room's bound AI."""
+    room_id = _room_id(room_id)
+    ai_player_id = _player_id(ai_player_id)
+    with write_transaction() as conn:
+        room_row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if room_row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(room_row)
+        _assert_player(room, "ai", ai_player_id)
+        rows = conn.execute(
+            """
+            SELECT id, text, revision_at_send, created_at
+            FROM room_messages
+            WHERE room_id = ? AND sender = 'human'
+              AND text <> '' AND read_by_ai = 0
+            ORDER BY id
+            """,
+            (room_id,),
+        ).fetchall()
+        if rows:
+            conn.executemany(
+                "UPDATE room_messages SET read_by_ai = 1 WHERE id = ?",
+                [(row["id"],) for row in rows],
+            )
+    return [
+        {
+            "text": row["text"],
+            "revision_at_send": row["revision_at_send"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
 
 
 def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
@@ -180,10 +344,12 @@ def join_room(
     role: Role,
     player_id: str,
     opponent_id: str | None = None,
+    message: str | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
     opponent_id = _player_id(opponent_id) if opponent_id is not None else None
+    message = _message_text(message)
     column = "human_player_id" if role == "human" else "ai_player_id"
     other = "ai_player_id" if role == "human" else "human_player_id"
     with write_transaction() as conn:
@@ -197,7 +363,13 @@ def join_room(
             raise DuelError("房间不属于当前绑定的人机对", 403)
         if row["status"] != "waiting":
             if row[column] == player_id:
-                return _decorate(decode_room(row))
+                if message:
+                    _record_event(
+                        conn, room_id, role, row["revision"],
+                        event_type="message", text=message,
+                    )
+                result = decode_room(row)
+                return _decorate(result)
             raise DuelError("房间已经开始或结束，不能加入", 409)
         if row[column] is not None and row[column] != player_id:
             raise DuelError("该席位已被占用", 409)
@@ -219,6 +391,11 @@ def join_room(
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
+        if message:
+            _record_event(
+                conn, room_id, role, updated["revision"],
+                event_type="message", text=message,
+            )
     return _decorate(decode_room(updated))
 
 
@@ -266,9 +443,11 @@ def play_move(
     player_id: str,
     move: dict,
     opponent_id: str | None = None,
+    message: str | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
+    message = _message_text(message)
     with write_transaction() as conn:
         _archive_stale_rooms(conn, room_id)
         row = conn.execute(
@@ -286,12 +465,24 @@ def play_move(
         game = get_game(room["game_type"])
         mark = room["board_state"]["marks"][role]
         try:
+            move_label = game.format_move(room["board_state"], move, mark)
             game.validate_move(room["board_state"], move, mark)
-            state = game.apply_move(room["board_state"], move, mark)
+            applied = game.apply_move(room["board_state"], move, mark)
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"无效落子：{exc}") from exc
+        if isinstance(applied, MoveResult):
+            state = applied.state
+            retain_turn = applied.retain_turn
+            action_note = applied.note
+        else:
+            state = applied
+            retain_turn = False
+            action_note = ""
+        state["last_action_note"] = action_note
         outcome = game.check_winner(state)
-        next_turn: Role = "ai" if role == "human" else "human"
+        next_turn: Role = (
+            role if retain_turn else ("ai" if role == "human" else "human")
+        )
         status = "finished" if outcome is not None else "playing"
         winner = None
         if outcome == "draw":
@@ -320,6 +511,15 @@ def play_move(
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
+        _record_event(
+            conn,
+            room_id,
+            role,
+            updated["revision"],
+            event_type="move",
+            text=message,
+            move_label=move_label,
+        )
     return _decorate(decode_room(updated))
 
 
@@ -328,9 +528,11 @@ def resign(
     role: Role,
     player_id: str,
     opponent_id: str | None = None,
+    message: str | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
+    message = _message_text(message)
     with write_transaction() as conn:
         _archive_stale_rooms(conn, room_id)
         row = conn.execute(
@@ -356,4 +558,12 @@ def resign(
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
+        _record_event(
+            conn,
+            room_id,
+            role,
+            updated["revision"],
+            event_type="resign",
+            text=message,
+        )
     return _decorate(decode_room(updated))

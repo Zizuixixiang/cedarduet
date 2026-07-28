@@ -1,9 +1,17 @@
+from .connect4 import Connect4
+from .dots_boxes import DotsBoxes
 from .gomoku import Gomoku
+from .jungle import Jungle
+from .othello import Othello
 from .tictactoe import TicTacToe
 
 GAMES = {
     TicTacToe.game_type: TicTacToe(),
     Gomoku.game_type: Gomoku(),
+    Othello.game_type: Othello(),
+    Connect4.game_type: Connect4(),
+    DotsBoxes.game_type: DotsBoxes(),
+    Jungle.game_type: Jungle(),
 }
 
 
@@ -13,4 +21,3 @@ def get_game(game_type: str):
     except KeyError as exc:
         choices = "、".join(sorted(GAMES))
         raise ValueError(f"不支持的棋种：{game_type}；可选：{choices}") from exc
-

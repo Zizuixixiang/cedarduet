@@ -23,6 +23,10 @@
         <select id="gameType">
           <option value="tictactoe">3×3 井字棋</option>
           <option value="gomoku">15×15 五子棋</option>
+          <option value="othello">8×8 黑白棋</option>
+          <option value="connect4">7×6 四子连珠</option>
+          <option value="dots_boxes">5×5 点格棋</option>
+          <option value="jungle">7×9 斗兽棋</option>
         </select>
       </label>
       <label>先手
@@ -46,10 +50,24 @@
         <div><span>版本</span><strong id="revision">0</strong></div>
       </div>
       <p id="message" class="message"></p>
-      <div id="board" class="board" aria-label="棋盘"></div>
-      <div class="actions">
-        <button id="refreshButton" class="secondary">刷新</button>
-        <button id="resignButton" class="danger">认输</button>
+      <div class="play-layout">
+        <div class="board-column">
+          <div id="board" class="board" aria-label="棋盘"></div>
+          <div class="chat-compose">
+            <label>给 AI 留言
+              <textarea id="chatInput" maxlength="500" rows="3" placeholder="点击棋盘时随落子发送，或单独留言"></textarea>
+            </label>
+            <button id="sendMessageButton" class="secondary">只留言</button>
+          </div>
+          <div class="actions">
+            <button id="refreshButton" class="secondary">刷新</button>
+            <button id="resignButton" class="danger">认输</button>
+          </div>
+        </div>
+        <aside class="timeline-panel">
+          <h2>对局时间线</h2>
+          <ol id="timeline" aria-live="polite"></ol>
+        </aside>
       </div>
     </section>
   </main>

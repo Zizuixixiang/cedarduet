@@ -13,13 +13,17 @@ from .framework import (
     create_room,
     get_room,
     join_room,
+    list_timeline,
     play_move,
+    post_message,
+    read_new_human_messages,
     resign,
 )
 from .models import (
     CreateRoomBody,
     JoinRoomBody,
     McpPlayBody,
+    MessageBody,
     MoveBody,
     ResignBody,
 )
@@ -80,7 +84,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.2.0",
+    version="0.3.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -114,8 +118,40 @@ async def validation_error_handler(_request: Request, exc: RequestValidationErro
     )
 
 
-def response(room: dict, message: str, status: str = "ok") -> dict:
-    return {"ok": True, "status": status, "message": message, "room": room}
+def response(
+    room: dict,
+    message: str,
+    status: str = "ok",
+    *,
+    timeline: bool = False,
+    new_messages: list[dict] | None = None,
+) -> dict:
+    payload = {"ok": True, "status": status, "message": message, "room": room}
+    if timeline:
+        payload["timeline"] = list_timeline(room["room_id"])
+    if new_messages is not None:
+        payload["new_messages"] = new_messages
+    return payload
+
+
+def human_response(room: dict, message: str, status: str = "ok") -> dict:
+    return response(room, message, status, timeline=True)
+
+
+def ai_response(
+    room: dict, message: str, player_id: str, status: str = "ok"
+) -> dict:
+    return response(
+        room,
+        message,
+        status,
+        new_messages=read_new_human_messages(room["room_id"], player_id),
+    )
+
+
+def with_action_note(message: str, room: dict) -> str:
+    note = room.get("action_note")
+    return f"{message} {note}".strip() if note else message
 
 
 def require(value, message: str):
@@ -145,7 +181,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.2.0"}
+    return {"ok": True, "service": "duel", "version": "0.3.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -177,17 +213,21 @@ async def human_create(body: CreateRoomBody):
         if room["status"] == "playing"
         else f"房间 {room['room_id']} 已创建，等待 AI 加入。"
     )
-    return response(room, message)
+    return human_response(room, message)
 
 
 @app.post("/api/rooms/{room_id}/join")
 async def human_join(room_id: str, body: JoinRoomBody):
     room = join_room(
-        room_id, "human", body.player_id, opponent_id=body.opponent_id
+        room_id,
+        "human",
+        body.player_id,
+        opponent_id=body.opponent_id,
+        message=body.message,
     )
     revision_events.notify(room["room_id"])
     message = "已加入房间。" if room["status"] == "playing" else "已占据人类席位，等待 AI。"
-    return response(room, message)
+    return human_response(room, message)
 
 
 @app.get("/api/rooms/{room_id}")
@@ -199,29 +239,65 @@ async def human_state(
     room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
-    return response(room, "已读取最新局面。")
+    return human_response(room, "已读取最新局面。")
 
 
 @app.post("/api/rooms/{room_id}/move")
 async def human_move(room_id: str, body: MoveBody):
+    move = body.move
+    if move is None:
+        move = {
+            key: value
+            for key, value in {
+                "row": body.row,
+                "col": body.col,
+                "orientation": body.orientation,
+                "from_row": body.from_row,
+                "from_col": body.from_col,
+                "to_row": body.to_row,
+                "to_col": body.to_col,
+            }.items()
+            if value is not None
+        }
+    require(move, "move 动作需要 move 对象或对应坐标字段")
     room = play_move(
         room_id,
         "human",
         body.player_id,
-        {"row": body.row, "col": body.col},
+        move,
         opponent_id=body.opponent_id,
+        message=body.message,
     )
     revision_events.notify(room["room_id"])
-    return response(room, "人类落子成功，已通知等待中的 AI。")
+    return human_response(
+        room, with_action_note("人类落子成功，已通知等待中的 AI。", room)
+    )
+
+
+@app.post("/api/rooms/{room_id}/messages")
+async def human_message(room_id: str, body: MessageBody):
+    room = post_message(
+        room_id,
+        "human",
+        body.player_id,
+        body.message,
+        opponent_id=body.opponent_id,
+    )
+    # 独立留言只暂存，不能把它伪装成一次人类落子来唤醒 AI。
+    return human_response(room, "留言已暂存，将随 AI 下一次返回送达。")
 
 
 @app.post("/api/rooms/{room_id}/resign")
 async def human_resign(room_id: str, body: ResignBody):
     room = resign(
-        room_id, "human", body.player_id, opponent_id=body.opponent_id
+        room_id,
+        "human",
+        body.player_id,
+        opponent_id=body.opponent_id,
+        message=body.message,
     )
     revision_events.notify(room["room_id"])
-    return response(room, "人类已认输。")
+    return human_response(room, "人类已认输。")
 
 
 @app.post("/mcp/play")
@@ -245,47 +321,71 @@ async def mcp_play(body: McpPlayBody):
                 f"已创建房间 {room['room_id']}。请把房间号交给人类加入；"
                 f"落子时按此格式调用：{room['move_format']}"
             )
-        return response(
+        return ai_response(
             room,
             message,
+            body.player_id,
         )
 
     room_id = require(body.room_id, f"{body.action} 动作需要 room_id")
 
     if body.action == "join":
-        room = join_room(room_id, "ai", body.player_id)
+        room = join_room(
+            room_id, "ai", body.player_id, message=body.message
+        )
         revision_events.notify(room["room_id"])
         message = (
             f"AI 已加入，当前轮到 {room['turn']}。落子格式：{room['move_format']}"
             if room["status"] == "playing"
             else "AI 席位已就绪，等待人类加入。"
         )
-        return response(room, message)
+        return ai_response(room, message, body.player_id)
 
     if body.action == "state":
+        if body.message:
+            post_message(room_id, "ai", body.player_id, body.message)
         room = get_room(room_id, "ai", body.player_id)
-        return response(room, f"当前 revision={room['revision']}，轮到 {room['turn']}。")
+        return ai_response(
+            room,
+            f"当前 revision={room['revision']}，轮到 {room['turn']}。",
+            body.player_id,
+        )
 
     if body.action == "resign":
-        room = resign(room_id, "ai", body.player_id)
+        room = resign(
+            room_id, "ai", body.player_id, message=body.message
+        )
         revision_events.notify(room["room_id"])
-        return response(room, "AI 已认输，对局结束。")
+        return ai_response(room, "AI 已认输，对局结束。", body.player_id)
 
     move = require(body.move, "move 动作需要 move 对象")
-    room = play_move(room_id, "ai", body.player_id, move)
+    room = play_move(
+        room_id, "ai", body.player_id, move, message=body.message
+    )
     revision_events.notify(room["room_id"])
-    if not body.wait or room["status"] == "finished":
-        return response(
-            room,
+    if (
+        not body.wait
+        or room["status"] == "finished"
+        or room["turn"] == "ai"
+    ):
+        immediate_message = (
             "AI 落子成功；已立即返回当前局面。"
             if room["status"] != "finished"
-            else "AI 落子成功，对局已经结束。",
+            else "AI 落子成功，对局已经结束。"
+        )
+        if room["turn"] == "ai" and room["status"] == "playing":
+            immediate_message = "AI 落子成功且行动权保留，请继续落子。"
+        return ai_response(
+            room,
+            with_action_note(immediate_message, room),
+            body.player_id,
         )
 
     if not await revision_events.try_acquire_wait_slot():
-        downgraded = response(
+        downgraded = ai_response(
             room,
             "AI 落子成功；当前已有 20 个挂起等待，请求已按 wait=false 立即返回。",
+            body.player_id,
         )
         downgraded["wait_downgraded"] = True
         return downgraded
@@ -297,12 +397,17 @@ async def mcp_play(body: McpPlayBody):
         await revision_events.release_wait_slot()
     if changed is None:
         latest = get_room(room["room_id"], "ai", body.player_id)
-        return response(
+        return ai_response(
             latest,
             "等待 50 秒仍未收到对方落子；请使用 state 查看，或在下一次 move 后继续 wait=true。",
+            body.player_id,
             status="still_waiting",
         )
-    return response(
+    return ai_response(
         changed,
-        f"对方已行动，局面从 revision={baseline} 更新到 revision={changed['revision']}。",
+        with_action_note(
+            f"对方已行动，局面从 revision={baseline} 更新到 revision={changed['revision']}。",
+            changed,
+        ),
+        body.player_id,
     )

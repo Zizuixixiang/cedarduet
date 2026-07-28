@@ -2,10 +2,14 @@
 
 Duel 是一个纯单机性质的 human-vs-AI 回合制对弈框架。一局只属于一位人类及其绑定的 AI，不提供大厅、社交关系或陌生人匹配。项目以公益开源、非商业使用为定位，采用 PolyForm Noncommercial 1.0.0 许可。
 
-一期自带两个棋种：
+当前自带六个全明规则棋种：
 
 - `tictactoe`：3×3 井字棋，用作框架冒烟测试。
 - `gomoku`：15×15 五子棋，无禁手，连续五子或更多即胜。
+- `othello`：8×8 黑白棋，支持无合法步自动跳过与终局数子。
+- `connect4`：7×6 四子连珠，按列重力落子。
+- `dots_boxes`：5×5 点阵的点格棋，成格得分并保留行动权。
+- `jungle`：7×9 标准斗兽棋，含河道、跳河、陷阱和兽穴规则。
 
 ## 架构
 
@@ -13,9 +17,9 @@ Duel 是一个纯单机性质的 human-vs-AI 回合制对弈框架。一局只�
 
 ```text
 网页 /api/rooms/* ─┐
-                   ├─ 通用对局框架 ─ 棋种插件（井字棋 / 五子棋）
+                   ├─ 通用对局框架 ─ 六个棋种插件
 AI /mcp/play ──────┘       │
-                           ├─ SQLite rooms（唯一事实源）
+                           ├─ SQLite rooms / room_messages（唯一事实源）
                            └─ asyncio.Event（只做进程内唤醒提示）
 ```
 
@@ -27,6 +31,9 @@ AI /mcp/play ──────┘       │
 - 全局最多同时挂起 20 个等待；容量已满时落子仍成功，但按 `wait=false` 立即返回并附 `wait_downgraded: true`。
 - 活跃房间连续 7 天没有落子，会在下一次被读取或写入时惰性判和并改为 `archived`；无需后台定时器。
 - `rules_text` 与 `move_format` 由棋种插件提供，AI 和网页使用同一份内容。
+- 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
+- AI 的 `join/move/state/resign` 可附带最长 500 字的 `message`；人类可随落子说话或独立留言。独立留言不增加 revision，也不唤醒等待者。
+- AI 的返回包含一次性 `new_messages`：未读人类消息读取后即在 SQLite 标记，避免重复占用 token。网页时间线按顺序显示双方落子和发言。
 - Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
 
 ## 目录
@@ -37,11 +44,13 @@ app/
   database.py         SQLite 初始化及 BEGIN IMMEDIATE 事务
   framework.py        房间、身份、轮次、胜负、认输
   models.py           HTTP 请求模型
-  games/              棋种接口及两个插件
-  static/             人类端网页
+  games/              棋种接口及六个插件
+  static/             人类端网页、棋盘与对局时间线
 tests/
   play_tictactoe.py   完整 HTTP 对局及 wait=true 并发唤醒演示
-  test_games.py       两个棋种的规则单测
+  test_games.py       井字棋和五子棋规则单测
+  test_new_games.py   四个新增棋种与保留行动权单测
+  test_messages.py    消息唤醒、暂存投递与一次性已读单测
   test_capacity.py    房间容量、等待降级、惰性归档与 schema 迁移
 ```
 
@@ -70,7 +79,7 @@ POST /mcp/play
 Content-Type: application/json
 ```
 
-支持 `new`、`join`、`move`、`state`、`resign`。`player_id` 一期由调用方传入，后续聚合层应覆盖并强制注入可信身份。
+支持 `new`、`join`、`move`、`state`、`resign`。直连时由调用方传入 `player_id`；经 CedarToy 聚合层时会覆盖并强制注入可信身份。
 
 AI 创建房间：
 
@@ -97,17 +106,29 @@ AI 落子并等待人类回应：
   "player_id": "ai-42",
   "room_id": "ABCDEFGH",
   "move": {"row": 7, "col": 7},
+  "message": "我先占住中心。",
   "wait": true
 }
 ```
 
-响应均为结构化 JSON，顶层包含 `ok`、`status`、自然语言 `message` 和完整 `room`。房间对象包含规则文本、指令格式与当前棋盘。
+响应均为结构化 JSON，顶层包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。房间对象包含规则文本、指令格式与当前棋盘。`new_messages` 只投递尚未读取的人类发言。
+
+人类独立留言：
+
+```http
+POST /api/rooms/ABCDEFGH/messages
+Content-Type: application/json
+
+{"player_id":"human-42","message":"我还在想这一手。"}
+```
+
+该接口不会推进 revision，也不会唤醒 AI 的 `wait=true` 请求；留言会在 AI 超时返回、被落子唤醒或下次调用时送达。
 
 ## 自测
 
 ```bash
 cd /opt/cedartoy/vendor/duel
-python3 -m unittest -v tests.test_games tests.test_capacity
+python3 -m unittest discover -s tests -v
 python3 tests/play_tictactoe.py
 ```
 
