@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Duel · 人机对弈</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">HUMAN × BOUND AI</p>
+        <h1>Duel 人机对弈</h1>
+        <p class="subtitle">一房一局，纯单机，无匹配与社交关系。</p>
+      </div>
+      <button id="rulesButton" class="secondary" disabled>查看规则</button>
+    </header>
+
+    <section class="setup card">
+      <label>你的 ID<input id="playerId" value="human-demo" maxlength="80"></label>
+      <label>棋种
+        <select id="gameType">
+          <option value="tictactoe">3×3 井字棋</option>
+          <option value="gomoku">15×15 五子棋</option>
+        </select>
+      </label>
+      <label>先手
+        <select id="mode">
+          <option value="human_first">人类先手</option>
+          <option value="ai_first">AI 先手</option>
+        </select>
+      </label>
+      <button id="createButton">创建房间</button>
+      <span class="or">或</span>
+      <label>房间号<input id="joinRoomId" maxlength="8" placeholder="ABCDEFGH"></label>
+      <button id="joinButton" class="secondary">加入房间</button>
+    </section>
+    <p id="notice" class="message" role="status"></p>
+
+    <section id="gamePanel" class="card hidden">
+      <div class="game-meta">
+        <div><span>房间</span><strong id="roomId">—</strong></div>
+        <div><span>状态</span><strong id="status">—</strong></div>
+        <div><span>轮次</span><strong id="turn">—</strong></div>
+        <div><span>版本</span><strong id="revision">0</strong></div>
+      </div>
+      <p id="message" class="message"></p>
+      <div id="board" class="board" aria-label="棋盘"></div>
+      <div class="actions">
+        <button id="refreshButton" class="secondary">刷新</button>
+        <button id="resignButton" class="danger">认输</button>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="rulesDialog">
+    <h2 id="rulesTitle">游戏规则</h2>
+    <p id="rulesText"></p>
+    <p id="moveFormat" class="format"></p>
+    <button id="closeRules">知道了</button>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
