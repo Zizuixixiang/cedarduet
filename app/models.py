@@ -10,6 +10,7 @@ class StrictBody(BaseModel):
 class CreateRoomBody(StrictBody):
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
+    ai_player: str | None = Field(default=None, min_length=1, max_length=80)
     game_type: str = Field(min_length=1, max_length=40)
     mode: Literal["human_first", "ai_first"] = "human_first"
 

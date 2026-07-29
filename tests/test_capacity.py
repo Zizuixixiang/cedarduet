@@ -41,6 +41,31 @@ class CapacityFrameworkTests(unittest.TestCase):
                 opponent_id="human-pair",
             )
 
+    def test_join_can_fill_third_pair_room_but_not_fourth(self):
+        for _ in range(2):
+            framework.create_room(
+                "tictactoe",
+                "human_first",
+                "ai",
+                "ai-join-pair",
+                opponent_id="human-join-pair",
+            )
+        third = framework.create_room(
+            "tictactoe", "human_first", "ai", "ai-join-pair"
+        )
+        joined = framework.join_room(
+            third["room_id"], "human", "human-join-pair"
+        )
+        self.assertEqual(joined["status"], "playing")
+
+        fourth = framework.create_room(
+            "tictactoe", "human_first", "ai", "ai-join-pair"
+        )
+        with self.assertRaisesRegex(framework.DuelError, "已有 3 个活跃房间"):
+            framework.join_room(
+                fourth["room_id"], "human", "human-join-pair"
+            )
+
     def test_global_active_room_limit(self):
         with patch.object(framework, "GLOBAL_ACTIVE_ROOM_LIMIT", 2):
             framework.create_room("tictactoe", "human_first", "ai", "ai-one")
@@ -118,6 +143,23 @@ class CapacityFrameworkTests(unittest.TestCase):
             )
             """
         )
+        conn.execute(
+            """
+            INSERT INTO rooms (
+                room_id, game_type, mode, board_state, turn, revision,
+                status, winner, created_at, updated_at,
+                human_player_id, ai_player_id
+            ) VALUES (
+                'MIGRATE1', 'tictactoe', 'human_first',
+                '{}',
+                'human', 0, 'playing', NULL,
+                '2026-07-01T00:00:00+00:00',
+                '2026-07-01T00:00:00+00:00',
+                'human-old', 'ai-old'
+            )
+            """
+        )
+        conn.commit()
         conn.close()
 
         database.init_db()
@@ -129,9 +171,97 @@ class CapacityFrameworkTests(unittest.TestCase):
         sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'rooms'"
         ).fetchone()[0]
+        participants = conn.execute(
+            """
+            SELECT player_id, role, seat_index
+            FROM room_participants
+            WHERE room_id = 'MIGRATE1'
+            ORDER BY seat_index
+            """
+        ).fetchall()
         conn.close()
         self.assertIn("last_move_at", columns)
         self.assertIn("'archived'", sql)
+        self.assertNotIn("human_player_id", columns)
+        self.assertNotIn("ai_player_id", columns)
+        self.assertEqual(
+            participants,
+            [("human-old", "human", 0), ("ai-old", "ai", 1)],
+        )
+
+    def test_current_schema_migrates_messages_with_participants(self):
+        database.DB_PATH.unlink()
+        conn = sqlite3.connect(database.DB_PATH)
+        conn.executescript(
+            """
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE rooms (
+                room_id TEXT PRIMARY KEY,
+                game_type TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                board_state TEXT NOT NULL,
+                turn TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL CHECK (
+                    status IN ('waiting', 'playing', 'finished', 'archived')
+                ),
+                winner TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_move_at TEXT NOT NULL,
+                human_player_id TEXT,
+                ai_player_id TEXT
+            );
+            CREATE TABLE room_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+                sender TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                revision_at_send INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                event_type TEXT NOT NULL DEFAULT 'message',
+                move_label TEXT,
+                read_by_ai INTEGER NOT NULL DEFAULT 1
+            );
+            INSERT INTO rooms VALUES (
+                'MIGRATE2', 'tictactoe', 'human_first',
+                '{}',
+                'human', 1, 'playing', NULL,
+                '2026-07-02T00:00:00+00:00',
+                '2026-07-02T00:00:00+00:00',
+                '2026-07-02T00:00:00+00:00',
+                'human-two', 'ai-two'
+            );
+            INSERT INTO room_messages (
+                room_id, sender, text, revision_at_send, created_at,
+                event_type, move_label, read_by_ai
+            ) VALUES (
+                'MIGRATE2', 'human', '还在吗', 1,
+                '2026-07-02T00:00:01+00:00', 'message', NULL, 0
+            );
+            """
+        )
+        conn.close()
+
+        database.init_db()
+
+        with sqlite3.connect(database.DB_PATH) as migrated:
+            message = migrated.execute(
+                """
+                SELECT room_id, sender, text, read_by_ai
+                FROM room_messages
+                """
+            ).fetchone()
+            participants = migrated.execute(
+                """
+                SELECT player_id, role FROM room_participants
+                WHERE room_id = 'MIGRATE2' ORDER BY seat_index
+                """
+            ).fetchall()
+        self.assertEqual(message, ("MIGRATE2", "human", "还在吗", 0))
+        self.assertEqual(
+            participants, [("human-two", "human"), ("ai-two", "ai")]
+        )
 
 
 class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):

@@ -68,9 +68,15 @@ function statusLabel(status) {
   }[status] || status;
 }
 
-function turnLabel(turn) {
+function aiNameFor(playerId = room && room.ai_player_id) {
+  if (!identity || !Array.isArray(identity.machines)) return "你的小机";
+  const machine = identity.machines.find((item) => item.id === playerId);
+  return machine ? machine.name : "你的小机";
+}
+
+function turnLabel(turn, aiPlayerId) {
   if (!identity) return turn;
-  return turn === "human" ? "轮到你" : `轮到 ${identity.ai_name}`;
+  return turn === "human" ? "轮到你" : `轮到 ${aiNameFor(aiPlayerId)}`;
 }
 
 function relativeTime(value) {
@@ -106,7 +112,7 @@ function renderRooms(rooms) {
     copy.className = "room-copy";
     const title = document.createElement("span");
     title.className = "room-title";
-    title.textContent = summary.game_name;
+    title.textContent = `${summary.game_name} × ${summary.ai_name}`;
     const meta = document.createElement("span");
     meta.className = "room-meta";
     meta.textContent = `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
@@ -117,7 +123,7 @@ function renderRooms(rooms) {
     const turn = document.createElement("span");
     turn.className = "turn";
     turn.textContent = summary.status === "playing"
-      ? turnLabel(summary.turn)
+      ? turnLabel(summary.turn, summary.ai_player_id)
       : (summary.winner === "draw" ? "和棋" : statusLabel(summary.status));
     const enter = document.createElement("span");
     enter.className = "room-enter";
@@ -128,6 +134,46 @@ function renderRooms(rooms) {
     card.addEventListener("click", () => openRoom(summary.room_id));
     list.appendChild(card);
   });
+}
+
+function syncMachinePicker(machines) {
+  const select = $("aiPlayer");
+  select.replaceChildren();
+  if (!machines.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "尚未绑定小机";
+    select.appendChild(option);
+    select.disabled = true;
+    $("createButton").disabled = true;
+    $("selectedParticipants").textContent = "请先在主站绑定一只小机";
+    return;
+  }
+  if (machines.length > 1) {
+    const prompt = document.createElement("option");
+    prompt.value = "";
+    prompt.textContent = "请选择对手";
+    select.appendChild(prompt);
+  }
+  machines.forEach((machine) => {
+    const option = document.createElement("option");
+    option.value = machine.id;
+    option.textContent = machine.name;
+    select.appendChild(option);
+  });
+  select.disabled = machines.length === 1;
+  if (machines.length === 1) select.value = machines[0].id;
+  $("createButton").disabled = !select.value;
+  renderSelectedParticipants();
+}
+
+function renderSelectedParticipants() {
+  const selected = $("aiPlayer").value;
+  const machine = identity && identity.machines.find((item) => item.id === selected);
+  $("selectedParticipants").textContent = machine
+    ? `本局对手：${machine.name}`
+    : "本局尚未选择对手";
+  $("createButton").disabled = !machine;
 }
 
 async function loadIdentity({quiet = false} = {}) {
@@ -142,8 +188,9 @@ async function loadIdentity({quiet = false} = {}) {
       return;
     }
     identity = data;
-    $("pairLabel").textContent = data.pair_label;
-    $("heroPair").textContent = data.pair_label;
+    $("pairLabel").textContent = data.identity_label;
+    $("heroPair").textContent = data.identity_label;
+    syncMachinePicker(data.machines || []);
     renderRooms(data.rooms);
     if (!room) showView("lobbyView");
     if (!quiet) showNotice("");
@@ -158,11 +205,17 @@ async function loadIdentity({quiet = false} = {}) {
 }
 
 async function createRoom() {
+  const aiPlayer = $("aiPlayer").value;
+  if (!aiPlayer) {
+    showNotice("请先选择一只已绑定小机。", true);
+    return;
+  }
   try {
     $("createButton").disabled = true;
     const data = await request("/api/rooms", {
       method: "POST",
       body: JSON.stringify({
+        ai_player: aiPlayer,
         game_type: $("gameType").value,
         mode: $("mode").value,
       }),
@@ -172,7 +225,7 @@ async function createRoom() {
   } catch (error) {
     showNotice(error.message, true);
   } finally {
-    $("createButton").disabled = false;
+    $("createButton").disabled = !identity || !identity.machines.length;
   }
 }
 
@@ -358,7 +411,7 @@ function renderTimeline(timeline = []) {
   timeline.forEach((event) => {
     const item = document.createElement("li");
     item.className = event.sender;
-    const speaker = event.sender === "human" ? "你" : identity.ai_name;
+    const speaker = event.sender === "human" ? "你" : aiNameFor();
     if (event.event_type === "move") {
       item.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
     } else if (event.event_type === "resign") {
@@ -381,9 +434,9 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("roomId").textContent = room.room_id;
   const winner = room.winner === "draw"
     ? " · 和棋"
-    : (room.winner ? ` · ${room.winner === "human" ? "你" : identity.ai_name} 胜` : "");
+    : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : "");
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
-  $("turn").textContent = turnLabel(room.turn);
+  $("turn").textContent = turnLabel(room.turn, room.ai_player_id);
   $("revision").textContent = room.revision;
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
@@ -477,6 +530,7 @@ function stopPolling() {
 }
 
 $("createButton").addEventListener("click", createRoom);
+$("aiPlayer").addEventListener("change", renderSelectedParticipants);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());

@@ -19,11 +19,11 @@ Duel 是一个纯单机性质的 human-vs-AI 回合制对弈框架。一局只�
 网页 /api/rooms/* ─┐
                    ├─ 通用对局框架 ─ 六个棋种插件
 AI /mcp/play ──────┘       │
-                           ├─ SQLite rooms / room_messages（唯一事实源）
+                           ├─ SQLite rooms / room_participants / room_messages
                            └─ asyncio.Event（只做进程内唤醒提示）
 ```
 
-- 一房一局。核心字段包括 `game_type`、`mode`、`board_state`、`turn`、`revision`、`status`、`winner`、`created_at`，另存双方 `player_id`。
+- 一房一局。`rooms` 保存局面字段，`room_participants` 以席位关系保存 `player_id`、`role`、`seat_index`，不再把双方写死成两列；当前协议仍投影 `human_player_id` / `ai_player_id` 以保持兼容，并为未来多人棋局预留扩展空间。
 - 所有写操作先执行 `BEGIN IMMEDIATE`，再读取并校验旧状态，最后在同一事务内更新。
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间；`new/join` 在写事务内检查容量。
 - AI 的 `move` 支持 `wait=false` 和 `wait=true`。后者落子提交后才等待，不持有数据库连接、事务或锁；人类落子会触发 `asyncio.Event`。唤醒后重新读取 SQLite 并检查 revision。
@@ -34,7 +34,7 @@ AI /mcp/play ──────┘       │
 - 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
 - AI 的 `join/move/state/resign` 可附带最长 500 字的 `message`；人类可随落子说话或独立留言。独立留言不增加 revision，也不唤醒等待者。
 - AI 的返回包含一次性 `new_messages`：未读人类消息读取后即在 SQLite 标记，避免重复占用 token。网页时间线按顺序显示双方落子和发言。
-- 人类页面不接受自报身份或房间号。聚合层验证登录与绑定关系后，通过可信请求头注入当前人类、小机及小机名；`GET /api/whoami` 返回该人机对的房间列表，活跃对局优先。裸连 8772 只显示回主站登录的引导。
+- 人类页面不接受自报身份或房间号。聚合层进门只验证人类登录态，并通过可信请求头注入人类身份与其全部绑定小机清单；`GET /api/whoami` 返回该人类名下的全部房间，活跃对局优先。开房时才选择对手，服务端再按可信绑定清单校验。裸连 8772 只显示回主站登录的引导。
 - Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
 
 ## 目录
@@ -53,6 +53,7 @@ tests/
   test_new_games.py   四个新增棋种与保留行动权单测
   test_messages.py    消息唤醒、暂存投递与一次性已读单测
   test_capacity.py    房间容量、等待降级、惰性归档与 schema 迁移
+  test_identity.py    可信身份、全量房间、选机校验与参与者鉴权
 ```
 
 ## 本地启动
@@ -130,11 +131,11 @@ Content-Type: application/json
 ```http
 GET /api/whoami
 X-Duel-Human-Player: <trusted human id>
-X-Duel-Ai-Player: <trusted ai id>
-X-Duel-Ai-Name: <percent-encoded machine name>
+X-Duel-Human-Name: <percent-encoded human name>
+X-Duel-Bound-Ais: <base64url JSON [{"id":"...","name":"..."}]>
 ```
 
-上述头只应由 loopback 聚合代理注入。网页不会展示或允许填写这些内部 ID。
+上述头只应由 loopback 聚合代理注入。网页不会展示或允许填写这些内部 ID；开房请求只提交所选 `ai_player`，后端会拒绝任何不在可信清单中的小机。
 
 ## 自测
 

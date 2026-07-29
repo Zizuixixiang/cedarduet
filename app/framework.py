@@ -138,7 +138,7 @@ def list_timeline(room_id: str, limit: int = 200) -> list[dict]:
         ).fetchone()
         if room_row is None:
             raise DuelError("房间不存在", 404)
-        room = decode_room(room_row)
+        room = decode_room(room_row, conn)
         rows = conn.execute(
             """
             SELECT * FROM (
@@ -156,38 +156,52 @@ def list_timeline(room_id: str, limit: int = 200) -> list[dict]:
         conn.close()
 
 
-def list_pair_rooms(human_player_id: str, ai_player_id: str) -> list[dict]:
-    """Return compact rooms for one trusted human/AI pair, active first."""
+def list_human_rooms(
+    human_player_id: str, ai_names: dict[str, str] | None = None
+) -> list[dict]:
+    """Return every room owned by a trusted human, active rooms first."""
     human_player_id = _player_id(human_player_id)
-    ai_player_id = _player_id(ai_player_id)
+    ai_names = ai_names or {}
     with write_transaction() as conn:
         _archive_stale_rooms(conn)
         rows = conn.execute(
             """
-            SELECT room_id, game_type, mode, turn, revision, status, winner,
-                   created_at, updated_at, last_move_at
-            FROM rooms
-            WHERE human_player_id = ? AND ai_player_id = ?
+            SELECT r.room_id, r.game_type, r.mode, r.turn, r.revision,
+                   r.status, r.winner, r.created_at, r.updated_at,
+                   r.last_move_at, ai.player_id AS ai_player_id
+            FROM rooms AS r
+            JOIN room_participants AS human
+              ON human.room_id = r.room_id
+             AND human.role = 'human'
+             AND human.player_id = ?
+            LEFT JOIN room_participants AS ai
+              ON ai.room_id = r.room_id AND ai.role = 'ai'
             ORDER BY
-                CASE status
+                CASE r.status
                     WHEN 'playing' THEN 0
                     WHEN 'waiting' THEN 1
                     WHEN 'finished' THEN 2
                     ELSE 3
                 END,
-                updated_at DESC,
-                created_at DESC
+                r.updated_at DESC,
+                r.created_at DESC
             LIMIT 100
             """,
-            (human_player_id, ai_player_id),
+            (human_player_id,),
         ).fetchall()
-    return [
-        {
-            **dict(row),
-            "game_name": get_game(row["game_type"]).display_name,
-        }
-        for row in rows
-    ]
+    result = []
+    for row in rows:
+        item = dict(row)
+        ai_player_id = item.get("ai_player_id")
+        base_ai_id = ai_player_id.split(":", 1)[0] if ai_player_id else None
+        item["ai_name"] = (
+            ai_names.get(ai_player_id or "")
+            or ai_names.get(base_ai_id or "")
+            or "你的小机"
+        )
+        item["game_name"] = get_game(row["game_type"]).display_name
+        result.append(item)
+    return result
 
 
 def post_message(
@@ -208,7 +222,7 @@ def post_message(
         ).fetchone()
         if row is None:
             raise DuelError("房间不存在", 404)
-        room = decode_room(row)
+        room = decode_room(row, conn)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] not in {"waiting", "playing"}:
@@ -230,7 +244,7 @@ def read_new_human_messages(room_id: str, ai_player_id: str) -> list[dict]:
         ).fetchone()
         if room_row is None:
             raise DuelError("房间不存在", 404)
-        room = decode_room(room_row)
+        room = decode_room(room_row, conn)
         _assert_player(room, "ai", ai_player_id)
         rows = conn.execute(
             """
@@ -299,10 +313,17 @@ def _check_pair_capacity(
         return
     active_count = conn.execute(
         """
-        SELECT COUNT(*) FROM rooms
-        WHERE status IN ('waiting', 'playing')
-          AND human_player_id = ?
-          AND ai_player_id = ?
+        SELECT COUNT(DISTINCT rooms.room_id)
+        FROM rooms
+        JOIN room_participants AS human
+          ON human.room_id = rooms.room_id
+         AND human.role = 'human'
+         AND human.player_id = ?
+        JOIN room_participants AS ai
+          ON ai.room_id = rooms.room_id
+         AND ai.role = 'ai'
+         AND ai.player_id = ?
+        WHERE rooms.status IN ('waiting', 'playing')
         """,
         (human_player_id, ai_player_id),
     ).fetchone()[0]
@@ -349,9 +370,8 @@ def create_room(
             """
             INSERT INTO rooms (
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, created_at, updated_at, last_move_at,
-                human_player_id, ai_player_id
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, ?, ?, ?)
+                status, winner, created_at, updated_at, last_move_at
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, ?)
             """,
             (
                 room_id,
@@ -363,14 +383,31 @@ def create_room(
                 timestamp,
                 timestamp,
                 timestamp,
-                human_player_id,
-                ai_player_id,
             ),
         )
+        for seat_index, (participant_role, participant_id) in enumerate(
+            (("human", human_player_id), ("ai", ai_player_id))
+        ):
+            if participant_id is not None:
+                conn.execute(
+                    """
+                    INSERT INTO room_participants (
+                        room_id, player_id, role, seat_index, joined_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        room_id,
+                        participant_id,
+                        participant_role,
+                        seat_index,
+                        timestamp,
+                    ),
+                )
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
-    return _decorate(decode_room(row))
+        room = decode_room(row, conn)
+    return _decorate(room)
 
 
 def join_room(
@@ -384,8 +421,6 @@ def join_room(
     player_id = _player_id(player_id)
     opponent_id = _player_id(opponent_id) if opponent_id is not None else None
     message = _message_text(message)
-    column = "human_player_id" if role == "human" else "ai_player_id"
-    other = "ai_player_id" if role == "human" else "human_player_id"
     with write_transaction() as conn:
         _archive_stale_rooms(conn, room_id)
         row = conn.execute(
@@ -393,34 +428,68 @@ def join_room(
         ).fetchone()
         if row is None:
             raise DuelError("房间不存在", 404)
-        if opponent_id is not None and row[other] not in {None, opponent_id}:
-            raise DuelError("房间不属于当前绑定的人机对", 403)
+        room = decode_room(row, conn)
+        _assert_opponent(room, role, opponent_id)
+        same_role = [
+            participant
+            for participant in room["participants"]
+            if participant["role"] == role
+        ]
         if row["status"] != "waiting":
-            if row[column] == player_id:
+            if any(
+                participant["player_id"] == player_id
+                for participant in same_role
+            ):
                 if message:
                     _record_event(
                         conn, room_id, role, row["revision"],
                         event_type="message", text=message,
                     )
-                result = decode_room(row)
-                return _decorate(result)
+                return _decorate(room)
             raise DuelError("房间已经开始或结束，不能加入", 409)
-        if row[column] is not None and row[column] != player_id:
+        if same_role and all(
+            participant["player_id"] != player_id
+            for participant in same_role
+        ):
             raise DuelError("该席位已被占用", 409)
-        new_status = "playing" if row[other] is not None else "waiting"
-        human_player_id = (
-            player_id if role == "human" else row["human_player_id"]
+        if not same_role:
+            future_human_id = (
+                player_id if role == "human" else room["human_player_id"]
+            )
+            future_ai_id = (
+                player_id if role == "ai" else room["ai_player_id"]
+            )
+            _check_pair_capacity(conn, future_human_id, future_ai_id)
+            seat_index = conn.execute(
+                """
+                SELECT COALESCE(MAX(seat_index), -1) + 1
+                FROM room_participants WHERE room_id = ?
+                """,
+                (room_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO room_participants (
+                    room_id, player_id, role, seat_index, joined_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (room_id, player_id, role, seat_index, _now()),
+            )
+        room = decode_room(row, conn)
+        human_player_id = room["human_player_id"]
+        ai_player_id = room["ai_player_id"]
+        new_status = (
+            "playing"
+            if human_player_id is not None and ai_player_id is not None
+            else "waiting"
         )
-        ai_player_id = player_id if role == "ai" else row["ai_player_id"]
-        if new_status == "playing":
-            _check_pair_capacity(conn, human_player_id, ai_player_id)
         conn.execute(
-            f"""
+            """
             UPDATE rooms
-            SET {column} = ?, status = ?, revision = revision + 1, updated_at = ?
+            SET status = ?, revision = revision + 1, updated_at = ?
             WHERE room_id = ?
             """,
-            (player_id, new_status, _now(), room_id),
+            (new_status, _now(), room_id),
         )
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
@@ -430,7 +499,8 @@ def join_room(
                 conn, room_id, role, updated["revision"],
                 event_type="message", text=message,
             )
-    return _decorate(decode_room(updated))
+        result = decode_room(updated, conn)
+    return _decorate(result)
 
 
 def get_room(
@@ -445,9 +515,9 @@ def get_room(
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
-    if row is None:
-        raise DuelError("房间不存在", 404)
-    room = decode_room(row)
+        if row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(row, conn)
     if role is not None:
         _assert_player(room, role, _player_id(player_id or ""))
         _assert_opponent(room, role, opponent_id)
@@ -455,10 +525,14 @@ def get_room(
 
 
 def _assert_player(room: dict, role: Role, player_id: str) -> None:
-    expected = room[f"{role}_player_id"]
-    if expected is None:
+    role_participants = [
+        participant["player_id"]
+        for participant in room["participants"]
+        if participant["role"] == role
+    ]
+    if not role_participants:
         raise DuelError(f"{role} 席位尚未加入", 409)
-    if expected != player_id:
+    if player_id not in role_participants:
         raise DuelError("player_id 与该房间席位不匹配", 403)
 
 
@@ -467,7 +541,12 @@ def _assert_opponent(room: dict, role: Role, opponent_id: str | None) -> None:
         return
     opponent_id = _player_id(opponent_id)
     other: Role = "ai" if role == "human" else "human"
-    if room[f"{other}_player_id"] != opponent_id:
+    other_players = {
+        participant["player_id"]
+        for participant in room["participants"]
+        if participant["role"] == other
+    }
+    if other_players and opponent_id not in other_players:
         raise DuelError("房间不属于当前绑定的人机对", 403)
 
 
@@ -489,7 +568,7 @@ def play_move(
         ).fetchone()
         if row is None:
             raise DuelError("房间不存在", 404)
-        room = decode_room(row)
+        room = decode_room(row, conn)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] != "playing":
@@ -554,7 +633,8 @@ def play_move(
             text=message,
             move_label=move_label,
         )
-    return _decorate(decode_room(updated))
+        result = decode_room(updated, conn)
+    return _decorate(result)
 
 
 def resign(
@@ -574,7 +654,7 @@ def resign(
         ).fetchone()
         if row is None:
             raise DuelError("房间不存在", 404)
-        room = decode_room(row)
+        room = decode_room(row, conn)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] in {"finished", "archived"}:
@@ -600,4 +680,5 @@ def resign(
             event_type="resign",
             text=message,
         )
-    return _decorate(decode_room(updated))
+        result = decode_room(updated, conn)
+    return _decorate(result)

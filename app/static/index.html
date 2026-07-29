@@ -41,10 +41,10 @@
       <section id="lobbyView" class="lobby-view hidden">
         <div class="hero pixel-card">
           <div>
-            <span class="tag pink">HUMAN × BOUND AI</span>
+            <span class="tag pink">HUMAN × BOUND AIS</span>
             <p class="eyebrow">MISSION: DUEL</p>
             <h1>双弈</h1>
-            <p id="heroPair" class="hero-pair">你 × 你的小机</p>
+            <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
           </div>
           <div class="hero-art" aria-hidden="true">
             <span class="hero-piece human-piece">○</span>
@@ -55,18 +55,7 @@
 
         <p id="notice" class="notice" role="status"></p>
 
-        <div class="lobby-grid">
-          <section class="section-panel pixel-card room-panel">
-            <div class="section-head">
-              <div>
-                <span class="tag">ROOM LOG</span>
-                <h2>当前人机对的房间</h2>
-              </div>
-              <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
-            </div>
-            <div id="roomList" class="room-list"></div>
-          </section>
-
+        <div class="lobby-stack">
           <section class="section-panel pixel-card create-panel">
             <div class="section-head">
               <div>
@@ -74,29 +63,49 @@
                 <h2>开新对局</h2>
               </div>
             </div>
-            <label class="pixel-field">
-              <span>棋种</span>
-              <select id="gameType">
-                <option value="tictactoe">井字棋 / 3×3</option>
-                <option value="gomoku">五子棋 / 15×15</option>
-                <option value="othello">黑白棋 / 8×8</option>
-                <option value="connect4">四子连珠 / 7×6</option>
-                <option value="dots_boxes">点格棋 / 5×5 点阵</option>
-                <option value="jungle">斗兽棋 / 7×9</option>
-              </select>
-            </label>
-            <label class="pixel-field">
-              <span>谁先走</span>
-              <select id="mode">
-                <option value="human_first">你先手</option>
-                <option value="ai_first">你的小机先手</option>
-              </select>
-            </label>
-            <div class="create-note">
-              <span>●</span>
-              <p>房间自动属于当前人机对，无需交换房间号。</p>
+            <div class="create-form">
+              <div class="participant-picker" data-selection-mode="single">
+                <label class="pixel-field">
+                  <span>选对手</span>
+                  <select id="aiPlayer" aria-describedby="participantHint"></select>
+                </label>
+                <div id="selectedParticipants" class="selected-participants" aria-live="polite"></div>
+              </div>
+              <label class="pixel-field">
+                <span>棋种</span>
+                <select id="gameType">
+                  <option value="tictactoe">井字棋 / 3×3</option>
+                  <option value="gomoku">五子棋 / 15×15</option>
+                  <option value="othello">黑白棋 / 8×8</option>
+                  <option value="connect4">四子连珠 / 7×6</option>
+                  <option value="dots_boxes">点格棋 / 5×5 点阵</option>
+                  <option value="jungle">斗兽棋 / 7×9</option>
+                </select>
+              </label>
+              <label class="pixel-field">
+                <span>谁先走</span>
+                <select id="mode">
+                  <option value="human_first">你先手</option>
+                  <option value="ai_first">你的小机先手</option>
+                </select>
+              </label>
+              <button id="createButton" class="pixel-btn create-submit" type="button">创建对局 →</button>
             </div>
-            <button id="createButton" class="pixel-btn wide" type="button">创建对局 →</button>
+            <div id="participantHint" class="create-note">
+              <span>●</span>
+              <p>从已绑定小机中选择对手；房间会自动出现在你的列表里。</p>
+            </div>
+          </section>
+
+          <section class="section-panel pixel-card room-panel">
+            <div class="section-head">
+              <div>
+                <span class="tag">ROOM LOG</span>
+                <h2>我的全部房间</h2>
+              </div>
+              <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
+            </div>
+            <div id="roomList" class="room-list"></div>
           </section>
         </div>
       </section>

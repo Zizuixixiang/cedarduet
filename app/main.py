@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,7 +16,7 @@ from .framework import (
     create_room,
     get_room,
     join_room,
-    list_pair_rooms,
+    list_human_rooms,
     list_timeline,
     play_move,
     post_message,
@@ -86,7 +88,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.4.0",
+    version="0.5.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -162,6 +164,45 @@ def require(value, message: str):
     return value
 
 
+def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
+    """Decode the compact identity context supplied only by the main-site proxy."""
+    encoded = request.headers.get("X-Duel-Bound-Ais", "").strip()
+    if not encoded:
+        # Keep the already-running pre-migration proxy usable until its reviewed
+        # server.py change is manually restarted; the new proxy strips these heads.
+        legacy_id = request.headers.get("X-Duel-Ai-Player", "").strip()
+        if not legacy_id:
+            return []
+        legacy_name = (
+            unquote(request.headers.get("X-Duel-Ai-Name", "")).strip()
+            or "你的小机"
+        )
+        return [{"id": legacy_id, "name": legacy_name}]
+    try:
+        padded = encoded + "=" * (-len(encoded) % 4)
+        value = json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        raise DuelError("绑定小机身份上下文无效，请从主站重新进入", 403)
+    if not isinstance(value, list):
+        raise DuelError("绑定小机身份上下文无效，请从主站重新进入", 403)
+    machines: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        machine_id = str(item.get("id", "")).strip()
+        machine_name = str(item.get("name", "")).strip()
+        if not machine_id or machine_id in seen:
+            continue
+        if len(machine_id) > 80 or len(machine_name) > 100:
+            continue
+        machines.append({"id": machine_id, "name": machine_name or "你的小机"})
+        seen.add(machine_id)
+    return machines
+
+
 async def wait_for_revision(
     room_id: str, player_id: str, baseline_revision: int
 ) -> dict | None:
@@ -183,7 +224,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.4.0"}
+    return {"ok": True, "service": "duel", "version": "0.5.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -204,32 +245,48 @@ async def javascript():
 @app.get("/api/whoami")
 async def human_whoami(request: Request):
     human_player_id = request.headers.get("X-Duel-Human-Player")
-    ai_player_id = request.headers.get("X-Duel-Ai-Player")
-    if not human_player_id or not ai_player_id:
+    if not human_player_id:
         return {
             "ok": True,
             "bound": False,
             "message": "请从 toy.cedarstar.org 首页登录进入",
             "rooms": [],
         }
-    ai_name = unquote(request.headers.get("X-Duel-Ai-Name", "")).strip() or "你的小机"
+    human_name = (
+        unquote(request.headers.get("X-Duel-Human-Name", "")).strip()
+        or "你"
+    )
+    machines = _trusted_bound_ais(request)
+    ai_names = {machine["id"]: machine["name"] for machine in machines}
     return {
         "ok": True,
         "bound": True,
-        "ai_name": ai_name,
-        "pair_label": f"你 × {ai_name}",
-        "rooms": list_pair_rooms(human_player_id, ai_player_id),
+        "human_name": human_name,
+        "machines": machines,
+        "identity_label": f"{human_name} · {len(machines)} 只已绑定小机",
+        "rooms": list_human_rooms(human_player_id, ai_names),
     }
 
 
 @app.post("/api/rooms")
-async def human_create(body: CreateRoomBody):
+async def human_create(request: Request, body: CreateRoomBody):
+    trusted_human = request.headers.get("X-Duel-Human-Player")
+    if not trusted_human:
+        raise DuelError("请从 toy.cedarstar.org 首页登录进入", 403)
+    if body.player_id != trusted_human:
+        raise DuelError("人类身份与主站注入身份不一致", 403)
+    selected_ai = body.ai_player or body.opponent_id
+    if selected_ai is None:
+        raise DuelError("开新对局需要先选择一只已绑定小机")
+    allowed_ais = {machine["id"] for machine in _trusted_bound_ais(request)}
+    if selected_ai not in allowed_ais:
+        raise DuelError("所选小机不在当前账号的绑定清单中", 403)
     room = create_room(
         body.game_type,
         body.mode,
         "human",
         body.player_id,
-        opponent_id=body.opponent_id,
+        opponent_id=selected_ai,
     )
     message = (
         f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。"
