@@ -23,6 +23,7 @@ from .framework import (
     read_new_human_messages,
     resign,
 )
+from .games import game_catalog, get_game
 from .models import (
     CreateRoomBody,
     JoinRoomBody,
@@ -88,7 +89,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.5.0",
+    version="0.5.1",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -224,22 +225,30 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.5.0"}
+    return {"ok": True, "service": "duel", "version": "0.5.1"}
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return INDEX_HTML
+    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/static/styles.css", include_in_schema=False)
 async def styles():
-    return Response(STYLES_CSS, media_type="text/css")
+    return Response(
+        STYLES_CSS,
+        media_type="text/css",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/static/app.js", include_in_schema=False)
 async def javascript():
-    return Response(APP_JS, media_type="text/javascript")
+    return Response(
+        APP_JS,
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/whoami")
@@ -264,6 +273,7 @@ async def human_whoami(request: Request):
         "human_name": human_name,
         "machines": machines,
         "identity_label": f"{human_name} · {len(machines)} 只已绑定小机",
+        "games": game_catalog(),
         "rooms": list_human_rooms(human_player_id, ai_names),
     }
 
@@ -281,6 +291,20 @@ async def human_create(request: Request, body: CreateRoomBody):
     allowed_ais = {machine["id"] for machine in _trusted_bound_ais(request)}
     if selected_ai not in allowed_ais:
         raise DuelError("所选小机不在当前账号的绑定清单中", 403)
+    try:
+        game = get_game(body.game_type)
+    except ValueError as exc:
+        raise DuelError(str(exc)) from exc
+    participant_count = 2
+    if not game.min_players <= participant_count <= game.max_players:
+        requirement = (
+            str(game.min_players)
+            if game.min_players == game.max_players
+            else f"{game.min_players}–{game.max_players}"
+        )
+        raise DuelError(
+            f"{game.display_name} 需要 {requirement} 名参与者"
+        )
     room = create_room(
         body.game_type,
         body.mode,

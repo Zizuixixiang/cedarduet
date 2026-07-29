@@ -31,6 +31,7 @@ AI /mcp/play ──────┘       │
 - 全局最多同时挂起 20 个等待；容量已满时落子仍成功，但按 `wait=false` 立即返回并附 `wait_downgraded: true`。
 - 活跃房间连续 7 天没有落子，会在下一次被读取或写入时惰性判和并改为 `archived`；无需后台定时器。
 - `rules_text` 与 `move_format` 由棋种插件提供，AI 和网页使用同一份内容。
+- 棋种插件同时声明 `min_players` / `max_players`；大厅按人数要求决定创建按钮是否可用，当前六种棋均为 2 人局。
 - 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
 - AI 的 `join/move/state/resign` 可附带最长 500 字的 `message`；人类可随落子说话或独立留言。独立留言不增加 revision，也不唤醒等待者。
 - AI 的返回包含一次性 `new_messages`：未读人类消息读取后即在 SQLite 标记，避免重复占用 token。网页时间线按顺序显示双方落子和发言。

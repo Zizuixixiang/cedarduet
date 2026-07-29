@@ -21,3 +21,15 @@ def get_game(game_type: str):
     except KeyError as exc:
         choices = "、".join(sorted(GAMES))
         raise ValueError(f"不支持的棋种：{game_type}；可选：{choices}") from exc
+
+
+def game_catalog() -> list[dict]:
+    return [
+        {
+            "game_type": plugin.game_type,
+            "display_name": plugin.display_name,
+            "min_players": plugin.min_players,
+            "max_players": plugin.max_players,
+        }
+        for plugin in GAMES.values()
+    ]

@@ -136,6 +136,37 @@ function renderRooms(rooms) {
   });
 }
 
+function selectedParticipantIds() {
+  return [...$("aiPlayer").selectedOptions]
+    .map((option) => option.value)
+    .filter(Boolean);
+}
+
+function selectedGameRequirement() {
+  const gameType = $("gameType").value;
+  const declared = identity && Array.isArray(identity.games)
+    ? identity.games.find((game) => game.game_type === gameType)
+    : null;
+  return {
+    minPlayers: declared ? declared.min_players : 2,
+    maxPlayers: declared ? declared.max_players : 2,
+  };
+}
+
+function updateCreateButtonState() {
+  const {minPlayers, maxPlayers} = selectedGameRequirement();
+  const participantCount = 1 + selectedParticipantIds().length;
+  const ready = Boolean(
+    identity
+    && $("gameType").value
+    && $("mode").value
+    && participantCount >= minPlayers
+    && participantCount <= maxPlayers
+  );
+  $("createButton").disabled = !ready;
+  return ready;
+}
+
 function syncMachinePicker(machines) {
   const select = $("aiPlayer");
   select.replaceChildren();
@@ -145,8 +176,8 @@ function syncMachinePicker(machines) {
     option.textContent = "尚未绑定小机";
     select.appendChild(option);
     select.disabled = true;
-    $("createButton").disabled = true;
     $("selectedParticipants").textContent = "请先在主站绑定一只小机";
+    updateCreateButtonState();
     return;
   }
   if (machines.length > 1) {
@@ -161,19 +192,26 @@ function syncMachinePicker(machines) {
     option.textContent = machine.name;
     select.appendChild(option);
   });
-  select.disabled = machines.length === 1;
+  // 单机时只有一个 option，保持可见可读；原生 disabled 在部分移动端会显示为空。
+  select.disabled = false;
+  select.dataset.locked = machines.length === 1 ? "true" : "false";
   if (machines.length === 1) select.value = machines[0].id;
-  $("createButton").disabled = !select.value;
   renderSelectedParticipants();
 }
 
 function renderSelectedParticipants() {
-  const selected = $("aiPlayer").value;
-  const machine = identity && identity.machines.find((item) => item.id === selected);
-  $("selectedParticipants").textContent = machine
-    ? `本局对手：${machine.name}`
-    : "本局尚未选择对手";
-  $("createButton").disabled = !machine;
+  const selectedIds = selectedParticipantIds();
+  const machines = identity
+    ? identity.machines.filter((item) => selectedIds.includes(item.id))
+    : [];
+  const {minPlayers, maxPlayers} = selectedGameRequirement();
+  const requirement = minPlayers === maxPlayers
+    ? `${minPlayers} 人局`
+    : `${minPlayers}–${maxPlayers} 人局`;
+  $("selectedParticipants").textContent = machines.length
+    ? `本局对手：${machines.map((machine) => machine.name).join("、")} · ${requirement}`
+    : `本局尚未选择对手 · ${requirement}`;
+  updateCreateButtonState();
 }
 
 async function loadIdentity({quiet = false} = {}) {
@@ -205,11 +243,11 @@ async function loadIdentity({quiet = false} = {}) {
 }
 
 async function createRoom() {
-  const aiPlayer = $("aiPlayer").value;
-  if (!aiPlayer) {
-    showNotice("请先选择一只已绑定小机。", true);
+  if (!updateCreateButtonState()) {
+    showNotice("请按当前棋种人数要求选好对手、棋种与先手。", true);
     return;
   }
+  const aiPlayer = selectedParticipantIds()[0];
   try {
     $("createButton").disabled = true;
     const data = await request("/api/rooms", {
@@ -225,7 +263,7 @@ async function createRoom() {
   } catch (error) {
     showNotice(error.message, true);
   } finally {
-    $("createButton").disabled = !identity || !identity.machines.length;
+    updateCreateButtonState();
   }
 }
 
@@ -428,7 +466,6 @@ function renderGame(nextRoom, message = "", timeline = []) {
   room = nextRoom;
   selectedJungleCell = null;
   showView("gameView");
-  $("lobbyNavButton").classList.remove("active");
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
@@ -531,6 +568,8 @@ function stopPolling() {
 
 $("createButton").addEventListener("click", createRoom);
 $("aiPlayer").addEventListener("change", renderSelectedParticipants);
+$("gameType").addEventListener("change", renderSelectedParticipants);
+$("mode").addEventListener("change", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());
@@ -540,11 +579,6 @@ $("rulesButton").addEventListener("click", openRules);
 $("closeRulesButton").addEventListener("click", closeRules);
 $("rulesScrim").addEventListener("click", (event) => {
   if (event.target === $("rulesScrim")) closeRules();
-});
-$("lobbyNavButton").addEventListener("click", backToLobby);
-$("bottomRefreshButton").addEventListener("click", () => {
-  if (room) refreshRoom();
-  else loadIdentity();
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeRules();

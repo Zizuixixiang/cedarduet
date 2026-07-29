@@ -198,6 +198,8 @@ class RegistryErrorTests(unittest.TestCase):
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
             self.assertTrue(plugin.move_format)
+            self.assertEqual(plugin.min_players, 2)
+            self.assertEqual(plugin.max_players, 2)
 
     def test_unknown_game_lists_every_available_type(self):
         with self.assertRaises(DuelError) as caught:

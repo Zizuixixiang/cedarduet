@@ -10,6 +10,7 @@ import httpx
 from app import database
 from app import main as main_module
 from app.framework import create_room, resign
+from app.games import GAMES
 
 
 class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
@@ -97,6 +98,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
+        self.assertEqual(len(payload["games"]), 6)
+        self.assertTrue(all(
+            game["min_players"] == game["max_players"] == 2
+            for game in payload["games"]
+        ))
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],
@@ -141,6 +147,23 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected.status_code, 403)
         self.assertIn("不在当前账号的绑定清单", rejected.json()["message"])
 
+        with (
+            patch.object(GAMES["tictactoe"], "min_players", 3),
+            patch.object(GAMES["tictactoe"], "max_players", 3),
+        ):
+            wrong_count = await self.client.post(
+                "/api/rooms",
+                headers=headers,
+                json={
+                    "player_id": "human-7",
+                    "ai_player": "ai-9",
+                    "game_type": "tictactoe",
+                    "mode": "human_first",
+                },
+            )
+        self.assertEqual(wrong_count.status_code, 400)
+        self.assertIn("需要 3 名参与者", wrong_count.json()["message"])
+
     async def test_ai_actions_require_room_participation(self):
         room = create_room(
             "tictactoe", "ai_first", "human", "human-7", "ai-9"
@@ -170,8 +193,21 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('id="joinRoomId"', html)
         self.assertNotIn('id="joinButton"', html)
         self.assertIn('id="aiPlayer"', html)
+        self.assertIn('id="createButton"', html)
+        self.assertIn('type="button" disabled', html)
+        self.assertNotIn('class="bottom-nav"', html)
+        self.assertIn("← 返回首页", html)
+        self.assertIn("/static/app.js?v=0.5.1", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+        script = await self.client.get("/static/app.js")
+        self.assertEqual(script.headers["cache-control"], "no-store")
+        self.assertIn("select.disabled = false", script.text)
+        self.assertNotIn(
+            "select.disabled = machines.length === 1", script.text
+        )
 
 
 if __name__ == "__main__":

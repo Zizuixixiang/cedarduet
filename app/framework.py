@@ -58,6 +58,8 @@ def _decorate(room: dict) -> dict:
     result["rules_text"] = game.rules_text
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
+    result["min_players"] = game.min_players
+    result["max_players"] = game.max_players
     result["action_note"] = room["board_state"].get("last_action_note", "")
     return result
 

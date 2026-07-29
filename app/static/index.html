@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=0.5.1">
 </head>
 <body>
   <div class="app">
@@ -19,6 +19,7 @@
       <div class="top-actions">
         <span class="service-badge">DUEL / 双弈</span>
         <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
+        <a class="pixel-btn secondary compact home-link" href="https://toy.cedarstar.org/">← 返回首页</a>
       </div>
     </header>
 
@@ -69,7 +70,6 @@
                   <span>选对手</span>
                   <select id="aiPlayer" aria-describedby="participantHint"></select>
                 </label>
-                <div id="selectedParticipants" class="selected-participants" aria-live="polite"></div>
               </div>
               <label class="pixel-field">
                 <span>棋种</span>
@@ -89,8 +89,9 @@
                   <option value="ai_first">你的小机先手</option>
                 </select>
               </label>
-              <button id="createButton" class="pixel-btn create-submit" type="button">创建对局 →</button>
+              <button id="createButton" class="pixel-btn create-submit" type="button" disabled>创建对局 →</button>
             </div>
+            <div id="selectedParticipants" class="selected-participants" aria-live="polite"></div>
             <div id="participantHint" class="create-note">
               <span>●</span>
               <p>从已绑定小机中选择对手；房间会自动出现在你的列表里。</p>
@@ -160,20 +161,6 @@
       </section>
     </main>
 
-    <nav class="bottom-nav" aria-label="双弈导航">
-      <a class="nav-item" href="/">
-        <span class="nav-icon">⌂</span>
-        <span class="nav-label">首页</span>
-      </a>
-      <button id="lobbyNavButton" class="nav-item active" type="button">
-        <span class="nav-icon">棋</span>
-        <span class="nav-label">房间</span>
-      </button>
-      <button id="bottomRefreshButton" class="nav-item" type="button">
-        <span class="nav-icon">↻</span>
-        <span class="nav-label">刷新</span>
-      </button>
-    </nav>
   </div>
 
   <div id="rulesScrim" class="drawer-scrim" aria-hidden="true">
@@ -191,6 +178,6 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=0.5.1"></script>
 </body>
 </html>

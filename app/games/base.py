@@ -19,6 +19,8 @@ class GamePlugin(ABC):
     display_name: str
     rules_text: str
     move_format: str
+    min_players: int = 2
+    max_players: int = 2
 
     @abstractmethod
     def initial_state(self) -> dict[str, Any]:
