@@ -4,6 +4,7 @@ let room = null;
 let pollTimer = null;
 let toastTimer = null;
 let selectedJungleCell = null;
+let pendingMove = null;
 
 const GAME_GLYPHS = {
   tictactoe: "井",
@@ -13,6 +14,11 @@ const GAME_GLYPHS = {
   dots_boxes: "点",
   jungle: "兽",
 };
+const PLAYER_EMOJIS = [
+  "🐱", "🐶", "🐰", "🦊", "🐻", "🐼",
+  "🐨", "🐯", "🦁", "🐸", "🐙", "🦄",
+  "🐣", "🧸", "🌸", "🍓",
+];
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",
   P: "豹", T: "虎", L: "狮", E: "象",
@@ -69,9 +75,36 @@ function statusLabel(status) {
 }
 
 function aiNameFor(playerId = room && room.ai_player_id) {
+  const participant = room && Array.isArray(room.participants)
+    ? room.participants.find((item) =>
+        item.role === "ai" && (!playerId || item.player_id === playerId)
+      )
+    : null;
+  if (participant && participant.display_name) return participant.display_name;
   if (!identity || !Array.isArray(identity.machines)) return "你的小机";
   const machine = identity.machines.find((item) => item.id === playerId);
   return machine ? machine.name : "你的小机";
+}
+
+function participantFor(role) {
+  if (!room || !Array.isArray(room.participants)) return null;
+  return room.participants.find((item) => item.role === role) || null;
+}
+
+function participantName(role) {
+  const participant = participantFor(role);
+  if (participant && participant.display_name) return participant.display_name;
+  if (role === "human") return (identity && identity.human_name) || "你";
+  return aiNameFor();
+}
+
+function emojiFor(name) {
+  let hash = 2166136261;
+  for (const character of String(name || "")) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return PLAYER_EMOJIS[Math.abs(hash) % PLAYER_EMOJIS.length];
 }
 
 function turnLabel(turn, aiPlayerId) {
@@ -280,7 +313,9 @@ async function openRoom(roomId) {
 function backToLobby() {
   room = null;
   selectedJungleCell = null;
+  pendingMove = null;
   stopPolling();
+  closeHistory();
   showView("lobbyView");
   loadIdentity({quiet: true});
 }
@@ -307,16 +342,41 @@ function boardCell(mark, rowIndex, colIndex, onClick) {
   return cell;
 }
 
+function movesEqual(first, second) {
+  if (!first || !second) return false;
+  const firstKeys = Object.keys(first);
+  const secondKeys = Object.keys(second);
+  return (
+    firstKeys.length === secondKeys.length
+    && firstKeys.every((key) => first[key] === second[key])
+  );
+}
+
+function selectMove(movePayload) {
+  if (!canHumanMove()) return;
+  pendingMove = {...movePayload};
+  renderBoard();
+}
+
+function updateMoveConfirmation() {
+  const ready = Boolean(pendingMove && canHumanMove());
+  $("confirmMoveButton").disabled = !ready;
+  $("selectionHint").textContent = ready
+    ? "已选中落点，确认后提交"
+    : (canHumanMove() ? "请先在棋盘上选择落点" : "等待轮到你");
+}
+
 function renderGridBoard(board, state) {
   state.board.forEach((rowData, rowIndex) => {
     rowData.forEach((mark, colIndex) => {
       const payload = room.game_type === "connect4"
         ? {col: colIndex}
         : {row: rowIndex, col: colIndex};
-      const cell = boardCell(mark, rowIndex, colIndex, () => move(payload));
+      const cell = boardCell(mark, rowIndex, colIndex, () => selectMove(payload));
       if (room.game_type === "connect4") {
         cell.disabled = !canHumanMove() || state.board[0][colIndex] !== null;
       }
+      if (movesEqual(pendingMove, payload)) cell.classList.add("selected");
       board.appendChild(cell);
     });
   });
@@ -338,9 +398,9 @@ function renderDotsBoard(board, state) {
         edge.className = `edge horizontal${mark ? " drawn" : ""}${pieceClass(mark)}`;
         edge.disabled = !canHumanMove() || Boolean(mark);
         edge.ariaLabel = `横边 ${rowIndex},${colIndex}`;
-        edge.addEventListener("click", () =>
-          move({orientation: "h", row: rowIndex, col: colIndex})
-        );
+        const payload = {orientation: "h", row: rowIndex, col: colIndex};
+        if (movesEqual(pendingMove, payload)) edge.classList.add("selected");
+        edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
       } else if (gridCol % 2 === 0) {
         const rowIndex = (gridRow - 1) / 2;
@@ -351,9 +411,9 @@ function renderDotsBoard(board, state) {
         edge.className = `edge vertical${mark ? " drawn" : ""}${pieceClass(mark)}`;
         edge.disabled = !canHumanMove() || Boolean(mark);
         edge.ariaLabel = `竖边 ${rowIndex},${colIndex}`;
-        edge.addEventListener("click", () =>
-          move({orientation: "v", row: rowIndex, col: colIndex})
-        );
+        const payload = {orientation: "v", row: rowIndex, col: colIndex};
+        if (movesEqual(pendingMove, payload)) edge.classList.add("selected");
+        edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
       } else {
         const box = document.createElement("span");
@@ -382,6 +442,11 @@ function renderJungleBoard(board, state) {
         selectedJungleCell
         && selectedJungleCell.row === rowIndex
         && selectedJungleCell.col === colIndex
+      ) cell.classList.add("selected-origin");
+      if (
+        pendingMove
+        && pendingMove.to_row === rowIndex
+        && pendingMove.to_col === colIndex
       ) cell.classList.add("selected");
       if (piece) {
         const [pieceOwner, beast] = piece.split(":");
@@ -392,22 +457,23 @@ function renderJungleBoard(board, state) {
         if (!selectedJungleCell) {
           if (!piece || !piece.startsWith(`${humanMark}:`)) return;
           selectedJungleCell = {row: rowIndex, col: colIndex};
+          pendingMove = null;
           renderBoard();
           return;
         }
-        const from = selectedJungleCell;
         if (piece && piece.startsWith(`${humanMark}:`)) {
           selectedJungleCell = {row: rowIndex, col: colIndex};
+          pendingMove = null;
           renderBoard();
           return;
         }
-        selectedJungleCell = null;
-        move({
-          from_row: from.row,
-          from_col: from.col,
+        pendingMove = {
+          from_row: selectedJungleCell.row,
+          from_col: selectedJungleCell.col,
           to_row: rowIndex,
           to_col: colIndex,
-        });
+        };
+        renderBoard();
       });
       board.appendChild(cell);
     });
@@ -434,6 +500,7 @@ function renderBoard() {
     if (room.game_type === "connect4") board.classList.add("connect4");
     renderGridBoard(board, state);
   }
+  updateMoveConfirmation();
 }
 
 function renderTimeline(timeline = []) {
@@ -455,22 +522,60 @@ function renderTimeline(timeline = []) {
         ? event.sender.name
         : event.sender_name
     ) || (senderRole === "human" ? "你" : aiNameFor());
-    item.className = senderRole;
+    item.className = `history-event ${senderRole} ${event.event_type}`;
+    const icon = document.createElement("span");
+    icon.className = "history-icon";
+    icon.textContent = event.event_type === "move"
+      ? "♟"
+      : (event.event_type === "resign" ? "⚑" : "●");
+    const copy = document.createElement("p");
     if (event.event_type === "move") {
-      item.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
+      copy.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
     } else if (event.event_type === "resign") {
-      item.textContent = `${speaker} 认输${event.text ? `：${event.text}` : ""}`;
+      copy.textContent = `${speaker} 认输${event.text ? `：${event.text}` : ""}`;
     } else {
-      item.textContent = `${speaker}：${event.text}`;
+      copy.textContent = `${speaker}：${event.text}`;
     }
+    const sequence = document.createElement("small");
+    sequence.textContent = `#${event.sequence || event.id}`;
+    item.append(icon, copy, sequence);
     list.appendChild(item);
   });
   list.scrollTop = list.scrollHeight;
 }
 
+function renderPlayers(timeline = []) {
+  const aiName = participantName("ai");
+  const humanName = participantName("human");
+  $("aiName").textContent = aiName;
+  $("humanName").textContent = humanName;
+  $("aiAvatar").textContent = emojiFor(aiName);
+  $("humanAvatar").textContent = emojiFor(humanName);
+
+  const latestSpeech = (role) => [...timeline].reverse().find((event) => {
+    const senderRole = event.sender_role
+      || (typeof event.sender === "object" && event.sender ? event.sender.role : event.sender);
+    return senderRole === role && Boolean(event.text);
+  });
+  [["ai", "aiSpeech"], ["human", "humanSpeech"]].forEach(([role, targetId]) => {
+    const event = latestSpeech(role);
+    const bubble = $(targetId);
+    bubble.textContent = event ? event.text : "";
+    bubble.classList.toggle("hidden", !event);
+  });
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
+  const selectionIsStale = (
+    !room
+    || room.room_id !== nextRoom.room_id
+    || room.revision !== nextRoom.revision
+  );
+  if (selectionIsStale) {
+    selectedJungleCell = null;
+    pendingMove = null;
+  }
   room = nextRoom;
-  selectedJungleCell = null;
   showView("gameView");
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
@@ -483,10 +588,10 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("revision").textContent = room.revision;
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
-  $("moveFormat").textContent = room.move_format;
   $("resignButton").disabled = ["finished", "archived"].includes(room.status);
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
   showNotice(message || (canHumanMove() ? "轮到你落子。" : ""));
+  renderPlayers(timeline);
   renderBoard();
   renderTimeline(timeline);
 }
@@ -502,20 +607,21 @@ async function refreshRoom({quiet = false} = {}) {
   }
 }
 
-async function move(movePayload) {
-  const message = $("chatInput").value.trim();
+async function confirmMove() {
+  if (!pendingMove || !canHumanMove()) return;
+  const movePayload = {...pendingMove};
   try {
+    $("confirmMoveButton").disabled = true;
     const data = await request(`/api/rooms/${room.room_id}/move`, {
       method: "POST",
-      body: JSON.stringify({
-        move: movePayload,
-        ...(message ? {message} : {}),
-      }),
+      body: JSON.stringify({move: movePayload}),
     });
-    if (message) $("chatInput").value = "";
+    pendingMove = null;
+    selectedJungleCell = null;
     renderGame(data.room, data.message, data.timeline);
   } catch (error) {
     showNotice(error.message, true);
+    updateMoveConfirmation();
   }
 }
 
@@ -562,9 +668,21 @@ function closeRules() {
   $("rulesScrim").setAttribute("aria-hidden", "true");
 }
 
+function openHistory() {
+  $("historyDrawer").classList.add("show");
+  $("historyDrawer").setAttribute("aria-hidden", "false");
+  $("historyDrawerTab").setAttribute("aria-expanded", "true");
+}
+
+function closeHistory() {
+  $("historyDrawer").classList.remove("show");
+  $("historyDrawer").setAttribute("aria-hidden", "true");
+  $("historyDrawerTab").setAttribute("aria-expanded", "false");
+}
+
 function startRoomPolling() {
   stopPolling();
-  pollTimer = setInterval(() => refreshRoom({quiet: true}), 1500);
+  pollTimer = setInterval(() => refreshRoom({quiet: true}), 3000);
 }
 
 function stopPolling() {
@@ -580,14 +698,29 @@ $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());
 $("sendMessageButton").addEventListener("click", sendMessage);
+$("confirmMoveButton").addEventListener("click", confirmMove);
 $("resignButton").addEventListener("click", resign);
 $("rulesButton").addEventListener("click", openRules);
 $("closeRulesButton").addEventListener("click", closeRules);
+$("historyDrawerTab").addEventListener("click", openHistory);
+$("closeHistoryButton").addEventListener("click", closeHistory);
+$("historyDrawer").addEventListener("click", (event) => {
+  if (event.target === $("historyDrawer")) closeHistory();
+});
 $("rulesScrim").addEventListener("click", (event) => {
   if (event.target === $("rulesScrim")) closeRules();
 });
+$("chatInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    sendMessage();
+  }
+});
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeRules();
+  if (event.key === "Escape") {
+    closeRules();
+    closeHistory();
+  }
 });
 
 loadIdentity();

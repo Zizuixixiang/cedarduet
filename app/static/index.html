@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.6.0">
+  <link rel="stylesheet" href="/static/styles.css?v=0.7.0">
 </head>
 <body>
   <div class="app">
@@ -113,12 +113,12 @@
 
       <section id="gameView" class="game-view hidden">
         <div class="game-toolbar pixel-card">
-          <button id="backButton" class="pixel-btn secondary compact" type="button">← 房间列表</button>
+          <button id="backButton" class="pixel-btn secondary game-nav-btn" type="button">← 房间列表</button>
           <div class="game-heading">
             <span id="gameBadge" class="tag pink">GAME</span>
             <h1 id="gameTitle">双弈</h1>
           </div>
-          <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
+          <button id="rulesButton" class="pixel-btn secondary game-nav-btn" type="button">规则</button>
         </div>
 
         <div class="game-meta pixel-card">
@@ -130,34 +130,48 @@
 
         <p id="gameMessage" class="notice" role="status"></p>
 
-        <div class="play-layout">
-          <section class="board-panel pixel-card">
+        <section class="battle-stage pixel-card">
+          <div class="player-row opponent-row">
+            <div class="player-identity">
+              <span id="aiAvatar" class="player-avatar ai-avatar" aria-hidden="true">🤖</span>
+              <strong id="aiName" class="player-name ai-name">你的小机</strong>
+            </div>
+            <p id="aiSpeech" class="speech-bubble ai-speech hidden"></p>
+          </div>
+
+          <div class="board-zone">
             <div class="board-frame">
               <div id="board" class="board" aria-label="棋盘"></div>
             </div>
-            <div class="chat-compose">
-              <label class="pixel-field">
-                <span>给你的小机说句话</span>
-                <textarea id="chatInput" maxlength="500" rows="3" placeholder="随落子发送，或单独留言"></textarea>
-              </label>
-              <button id="sendMessageButton" class="pixel-btn secondary" type="button">只留言</button>
+            <div class="move-confirm">
+              <span id="selectionHint">请先在棋盘上选择落点</span>
+              <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
             </div>
-            <div class="game-actions">
-              <button id="refreshButton" class="pixel-btn secondary" type="button">刷新局面</button>
-              <button id="resignButton" class="pixel-btn danger" type="button">认输</button>
-            </div>
-          </section>
+          </div>
 
-          <aside class="timeline-panel pixel-card">
-            <div class="section-head">
-              <div>
-                <span class="tag">LIVE LOG</span>
-                <h2>对局时间线</h2>
-              </div>
+          <div class="player-row human-row">
+            <div class="player-identity">
+              <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true">🙂</span>
+              <strong id="humanName" class="player-name human-name">你</strong>
             </div>
-            <ol id="timeline" aria-live="polite"></ol>
-          </aside>
-        </div>
+            <p id="humanSpeech" class="speech-bubble human-speech hidden"></p>
+          </div>
+
+          <div class="chat-compose">
+            <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="对局聊天">
+            <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
+          </div>
+
+          <div class="game-actions">
+            <button id="refreshButton" class="pixel-btn secondary" type="button">刷新局面</button>
+            <button id="resignButton" class="pixel-btn danger" type="button">认输</button>
+          </div>
+        </section>
+
+        <button id="historyDrawerTab" class="history-drawer-tab" type="button"
+                aria-expanded="false" aria-controls="historyDrawerPanel">
+          <span>📜对局记录</span>
+        </button>
       </section>
     </main>
 
@@ -173,11 +187,24 @@
         <button id="closeRulesButton" class="pixel-btn secondary drawer-close" type="button" aria-label="关闭规则">×</button>
       </div>
       <p id="rulesText" class="rules-text"></p>
-      <div id="moveFormat" class="move-format"></div>
     </section>
   </div>
 
+  <div id="historyDrawer" class="history-drawer" aria-hidden="true">
+    <aside id="historyDrawerPanel" class="history-drawer-panel" role="dialog" aria-label="对局记录">
+      <div class="history-head">
+        <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <div>
+          <strong>对局记录</strong>
+          <small>共享时间线</small>
+        </div>
+        <button id="closeHistoryButton" class="history-close" type="button" aria-label="关闭对局记录">×</button>
+      </div>
+      <ol id="timeline" class="history-list" aria-live="polite"></ol>
+    </aside>
+  </div>
+
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=0.6.0"></script>
+  <script src="/static/app.js?v=0.7.0"></script>
 </body>
 </html>

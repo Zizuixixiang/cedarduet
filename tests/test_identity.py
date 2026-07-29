@@ -197,14 +197,35 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
         self.assertIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.6.0", html)
+        self.assertIn("/static/app.js?v=0.7.0", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
+        self.assertIn('id="aiAvatar"', html)
+        self.assertIn('id="humanAvatar"', html)
+        self.assertIn('id="aiSpeech"', html)
+        self.assertIn('id="humanSpeech"', html)
+        self.assertIn('id="confirmMoveButton"', html)
+        self.assertIn('id="historyDrawerPanel"', html)
+        self.assertNotIn('class="timeline-panel', html)
+        self.assertNotIn('id="moveFormat"', html)
+        self.assertNotIn("随落子发送", html)
+        self.assertNotIn("只留言", html)
         self.assertEqual(response.headers["cache-control"], "no-store")
 
         script = await self.client.get("/static/app.js")
         self.assertEqual(script.headers["cache-control"], "no-store")
         self.assertIn("select.disabled = false", script.text)
+        self.assertIn("function emojiFor(name)", script.text)
+        self.assertIn("function confirmMove()", script.text)
+        self.assertIn("function openHistory()", script.text)
+        self.assertIn(
+            "setInterval(() => refreshRoom({quiet: true}), 3000)",
+            script.text,
+        )
+        self.assertNotIn(
+            "setInterval(() => refreshRoom({quiet: true}), 1500)",
+            script.text,
+        )
         self.assertNotIn(
             "select.disabled = machines.length === 1", script.text
         )

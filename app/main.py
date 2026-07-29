@@ -90,7 +90,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.6.0",
+    version="0.7.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -226,7 +226,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.6.0"}
+    return {"ok": True, "service": "duel", "version": "0.7.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
