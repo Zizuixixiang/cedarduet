@@ -76,7 +76,7 @@ def _message_text(value: str | None, *, required: bool = False) -> str:
 def _record_event(
     conn,
     room_id: str,
-    sender: Role,
+    sender: str,
     sender_player_id: str,
     revision: int,
     *,
@@ -106,6 +106,12 @@ def _record_event(
 
 def _event_sender(row, room: dict) -> dict:
     player_id = row["sender_player_id"]
+    if row["sender"] == "system":
+        return {
+            "player_id": "system",
+            "name": "双弈裁判",
+            "role": "system",
+        }
     participant = next(
         (
             item
@@ -137,6 +143,8 @@ def _timeline_entry(row, room: dict) -> dict:
         display_text = f"{sender_name} 认输"
         if row["text"]:
             display_text += f"：{row['text']}"
+    elif row["event_type"] == "result":
+        display_text = row["text"]
     else:
         display_text = f"{sender_name}：{row['text']}"
     return {
@@ -338,6 +346,69 @@ def update_participant_display_names(
             )
 
 
+def _participant_display_name(room: dict, player_id: str) -> str:
+    participant = next(
+        (
+            item
+            for item in room["participants"]
+            if item["player_id"] == player_id
+        ),
+        None,
+    )
+    return (
+        participant.get("display_name")
+        if participant and participant.get("display_name")
+        else player_id
+    )
+
+
+def _record_result_event(
+    conn, room: dict, *, resigned_player_id: str | None = None
+) -> None:
+    """Append exactly one room-level result event after terminal state is stored."""
+    exists = conn.execute(
+        """
+        SELECT 1 FROM room_messages
+        WHERE room_id = ? AND event_type = 'result'
+        """,
+        (room["room_id"],),
+    ).fetchone()
+    if exists is not None:
+        return
+    if resigned_player_id is not None:
+        result_text = (
+            f"{_participant_display_name(room, resigned_player_id)} 认输"
+        )
+    elif room["winner"] == "draw":
+        result_text = "和棋"
+    elif room["winner"] in {"human", "ai"}:
+        winner = next(
+            (
+                participant
+                for participant in room["participants"]
+                if participant["role"] == room["winner"]
+            ),
+            None,
+        )
+        winner_name = (
+            winner.get("display_name")
+            if winner and winner.get("display_name")
+            else (winner["player_id"] if winner else room["winner"])
+        )
+        result_text = f"{winner_name} 获胜"
+    else:
+        result_text = "对局结束"
+    _record_event(
+        conn,
+        room["room_id"],
+        "system",
+        "system",
+        room["revision"],
+        event_type="result",
+        text=result_text,
+    )
+
+
 def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_ROOM_DAYS)).isoformat(
         timespec="seconds"
@@ -347,18 +418,35 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
     if room_id is not None:
         room_clause = " AND room_id = ?"
         params.append(room_id)
-    cursor = conn.execute(
+    stale_rows = conn.execute(
         f"""
-        UPDATE rooms
-        SET status = 'archived', winner = 'draw',
-            revision = revision + 1, updated_at = ?
+        SELECT room_id
+        FROM rooms
         WHERE status IN ('waiting', 'playing')
           AND last_move_at < ?
           {room_clause}
         """,
-        [_now(), *params],
-    )
-    return cursor.rowcount
+        params,
+    ).fetchall()
+    timestamp = _now()
+    for stale in stale_rows:
+        conn.execute(
+            """
+            UPDATE rooms
+            SET status = 'archived', winner = 'draw',
+                revision = revision + 1, updated_at = ?
+            WHERE room_id = ?
+              AND status IN ('waiting', 'playing')
+            """,
+            (timestamp, stale["room_id"]),
+        )
+        updated = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?",
+            (stale["room_id"],),
+        ).fetchone()
+        terminal_room = decode_room(updated, conn)
+        _record_result_event(conn, terminal_room)
+    return len(stale_rows)
 
 
 def _check_global_capacity(conn) -> None:
@@ -740,6 +828,8 @@ def play_move(
             move_label=move_label,
         )
         result = decode_room(updated, conn)
+        if result["status"] == "finished":
+            _record_result_event(conn, result)
     return _decorate(result)
 
 
@@ -788,4 +878,7 @@ def resign(
             text=message,
         )
         result = decode_room(updated, conn)
+        _record_result_event(
+            conn, result, resigned_player_id=player_id
+        )
     return _decorate(result)

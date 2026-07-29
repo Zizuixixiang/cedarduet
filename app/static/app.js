@@ -74,6 +74,12 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+function isTerminal(targetRoom) {
+  return Boolean(
+    targetRoom && ["finished", "archived"].includes(targetRoom.status)
+  );
+}
+
 function aiNameFor(playerId = room && room.ai_player_id) {
   const participant = room && Array.isArray(room.participants)
     ? room.participants.find((item) =>
@@ -304,7 +310,7 @@ async function openRoom(roomId) {
   try {
     const data = await request(`/api/rooms/${roomId}`);
     renderGame(data.room, data.message, data.timeline);
-    startRoomPolling();
+    if (!isTerminal(data.room)) startRoomPolling();
   } catch (error) {
     showNotice(error.message, true);
   }
@@ -527,12 +533,18 @@ function renderTimeline(timeline = []) {
     icon.className = "history-icon";
     icon.textContent = event.event_type === "move"
       ? "♟"
-      : (event.event_type === "resign" ? "⚑" : "●");
+      : (
+          event.event_type === "resign"
+            ? "⚑"
+            : (event.event_type === "result" ? "★" : "●")
+        );
     const copy = document.createElement("p");
     if (event.event_type === "move") {
       copy.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
     } else if (event.event_type === "resign") {
       copy.textContent = `${speaker} 认输${event.text ? `：${event.text}` : ""}`;
+    } else if (event.event_type === "result") {
+      copy.textContent = event.display_text || event.text || "对局结束";
     } else {
       copy.textContent = `${speaker}：${event.text}`;
     }
@@ -565,7 +577,36 @@ function renderPlayers(timeline = []) {
   });
 }
 
+function resultTextFor(targetRoom, timeline = []) {
+  const resultEvent = [...timeline].reverse().find(
+    (event) => event.event_type === "result"
+  );
+  if (resultEvent) {
+    return resultEvent.display_text || resultEvent.text || "对局结束";
+  }
+  if (targetRoom.winner === "draw") return "和棋";
+  if (targetRoom.winner === "human") {
+    const human = Array.isArray(targetRoom.participants)
+      ? targetRoom.participants.find((item) => item.role === "human")
+      : null;
+    return `${(human && human.display_name) || "你"} 获胜`;
+  }
+  if (targetRoom.winner === "ai") {
+    const ai = Array.isArray(targetRoom.participants)
+      ? targetRoom.participants.find((item) => item.role === "ai")
+      : null;
+    return `${(ai && ai.display_name) || "你的小机"} 获胜`;
+  }
+  return "对局结束";
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
+  const becameTerminal = Boolean(
+    room
+    && room.room_id === nextRoom.room_id
+    && !isTerminal(room)
+    && isTerminal(nextRoom)
+  );
   const selectionIsStale = (
     !room
     || room.room_id !== nextRoom.room_id
@@ -580,20 +621,27 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
+  const resultText = resultTextFor(room, timeline);
   const winner = room.winner === "draw"
     ? " · 和棋"
     : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : "");
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
-  $("turn").textContent = turnLabel(room.turn, room.ai_player_id);
+  $("turn").textContent = isTerminal(room)
+    ? resultText
+    : turnLabel(room.turn, room.ai_player_id);
   $("revision").textContent = room.revision;
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
   $("resignButton").disabled = ["finished", "archived"].includes(room.status);
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
+  $("resultBanner").classList.toggle("hidden", !isTerminal(room));
+  $("resultBannerText").textContent = resultText;
   showNotice(message || (canHumanMove() ? "轮到你落子。" : ""));
   renderPlayers(timeline);
   renderBoard();
   renderTimeline(timeline);
+  if (isTerminal(room)) stopPolling();
+  if (becameTerminal) openResultModal(resultText);
 }
 
 async function refreshRoom({quiet = false} = {}) {
@@ -680,6 +728,45 @@ function closeHistory() {
   $("historyDrawerTab").setAttribute("aria-expanded", "false");
 }
 
+function openResultModal(resultText) {
+  $("resultModalText").textContent = resultText;
+  $("resultModalMessage").textContent = "";
+  $("resultModal").classList.remove("hidden");
+  $("rematchButton").disabled = false;
+}
+
+function closeResultModal() {
+  $("resultModal").classList.add("hidden");
+  $("resultModalMessage").textContent = "";
+}
+
+function oppositeMode(mode) {
+  return mode === "human_first" ? "ai_first" : "human_first";
+}
+
+async function rematch() {
+  if (!room || !isTerminal(room)) return;
+  const previousRoom = room;
+  $("rematchButton").disabled = true;
+  $("resultModalMessage").textContent = "";
+  try {
+    const data = await request("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({
+        ai_player: previousRoom.ai_player_id,
+        game_type: previousRoom.game_type,
+        mode: oppositeMode(previousRoom.mode),
+      }),
+    });
+    closeResultModal();
+    renderGame(data.room, data.message, data.timeline);
+    startRoomPolling();
+  } catch (error) {
+    $("resultModalMessage").textContent = error.message;
+    $("rematchButton").disabled = false;
+  }
+}
+
 function startRoomPolling() {
   stopPolling();
   pollTimer = setInterval(() => refreshRoom({quiet: true}), 3000);
@@ -707,6 +794,8 @@ $("closeHistoryButton").addEventListener("click", closeHistory);
 $("historyDrawer").addEventListener("click", (event) => {
   if (event.target === $("historyDrawer")) closeHistory();
 });
+$("rematchButton").addEventListener("click", rematch);
+$("finishGameButton").addEventListener("click", closeResultModal);
 $("rulesScrim").addEventListener("click", (event) => {
   if (event.target === $("rulesScrim")) closeRules();
 });

@@ -35,7 +35,7 @@ AI /mcp/play ──────┘       │
 - 棋种插件同时声明 `min_players` / `max_players`；大厅按人数要求决定创建按钮是否可用，当前六种棋均为 2 人局。
 - 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
 - `join/move/state/resign` 可附带最长 500 字的 `message`；落子、认输和独立发言进入同一条房间共享时间线。独立留言不增加 revision，也不唤醒等待者。
-- AI 的返回包含一次性 `new_messages`：自该参与者上次读取以来，房间内其他参与者产生的全部新事件。事件按 `sequence` 混排，每条 `sender` 都带参与者 `player_id`、显示名和角色。
+- AI 的返回包含一次性 `new_messages`：自该参与者上次读取以来，房间内其他参与者产生的全部新事件。事件按 `sequence` 混排，每条 `sender` 都带 `player_id`、显示名和角色；终局另有 `sender.role=system`、`event_type=result` 的裁判事件，AI 被唤醒时可直接读取胜负。
 - 已读状态由 `room_event_cursors` 按 `(room_id, player_id)` 独立维护；一个参与者读取不会推进其他参与者的游标。
 - 人类页面不接受自报身份或房间号。聚合层进门只验证人类登录态，并通过可信请求头注入人类身份与其全部绑定小机清单；`GET /api/whoami` 返回该人类名下的全部房间，活跃对局优先。开房时才选择对手，服务端再按可信绑定清单校验。裸连 8772 只显示回主站登录的引导。
 - Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
@@ -116,7 +116,7 @@ AI 落子并等待房间内其他参与者回应：
 }
 ```
 
-响应均为结构化 JSON，顶层包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。房间对象包含规则文本、指令格式与当前棋盘。`new_messages` 是共享时间线增量，落子与发言按序混排；每条包含 `sequence`、`sender: {player_id, name, role}`、`event_type`、`move_label`、`text`、`revision_at_send` 与 `created_at`。
+响应均为结构化 JSON，顶层包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。房间对象包含规则文本、指令格式与当前棋盘。`new_messages` 是共享时间线增量，落子、发言和终局结果按序混排；每条包含 `sequence`、`sender: {player_id, name, role}`、`event_type`、`move_label`、`text`、`display_text`、`revision_at_send` 与 `created_at`。
 
 人类独立留言：
 

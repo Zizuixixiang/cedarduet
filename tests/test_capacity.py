@@ -98,6 +98,19 @@ class CapacityFrameworkTests(unittest.TestCase):
         self.assertEqual(archived["status"], "archived")
         self.assertEqual(archived["winner"], "draw")
         self.assertEqual(archived["revision"], room["revision"] + 1)
+        result_events = [
+            event
+            for event in framework.list_timeline(room["room_id"])
+            if event["event_type"] == "result"
+        ]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0]["display_text"], "和棋")
+        ai_events = framework.read_new_room_events(
+            room["room_id"], "ai-stale"
+        )
+        self.assertEqual(
+            [event["event_type"] for event in ai_events], ["result"]
+        )
 
     def test_stale_room_is_archived_before_global_capacity_check(self):
         with patch.object(framework, "GLOBAL_ACTIVE_ROOM_LIMIT", 1):
@@ -246,6 +259,12 @@ class CapacityFrameworkTests(unittest.TestCase):
         database.init_db()
 
         with sqlite3.connect(database.DB_PATH) as migrated:
+            message_schema = migrated.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'room_messages'
+                """
+            ).fetchone()[0]
             message = migrated.execute(
                 """
                 SELECT room_id, sender, sender_player_id, text
@@ -269,6 +288,8 @@ class CapacityFrameworkTests(unittest.TestCase):
         self.assertEqual(
             message, ("MIGRATE2", "human", "human-two", "还在吗")
         )
+        self.assertIn("'result'", message_schema)
+        self.assertIn("'system'", message_schema)
         self.assertEqual(
             participants, [("human-two", "human"), ("ai-two", "ai")]
         )

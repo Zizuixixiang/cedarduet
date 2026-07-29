@@ -197,7 +197,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
         self.assertIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.7.0", html)
+        self.assertIn("/static/app.js?v=0.8.0", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)
@@ -206,6 +206,10 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="humanSpeech"', html)
         self.assertIn('id="confirmMoveButton"', html)
         self.assertIn('id="historyDrawerPanel"', html)
+        self.assertIn('id="resultBanner"', html)
+        self.assertIn('id="resultModal"', html)
+        self.assertIn('id="rematchButton"', html)
+        self.assertIn('id="finishGameButton"', html)
         self.assertNotIn('class="timeline-panel', html)
         self.assertNotIn('id="moveFormat"', html)
         self.assertNotIn("随落子发送", html)
@@ -218,6 +222,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("function emojiFor(name)", script.text)
         self.assertIn("function confirmMove()", script.text)
         self.assertIn("function openHistory()", script.text)
+        self.assertIn("function oppositeMode(mode)", script.text)
+        self.assertIn("function rematch()", script.text)
         self.assertIn(
             "setInterval(() => refreshRoom({quiet: true}), 3000)",
             script.text,
@@ -229,6 +235,45 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(
             "select.disabled = machines.length === 1", script.text
         )
+
+    async def test_rematch_contract_reuses_pair_and_flips_first_player(self):
+        headers = self.trusted_headers([{"id": "ai-9", "name": "克莱奥"}])
+        first = await self.client.post(
+            "/api/rooms",
+            headers=headers,
+            json={
+                "player_id": "human-7",
+                "ai_player": "ai-9",
+                "game_type": "othello",
+                "mode": "human_first",
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        first_room = first.json()["room"]
+        resigned = await self.client.post(
+            f"/api/rooms/{first_room['room_id']}/resign",
+            json={"player_id": "human-7"},
+        )
+        self.assertEqual(resigned.status_code, 200, resigned.text)
+
+        rematch = await self.client.post(
+            "/api/rooms",
+            headers=headers,
+            json={
+                "player_id": "human-7",
+                "ai_player": first_room["ai_player_id"],
+                "game_type": first_room["game_type"],
+                "mode": "ai_first",
+            },
+        )
+        self.assertEqual(rematch.status_code, 200, rematch.text)
+        next_room = rematch.json()["room"]
+        self.assertNotEqual(next_room["room_id"], first_room["room_id"])
+        self.assertEqual(next_room["game_type"], first_room["game_type"])
+        self.assertEqual(next_room["ai_player_id"], first_room["ai_player_id"])
+        self.assertEqual(first_room["mode"], "human_first")
+        self.assertEqual(next_room["mode"], "ai_first")
+        self.assertEqual(next_room["turn"], "ai")
 
 
 if __name__ == "__main__":

@@ -44,13 +44,13 @@ ROOM_MESSAGES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS room_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
-    sender TEXT NOT NULL CHECK (sender IN ('human', 'ai')),
+    sender TEXT NOT NULL CHECK (sender IN ('human', 'ai', 'system')),
     sender_player_id TEXT NOT NULL,
     text TEXT NOT NULL DEFAULT '',
     revision_at_send INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     event_type TEXT NOT NULL DEFAULT 'message'
-        CHECK (event_type IN ('message', 'move', 'resign')),
+        CHECK (event_type IN ('message', 'move', 'resign', 'result')),
     move_label TEXT
 )
 """
@@ -139,16 +139,26 @@ def init_db() -> None:
             """
         )
         conn.execute(ROOM_MESSAGES_SCHEMA)
+        message_schema_row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'room_messages'
+            """
+        ).fetchone()
+        message_schema = (message_schema_row["sql"] or "") if message_schema_row else ""
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(room_messages)")
         }
         if (
             "sender_player_id" not in message_columns
             or "read_by_ai" in message_columns
+            or "'result'" not in message_schema
+            or "'system'" not in message_schema
         ):
             _migrate_message_events(conn, message_columns)
         conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
         _seed_missing_event_cursors(conn)
+        _backfill_terminal_result_events(conn)
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_room_messages_timeline
@@ -394,6 +404,74 @@ def _seed_missing_event_cursors(conn: sqlite3.Connection) -> None:
             ),
             participant.joined_at
         FROM room_participants AS participant
+        """
+    )
+
+
+def _backfill_terminal_result_events(conn: sqlite3.Connection) -> None:
+    """Give pre-0.8 terminal rooms one room-level result event."""
+    conn.execute(
+        """
+        INSERT INTO room_messages (
+            room_id, sender, sender_player_id, text, revision_at_send,
+            created_at, event_type, move_label
+        )
+        SELECT
+            room.room_id,
+            'system',
+            'system',
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM room_messages AS resigned
+                    WHERE resigned.room_id = room.room_id
+                      AND resigned.event_type = 'resign'
+                ) THEN COALESCE(
+                    (
+                        SELECT COALESCE(
+                            participant.display_name,
+                            resigned.sender_player_id
+                        )
+                        FROM room_messages AS resigned
+                        LEFT JOIN room_participants AS participant
+                          ON participant.room_id = resigned.room_id
+                         AND participant.player_id = resigned.sender_player_id
+                        WHERE resigned.room_id = room.room_id
+                          AND resigned.event_type = 'resign'
+                        ORDER BY resigned.id DESC
+                        LIMIT 1
+                    ),
+                    '参与者'
+                ) || ' 认输'
+                WHEN room.winner = 'draw' THEN '和棋'
+                WHEN room.winner IN ('human', 'ai') THEN COALESCE(
+                    (
+                        SELECT COALESCE(
+                            winner.display_name,
+                            winner.player_id
+                        )
+                        FROM room_participants AS winner
+                        WHERE winner.room_id = room.room_id
+                          AND winner.role = room.winner
+                        ORDER BY winner.seat_index
+                        LIMIT 1
+                    ),
+                    room.winner
+                ) || ' 获胜'
+                ELSE '对局结束'
+            END,
+            room.revision,
+            room.updated_at,
+            'result',
+            NULL
+        FROM rooms AS room
+        WHERE room.status IN ('finished', 'archived')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM room_messages AS existing
+              WHERE existing.room_id = room.room_id
+                AND existing.event_type = 'result'
+          )
         """
     )
 

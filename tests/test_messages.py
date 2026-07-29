@@ -153,6 +153,128 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0]["text"], "")
         self.assertEqual(events[0]["move_label"], "B2")
 
+    async def test_terminal_result_event_is_written_and_delivered_to_ai(self):
+        room = framework.create_room(
+            "tictactoe",
+            "human_first",
+            "human",
+            "human-one",
+            "Clio",
+            participant_names={
+                "human-one": "南杉",
+                "Clio": "clio_web",
+            },
+        )
+        room_id = room["room_id"]
+
+        async def human_move(row, col):
+            response = await self.client.post(
+                f"/api/rooms/{room_id}/move",
+                json={
+                    "player_id": "human-one",
+                    "move": {"row": row, "col": col},
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()
+
+        async def ai_move(row, col):
+            response = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move",
+                    "player_id": "Clio",
+                    "room_id": room_id,
+                    "move": {"row": row, "col": col},
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        await human_move(0, 0)
+        await ai_move(1, 0)
+        await human_move(0, 1)
+        consumed = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "Clio", "room_id": room_id},
+        )
+        self.assertEqual(
+            [event["move_label"] for event in consumed.json()["new_messages"]],
+            ["B1"],
+        )
+        waiter = asyncio.create_task(
+            self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move",
+                    "player_id": "Clio",
+                    "room_id": room_id,
+                    "move": {"row": 1, "col": 1},
+                    "wait": True,
+                },
+            )
+        )
+        await asyncio.sleep(0.03)
+        self.assertFalse(waiter.done())
+        terminal = await human_move(0, 2)
+        self.assertEqual(terminal["room"]["winner"], "human")
+        result_events = [
+            event
+            for event in terminal["timeline"]
+            if event["event_type"] == "result"
+        ]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0]["display_text"], "南杉 获胜")
+
+        resumed = await asyncio.wait_for(waiter, timeout=1)
+        self.assertEqual(resumed.status_code, 200, resumed.text)
+        new_events = resumed.json()["new_messages"]
+        self.assertEqual(
+            [event["event_type"] for event in new_events],
+            ["move", "result"],
+        )
+        result = new_events[-1]
+        self.assertEqual(result["text"], "南杉 获胜")
+        self.assertEqual(result["display_text"], "南杉 获胜")
+        self.assertEqual(
+            result["sender"],
+            {
+                "player_id": "system",
+                "name": "双弈裁判",
+                "role": "system",
+            },
+        )
+        repeated = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "Clio", "room_id": room_id},
+        )
+        self.assertEqual(repeated.json()["new_messages"], [])
+
+    async def test_ai_resign_returns_room_level_result_event(self):
+        room = framework.create_room(
+            "tictactoe",
+            "ai_first",
+            "human",
+            "human-one",
+            "Clio",
+            participant_names={"Clio": "clio_web"},
+        )
+        response = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "resign",
+                "player_id": "Clio",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        result_events = [
+            event
+            for event in response.json()["new_messages"]
+            if event["event_type"] == "result"
+        ]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0]["display_text"], "clio_web 认输")
+
     async def test_three_participants_have_independent_ordered_cursors(self):
         room = framework.create_room(
             "tictactoe",
