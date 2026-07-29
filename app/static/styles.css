@@ -259,11 +259,12 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
 
 .notice {
-  min-height: 20px;
+  margin: 0;
   color: var(--pink-dark);
   font-size: 11px;
   line-height: 1.6;
 }
+.notice:empty { display: none; }
 .notice.error { color: var(--purple-darker); }
 
 .lobby-stack { display: grid; gap: 12px; }
