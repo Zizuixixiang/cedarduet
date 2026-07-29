@@ -248,7 +248,7 @@ class CapacityFrameworkTests(unittest.TestCase):
         with sqlite3.connect(database.DB_PATH) as migrated:
             message = migrated.execute(
                 """
-                SELECT room_id, sender, text, read_by_ai
+                SELECT room_id, sender, sender_player_id, text
                 FROM room_messages
                 """
             ).fetchone()
@@ -258,10 +258,21 @@ class CapacityFrameworkTests(unittest.TestCase):
                 WHERE room_id = 'MIGRATE2' ORDER BY seat_index
                 """
             ).fetchall()
-        self.assertEqual(message, ("MIGRATE2", "human", "还在吗", 0))
+            cursors = migrated.execute(
+                """
+                SELECT player_id, last_event_id
+                FROM room_event_cursors
+                WHERE room_id = 'MIGRATE2'
+                ORDER BY player_id
+                """
+            ).fetchall()
+        self.assertEqual(
+            message, ("MIGRATE2", "human", "human-two", "还在吗")
+        )
         self.assertEqual(
             participants, [("human-two", "human"), ("ai-two", "ai")]
         )
+        self.assertEqual(cursors, [("ai-two", 0), ("human-two", 1)])
 
 
 class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):

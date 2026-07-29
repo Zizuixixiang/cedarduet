@@ -77,6 +77,7 @@ def _record_event(
     conn,
     room_id: str,
     sender: Role,
+    sender_player_id: str,
     revision: int,
     *,
     event_type: str,
@@ -86,28 +87,48 @@ def _record_event(
     conn.execute(
         """
         INSERT INTO room_messages (
-            room_id, sender, text, revision_at_send, created_at,
-            event_type, move_label, read_by_ai
+            room_id, sender, sender_player_id, text, revision_at_send,
+            created_at, event_type, move_label
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             room_id,
             sender,
+            sender_player_id,
             text,
             revision,
             _now(),
             event_type,
             move_label,
-            0 if sender == "human" and text else 1,
         ),
     )
 
 
-def _timeline_entry(row, room: dict) -> dict:
-    sender = row["sender"]
-    sender_name = room.get(f"{sender}_player_id") or (
-        "人类" if sender == "human" else "AI"
+def _event_sender(row, room: dict) -> dict:
+    player_id = row["sender_player_id"]
+    participant = next(
+        (
+            item
+            for item in room["participants"]
+            if item["player_id"] == player_id
+        ),
+        None,
     )
+    return {
+        "player_id": player_id,
+        "name": (
+            participant.get("display_name")
+            if participant and participant.get("display_name")
+            else player_id
+        ),
+        "role": participant["role"] if participant else row["sender"],
+    }
+
+
+def _timeline_entry(row, room: dict) -> dict:
+    sender = _event_sender(row, room)
+    sender_role = sender["role"]
+    sender_name = sender["name"]
     if row["event_type"] == "move":
         display_text = f"{sender_name} 落 {row['move_label']}"
         if row["text"]:
@@ -120,7 +141,9 @@ def _timeline_entry(row, room: dict) -> dict:
         display_text = f"{sender_name}：{row['text']}"
     return {
         "id": row["id"],
+        "sequence": row["id"],
         "sender": sender,
+        "sender_role": sender_role,
         "sender_name": sender_name,
         "text": row["text"],
         "event_type": row["event_type"],
@@ -230,16 +253,16 @@ def post_message(
         if room["status"] not in {"waiting", "playing"}:
             raise DuelError("对局已经结束，不能继续留言", 409)
         _record_event(
-            conn, room_id, role, room["revision"],
+            conn, room_id, role, player_id, room["revision"],
             event_type="message", text=text,
         )
     return _decorate(room)
 
 
-def read_new_human_messages(room_id: str, ai_player_id: str) -> list[dict]:
-    """Atomically consume human speech for the room's bound AI."""
+def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
+    """Atomically consume other participants' events using one cursor per reader."""
     room_id = _room_id(room_id)
-    ai_player_id = _player_id(ai_player_id)
+    player_id = _player_id(player_id)
     with write_transaction() as conn:
         room_row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
@@ -247,30 +270,72 @@ def read_new_human_messages(room_id: str, ai_player_id: str) -> list[dict]:
         if room_row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(room_row, conn)
-        _assert_player(room, "ai", ai_player_id)
+        _assert_participant(room, player_id)
+        cursor_row = conn.execute(
+            """
+            SELECT last_event_id
+            FROM room_event_cursors
+            WHERE room_id = ? AND player_id = ?
+            """,
+            (room_id, player_id),
+        ).fetchone()
+        last_event_id = cursor_row["last_event_id"] if cursor_row else 0
         rows = conn.execute(
             """
-            SELECT id, text, revision_at_send, created_at
+            SELECT id, sender, sender_player_id, text, revision_at_send,
+                   created_at, event_type, move_label
             FROM room_messages
-            WHERE room_id = ? AND sender = 'human'
-              AND text <> '' AND read_by_ai = 0
+            WHERE room_id = ? AND id > ? AND sender_player_id <> ?
             ORDER BY id
             """,
-            (room_id,),
+            (room_id, last_event_id, player_id),
         ).fetchall()
-        if rows:
-            conn.executemany(
-                "UPDATE room_messages SET read_by_ai = 1 WHERE id = ?",
-                [(row["id"],) for row in rows],
+        newest_event_id = conn.execute(
+            """
+            SELECT COALESCE(MAX(id), 0)
+            FROM room_messages WHERE room_id = ?
+            """,
+            (room_id,),
+        ).fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO room_event_cursors (
+                room_id, player_id, last_event_id, updated_at
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, player_id) DO UPDATE SET
+                last_event_id = excluded.last_event_id,
+                updated_at = excluded.updated_at
+            """,
+            (room_id, player_id, newest_event_id, _now()),
+        )
+        return [_timeline_entry(row, room) for row in rows]
+
+
+def update_participant_display_names(
+    human_player_id: str, participant_names: dict[str, str]
+) -> None:
+    """Refresh trusted display names for every room visible to one human."""
+    human_player_id = _player_id(human_player_id)
+    normalized = {
+        _player_id(player_id): (name or player_id).strip()[:100]
+        for player_id, name in participant_names.items()
+    }
+    with write_transaction() as conn:
+        for player_id, display_name in normalized.items():
+            conn.execute(
+                """
+                UPDATE room_participants
+                SET display_name = ?
+                WHERE player_id = ?
+                  AND room_id IN (
+                      SELECT human.room_id
+                      FROM room_participants AS human
+                      WHERE human.role = 'human'
+                        AND human.player_id = ?
+                  )
+                """,
+                (display_name or player_id, player_id, human_player_id),
             )
-    return [
-        {
-            "text": row["text"],
-            "revision_at_send": row["revision_at_send"],
-            "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
 
 
 def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
@@ -343,6 +408,7 @@ def create_room(
     role: Role,
     player_id: str,
     opponent_id: str | None = None,
+    participant_names: dict[str, str] | None = None,
 ) -> dict:
     try:
         game = get_game(game_type)
@@ -354,6 +420,7 @@ def create_room(
     opponent_id = _player_id(opponent_id) if opponent_id is not None else None
     human_player_id = player_id if role == "human" else opponent_id
     ai_player_id = player_id if role == "ai" else opponent_id
+    participant_names = participant_names or {}
     state = game.initial_state()
     state["marks"] = (
         {"human": "X", "ai": "O"}
@@ -394,16 +461,29 @@ def create_room(
                 conn.execute(
                     """
                     INSERT INTO room_participants (
-                        room_id, player_id, role, seat_index, joined_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        room_id, player_id, display_name, role,
+                        seat_index, joined_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         room_id,
                         participant_id,
+                        (
+                            participant_names.get(participant_id)
+                            or participant_id
+                        )[:100],
                         participant_role,
                         seat_index,
                         timestamp,
                     ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO room_event_cursors (
+                        room_id, player_id, last_event_id, updated_at
+                    ) VALUES (?, ?, 0, ?)
+                    """,
+                    (room_id, participant_id, timestamp),
                 )
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
@@ -444,7 +524,7 @@ def join_room(
             ):
                 if message:
                     _record_event(
-                        conn, room_id, role, row["revision"],
+                        conn, room_id, role, player_id, row["revision"],
                         event_type="message", text=message,
                     )
                 return _decorate(room)
@@ -472,10 +552,26 @@ def join_room(
             conn.execute(
                 """
                 INSERT INTO room_participants (
-                    room_id, player_id, role, seat_index, joined_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    room_id, player_id, display_name, role,
+                    seat_index, joined_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (room_id, player_id, role, seat_index, _now()),
+                (room_id, player_id, player_id, role, seat_index, _now()),
+            )
+            latest_event_id = conn.execute(
+                """
+                SELECT COALESCE(MAX(id), 0)
+                FROM room_messages WHERE room_id = ?
+                """,
+                (room_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO room_event_cursors (
+                    room_id, player_id, last_event_id, updated_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (room_id, player_id, latest_event_id, _now()),
             )
         room = decode_room(row, conn)
         human_player_id = room["human_player_id"]
@@ -498,7 +594,7 @@ def join_room(
         ).fetchone()
         if message:
             _record_event(
-                conn, room_id, role, updated["revision"],
+                conn, room_id, role, player_id, updated["revision"],
                 event_type="message", text=message,
             )
         result = decode_room(updated, conn)
@@ -536,6 +632,13 @@ def _assert_player(room: dict, role: Role, player_id: str) -> None:
         raise DuelError(f"{role} 席位尚未加入", 409)
     if player_id not in role_participants:
         raise DuelError("player_id 与该房间席位不匹配", 403)
+
+
+def _assert_participant(room: dict, player_id: str) -> None:
+    if player_id not in {
+        participant["player_id"] for participant in room["participants"]
+    }:
+        raise DuelError("player_id 不是该房间参与者", 403)
 
 
 def _assert_opponent(room: dict, role: Role, opponent_id: str | None) -> None:
@@ -630,6 +733,7 @@ def play_move(
             conn,
             room_id,
             role,
+            player_id,
             updated["revision"],
             event_type="move",
             text=message,
@@ -678,6 +782,7 @@ def resign(
             conn,
             room_id,
             role,
+            player_id,
             updated["revision"],
             event_type="resign",
             text=message,

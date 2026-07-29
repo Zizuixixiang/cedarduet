@@ -197,7 +197,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
         self.assertIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.5.1", html)
+        self.assertIn("/static/app.js?v=0.6.0", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertEqual(response.headers["cache-control"], "no-store")

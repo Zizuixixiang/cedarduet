@@ -20,8 +20,9 @@ from .framework import (
     list_timeline,
     play_move,
     post_message,
-    read_new_human_messages,
+    read_new_room_events,
     resign,
+    update_participant_display_names,
 )
 from .games import game_catalog, get_game
 from .models import (
@@ -89,7 +90,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.5.1",
+    version="0.6.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -150,7 +151,7 @@ def ai_response(
         room,
         message,
         status,
-        new_messages=read_new_human_messages(room["room_id"], player_id),
+        new_messages=read_new_room_events(room["room_id"], player_id),
     )
 
 
@@ -225,7 +226,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.5.1"}
+    return {"ok": True, "service": "duel", "version": "0.6.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -267,6 +268,13 @@ async def human_whoami(request: Request):
     )
     machines = _trusted_bound_ais(request)
     ai_names = {machine["id"]: machine["name"] for machine in machines}
+    update_participant_display_names(
+        human_player_id,
+        {
+            human_player_id: human_name,
+            **ai_names,
+        },
+    )
     return {
         "ok": True,
         "bound": True,
@@ -288,7 +296,8 @@ async def human_create(request: Request, body: CreateRoomBody):
     selected_ai = body.ai_player or body.opponent_id
     if selected_ai is None:
         raise DuelError("开新对局需要先选择一只已绑定小机")
-    allowed_ais = {machine["id"] for machine in _trusted_bound_ais(request)}
+    machines = _trusted_bound_ais(request)
+    allowed_ais = {machine["id"] for machine in machines}
     if selected_ai not in allowed_ais:
         raise DuelError("所选小机不在当前账号的绑定清单中", 403)
     try:
@@ -311,6 +320,20 @@ async def human_create(request: Request, body: CreateRoomBody):
         "human",
         body.player_id,
         opponent_id=selected_ai,
+        participant_names={
+            body.player_id: (
+                unquote(request.headers.get("X-Duel-Human-Name", "")).strip()
+                or body.player_id
+            ),
+            selected_ai: next(
+                (
+                    machine["name"]
+                    for machine in machines
+                    if machine["id"] == selected_ai
+                ),
+                selected_ai,
+            ),
+        },
     )
     message = (
         f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。"
@@ -417,12 +440,12 @@ async def mcp_play(body: McpPlayBody):
         )
         if room["status"] == "playing":
             message = (
-                f"已为绑定人类创建房间 {room['room_id']}，当前轮到 {room['turn']}；"
+                f"已为绑定参与者创建房间 {room['room_id']}，当前轮到 {room['turn']}；"
                 f"落子格式：{room['move_format']}"
             )
         else:
             message = (
-                f"已创建房间 {room['room_id']}。请把房间号交给人类加入；"
+                f"已创建房间 {room['room_id']}。请让房间内其他参与者加入；"
                 f"落子时按此格式调用：{room['move_format']}"
             )
         return ai_response(
@@ -441,7 +464,7 @@ async def mcp_play(body: McpPlayBody):
         message = (
             f"AI 已加入，当前轮到 {room['turn']}。落子格式：{room['move_format']}"
             if room["status"] == "playing"
-            else "AI 席位已就绪，等待人类加入。"
+            else "AI 席位已就绪，等待房间内其他参与者加入。"
         )
         return ai_response(room, message, body.player_id)
 
@@ -503,14 +526,14 @@ async def mcp_play(body: McpPlayBody):
         latest = get_room(room["room_id"], "ai", body.player_id)
         return ai_response(
             latest,
-            "等待 50 秒仍未收到对方落子；请使用 state 查看，或在下一次 move 后继续 wait=true。",
+            "等待 50 秒仍未收到房间内其他参与者的新动作；请使用 state 查看，或在下一次 move 后继续 wait=true。",
             body.player_id,
             status="still_waiting",
         )
     return ai_response(
         changed,
         with_action_note(
-            f"对方已行动，局面从 revision={baseline} 更新到 revision={changed['revision']}。",
+            f"房间内其他参与者已行动，局面从 revision={baseline} 更新到 revision={changed['revision']}。",
             changed,
         ),
         body.player_id,

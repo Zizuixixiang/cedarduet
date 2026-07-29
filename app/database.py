@@ -31,6 +31,7 @@ ROOM_PARTICIPANTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS room_participants (
     room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
     player_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('human', 'ai')),
     seat_index INTEGER NOT NULL CHECK (seat_index >= 0),
     joined_at TEXT NOT NULL,
@@ -44,13 +45,25 @@ CREATE TABLE IF NOT EXISTS room_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
     sender TEXT NOT NULL CHECK (sender IN ('human', 'ai')),
+    sender_player_id TEXT NOT NULL,
     text TEXT NOT NULL DEFAULT '',
     revision_at_send INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     event_type TEXT NOT NULL DEFAULT 'message'
         CHECK (event_type IN ('message', 'move', 'resign')),
-    move_label TEXT,
-    read_by_ai INTEGER NOT NULL DEFAULT 0 CHECK (read_by_ai IN (0, 1))
+    move_label TEXT
+)
+"""
+
+ROOM_EVENT_CURSORS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS room_event_cursors (
+    room_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    last_event_id INTEGER NOT NULL DEFAULT 0 CHECK (last_event_id >= 0),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, player_id),
+    FOREIGN KEY (room_id, player_id)
+        REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
 )
 """
 
@@ -95,6 +108,21 @@ def init_db() -> None:
                 _migrate_to_participants(conn)
             else:
                 conn.execute(ROOM_PARTICIPANTS_SCHEMA)
+        participant_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(room_participants)")
+        }
+        if "display_name" not in participant_columns:
+            conn.execute(
+                "ALTER TABLE room_participants ADD COLUMN display_name TEXT"
+            )
+            conn.execute(
+                """
+                UPDATE room_participants
+                SET display_name = player_id
+                WHERE display_name IS NULL OR display_name = ''
+                """
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rooms_updated_at ON rooms(updated_at)"
         )
@@ -111,6 +139,16 @@ def init_db() -> None:
             """
         )
         conn.execute(ROOM_MESSAGES_SCHEMA)
+        message_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(room_messages)")
+        }
+        if (
+            "sender_player_id" not in message_columns
+            or "read_by_ai" in message_columns
+        ):
+            _migrate_message_events(conn, message_columns)
+        conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
+        _seed_missing_event_cursors(conn)
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_room_messages_timeline
@@ -119,10 +157,11 @@ def init_db() -> None:
         )
         conn.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_room_messages_ai_unread
-            ON room_messages(room_id, sender, read_by_ai, id)
+            CREATE INDEX IF NOT EXISTS idx_room_messages_sender
+            ON room_messages(room_id, id, sender_player_id)
             """
         )
+        conn.execute("DROP INDEX IF EXISTS idx_room_messages_ai_unread")
     finally:
         conn.close()
 
@@ -144,12 +183,28 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
         WHERE type = 'table' AND name = 'room_messages'
         """
     ).fetchone() is not None
+    message_columns = (
+        {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(room_messages)")
+        }
+        if messages_exists
+        else set()
+    )
     participants_exists = conn.execute(
         """
         SELECT 1 FROM sqlite_master
         WHERE type = 'table' AND name = 'room_participants'
         """
     ).fetchone() is not None
+    participant_columns = (
+        {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(room_participants)")
+        }
+        if participants_exists
+        else set()
+    )
     conn.execute("PRAGMA foreign_keys = OFF")
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -177,12 +232,19 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
         )
         conn.execute(ROOM_PARTICIPANTS_SCHEMA)
         if participants_exists:
+            display_name_expr = (
+                "COALESCE(display_name, player_id)"
+                if "display_name" in participant_columns
+                else "player_id"
+            )
             conn.execute(
-                """
+                f"""
                 INSERT INTO room_participants (
-                    room_id, player_id, role, seat_index, joined_at
+                    room_id, player_id, display_name, role,
+                    seat_index, joined_at
                 )
-                SELECT room_id, player_id, role, seat_index, joined_at
+                SELECT room_id, player_id, {display_name_expr}, role,
+                       seat_index, joined_at
                 FROM room_participants_legacy
                 """
             )
@@ -190,9 +252,11 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """
                 INSERT INTO room_participants (
-                    room_id, player_id, role, seat_index, joined_at
+                    room_id, player_id, display_name, role,
+                    seat_index, joined_at
                 )
-                SELECT room_id, human_player_id, 'human', 0, created_at
+                SELECT room_id, human_player_id, human_player_id,
+                       'human', 0, created_at
                 FROM rooms_legacy
                 WHERE human_player_id IS NOT NULL
                 """
@@ -200,26 +264,18 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """
                 INSERT INTO room_participants (
-                    room_id, player_id, role, seat_index, joined_at
+                    room_id, player_id, display_name, role,
+                    seat_index, joined_at
                 )
-                SELECT room_id, ai_player_id, 'ai', 1, created_at
+                SELECT room_id, ai_player_id, ai_player_id,
+                       'ai', 1, created_at
                 FROM rooms_legacy
                 WHERE ai_player_id IS NOT NULL
                 """
             )
         if messages_exists:
-            conn.execute(ROOM_MESSAGES_SCHEMA)
-            conn.execute(
-                """
-                INSERT INTO room_messages (
-                    id, room_id, sender, text, revision_at_send, created_at,
-                    event_type, move_label, read_by_ai
-                )
-                SELECT
-                    id, room_id, sender, text, revision_at_send, created_at,
-                    event_type, move_label, read_by_ai
-                FROM room_messages_legacy
-                """
+            _copy_legacy_messages_and_seed_cursors(
+                conn, "room_messages_legacy", message_columns
             )
             conn.execute("DROP TABLE room_messages_legacy")
         if participants_exists:
@@ -231,6 +287,115 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
         raise
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _copy_legacy_messages_and_seed_cursors(
+    conn: sqlite3.Connection, legacy_table: str, columns: set[str]
+) -> None:
+    sender_player_expr = (
+        "COALESCE(sender_player_id, "
+        "(SELECT participant.player_id FROM room_participants AS participant "
+        f"WHERE participant.room_id = {legacy_table}.room_id "
+        f"AND participant.role = {legacy_table}.sender "
+        "ORDER BY participant.seat_index LIMIT 1), sender)"
+        if "sender_player_id" in columns
+        else
+        "(SELECT participant.player_id FROM room_participants AS participant "
+        f"WHERE participant.room_id = {legacy_table}.room_id "
+        f"AND participant.role = {legacy_table}.sender "
+        "ORDER BY participant.seat_index LIMIT 1)"
+    )
+    conn.execute(ROOM_MESSAGES_SCHEMA)
+    conn.execute(
+        f"""
+        INSERT INTO room_messages (
+            id, room_id, sender, sender_player_id, text,
+            revision_at_send, created_at, event_type, move_label
+        )
+        SELECT
+            id, room_id, sender, COALESCE({sender_player_expr}, sender), text,
+            revision_at_send, created_at, event_type, move_label
+        FROM {legacy_table}
+        """
+    )
+    conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
+    if "read_by_ai" in columns:
+        conn.execute(
+            f"""
+            INSERT OR IGNORE INTO room_event_cursors (
+                room_id, player_id, last_event_id, updated_at
+            )
+            SELECT
+                participant.room_id,
+                participant.player_id,
+                CASE
+                    WHEN participant.role = 'ai' THEN COALESCE(
+                        (
+                            SELECT MIN(message.id) - 1
+                            FROM {legacy_table} AS message
+                            WHERE message.room_id = participant.room_id
+                              AND message.sender <> 'ai'
+                              AND message.text <> ''
+                              AND message.read_by_ai = 0
+                        ),
+                        (
+                            SELECT COALESCE(MAX(message.id), 0)
+                            FROM {legacy_table} AS message
+                            WHERE message.room_id = participant.room_id
+                        )
+                    )
+                    ELSE (
+                        SELECT COALESCE(MAX(message.id), 0)
+                        FROM {legacy_table} AS message
+                        WHERE message.room_id = participant.room_id
+                    )
+                END,
+                participant.joined_at
+            FROM room_participants AS participant
+            """
+        )
+
+
+def _migrate_message_events(
+    conn: sqlite3.Connection, columns: set[str]
+) -> None:
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("ALTER TABLE room_messages RENAME TO room_messages_legacy")
+        _copy_legacy_messages_and_seed_cursors(
+            conn, "room_messages_legacy", columns
+        )
+        conn.execute("DROP TABLE room_messages_legacy")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _seed_missing_event_cursors(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO room_event_cursors (
+            room_id, player_id, last_event_id, updated_at
+        )
+        SELECT
+            participant.room_id,
+            participant.player_id,
+            COALESCE(
+                (
+                    SELECT MAX(message.id)
+                    FROM room_messages AS message
+                    WHERE message.room_id = participant.room_id
+                ),
+                0
+            ),
+            participant.joined_at
+        FROM room_participants AS participant
+        """
+    )
 
 
 @contextmanager
@@ -259,7 +424,7 @@ def decode_room(
     try:
         participant_rows = conn.execute(
             """
-            SELECT player_id, role, seat_index, joined_at
+            SELECT player_id, display_name, role, seat_index, joined_at
             FROM room_participants
             WHERE room_id = ?
             ORDER BY seat_index, joined_at, player_id

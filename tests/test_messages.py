@@ -8,6 +8,7 @@ import httpx
 
 from app import database
 from app import main as main_module
+from app import framework
 
 
 class MessageApiTests(unittest.IsolatedAsyncioTestCase):
@@ -82,6 +83,12 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
             [message["text"] for message in payload["new_messages"]],
             ["那我守中间。"],
         )
+        event = payload["new_messages"][0]
+        self.assertEqual(event["event_type"], "move")
+        self.assertEqual(event["sender"]["player_id"], "human-one")
+        self.assertEqual(event["sender"]["name"], "human-one")
+        self.assertEqual(event["sender"]["role"], "human")
+        self.assertEqual(event["sequence"], event["id"])
         state = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
@@ -115,6 +122,115 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
         )
         self.assertEqual(repeated.json()["new_messages"], [])
+
+    async def test_move_without_speech_is_a_shared_timeline_event(self):
+        room_id = await self.new_room()
+        ai_move = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move",
+                "player_id": "Clio",
+                "room_id": room_id,
+                "move": {"row": 0, "col": 0},
+            },
+        )
+        self.assertEqual(ai_move.status_code, 200, ai_move.text)
+        human_move = await self.client.post(
+            f"/api/rooms/{room_id}/move",
+            json={
+                "player_id": "human-one",
+                "move": {"row": 1, "col": 1},
+            },
+        )
+        self.assertEqual(human_move.status_code, 200, human_move.text)
+        state = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "Clio", "room_id": room_id},
+        )
+        events = state.json()["new_messages"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "move")
+        self.assertEqual(events[0]["text"], "")
+        self.assertEqual(events[0]["move_label"], "B2")
+
+    async def test_three_participants_have_independent_ordered_cursors(self):
+        room = framework.create_room(
+            "tictactoe",
+            "human_first",
+            "human",
+            "human-one",
+            "Clio",
+            participant_names={
+                "human-one": "Human One",
+                "Clio": "Clio",
+            },
+        )
+        room_id = room["room_id"]
+        with database.write_transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO room_participants (
+                    room_id, player_id, display_name, role,
+                    seat_index, joined_at
+                ) VALUES (?, 'Beta', 'Beta Bot', 'ai', 2, ?)
+                """,
+                (room_id, room["created_at"]),
+            )
+            conn.execute(
+                """
+                INSERT INTO room_event_cursors (
+                    room_id, player_id, last_event_id, updated_at
+                ) VALUES (?, 'Beta', 0, ?)
+                """,
+                (room_id, room["created_at"]),
+            )
+
+        framework.post_message(
+            room_id, "human", "human-one", "大家好"
+        )
+        framework.post_message(room_id, "ai", "Clio", "我已就位")
+        framework.post_message(room_id, "ai", "Beta", "我也到了")
+        framework.play_move(
+            room_id, "human", "human-one", {"row": 1, "col": 1}
+        )
+
+        clio_events = framework.read_new_room_events(room_id, "Clio")
+        self.assertEqual(
+            [event["sequence"] for event in clio_events], [1, 3, 4]
+        )
+        self.assertEqual(
+            [event["event_type"] for event in clio_events],
+            ["message", "message", "move"],
+        )
+        self.assertEqual(
+            [event["sender"] for event in clio_events],
+            [
+                {
+                    "player_id": "human-one",
+                    "name": "Human One",
+                    "role": "human",
+                },
+                {
+                    "player_id": "Beta",
+                    "name": "Beta Bot",
+                    "role": "ai",
+                },
+                {
+                    "player_id": "human-one",
+                    "name": "Human One",
+                    "role": "human",
+                },
+            ],
+        )
+        self.assertEqual(
+            framework.read_new_room_events(room_id, "Clio"), []
+        )
+
+        beta_events = framework.read_new_room_events(room_id, "Beta")
+        self.assertEqual(
+            [event["sequence"] for event in beta_events], [1, 2, 4]
+        )
+        self.assertEqual(beta_events[1]["sender"]["name"], "Clio")
 
     async def test_still_waiting_delivers_stored_message(self):
         room_id = await self.new_room()

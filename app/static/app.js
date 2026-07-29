@@ -448,8 +448,14 @@ function renderTimeline(timeline = []) {
   }
   timeline.forEach((event) => {
     const item = document.createElement("li");
-    item.className = event.sender;
-    const speaker = event.sender === "human" ? "你" : aiNameFor();
+    const senderRole = event.sender_role
+      || (typeof event.sender === "string" ? event.sender : event.sender.role);
+    const speaker = (
+      typeof event.sender === "object" && event.sender
+        ? event.sender.name
+        : event.sender_name
+    ) || (senderRole === "human" ? "你" : aiNameFor());
+    item.className = senderRole;
     if (event.event_type === "move") {
       item.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
     } else if (event.event_type === "resign") {
