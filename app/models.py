@@ -1,6 +1,7 @@
+import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StrictBody(BaseModel):
@@ -34,6 +35,18 @@ class MoveBody(StrictBody):
     to_col: int | None = None
     message: str | None = Field(default=None, max_length=500)
 
+    @field_validator("move", mode="before")
+    @classmethod
+    def parse_string_move(cls, value):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+            if isinstance(parsed, dict):
+                return parsed
+        return value
+
 
 class ResignBody(StrictBody):
     player_id: str = Field(min_length=1, max_length=80)
@@ -59,3 +72,27 @@ class McpPlayBody(BaseModel):
     move: dict[str, Any] | None = None
     wait: bool = False
     message: str | None = Field(default=None, max_length=500)
+
+    @field_validator("move", mode="before")
+    @classmethod
+    def parse_string_move(cls, value):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+            if isinstance(parsed, dict):
+                return parsed
+        return value
+
+    @field_validator("wait", mode="before")
+    @classmethod
+    def parse_string_wait(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
+            raise ValueError("wait 字符串只能是 true 或 false")
+        return value
