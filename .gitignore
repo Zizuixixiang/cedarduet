@@ -2,7 +2,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.env
+.env.*
+*.log
 data/*.db
 data/*.db-shm
 data/*.db-wal
-
+data/*.sqlite
+data/*.sqlite3

@@ -1,92 +1,145 @@
-# Duel：人类与绑定 AI 的回合制对弈框架
+# CedarDuet / 双弈
 
-Duel 是一个纯单机性质的 human-vs-AI 回合制对弈框架。一局只属于一位人类及其绑定的 AI，不提供大厅、社交关系或陌生人匹配。项目以公益开源、非商业使用为定位，采用 PolyForm Noncommercial 1.0.0 许可。
+人类与自己的 AI 搭档进行回合制棋牌对弈的独立服务。
 
-当前自带六个全明规则棋种：
+CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及正在建设中的全局娱乐筹码系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
 
-- `tictactoe`：3×3 井字棋，用作框架冒烟测试。
-- `gomoku`：15×15 五子棋，无禁手，连续五子或更多即胜。
-- `othello`：8×8 黑白棋，支持无合法步自动跳过与终局数子。
-- `connect4`：7×6 四子连珠，按列重力落子。
-- `dots_boxes`：5×5 点阵的点格棋，成格得分并保留行动权。
-- `jungle`：7×9 标准斗兽棋，含河道、跳河、陷阱和兽穴规则。
+> 当前定位：公益、非商业、娱乐用途。筹码仅为站内娱乐数值，不支持充值、提现或与真钱兑换。
 
-## 架构
+## 当前游戏
 
-服务是独立 FastAPI/ASGI 应用，由 uvicorn 单进程运行：
+- `tictactoe`：3×3 井字棋
+- `gomoku`：15×15 五子棋，无禁手
+- `othello`：8×8 黑白棋，支持自动跳过与终局数子
+- `connect4`：7×6 四子连珠
+- `dots_boxes`：点格棋
+- `jungle`：7×9 斗兽棋
 
-```text
-网页 /api/rooms/* ─┐
-                   ├─ 通用对局框架 ─ 六个棋种插件
-AI /mcp/play ──────┘       │
-                           ├─ SQLite rooms / room_participants / room_messages
-                           │          └─ room_event_cursors（逐参与者已读游标）
-                           └─ asyncio.Event（只做进程内唤醒提示）
-```
+当前六种均为双人局。框架已经使用参与者席位表保存身份，为后续多人棋牌预留了扩展空间。
 
-- 一房一局。`rooms` 保存局面字段，`room_participants` 以席位关系保存 `player_id`、`role`、`seat_index`，不再把双方写死成两列；当前协议仍投影 `human_player_id` / `ai_player_id` 以保持兼容，并为未来多人棋局预留扩展空间。
-- 所有写操作先执行 `BEGIN IMMEDIATE`，再读取并校验旧状态，最后在同一事务内更新。
-- 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间；`new/join` 在写事务内检查容量。
-- AI 的 `move` 支持 `wait=false` 和 `wait=true`。后者落子提交后才等待，不持有数据库连接、事务或锁；人类落子会触发 `asyncio.Event`。唤醒后重新读取 SQLite 并检查 revision。
-- 单次等待最多 50 秒，超时返回顶层 `status: "still_waiting"`，调用方可稍后用 `state` 查看，或在下一次落子后再次等待。
-- 全局最多同时挂起 20 个等待；容量已满时落子仍成功，但按 `wait=false` 立即返回并附 `wait_downgraded: true`。
-- 活跃房间连续 7 天没有落子，会在下一次被读取或写入时惰性判和并改为 `archived`；无需后台定时器。
-- `rules_text` 与 `move_format` 由棋种插件提供，AI 和网页使用同一份内容。
-- 棋种插件同时声明 `min_players` / `max_players`；大厅按人数要求决定创建按钮是否可用，当前六种棋均为 2 人局。
-- 插件可通过 `MoveResult.retain_turn` 表明成格、自动跳过等情况下继续由本方行动，框架统一处理轮次。
-- `join/move/state/resign` 可附带最长 500 字的 `message`；落子、认输和独立发言进入同一条房间共享时间线。独立留言不增加 revision，也不唤醒等待者。
-- AI 的返回包含一次性 `new_messages`：自该参与者上次读取以来，房间内其他参与者产生的全部新事件。事件按 `sequence` 混排，每条 `sender` 都带 `player_id`、显示名和角色；终局另有 `sender.role=system`、`event_type=result` 的裁判事件，AI 被唤醒时可直接读取胜负。
-- 已读状态由 `room_event_cursors` 按 `(room_id, player_id)` 独立维护；一个参与者读取不会推进其他参与者的游标。
-- 人类页面不接受自报身份或房间号。聚合层进门只验证人类登录态，并通过可信请求头注入人类身份与其全部绑定小机清单；`GET /api/whoami` 返回该人类名下的全部房间，活跃对局优先。开房时才选择对手，服务端再按可信绑定清单校验。裸连 8772 只显示回主站登录的引导。
-- Event 通知是单进程内机制，因此 uvicorn 必须保持单 worker；SQLite revision 保证返回局面可验证。
-
-## 目录
+## 项目结构
 
 ```text
 app/
-  main.py             FastAPI 路由、等待与唤醒
-  database.py         SQLite 初始化及 BEGIN IMMEDIATE 事务
-  framework.py        房间、身份、轮次、胜负、认输
-  models.py           HTTP 请求模型
-  games/              棋种接口及六个插件
-  static/             人类端网页、棋盘与对局时间线
-tests/
-  play_tictactoe.py   完整 HTTP 对局及 wait=true 并发唤醒演示
-  test_games.py       井字棋和五子棋规则单测
-  test_new_games.py   四个新增棋种与保留行动权单测
-  test_messages.py    消息唤醒、暂存投递与一次性已读单测
-  test_capacity.py    房间容量、等待降级、惰性归档与 schema 迁移
-  test_identity.py    可信身份、全量房间、选机校验与参与者鉴权
+  main.py              FastAPI 路由、等待与唤醒
+  database.py          SQLite 初始化与迁移
+  framework.py         房间、身份、轮次、胜负、消息
+  models.py            HTTP 请求模型
+  chips.py             全局娱乐筹码钱包与统一流水
+  chips_routes.py      筹码中心页面与 API
+  games/               棋种插件
+  static/              人类端网页、棋盘、时间线、筹码中心
+tests/                  单元测试与前端行为测试
+data/                   本地运行数据目录；真实数据库不会提交到 Git
 ```
+
+## 核心能力
+
+- 一房一局，人类与 AI 作为独立参与者保存。
+- 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
+- 落子、发言、认输和终局结果进入同一条共享时间线。
+- AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。
+- `move` 支持 `wait=true`：AI 落子后可等待人类动作，最长 50 秒；等待期间不持有 SQLite 事务或锁。
+- 全局最多 20 个并发等待；超过容量时落子仍然成功，只是不继续挂等。
+- 活跃房间长期无动作时可惰性归档。
+- 终局房间支持“保留 / 取消保留 / 手动删除”。当前版本已暂停自动物理删除终局记录，避免旧对局在正式公告前被清理。
+- 人类普通聊天、AI 普通聊天、落子事件和结果事件使用不同的前端视觉层级。
+- 全局娱乐筹码第一版已经包含：首次 200、每日签到 +20、允许负数、`<= -500` 可自愿破产、破产后重置 50、破产次数与状态标记、统一筹码流水。
+- 成就、互动兑换、借款/欠条，以及每局筹码下注与结算目前仍在设计/建设中。
 
 ## 本地启动
 
 要求 Python 3.10+。
 
 ```bash
-cd /opt/cedartoy/vendor/duel
+git clone https://github.com/Zizuixixiang/cedarduet.git
+cd cedarduet
+
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
 
-打开 <http://127.0.0.1:8772/>。默认数据库为 `data/duel.db`，也可用 `DUEL_DB_PATH` 指定。
+健康检查：
 
-本项目选择 8772；部署时如已被占用，应依次改用 8773、8774，并同步修改 supervisor 示例或启动命令。当前 CedarToy 部署使用本目录 `.venv`，配置安装在 `/etc/supervisor/conf.d/cedartoy-duel.conf`，program 名为 `cedartoy-duel`。仓库内的 `duel.supervisord.conf.example` 是对应的可审查副本。
+```bash
+curl http://127.0.0.1:8772/health
+```
+
+默认数据库为 `data/duel.db`，也可以通过环境变量指定：
+
+```bash
+DUEL_DB_PATH=/your/path/duel.db \
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
+```
+
+事件唤醒目前是单进程内机制，因此请保持 uvicorn 单 worker。
+
+### 为什么直接打开 8772 会提示从主站登录？
+
+当前网页端采用“可信上游认证”模式：CedarDuet 不自行保存 CedarToy 的账号密码，而是由上游认证层验证登录后，向 CedarDuet 注入可信的人类身份和绑定 AI 清单。
+
+因此，直接裸连 `http://127.0.0.1:8772/` 可以启动服务、跑测试和调用内部接口，但当前网页会提示从认证入口进入。这是部署方式的边界，不是游戏引擎依赖 CedarToy。
+
+如果你想把 CedarDuet 接进自己的站点，可以实现自己的认证/绑定层，再按下文的可信身份协议反向代理到 CedarDuet。
+
+## 可信人类身份协议
+
+人类网页请求由上游代理验证后注入以下 Header：
+
+```http
+X-Duel-Human-Player: <trusted human id>
+X-Duel-Human-Name: <percent-encoded human name>
+X-Duel-Bound-Ais: <base64url JSON [{"id":"...","name":"..."}]>
+```
+
+这些 Header **只应该由受信任的反向代理在内网注入**，不要直接相信公网客户端自己提交的同名 Header。
+
+`GET /api/whoami` 会返回：
+
+- 当前人类显示名
+- 其绑定 AI 清单
+- 游戏目录
+- 该人类的全部房间
+
+开房时网页只提交所选 AI，服务端会再次校验它是否属于可信绑定清单。
 
 ## AI HTTP 接口
 
-所有 AI 操作统一提交到：
+AI 操作统一提交到：
 
 ```http
 POST /mcp/play
 Content-Type: application/json
 ```
 
-支持 `new`、`join`、`move`、`state`、`resign`。直连时由调用方传入 `player_id`；经 CedarToy 聚合层时会覆盖并强制注入可信身份。
+支持：
 
-AI 创建房间：
+- `rooms`
+- `new`
+- `join`
+- `move`
+- `state`
+- `resign`
+
+当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
+
+### 查询自己的房间
+
+```json
+{
+  "action": "rooms",
+  "player_id": "ai-42",
+  "include_terminal": false,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+默认只返回 `waiting` / `playing`；`include_terminal=true` 时也包含 `finished` / `archived`。
+
+### AI 创建房间
 
 ```json
 {
@@ -97,13 +150,7 @@ AI 创建房间：
 }
 ```
 
-AI 加入人类创建的房间：
-
-```json
-{"action":"join","player_id":"ai-42","room_id":"ABCDEFGH"}
-```
-
-AI 落子并等待房间内其他参与者回应：
+### AI 落子并等待人类回应
 
 ```json
 {
@@ -116,40 +163,76 @@ AI 落子并等待房间内其他参与者回应：
 }
 ```
 
-响应均为结构化 JSON，顶层包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。房间对象包含规则文本、指令格式与当前棋盘。`new_messages` 是共享时间线增量，落子、发言和终局结果按序混排；每条包含 `sequence`、`sender: {player_id, name, role}`、`event_type`、`move_label`、`text`、`display_text`、`revision_at_send` 与 `created_at`。
+响应为结构化 JSON，包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。AI 可以读取共享时间线中的落子、聊天和裁判终局事件。
 
-人类独立留言：
+## 人类网页 API
 
-```http
-POST /api/rooms/ABCDEFGH/messages
-Content-Type: application/json
+常用接口包括：
 
-{"player_id":"human-42","message":"我还在想这一手。"}
+```text
+GET  /api/whoami
+POST /api/rooms
+GET  /api/rooms/{room_id}
+POST /api/rooms/{room_id}/move
+POST /api/rooms/{room_id}/messages
+POST /api/rooms/{room_id}/resign
+POST /api/rooms/{room_id}/retention
+POST /api/rooms/{room_id}/delete
 ```
 
-该接口不会推进 revision，也不会唤醒 AI 的 `wait=true` 请求；留言会在 AI 超时返回、被落子唤醒或下次调用时送达。
+终局保留和删除仅允许该房间中的可信人类参与者操作。
 
-人类身份与房间列表由主站代理提供：
+## 筹码中心
 
-```http
-GET /api/whoami
-X-Duel-Human-Player: <trusted human id>
-X-Duel-Human-Name: <percent-encoded human name>
-X-Duel-Bound-Ais: <base64url JSON [{"id":"...","name":"..."}]>
+独立页面：
+
+```text
+/chips
 ```
 
-上述头只应由 loopback 聚合代理注入。网页不会展示或允许填写这些内部 ID；开房请求只提交所选 `ai_player`，后端会拒绝任何不在可信清单中的小机。
+当前已经实现：
 
-## 自测
+- 人类 / AI 各自独立的全局钱包
+- 首次创建钱包赠送 200
+- 人类每日签到固定 +20
+- 余额允许为负数
+- 余额 `<= -500` 时可自愿宣布破产
+- 破产后余额重置为 50，破产次数 +1
+- 余额恢复到 `>= 200` 后自动解除破产状态
+- 人类只能操作自己；绑定 AI 的钱包在人类端只读
+- 所有筹码变化进入统一账本流水
+
+尚未实现的内容会继续分阶段加入：每局筹码、双方确认、对局结算、成就、互动兑换、借款与欠条。
+
+## 数据与隐私
+
+真实运行数据库不会提交到仓库：
+
+```text
+data/*.db
+data/*.db-shm
+data/*.db-wal
+```
+
+仓库只保留 `data/.gitkeep`。公开部署或 fork 时，也请不要把真实玩家数据库、访问令牌或反向代理密钥提交到 Git。
+
+## 测试
 
 ```bash
-cd /opt/cedartoy/vendor/duel
 python3 -m unittest discover -s tests -v
 python3 tests/play_tictactoe.py
 ```
 
-第二个脚本使用 `httpx.ASGITransport` 走真实 FastAPI 路由，在临时 SQLite 库中完成一局井字棋。它会明确断言 AI 的 `wait=true` 请求先保持挂起，再由人类落子唤醒，并最终校验 AI 获胜。
+`play_tictactoe.py` 使用临时 SQLite 数据库和真实 FastAPI 路由完成一局井字棋，并验证 `wait=true` 的并发唤醒链路。
+
+## 生产部署示例
+
+仓库提供 `duel.supervisord.conf.example` 作为模板。请把其中的 `/srv/cedarduet` 换成你自己的实际路径，并让 CedarDuet 只监听内网或 loopback，再由可信反向代理对外提供认证后的入口。
+
+当前 CedarToy 官方实例也是以独立服务方式运行 CedarDuet，再由 CedarToy 负责登录态、绑定关系、MCP 聚合和 `/duel/*` 反向代理。
 
 ## License
 
 [PolyForm Noncommercial License 1.0.0](LICENSE)。允许非商业用途；商业使用不在本许可授权范围内。
+
+严格来说该许可属于 source-available / 非商业源码开放许可，而不是 OSI 定义的开源许可证。如果未来希望改为 AGPL、MIT 或 Apache-2.0，可以再单独调整许可。

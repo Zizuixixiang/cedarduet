@@ -1,13 +1,12 @@
-[program:cedartoy-duel]
-command=/opt/cedartoy/vendor/duel/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8772
-directory=/opt/cedartoy/vendor/duel
-environment=DUEL_DB_PATH="/opt/cedartoy/vendor/duel/data/duel.db"
+[program:cedarduet]
+command=/srv/cedarduet/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8772
+directory=/srv/cedarduet
+environment=DUEL_DB_PATH="/srv/cedarduet/data/duel.db"
 autostart=true
 autorestart=true
 stopsignal=TERM
 stopasgroup=true
 killasgroup=true
-stderr_logfile=/var/log/cedartoy-duel.err.log
-stdout_logfile=/var/log/cedartoy-duel.out.log
-user=root
+stderr_logfile=/var/log/cedarduet.err.log
+stdout_logfile=/var/log/cedarduet.out.log
 numprocs=1

@@ -112,6 +112,10 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["rooms"][0]["game_name"], "黑白棋")
         self.assertEqual(payload["rooms"][0]["ai_name"], "克莱奥")
         self.assertEqual(payload["rooms"][1]["ai_name"], "南山小机")
+        self.assertFalse(payload["rooms"][0]["preserved"])
+        self.assertIsNone(payload["rooms"][0]["auto_delete_at"])
+        self.assertFalse(payload["rooms"][1]["preserved"])
+        self.assertIsNotNone(payload["rooms"][1]["auto_delete_at"])
 
     async def test_human_create_accepts_only_an_injected_bound_machine(self):
         headers = self.trusted_headers([{"id": "ai-9", "name": "克莱奥"}])
@@ -197,17 +201,70 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
         self.assertIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.8.0", html)
+        self.assertIn("/static/app.js?v=0.9.0", html)
+        self.assertIn("/static/styles.css?v=0.9.0", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)
         self.assertIn('id="humanAvatar"', html)
+        self.assertIn('aria-hidden="true">🤖</span>', html)
+        self.assertIn('aria-hidden="true">👤</span>', html)
         self.assertIn('id="aiSpeech"', html)
         self.assertIn('id="humanSpeech"', html)
         self.assertIn('id="confirmMoveButton"', html)
+        self.assertIn(
+            'id="waitModeModal" class="wait-mode-modal-backdrop hidden"', html
+        )
+        self.assertIn('role="dialog" aria-modal="true"', html)
+        self.assertIn('id="waitModeModalTitle">挂等模式</h2>', html)
+        self.assertIn("回聊天窗口告诉它「开启挂等模式」", html)
+        self.assertIn("小机每次落子会挂等最多 50 秒", html)
+        self.assertIn("你在这期间落子，它会自动继续", html)
+        self.assertNotIn("wait=true", html)
+        self.assertNotIn("MCP", html)
+        self.assertIn('id="closeWaitModalTodayButton"', html)
+        self.assertIn('id="closeWaitModalForeverButton"', html)
+        self.assertIn('aria-label="仅关闭本次提示"', html)
+        game_view = html[
+            html.index('<section id="gameView"'):
+            html.index('</main>')
+        ]
+        self.assertNotIn('id="waitModeModal"', game_view)
+        self.assertNotIn('class="wait-mode-hint', html)
+        self.assertNotIn("小机正在等你落子", html)
         self.assertIn('id="historyDrawerPanel"', html)
+        self.assertIn('class="chat-compose game-compose"', html)
+        battle_stage = html[
+            html.index('<section class="battle-stage'):
+            html.index('</section>', html.index('<section class="battle-stage'))
+        ]
+        self.assertIn('id="chatInput" maxlength="500"', battle_stage)
+        self.assertIn('placeholder="说点什么…"', battle_stage)
+        self.assertIn('id="sendMessageButton"', battle_stage)
+        self.assertLess(
+            battle_stage.index('class="player-row human-row"'),
+            battle_stage.index('id="chatInput"'),
+        )
+        self.assertLess(
+            battle_stage.index('id="chatInput"'),
+            battle_stage.index('class="game-actions"'),
+        )
+        history_drawer = html[
+            html.index('<div id="historyDrawer"'):
+            html.index('<div id="resultModal"')
+        ]
+        self.assertIn('id="timeline"', history_drawer)
+        self.assertNotIn('id="chatInput"', history_drawer)
+        self.assertNotIn('id="sendMessageButton"', history_drawer)
         self.assertIn('id="resultBanner"', html)
         self.assertIn('id="resultModal"', html)
+        self.assertIn('id="togglePreserveButton"', html)
+        self.assertIn('id="roomRetentionStatus"', html)
+        self.assertIn('id="preserveResultButton"', html)
+        self.assertIn('id="skipPreserveButton"', html)
+        self.assertIn("是否保留该对局？", html)
+        self.assertIn("包括棋谱和聊天记录", html)
+        self.assertIn("不保留（7天后删除）", html)
         self.assertIn('id="rematchButton"', html)
         self.assertIn('id="finishGameButton"', html)
         self.assertNotIn('class="timeline-panel', html)
@@ -219,7 +276,47 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         script = await self.client.get("/static/app.js")
         self.assertEqual(script.headers["cache-control"], "no-store")
         self.assertIn("select.disabled = false", script.text)
-        self.assertIn("function emojiFor(name)", script.text)
+        self.assertNotIn("PLAYER_EMOJIS", script.text)
+        self.assertNotIn("function emojiFor", script.text)
+        self.assertIn('$("aiAvatar").textContent = "🤖"', script.text)
+        self.assertIn('$("humanAvatar").textContent = "👤"', script.text)
+        self.assertIn(
+            'const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint"',
+            script.text,
+        )
+        self.assertIn("const waitHintShownRooms = new Set()", script.text)
+        self.assertIn("function localDateString(date = new Date())", script.text)
+        self.assertIn("function waitHintHumanId(targetRoom)", script.text)
+        self.assertIn("function shouldShowWaitModeHint(", script.text)
+        self.assertIn("function closeWaitModeModal(", script.text)
+        self.assertIn("function showWaitModeModalOnce(", script.text)
+        self.assertIn("waitHintShownRooms.has(visitKey)", script.text)
+        self.assertNotIn("waitHintTimer", script.text)
+        self.assertNotIn("setTimeout(hideWaitModeModal", script.text)
+        self.assertIn("showWaitModeModalOnce(room)", script.text)
+        self.assertIn('$("dismissWaitModeModalButton").addEventListener', script.text)
+        self.assertIn('$("closeWaitModalTodayButton").addEventListener', script.text)
+        self.assertIn('$("closeWaitModalForeverButton").addEventListener', script.text)
+        self.assertIn('$("waitModeModal").addEventListener', script.text)
+        self.assertIn(
+            '$("sendMessageButton").disabled = '
+            '!["waiting", "playing"].includes(room.status)',
+            script.text,
+        )
+        self.assertIn('const message = $("chatInput").value.trim()', script.text)
+        self.assertIn('JSON.stringify({message})', script.text)
+        self.assertIn('$("chatInput").value = ""', script.text)
+        self.assertIn('$("chatInput").addEventListener("keydown"', script.text)
+        self.assertIn('if (event.key === "Enter")', script.text)
+        self.assertIn("event.preventDefault()", script.text)
+        self.assertIn('[["ai", "aiSpeech"], ["human", "humanSpeech"]]', script.text)
+        self.assertIn("function retentionTextFor(targetRoom)", script.text)
+        self.assertIn("function updateRoomPreservation(", script.text)
+        self.assertIn("function deleteRoom(summary)", script.text)
+        self.assertIn("/retention", script.text)
+        self.assertIn("/delete", script.text)
+        self.assertIn("window.confirm(", script.text)
+        self.assertIn('remove.textContent = "删除对局"', script.text)
         self.assertIn("function confirmMove()", script.text)
         self.assertIn("function openHistory()", script.text)
         self.assertIn("function oppositeMode(mode)", script.text)
@@ -235,6 +332,20 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(
             "select.disabled = machines.length === 1", script.text
         )
+
+        styles = await self.client.get("/static/styles.css")
+        self.assertEqual(styles.headers["cache-control"], "no-store")
+        self.assertIn(
+            "grid-template-rows: auto minmax(0, 1fr)", styles.text
+        )
+        self.assertIn("height: 100dvh", styles.text)
+        self.assertIn("overscroll-behavior: contain", styles.text)
+        self.assertIn(".room-record-controls", styles.text)
+        self.assertIn(".result-retention-actions", styles.text)
+        self.assertIn(".wait-mode-modal-backdrop", styles.text)
+        self.assertIn(".wait-mode-modal-actions", styles.text)
+        self.assertNotIn(".wait-mode-hint", styles.text)
+        self.assertIn("width: min(920px, 100%)", styles.text)
 
     async def test_rematch_contract_reuses_pair_and_flips_first_player(self):
         headers = self.trusted_headers([{"id": "ai-9", "name": "克莱奥"}])

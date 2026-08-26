@@ -14,7 +14,12 @@ PLAYER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$")
 PAIR_ACTIVE_ROOM_LIMIT = 3
 GLOBAL_ACTIVE_ROOM_LIMIT = 500
 STALE_ROOM_DAYS = 7
+TERMINAL_RETENTION_DAYS = 7
+# Temporarily keep every terminal room until the 0.9.0 retention rollout is announced.
+TERMINAL_AUTO_DELETE_ENABLED = False
 MAX_MESSAGE_LENGTH = 500
+AI_ROOM_LIST_DEFAULT_LIMIT = 50
+AI_ROOM_LIST_MAX_LIMIT = 100
 
 
 class DuelError(Exception):
@@ -61,7 +66,31 @@ def _decorate(room: dict) -> dict:
     result["min_players"] = game.min_players
     result["max_players"] = game.max_players
     result["action_note"] = room["board_state"].get("last_action_note", "")
+    _add_retention_metadata(result)
     return result
+
+
+def _add_retention_metadata(room: dict) -> None:
+    room["preserved"] = bool(room.get("preserved", False))
+    room["auto_delete_at"] = None
+    terminal_at = room.get("terminal_at")
+    if (
+        room.get("status") not in {"finished", "archived"}
+        or room["preserved"]
+        or not terminal_at
+    ):
+        return
+    try:
+        terminal_time = datetime.fromisoformat(
+            str(terminal_at).replace("Z", "+00:00")
+        )
+    except ValueError:
+        return
+    if terminal_time.tzinfo is None:
+        terminal_time = terminal_time.replace(tzinfo=timezone.utc)
+    room["auto_delete_at"] = (
+        terminal_time + timedelta(days=TERMINAL_RETENTION_DAYS)
+    ).isoformat(timespec="seconds")
 
 
 def _message_text(value: str | None, *, required: bool = False) -> str:
@@ -196,12 +225,13 @@ def list_human_rooms(
     human_player_id = _player_id(human_player_id)
     ai_names = ai_names or {}
     with write_transaction() as conn:
-        _archive_stale_rooms(conn)
+        _maintain_rooms(conn)
         rows = conn.execute(
             """
             SELECT r.room_id, r.game_type, r.mode, r.turn, r.revision,
                    r.status, r.winner, r.created_at, r.updated_at,
-                   r.last_move_at, ai.player_id AS ai_player_id
+                   r.last_move_at, r.preserved, r.terminal_at,
+                   ai.player_id AS ai_player_id
             FROM rooms AS r
             JOIN room_participants AS human
               ON human.room_id = r.room_id
@@ -233,8 +263,62 @@ def list_human_rooms(
             or "你的小机"
         )
         item["game_name"] = get_game(row["game_type"]).display_name
+        _add_retention_metadata(item)
         result.append(item)
     return result
+
+
+def list_ai_rooms(
+    ai_player_id: str,
+    *,
+    include_terminal: bool = False,
+    limit: int = AI_ROOM_LIST_DEFAULT_LIMIT,
+    offset: int = 0,
+) -> list[dict]:
+    """Return compact summaries only for rooms containing this exact AI seat."""
+    ai_player_id = _player_id(ai_player_id)
+    if not isinstance(include_terminal, bool):
+        raise DuelError("include_terminal 必须是布尔值")
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise DuelError("limit 必须是整数")
+    if limit < 1 or limit > AI_ROOM_LIST_MAX_LIMIT:
+        raise DuelError(f"limit 必须在 1-{AI_ROOM_LIST_MAX_LIMIT} 之间")
+    if isinstance(offset, bool) or not isinstance(offset, int):
+        raise DuelError("offset 必须是整数")
+    if offset < 0:
+        raise DuelError("offset 不能小于 0")
+
+    terminal_filter = (
+        "" if include_terminal else "AND r.status IN ('waiting', 'playing')"
+    )
+    with write_transaction() as conn:
+        _maintain_rooms(conn)
+        rows = conn.execute(
+            f"""
+            SELECT r.room_id, r.game_type, r.status, r.turn,
+                   r.created_at, r.updated_at
+            FROM rooms AS r
+            JOIN room_participants AS participant
+              ON participant.room_id = r.room_id
+             AND participant.role = 'ai'
+             AND participant.player_id = ?
+            WHERE 1 = 1
+              {terminal_filter}
+            ORDER BY
+                CASE r.status
+                    WHEN 'playing' THEN 0
+                    WHEN 'waiting' THEN 1
+                    WHEN 'finished' THEN 2
+                    ELSE 3
+                END,
+                r.updated_at DESC,
+                r.created_at DESC,
+                r.room_id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (ai_player_id, limit, offset),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def post_message(
@@ -249,7 +333,7 @@ def post_message(
     player_id = _player_id(player_id)
     text = _message_text(text, required=True)
     with write_transaction() as conn:
-        _archive_stale_rooms(conn, room_id)
+        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -272,6 +356,7 @@ def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
     with write_transaction() as conn:
+        _maintain_rooms(conn, room_id)
         room_row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -434,11 +519,11 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
             """
             UPDATE rooms
             SET status = 'archived', winner = 'draw',
-                revision = revision + 1, updated_at = ?
+                revision = revision + 1, updated_at = ?, terminal_at = ?
             WHERE room_id = ?
               AND status IN ('waiting', 'playing')
             """,
-            (timestamp, stale["room_id"]),
+            (timestamp, timestamp, stale["room_id"]),
         )
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?",
@@ -447,6 +532,39 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
         terminal_room = decode_room(updated, conn)
         _record_result_event(conn, terminal_room)
     return len(stale_rows)
+
+
+def _delete_expired_terminal_rooms(conn, room_id: str | None = None) -> int:
+    if not TERMINAL_AUTO_DELETE_ENABLED:
+        return 0
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=TERMINAL_RETENTION_DAYS)
+    ).isoformat(timespec="seconds")
+    params: list[str] = [cutoff]
+    room_clause = ""
+    if room_id is not None:
+        room_clause = " AND room_id = ?"
+        params.append(room_id)
+    cursor = conn.execute(
+        f"""
+        DELETE FROM rooms
+        WHERE status IN ('finished', 'archived')
+          AND preserved = 0
+          AND terminal_at IS NOT NULL
+          AND datetime(terminal_at) <= datetime(?)
+          {room_clause}
+        """,
+        params,
+    )
+    return cursor.rowcount
+
+
+def _maintain_rooms(conn, room_id: str | None = None) -> tuple[int, int]:
+    """Archive stale active rooms and run gated terminal-room retention."""
+    archived = _archive_stale_rooms(conn, room_id)
+    deleted = _delete_expired_terminal_rooms(conn, room_id)
+    return archived, deleted
 
 
 def _check_global_capacity(conn) -> None:
@@ -518,7 +636,7 @@ def create_room(
     first_turn = "human" if mode == "human_first" else "ai"
     timestamp = _now()
     with write_transaction() as conn:
-        _archive_stale_rooms(conn)
+        _maintain_rooms(conn)
         _check_global_capacity(conn)
         _check_pair_capacity(conn, human_player_id, ai_player_id)
         room_id = _new_room_id(conn)
@@ -527,8 +645,9 @@ def create_room(
             """
             INSERT INTO rooms (
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, created_at, updated_at, last_move_at
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, ?)
+                status, winner, preserved, terminal_at,
+                created_at, updated_at, last_move_at
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, 0, NULL, ?, ?, ?)
             """,
             (
                 room_id,
@@ -592,7 +711,7 @@ def join_room(
     opponent_id = _player_id(opponent_id) if opponent_id is not None else None
     message = _message_text(message)
     with write_transaction() as conn:
-        _archive_stale_rooms(conn, room_id)
+        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -696,14 +815,16 @@ def get_room(
     opponent_id: str | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
+    room = None
     with write_transaction() as conn:
-        _archive_stale_rooms(conn, room_id)
+        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
-        if row is None:
-            raise DuelError("房间不存在", 404)
-        room = decode_room(row, conn)
+        if row is not None:
+            room = decode_room(row, conn)
+    if room is None:
+        raise DuelError("房间不存在", 404)
     if role is not None:
         _assert_player(room, role, _player_id(player_id or ""))
         _assert_opponent(room, role, opponent_id)
@@ -743,6 +864,56 @@ def _assert_opponent(room: dict, role: Role, opponent_id: str | None) -> None:
         raise DuelError("房间不属于当前绑定的人机对", 403)
 
 
+def set_room_preserved(
+    room_id: str, human_player_id: str, preserved: bool
+) -> dict:
+    room_id = _room_id(room_id)
+    human_player_id = _player_id(human_player_id)
+    result = None
+    with write_transaction() as conn:
+        _maintain_rooms(conn, room_id)
+        row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if row is not None:
+            room = decode_room(row, conn)
+            _assert_player(room, "human", human_player_id)
+            if room["status"] not in {"finished", "archived"}:
+                raise DuelError("只有已结束或已归档的对局可以设置保留", 409)
+            conn.execute(
+                "UPDATE rooms SET preserved = ? WHERE room_id = ?",
+                (int(preserved), room_id),
+            )
+            updated = conn.execute(
+                "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+            ).fetchone()
+            result = decode_room(updated, conn)
+    if result is None:
+        raise DuelError("房间不存在", 404)
+    return _decorate(result)
+
+
+def delete_terminal_room(room_id: str, human_player_id: str) -> str:
+    room_id = _room_id(room_id)
+    human_player_id = _player_id(human_player_id)
+    found = False
+    with write_transaction() as conn:
+        _maintain_rooms(conn, room_id)
+        row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if row is not None:
+            found = True
+            room = decode_room(row, conn)
+            _assert_player(room, "human", human_player_id)
+            if room["status"] not in {"finished", "archived"}:
+                raise DuelError("进行中或等待中的对局不能直接删除", 409)
+            conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
+    if not found:
+        raise DuelError("房间不存在", 404)
+    return room_id
+
+
 def play_move(
     room_id: str,
     role: Role,
@@ -755,7 +926,7 @@ def play_move(
     player_id = _player_id(player_id)
     message = _message_text(message)
     with write_transaction() as conn:
-        _archive_stale_rooms(conn, room_id)
+        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -797,11 +968,13 @@ def play_move(
             winner = next(
                 side for side, side_mark in state["marks"].items() if side_mark == outcome
             )
+        timestamp = _now()
         conn.execute(
             """
             UPDATE rooms
             SET board_state = ?, turn = ?, revision = revision + 1,
-                status = ?, winner = ?, updated_at = ?, last_move_at = ?
+                status = ?, winner = ?, updated_at = ?, last_move_at = ?,
+                terminal_at = CASE WHEN ? = 'finished' THEN ? ELSE terminal_at END
             WHERE room_id = ?
             """,
             (
@@ -809,8 +982,10 @@ def play_move(
                 next_turn,
                 status,
                 winner,
-                _now(),
-                _now(),
+                timestamp,
+                timestamp,
+                status,
+                timestamp,
                 room_id,
             ),
         )
@@ -844,7 +1019,7 @@ def resign(
     player_id = _player_id(player_id)
     message = _message_text(message)
     with write_transaction() as conn:
-        _archive_stale_rooms(conn, room_id)
+        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -856,14 +1031,15 @@ def resign(
         if room["status"] in {"finished", "archived"}:
             raise DuelError("对局已经结束", 409)
         winner: Role = "ai" if role == "human" else "human"
+        timestamp = _now()
         conn.execute(
             """
             UPDATE rooms
             SET status = 'finished', winner = ?, revision = revision + 1,
-                updated_at = ?
+                updated_at = ?, terminal_at = ?
             WHERE room_id = ?
             """,
-            (winner, _now(), room_id),
+            (winner, timestamp, timestamp, room_id),
         )
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)

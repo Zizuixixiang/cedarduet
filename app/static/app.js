@@ -3,8 +3,13 @@ let identity = null;
 let room = null;
 let pollTimer = null;
 let toastTimer = null;
+let visibleWaitModalRoomId = null;
+const waitHintShownRooms = new Set();
 let selectedJungleCell = null;
 let pendingMove = null;
+
+const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
+const WAIT_HINT_FOREVER = "forever";
 
 const GAME_GLYPHS = {
   tictactoe: "井",
@@ -14,11 +19,6 @@ const GAME_GLYPHS = {
   dots_boxes: "点",
   jungle: "兽",
 };
-const PLAYER_EMOJIS = [
-  "🐱", "🐶", "🐰", "🦊", "🐻", "🐼",
-  "🐨", "🐯", "🦁", "🐸", "🐙", "🦄",
-  "🐣", "🧸", "🌸", "🍓",
-];
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",
   P: "豹", T: "虎", L: "狮", E: "象",
@@ -65,6 +65,100 @@ function toast(text) {
   toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2600);
 }
 
+function localDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function waitHintHumanId(targetRoom) {
+  if (targetRoom && targetRoom.human_player_id) {
+    return targetRoom.human_player_id;
+  }
+  const participant = targetRoom && Array.isArray(targetRoom.participants)
+    ? targetRoom.participants.find((item) => item.role === "human")
+    : null;
+  return participant ? participant.player_id : "browser";
+}
+
+function waitHintPreferenceKey(targetRoom) {
+  return `${WAIT_HINT_STORAGE_PREFIX}:${waitHintHumanId(targetRoom)}`;
+}
+
+function readWaitHintPreference(targetRoom, storage = window.localStorage) {
+  try {
+    return storage.getItem(waitHintPreferenceKey(targetRoom));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function shouldShowWaitModeHint(
+  targetRoom,
+  storage = window.localStorage,
+  today = localDateString()
+) {
+  const preference = readWaitHintPreference(targetRoom, storage);
+  return preference !== WAIT_HINT_FOREVER && preference !== today;
+}
+
+function saveWaitHintPreference(
+  targetRoom,
+  value,
+  storage = window.localStorage
+) {
+  try {
+    storage.setItem(waitHintPreferenceKey(targetRoom), value);
+  } catch (_error) {
+    // Storage can be unavailable in strict privacy modes; closing still works now.
+  }
+}
+
+function hideWaitModeModal() {
+  visibleWaitModalRoomId = null;
+  $("waitModeModal").classList.add("hidden");
+  $("waitModeModal").setAttribute("aria-hidden", "true");
+}
+
+function closeWaitModeModal(
+  permanently,
+  targetRoom = room,
+  storage = window.localStorage,
+  today = localDateString()
+) {
+  if (targetRoom) {
+    saveWaitHintPreference(
+      targetRoom,
+      permanently ? WAIT_HINT_FOREVER : today,
+      storage
+    );
+  }
+  hideWaitModeModal();
+}
+
+function showWaitModeModalOnce(
+  targetRoom,
+  storage = window.localStorage,
+  today = localDateString()
+) {
+  const visitKey = `${waitHintPreferenceKey(targetRoom)}:${targetRoom.room_id}`;
+  if (isTerminal(targetRoom) || !shouldShowWaitModeHint(targetRoom, storage, today)) {
+    hideWaitModeModal();
+    return false;
+  }
+  if (waitHintShownRooms.has(visitKey)) {
+    if (visibleWaitModalRoomId !== targetRoom.room_id) hideWaitModeModal();
+    return false;
+  }
+  waitHintShownRooms.add(visitKey);
+  visibleWaitModalRoomId = targetRoom.room_id;
+  $("waitModeModal").classList.remove("hidden");
+  $("waitModeModal").setAttribute("aria-hidden", "false");
+  $("dismissWaitModeModalButton").focus();
+  return true;
+}
+
 function statusLabel(status) {
   return {
     waiting: "等待加入",
@@ -104,18 +198,16 @@ function participantName(role) {
   return aiNameFor();
 }
 
-function emojiFor(name) {
-  let hash = 2166136261;
-  for (const character of String(name || "")) {
-    hash ^= character.codePointAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return PLAYER_EMOJIS[Math.abs(hash) % PLAYER_EMOJIS.length];
-}
-
 function turnLabel(turn, aiPlayerId) {
   if (!identity) return turn;
   return turn === "human" ? "轮到你" : `轮到 ${aiNameFor(aiPlayerId)}`;
+}
+
+function roomTurnText(targetRoom) {
+  if (isTerminal(targetRoom)) {
+    return targetRoom.status === "archived" ? "对局已归档" : "对局已结束";
+  }
+  return turnLabel(targetRoom.turn, targetRoom.ai_player_id);
 }
 
 function relativeTime(value) {
@@ -126,6 +218,24 @@ function relativeTime(value) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
   return `${Math.floor(seconds / 86400)} 天前`;
+}
+
+function retentionTextFor(targetRoom) {
+  if (!isTerminal(targetRoom)) return "";
+  if (targetRoom.preserved) return "已保留 · 不会自动删除";
+  const deadline = new Date(targetRoom.auto_delete_at).getTime();
+  if (!Number.isFinite(deadline)) return "终局 7 天后自动删除";
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return "即将自动删除";
+  const days = Math.ceil(remaining / 86400000);
+  return `${days} 天后自动删除`;
+}
+
+function retentionDeadlineTitle(targetRoom) {
+  if (!targetRoom || targetRoom.preserved || !targetRoom.auto_delete_at) return "";
+  const deadline = new Date(targetRoom.auto_delete_at);
+  if (!Number.isFinite(deadline.getTime())) return "";
+  return `预计 ${deadline.toLocaleString("zh-CN")} 自动删除`;
 }
 
 function renderRooms(rooms) {
@@ -139,9 +249,13 @@ function renderRooms(rooms) {
     return;
   }
   rooms.forEach((summary) => {
-    const card = document.createElement("button");
+    const card = document.createElement("article");
     card.className = "room-card";
-    card.type = "button";
+
+    const open = document.createElement("button");
+    open.className = "room-open";
+    open.type = "button";
+    open.setAttribute("aria-label", `进入${summary.game_name}房间 ${summary.room_id}`);
 
     const glyph = document.createElement("span");
     glyph.className = "room-glyph";
@@ -169,10 +283,74 @@ function renderRooms(rooms) {
     enter.textContent = "进入 →";
     state.append(turn, enter);
 
-    card.append(glyph, copy, state);
-    card.addEventListener("click", () => openRoom(summary.room_id));
+    open.append(glyph, copy, state);
+    open.addEventListener("click", () => openRoom(summary.room_id));
+    card.appendChild(open);
+
+    if (isTerminal(summary)) {
+      const controls = document.createElement("div");
+      controls.className = "room-record-controls";
+
+      const retention = document.createElement("span");
+      retention.className = `room-retention${summary.preserved ? " preserved" : ""}`;
+      retention.textContent = retentionTextFor(summary);
+      retention.title = retentionDeadlineTitle(summary);
+
+      const preserve = document.createElement("button");
+      preserve.className = "room-record-button";
+      preserve.type = "button";
+      preserve.textContent = summary.preserved ? "取消保留" : "保留此对局";
+      preserve.addEventListener("click", () => {
+        updateRoomPreservation(summary.room_id, !summary.preserved);
+      });
+
+      const remove = document.createElement("button");
+      remove.className = "room-record-button danger";
+      remove.type = "button";
+      remove.textContent = "删除对局";
+      remove.addEventListener("click", () => deleteRoom(summary));
+
+      controls.append(retention, preserve, remove);
+      card.appendChild(controls);
+    }
     list.appendChild(card);
   });
+}
+
+async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {}) {
+  try {
+    const data = await request(`/api/rooms/${roomId}/retention`, {
+      method: "POST",
+      body: JSON.stringify({preserved}),
+    });
+    if (room && room.room_id === roomId) {
+      renderGame(data.room, data.message, data.timeline);
+    } else {
+      await loadIdentity({quiet: true});
+    }
+    if (fromModal) $("resultModalMessage").textContent = data.message;
+    toast(data.message);
+  } catch (error) {
+    if (fromModal) $("resultModalMessage").textContent = error.message;
+    else toast(error.message);
+  }
+}
+
+async function deleteRoom(summary) {
+  const confirmed = window.confirm(
+    `确定删除房间 ${summary.room_id}？棋谱和聊天记录会一并永久删除，无法恢复。`
+  );
+  if (!confirmed) return;
+  try {
+    const data = await request(`/api/rooms/${summary.room_id}/delete`, {
+      method: "POST",
+      body: "{}",
+    });
+    await loadIdentity({quiet: true});
+    toast(data.message);
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function selectedParticipantIds() {
@@ -321,6 +499,7 @@ function backToLobby() {
   selectedJungleCell = null;
   pendingMove = null;
   stopPolling();
+  hideWaitModeModal();
   closeHistory();
   showView("lobbyView");
   loadIdentity({quiet: true});
@@ -337,15 +516,50 @@ function pieceClass(mark) {
   return "";
 }
 
+function markClass(mark) {
+  return mark === "X" || mark === "O" ? ` mark-${mark.toLowerCase()}` : "";
+}
+
+function ownerDescription(mark) {
+  if (!mark || !room) return "空位";
+  return mark === room.board_state.marks.human ? "你方" : "对方";
+}
+
+function pieceDescription(mark) {
+  if (!mark) return "空位";
+  if (["gomoku", "othello"].includes(room.game_type)) {
+    return `${mark === "X" ? "黑棋" : "白棋"}（${ownerDescription(mark)}）`;
+  }
+  if (room.game_type === "connect4") return `${ownerDescription(mark)}棋片`;
+  return `${ownerDescription(mark)}棋子 ${mark}`;
+}
+
 function boardCell(mark, rowIndex, colIndex, onClick) {
   const cell = document.createElement("button");
-  cell.className = `cell${pieceClass(mark)}`;
+  cell.className = `cell${mark ? " occupied" : ""}${pieceClass(mark)}${markClass(mark)}`;
   cell.type = "button";
-  cell.textContent = mark || "";
+  if (room.game_type === "tictactoe") cell.textContent = mark || "";
+  if (["gomoku", "othello", "connect4"].includes(room.game_type)) {
+    const piece = document.createElement("span");
+    piece.className = "piece";
+    piece.setAttribute("aria-hidden", "true");
+    cell.appendChild(piece);
+  }
   cell.disabled = !canHumanMove() || Boolean(mark);
-  cell.ariaLabel = `第 ${rowIndex + 1} 行第 ${colIndex + 1} 列`;
+  cell.ariaLabel = (
+    `第 ${rowIndex + 1} 行第 ${colIndex + 1} 列，${pieceDescription(mark)}`
+  );
   cell.addEventListener("click", onClick);
   return cell;
+}
+
+function selectCell(cell, payload, state) {
+  const selected = movesEqual(pendingMove, payload);
+  cell.classList.toggle("selected", selected);
+  cell.setAttribute("aria-pressed", String(selected));
+  if (selected && !cell.classList.contains("occupied")) {
+    cell.classList.add(`preview-${state.marks.human.toLowerCase()}`);
+  }
 }
 
 function movesEqual(first, second) {
@@ -367,22 +581,70 @@ function selectMove(movePayload) {
 function updateMoveConfirmation() {
   const ready = Boolean(pendingMove && canHumanMove());
   $("confirmMoveButton").disabled = !ready;
-  $("selectionHint").textContent = ready
-    ? "已选中落点，确认后提交"
-    : (canHumanMove() ? "请先在棋盘上选择落点" : "等待轮到你");
+  if (isTerminal(room)) {
+    $("selectionHint").textContent = roomTurnText(room);
+  } else {
+    $("selectionHint").textContent = ready
+      ? "已选中落点，确认后提交"
+      : (canHumanMove() ? "请先在棋盘上选择落点" : "等待轮到你");
+  }
 }
 
 function renderGridBoard(board, state) {
   state.board.forEach((rowData, rowIndex) => {
     rowData.forEach((mark, colIndex) => {
-      const payload = room.game_type === "connect4"
-        ? {col: colIndex}
-        : {row: rowIndex, col: colIndex};
+      const payload = {row: rowIndex, col: colIndex};
       const cell = boardCell(mark, rowIndex, colIndex, () => selectMove(payload));
-      if (room.game_type === "connect4") {
-        cell.disabled = !canHumanMove() || state.board[0][colIndex] !== null;
-      }
-      if (movesEqual(pendingMove, payload)) cell.classList.add("selected");
+      selectCell(cell, payload, state);
+      board.appendChild(cell);
+    });
+  });
+}
+
+function renderGomokuBoard(board, state) {
+  const lastIndex = state.size - 1;
+  const starPoints = new Set(["3,3", "3,11", "7,7", "11,3", "11,11"]);
+  state.board.forEach((rowData, rowIndex) => {
+    rowData.forEach((mark, colIndex) => {
+      const payload = {row: rowIndex, col: colIndex};
+      const cell = boardCell(mark, rowIndex, colIndex, () => selectMove(payload));
+      if (rowIndex === 0) cell.classList.add("edge-top");
+      if (rowIndex === lastIndex) cell.classList.add("edge-bottom");
+      if (colIndex === 0) cell.classList.add("edge-left");
+      if (colIndex === lastIndex) cell.classList.add("edge-right");
+      if (starPoints.has(`${rowIndex},${colIndex}`)) cell.classList.add("star-point");
+      selectCell(cell, payload, state);
+      board.appendChild(cell);
+    });
+  });
+}
+
+function connect4LandingRow(state, colIndex) {
+  for (let rowIndex = state.rows - 1; rowIndex >= 0; rowIndex -= 1) {
+    if (state.board[rowIndex][colIndex] === null) return rowIndex;
+  }
+  return -1;
+}
+
+function renderConnect4Board(board, state) {
+  const landingRows = Array.from(
+    {length: state.cols},
+    (_, colIndex) => connect4LandingRow(state, colIndex)
+  );
+  state.board.forEach((rowData, rowIndex) => {
+    rowData.forEach((mark, colIndex) => {
+      const payload = {col: colIndex};
+      const cell = boardCell(mark, rowIndex, colIndex, () => selectMove(payload));
+      const landingRow = landingRows[colIndex];
+      cell.classList.add("column-button");
+      cell.disabled = !canHumanMove() || landingRow < 0;
+      cell.ariaLabel = mark
+        ? `第 ${colIndex + 1} 列，第 ${rowIndex + 1} 行为${pieceDescription(mark)}；选择此列`
+        : `第 ${colIndex + 1} 列空位；选择后棋片落到第 ${landingRow + 1} 行`;
+      const selected = movesEqual(pendingMove, payload) && rowIndex === landingRow;
+      cell.classList.toggle("selected", selected);
+      cell.setAttribute("aria-pressed", String(selected));
+      if (selected) cell.classList.add(`preview-${state.marks.human.toLowerCase()}`);
       board.appendChild(cell);
     });
   });
@@ -403,9 +665,13 @@ function renderDotsBoard(board, state) {
         edge.type = "button";
         edge.className = `edge horizontal${mark ? " drawn" : ""}${pieceClass(mark)}`;
         edge.disabled = !canHumanMove() || Boolean(mark);
-        edge.ariaLabel = `横边 ${rowIndex},${colIndex}`;
+        edge.ariaLabel = mark
+          ? `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条横边，${ownerDescription(mark)}已画`
+          : `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条横边，未画`;
         const payload = {orientation: "h", row: rowIndex, col: colIndex};
-        if (movesEqual(pendingMove, payload)) edge.classList.add("selected");
+        const selected = movesEqual(pendingMove, payload);
+        edge.classList.toggle("selected", selected);
+        edge.setAttribute("aria-pressed", String(selected));
         edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
       } else if (gridCol % 2 === 0) {
@@ -416,16 +682,27 @@ function renderDotsBoard(board, state) {
         edge.type = "button";
         edge.className = `edge vertical${mark ? " drawn" : ""}${pieceClass(mark)}`;
         edge.disabled = !canHumanMove() || Boolean(mark);
-        edge.ariaLabel = `竖边 ${rowIndex},${colIndex}`;
+        edge.ariaLabel = mark
+          ? `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条竖边，${ownerDescription(mark)}已画`
+          : `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条竖边，未画`;
         const payload = {orientation: "v", row: rowIndex, col: colIndex};
-        if (movesEqual(pendingMove, payload)) edge.classList.add("selected");
+        const selected = movesEqual(pendingMove, payload);
+        edge.classList.toggle("selected", selected);
+        edge.setAttribute("aria-pressed", String(selected));
         edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
       } else {
         const box = document.createElement("span");
         const owner = state.boxes[(gridRow - 1) / 2][(gridCol - 1) / 2];
-        box.className = `box${pieceClass(owner)}`;
-        box.textContent = owner || "";
+        box.className = `box${owner ? " owned" : ""}${pieceClass(owner)}`;
+        if (owner) {
+          const boxRow = (gridRow - 1) / 2;
+          const boxCol = (gridCol - 1) / 2;
+          box.setAttribute("role", "img");
+          box.ariaLabel = `第 ${boxRow + 1} 行第 ${boxCol + 1} 格归${ownerDescription(owner)}所有`;
+        } else {
+          box.setAttribute("aria-hidden", "true");
+        }
         board.appendChild(box);
       }
     }
@@ -493,20 +770,51 @@ function renderBoard() {
   board.className = "board";
   const rows = state.rows || state.size;
   const cols = state.cols || state.size;
-  board.style.setProperty("--cols", cols);
-  board.style.setProperty("--board-ratio", `${cols} / ${rows}`);
+  const visualRows = room.game_type === "dots_boxes" ? 9 : rows;
+  const visualCols = room.game_type === "dots_boxes" ? 9 : cols;
+  board.style.setProperty("--cols", visualCols);
+  board.style.setProperty("--rows", visualRows);
+  board.style.setProperty("--board-ratio", `${visualCols} / ${visualRows}`);
   board.classList.toggle("large", Math.max(rows, cols) > 3);
+  board.classList.add(room.game_type);
+  board.setAttribute("aria-label", `${room.game_name}棋盘`);
   if (room.game_type === "dots_boxes") {
-    board.classList.add("dots");
     renderDotsBoard(board, state);
   } else if (room.game_type === "jungle") {
-    board.classList.add("jungle");
     renderJungleBoard(board, state);
+  } else if (room.game_type === "gomoku") {
+    renderGomokuBoard(board, state);
+  } else if (room.game_type === "connect4") {
+    renderConnect4Board(board, state);
   } else {
-    if (room.game_type === "connect4") board.classList.add("connect4");
     renderGridBoard(board, state);
   }
   updateMoveConfirmation();
+}
+
+function timelineEventKind(eventType) {
+  if (eventType === "move") return "move";
+  if (eventType === "resign" || eventType === "result") return "result";
+  return "chat";
+}
+
+function createChatTimelineItem(event, speaker, senderRole, moveComment = false) {
+  const item = document.createElement("li");
+  item.className = (
+    `history-event history-chat-event ${senderRole} `
+    + (moveComment ? "move-comment" : event.event_type)
+  );
+  const speakerLabel = document.createElement("strong");
+  speakerLabel.className = "history-speaker";
+  speakerLabel.textContent = speaker;
+  const copy = document.createElement("p");
+  copy.className = "history-copy";
+  copy.textContent = event.text || "";
+  const sequence = document.createElement("small");
+  sequence.className = "history-meta";
+  sequence.textContent = `#${event.sequence || event.id}${moveComment ? " · 附言" : ""}`;
+  item.append(speakerLabel, copy, sequence);
+  return item;
 }
 
 function renderTimeline(timeline = []) {
@@ -520,7 +828,6 @@ function renderTimeline(timeline = []) {
     return;
   }
   timeline.forEach((event) => {
-    const item = document.createElement("li");
     const senderRole = event.sender_role
       || (typeof event.sender === "string" ? event.sender : event.sender.role);
     const speaker = (
@@ -528,20 +835,17 @@ function renderTimeline(timeline = []) {
         ? event.sender.name
         : event.sender_name
     ) || (senderRole === "human" ? "你" : aiNameFor());
-    item.className = `history-event ${senderRole} ${event.event_type}`;
-    const icon = document.createElement("span");
-    icon.className = "history-icon";
-    icon.textContent = event.event_type === "move"
-      ? "♟"
-      : (
-          event.event_type === "resign"
-            ? "⚑"
-            : (event.event_type === "result" ? "★" : "●")
-        );
+    const eventKind = timelineEventKind(event.event_type);
+    if (eventKind === "chat") {
+      list.appendChild(createChatTimelineItem(event, speaker, senderRole));
+      return;
+    }
+
+    const item = document.createElement("li");
+    item.className = `history-event history-${eventKind}-event ${senderRole} ${event.event_type}`;
     const copy = document.createElement("p");
-    if (event.event_type === "move") {
-      copy.textContent = `${speaker} 落 ${event.move_label}${event.text ? `：${event.text}` : ""}`;
-    } else if (event.event_type === "resign") {
+    copy.className = "history-copy";
+    if (event.event_type === "resign") {
       copy.textContent = `${speaker} 认输${event.text ? `：${event.text}` : ""}`;
     } else if (event.event_type === "result") {
       copy.textContent = event.display_text || event.text || "对局结束";
@@ -549,9 +853,29 @@ function renderTimeline(timeline = []) {
       copy.textContent = `${speaker}：${event.text}`;
     }
     const sequence = document.createElement("small");
+    sequence.className = "history-meta";
     sequence.textContent = `#${event.sequence || event.id}`;
-    item.append(icon, copy, sequence);
+    const icon = document.createElement("span");
+    icon.className = "history-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = event.event_type === "move"
+      ? "♟"
+      : (event.event_type === "resign" ? "⚑" : "★");
+    if (eventKind === "move") {
+      const moveBody = document.createElement("div");
+      moveBody.className = "history-move-body";
+      const action = document.createElement("strong");
+      action.className = "history-action-label";
+      action.textContent = `${speaker} 落 ${event.move_label}`;
+      moveBody.append(action);
+      item.append(icon, moveBody, sequence);
+    } else {
+      item.append(icon, copy, sequence);
+    }
     list.appendChild(item);
+    if (eventKind === "move" && event.text) {
+      list.appendChild(createChatTimelineItem(event, speaker, senderRole, true));
+    }
   });
   list.scrollTop = list.scrollHeight;
 }
@@ -561,8 +885,8 @@ function renderPlayers(timeline = []) {
   const humanName = participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
-  $("aiAvatar").textContent = emojiFor(aiName);
-  $("humanAvatar").textContent = emojiFor(humanName);
+  $("aiAvatar").textContent = "🤖";
+  $("humanAvatar").textContent = "👤";
 
   const latestSpeech = (role) => [...timeline].reverse().find((event) => {
     const senderRole = event.sender_role
@@ -600,6 +924,19 @@ function resultTextFor(targetRoom, timeline = []) {
   return "对局结束";
 }
 
+function renderRetention(targetRoom) {
+  const terminal = isTerminal(targetRoom);
+  const status = retentionTextFor(targetRoom);
+  $("roomRetentionStatus").textContent = status;
+  $("roomRetentionStatus").title = retentionDeadlineTitle(targetRoom);
+  $("togglePreserveButton").textContent = targetRoom.preserved
+    ? "取消保留"
+    : "保留此对局";
+  $("togglePreserveButton").disabled = !terminal;
+  $("preserveResultButton").disabled = !terminal || Boolean(targetRoom.preserved);
+  $("skipPreserveButton").disabled = !terminal;
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
   const becameTerminal = Boolean(
     room
@@ -626,9 +963,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     ? " · 和棋"
     : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : "");
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
-  $("turn").textContent = isTerminal(room)
-    ? resultText
-    : turnLabel(room.turn, room.ai_player_id);
+  $("turn").textContent = roomTurnText(room);
   $("revision").textContent = room.revision;
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
@@ -636,7 +971,13 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
   $("resultBannerText").textContent = resultText;
-  showNotice(message || (canHumanMove() ? "轮到你落子。" : ""));
+  renderRetention(room);
+  showWaitModeModalOnce(room);
+  showNotice(
+    isTerminal(room)
+      ? roomTurnText(room)
+      : (message || (canHumanMove() ? "轮到你落子。" : ""))
+  );
   renderPlayers(timeline);
   renderBoard();
   renderTimeline(timeline);
@@ -791,8 +1132,33 @@ $("rulesButton").addEventListener("click", openRules);
 $("closeRulesButton").addEventListener("click", closeRules);
 $("historyDrawerTab").addEventListener("click", openHistory);
 $("closeHistoryButton").addEventListener("click", closeHistory);
+$("dismissWaitModeModalButton").addEventListener("click", hideWaitModeModal);
+$("closeWaitModalTodayButton").addEventListener("click", () => {
+  closeWaitModeModal(false);
+});
+$("closeWaitModalForeverButton").addEventListener("click", () => {
+  closeWaitModeModal(true);
+});
+$("waitModeModal").addEventListener("click", (event) => {
+  if (event.target === $("waitModeModal")) hideWaitModeModal();
+});
 $("historyDrawer").addEventListener("click", (event) => {
   if (event.target === $("historyDrawer")) closeHistory();
+});
+$("togglePreserveButton").addEventListener("click", () => {
+  if (room && isTerminal(room)) {
+    updateRoomPreservation(room.room_id, !room.preserved);
+  }
+});
+$("preserveResultButton").addEventListener("click", () => {
+  if (room && isTerminal(room)) {
+    updateRoomPreservation(room.room_id, true, {fromModal: true});
+  }
+});
+$("skipPreserveButton").addEventListener("click", () => {
+  if (room && isTerminal(room)) {
+    updateRoomPreservation(room.room_id, false, {fromModal: true});
+  }
 });
 $("rematchButton").addEventListener("click", rematch);
 $("finishGameButton").addEventListener("click", closeResultModal);
@@ -807,6 +1173,7 @@ $("chatInput").addEventListener("keydown", (event) => {
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    hideWaitModeModal();
     closeRules();
     closeHistory();
   }

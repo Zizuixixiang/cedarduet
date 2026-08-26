@@ -21,6 +21,8 @@ CREATE TABLE rooms (
         status IN ('waiting', 'playing', 'finished', 'archived')
     ),
     winner TEXT CHECK (winner IN ('human', 'ai', 'draw') OR winner IS NULL),
+    preserved INTEGER NOT NULL DEFAULT 0 CHECK (preserved IN (0, 1)),
+    terminal_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_move_at TEXT NOT NULL
@@ -108,6 +110,26 @@ def init_db() -> None:
                 _migrate_to_participants(conn)
             else:
                 conn.execute(ROOM_PARTICIPANTS_SCHEMA)
+        room_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(rooms)")
+        }
+        if "preserved" not in room_columns:
+            conn.execute(
+                """
+                ALTER TABLE rooms ADD COLUMN preserved INTEGER NOT NULL
+                DEFAULT 0 CHECK (preserved IN (0, 1))
+                """
+            )
+        if "terminal_at" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN terminal_at TEXT")
+        conn.execute(
+            """
+            UPDATE rooms
+            SET terminal_at = COALESCE(terminal_at, updated_at, last_move_at, created_at)
+            WHERE status IN ('finished', 'archived')
+              AND terminal_at IS NULL
+            """
+        )
         participant_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(room_participants)")
@@ -136,6 +158,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_rooms_last_move_at
             ON rooms(status, last_move_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rooms_terminal_cleanup
+            ON rooms(status, preserved, terminal_at)
             """
         )
         conn.execute(ROOM_MESSAGES_SCHEMA)
@@ -172,6 +200,11 @@ def init_db() -> None:
             """
         )
         conn.execute("DROP INDEX IF EXISTS idx_room_messages_ai_unread")
+        # Chip-center tables are additive and deliberately independent of rooms.
+        # The local import avoids a schema/service cycle during module loading.
+        from .chips import init_chips_schema
+
+        init_chips_schema(conn)
     finally:
         conn.close()
 
@@ -187,6 +220,15 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
     has_legacy_players = {
         "human_player_id", "ai_player_id"
     }.issubset(columns)
+    preserved_expr = "COALESCE(preserved, 0)" if "preserved" in columns else "0"
+    terminal_expr = (
+        "CASE WHEN status IN ('finished', 'archived') "
+        "THEN COALESCE(terminal_at, updated_at, created_at) ELSE NULL END"
+        if "terminal_at" in columns
+        else
+        "CASE WHEN status IN ('finished', 'archived') "
+        "THEN COALESCE(updated_at, created_at) ELSE NULL END"
+    )
     messages_exists = conn.execute(
         """
         SELECT 1 FROM sqlite_master
@@ -232,11 +274,13 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             f"""
             INSERT INTO rooms (
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, created_at, updated_at, last_move_at
+                status, winner, preserved, terminal_at,
+                created_at, updated_at, last_move_at
             )
             SELECT
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, created_at, updated_at, {last_move_expr}
+                status, winner, {preserved_expr}, {terminal_expr},
+                created_at, updated_at, {last_move_expr}
             FROM rooms_legacy
             """
         )

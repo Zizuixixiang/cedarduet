@@ -60,10 +60,21 @@ class MessageBody(StrictBody):
     message: str = Field(min_length=1, max_length=500)
 
 
+class RoomRetentionBody(StrictBody):
+    # The main-site proxy injects this for every human POST. Authorization still
+    # relies exclusively on X-Duel-Human-Player in the backend.
+    player_id: str | None = Field(default=None, min_length=1, max_length=80)
+    preserved: bool
+
+
+class RoomDeleteBody(StrictBody):
+    player_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["new", "join", "move", "state", "resign"]
+    action: Literal["rooms", "new", "join", "move", "state", "resign"]
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
     room_id: str | None = None
@@ -72,6 +83,9 @@ class McpPlayBody(BaseModel):
     move: dict[str, Any] | None = None
     wait: bool = False
     message: str | None = Field(default=None, max_length=500)
+    include_terminal: bool = False
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
 
     @field_validator("move", mode="before")
     @classmethod

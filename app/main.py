@@ -14,16 +14,20 @@ from .database import init_db
 from .framework import (
     DuelError,
     create_room,
+    delete_terminal_room,
     get_room,
     join_room,
+    list_ai_rooms,
     list_human_rooms,
     list_timeline,
     play_move,
     post_message,
     read_new_room_events,
     resign,
+    set_room_preserved,
     update_participant_display_names,
 )
+from .chips_routes import create_chips_router
 from .games import game_catalog, get_game
 from .models import (
     CreateRoomBody,
@@ -32,6 +36,8 @@ from .models import (
     MessageBody,
     MoveBody,
     ResignBody,
+    RoomDeleteBody,
+    RoomRetentionBody,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -90,7 +96,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.8.0",
+    version="0.9.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -166,6 +172,13 @@ def require(value, message: str):
     return value
 
 
+def trusted_human_player(request: Request) -> str:
+    player_id = request.headers.get("X-Duel-Human-Player", "").strip()
+    if not player_id:
+        raise DuelError("请从 toy.cedarstar.org 首页登录进入", 403)
+    return player_id
+
+
 def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
     """Decode the compact identity context supplied only by the main-site proxy."""
     encoded = request.headers.get("X-Duel-Bound-Ais", "").strip()
@@ -205,6 +218,9 @@ def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
     return machines
 
 
+app.include_router(create_chips_router(trusted_human_player, _trusted_bound_ais))
+
+
 async def wait_for_revision(
     room_id: str, player_id: str, baseline_revision: int
 ) -> dict | None:
@@ -226,7 +242,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.8.0"}
+    return {"ok": True, "service": "duel", "version": "0.9.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -427,9 +443,58 @@ async def human_resign(room_id: str, body: ResignBody):
     return human_response(room, "人类已认输。")
 
 
+@app.post("/api/rooms/{room_id}/retention")
+async def human_set_room_retention(
+    room_id: str, request: Request, body: RoomRetentionBody
+):
+    human_player_id = trusted_human_player(request)
+    room = set_room_preserved(room_id, human_player_id, body.preserved)
+    message = (
+        "已保留此对局，不再自动删除。"
+        if room["preserved"]
+        else "已取消保留，此对局将在终局 7 天后自动删除。"
+    )
+    return human_response(room, message)
+
+
+@app.post("/api/rooms/{room_id}/delete")
+async def human_delete_room(
+    room_id: str, request: Request, _body: RoomDeleteBody
+):
+    human_player_id = trusted_human_player(request)
+    deleted_room_id = delete_terminal_room(room_id, human_player_id)
+    revision_events.notify(deleted_room_id)
+    return {
+        "ok": True,
+        "status": "ok",
+        "message": "对局及其棋谱、聊天记录已删除。",
+        "room_id": deleted_room_id,
+    }
+
+
 @app.post("/mcp/play")
 async def mcp_play(body: McpPlayBody):
     """MCP-friendly JSON action endpoint for the bound AI."""
+    if body.action == "rooms":
+        rooms = list_ai_rooms(
+            body.player_id,
+            include_terminal=body.include_terminal,
+            limit=body.limit,
+            offset=body.offset,
+        )
+        return {
+            "ok": True,
+            "status": "ok",
+            "message": f"找到 {len(rooms)} 个该 AI 已参与或已被邀请的房间。",
+            "rooms": rooms,
+            "pagination": {
+                "include_terminal": body.include_terminal,
+                "limit": body.limit,
+                "offset": body.offset,
+                "returned": len(rooms),
+            },
+        }
+
     if body.action == "new":
         room = create_room(
             require(body.game_type, "new 动作需要 game_type"),

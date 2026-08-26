@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.8.0">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.0">
 </head>
 <body>
   <div class="app">
@@ -133,7 +133,11 @@
 
         <section id="resultBanner" class="result-banner hidden" aria-live="polite">
           <span>GAME RESULT</span>
-          <strong id="resultBannerText">对局结束</strong>
+          <div class="result-banner-copy">
+            <strong id="resultBannerText">对局结束</strong>
+            <small id="roomRetentionStatus">7 天后自动删除</small>
+          </div>
+          <button id="togglePreserveButton" class="pixel-btn secondary compact" type="button">保留此对局</button>
         </section>
 
         <section class="battle-stage pixel-card">
@@ -157,14 +161,14 @@
 
           <div class="player-row human-row">
             <div class="player-identity">
-              <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true">🙂</span>
+              <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true">👤</span>
               <strong id="humanName" class="player-name human-name">你</strong>
             </div>
             <p id="humanSpeech" class="speech-bubble human-speech hidden"></p>
           </div>
 
-          <div class="chat-compose">
-            <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="对局聊天">
+          <div class="chat-compose game-compose" aria-label="对局聊天">
+            <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">
             <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
           </div>
 
@@ -210,14 +214,35 @@
     </aside>
   </div>
 
+  <div id="waitModeModal" class="wait-mode-modal-backdrop hidden"
+       role="dialog" aria-modal="true" aria-labelledby="waitModeModalTitle"
+       aria-describedby="waitModeModalDescription" aria-hidden="true">
+    <section class="wait-mode-modal pixel-card">
+      <button id="dismissWaitModeModalButton" class="wait-mode-modal-close" type="button"
+              aria-label="仅关闭本次提示" title="仅关闭本次提示">×</button>
+      <span class="tag pink">ROOM TIP</span>
+      <h2 id="waitModeModalTitle">挂等模式</h2>
+      <p id="waitModeModalDescription" class="wait-mode-modal-copy">想让小机自动接着下？回聊天窗口告诉它「开启挂等模式」。开启后，小机每次落子会挂等最多 50 秒；你在这期间落子，它会自动继续。</p>
+      <div class="wait-mode-modal-actions" aria-label="挂等提示偏好">
+        <button id="closeWaitModalTodayButton" class="pixel-btn secondary" type="button">今日关闭</button>
+        <button id="closeWaitModalForeverButton" class="pixel-btn" type="button">永久关闭</button>
+      </div>
+    </section>
+  </div>
+
   <div id="resultModal" class="result-modal-backdrop hidden"
        role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
     <section class="result-modal pixel-card">
       <span class="tag pink">GAME OVER</span>
-      <h2 id="resultModalTitle">对局结束</h2>
+      <h2 id="resultModalTitle">是否保留该对局？</h2>
       <strong id="resultModalText">和棋</strong>
+      <p class="result-retention-copy">不保留的对局将在终局 7 天后自动删除，包括棋谱和聊天记录。</p>
       <p id="resultModalMessage" class="result-modal-message"></p>
-      <div class="result-modal-actions">
+      <div class="result-retention-actions result-action-row" aria-label="对局保留操作">
+        <button id="preserveResultButton" class="pixel-btn" type="button">保留此对局</button>
+        <button id="skipPreserveButton" class="pixel-btn secondary" type="button">不保留（7天后删除）</button>
+      </div>
+      <div class="result-modal-actions result-action-row" aria-label="对局后续操作">
         <button id="rematchButton" class="pixel-btn" type="button">再来一局</button>
         <button id="finishGameButton" class="pixel-btn secondary" type="button">结束对局</button>
       </div>
@@ -225,6 +250,6 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=0.8.0"></script>
+  <script src="/static/app.js?v=0.9.0"></script>
 </body>
 </html>
