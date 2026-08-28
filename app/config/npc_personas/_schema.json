@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CedarDuet NPC persona",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "display_name", "persona"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+    "display_name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "persona": {"type": "string", "minLength": 1, "maxLength": 4000}
+  }
+}

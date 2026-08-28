@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS room_participants (
     player_id TEXT NOT NULL,
     display_name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('human', 'ai')),
+    participant_kind TEXT NOT NULL DEFAULT 'bound_machine'
+        CHECK (participant_kind IN ('human', 'bound_machine', 'system_npc')),
+    npc_persona_id TEXT,
     seat_index INTEGER NOT NULL CHECK (seat_index >= 0),
     token TEXT,
     join_status TEXT NOT NULL DEFAULT 'joined'
@@ -96,6 +99,39 @@ CREATE TABLE IF NOT EXISTS room_confirmations (
     FOREIGN KEY (room_id, player_id)
         REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
 )
+"""
+
+NPC_DECISIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS npc_decisions (
+    idempotency_key TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    npc_player_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('reserved', 'completed', 'failed')),
+    decision_json TEXT,
+    error_text TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (room_id, revision, npc_player_id),
+    FOREIGN KEY (room_id, npc_player_id)
+        REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
+)
+"""
+
+PARTICIPANT_KIND_TRIGGER_SCHEMA = """
+CREATE TRIGGER IF NOT EXISTS trg_room_participants_infer_legacy_kind
+AFTER INSERT ON room_participants
+FOR EACH ROW
+WHEN NEW.participant_kind IS NULL
+  OR (NEW.role = 'human' AND NEW.participant_kind = 'bound_machine')
+BEGIN
+    UPDATE room_participants
+    SET participant_kind = CASE
+        WHEN NEW.role = 'human' THEN 'human'
+        ELSE 'bound_machine'
+    END
+    WHERE room_id = NEW.room_id AND player_id = NEW.player_id;
+END
 """
 
 
@@ -228,6 +264,24 @@ def init_db() -> None:
                 SET activity_state = CASE WHEN active = 1 THEN 'active' ELSE 'inactive' END
                 """
             )
+        if "participant_kind" not in participant_columns:
+            conn.execute(
+                "ALTER TABLE room_participants ADD COLUMN participant_kind TEXT"
+            )
+            conn.execute(
+                """
+                UPDATE room_participants
+                SET participant_kind = CASE
+                    WHEN role = 'human' THEN 'human'
+                    ELSE 'bound_machine'
+                END
+                WHERE participant_kind IS NULL OR participant_kind = ''
+                """
+            )
+        if "npc_persona_id" not in participant_columns:
+            conn.execute(
+                "ALTER TABLE room_participants ADD COLUMN npc_persona_id TEXT"
+            )
         participant_schema_row = conn.execute(
             """
             SELECT sql FROM sqlite_master
@@ -289,7 +343,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE room_messages ADD COLUMN visible_to_json TEXT")
         conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
         conn.execute(ROOM_CONFIRMATIONS_SCHEMA)
+        conn.execute(NPC_DECISIONS_SCHEMA)
         _repair_participant_child_foreign_keys(conn)
+        # Compatibility for legacy direct inserts that only know role. New
+        # framework writes participant_kind explicitly; this trigger prevents
+        # a human row from inheriting the bound-machine column default.
+        conn.execute(PARTICIPANT_KIND_TRIGGER_SCHEMA)
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_room_confirmations_pending
@@ -300,6 +359,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_rooms_pending_expiry
             ON rooms(status, confirmation_expires_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_npc_decisions_room_revision
+            ON npc_decisions(room_id, revision, npc_player_id)
             """
         )
         _seed_missing_event_cursors(conn)
@@ -429,11 +494,14 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"""
                 INSERT INTO room_participants (
-                    room_id, player_id, display_name, role,
+                    room_id, player_id, display_name, role, participant_kind,
+                    npc_persona_id,
                     seat_index, token, join_status, activity_state,
                     active, joined_at
                 )
                 SELECT room_id, player_id, {display_name_expr}, role,
+                       {"participant_kind" if "participant_kind" in participant_columns else "CASE WHEN role = 'human' THEN 'human' ELSE 'bound_machine' END"},
+                       {"npc_persona_id" if "npc_persona_id" in participant_columns else "NULL"},
                        seat_index,
                        {"token" if "token" in participant_columns else "NULL"},
                        {"join_status" if "join_status" in participant_columns else "'joined'"},
@@ -447,12 +515,13 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """
                 INSERT INTO room_participants (
-                    room_id, player_id, display_name, role,
+                    room_id, player_id, display_name, role, participant_kind,
+                    npc_persona_id,
                     seat_index, token, join_status, activity_state,
                     active, joined_at
                 )
                 SELECT room_id, human_player_id, human_player_id,
-                       'human', 0, NULL, 'joined', 'active', 1, created_at
+                       'human', 'human', NULL, 0, NULL, 'joined', 'active', 1, created_at
                 FROM rooms_legacy
                 WHERE human_player_id IS NOT NULL
                 """
@@ -460,12 +529,13 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """
                 INSERT INTO room_participants (
-                    room_id, player_id, display_name, role,
+                    room_id, player_id, display_name, role, participant_kind,
+                    npc_persona_id,
                     seat_index, token, join_status, activity_state,
                     active, joined_at
                 )
                 SELECT room_id, ai_player_id, ai_player_id,
-                       'ai', 1, NULL, 'joined', 'active', 1, created_at
+                       'ai', 'bound_machine', NULL, 1, NULL, 'joined', 'active', 1, created_at
                 FROM rooms_legacy
                 WHERE ai_player_id IS NOT NULL
                 """
@@ -824,7 +894,8 @@ def decode_room(
     try:
         participant_rows = conn.execute(
             """
-            SELECT player_id, display_name, role, seat_index, token,
+            SELECT player_id, display_name, role, participant_kind,
+                   npc_persona_id, seat_index, token,
                    join_status, activity_state, active, joined_at
             FROM room_participants
             WHERE room_id = ?

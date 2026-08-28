@@ -436,20 +436,52 @@ function selectedGameRequirement() {
   return {
     minPlayers: declared ? declared.min_players : 2,
     maxPlayers: declared ? declared.max_players : 2,
+    recommendedPlayers: declared ? declared.recommended_players : 2,
+    supportsNpcs: Boolean(declared && declared.supports_npcs),
   };
+}
+
+function selectedTargetPlayerCount() {
+  const {maxPlayers} = selectedGameRequirement();
+  if (maxPlayers <= 2) return 2;
+  return Number($("targetPlayerCount").value || 2);
+}
+
+function selectedFillWithNpcs() {
+  return selectedGameRequirement().maxPlayers > 2 && $("fillWithNpcs").checked;
 }
 
 function configureParticipantPicker() {
   const select = $("aiPlayer");
-  const {maxPlayers} = selectedGameRequirement();
+  const {minPlayers, maxPlayers, recommendedPlayers, supportsNpcs} = selectedGameRequirement();
   const multiplayer = maxPlayers > 2;
   const selected = selectedParticipantIds();
+  const options = $("multiplayerOptions");
+  options.classList.toggle("hidden", !multiplayer);
+  const targetSelect = $("targetPlayerCount");
+  if (multiplayer) {
+    const previousTarget = Number(targetSelect.value);
+    targetSelect.replaceChildren();
+    for (let count = Math.max(2, minPlayers); count <= Math.min(4, maxPlayers); count += 1) {
+      const option = document.createElement("option");
+      option.value = String(count);
+      option.textContent = `${count} 人桌`;
+      targetSelect.appendChild(option);
+    }
+    const allowed = [...targetSelect.options].map((option) => Number(option.value));
+    const preferred = allowed.includes(previousTarget)
+      ? previousTarget
+      : (allowed.includes(recommendedPlayers) ? recommendedPlayers : allowed[0]);
+    targetSelect.value = String(preferred);
+    $("fillWithNpcs").disabled = !supportsNpcs;
+    if (!supportsNpcs) $("fillWithNpcs").checked = false;
+  }
   select.multiple = multiplayer;
   select.closest(".participant-picker").dataset.selectionMode = multiplayer
     ? "multiple"
     : "single";
   if (multiplayer) {
-    select.size = Math.max(2, Math.min(maxPlayers - 1, 4));
+    select.size = Math.max(2, Math.min(selectedTargetPlayerCount() - 1, 3));
   } else {
     select.removeAttribute("size");
     if (selected.length > 1) select.value = selected[0];
@@ -458,16 +490,23 @@ function configureParticipantPicker() {
 }
 
 function updateCreateButtonState() {
-  const {minPlayers, maxPlayers} = selectedGameRequirement();
-  const participantCount = 1 + selectedParticipantIds().length;
+  const {minPlayers, maxPlayers, supportsNpcs} = selectedGameRequirement();
+  const selectedMachineCount = selectedParticipantIds().length;
+  const targetCount = selectedTargetPlayerCount();
+  const npcCount = targetCount - 1 - selectedMachineCount;
+  const fillWithNpcs = selectedFillWithNpcs();
   const stakeValue = Number($("stake").value);
   const validStake = Number.isInteger(stakeValue) && stakeValue >= 0;
   const ready = Boolean(
     identity
     && $("gameType").value
     && $("mode").value
-    && participantCount >= minPlayers
-    && participantCount <= maxPlayers
+    && selectedMachineCount >= 1
+    && targetCount >= minPlayers
+    && targetCount <= maxPlayers
+    && npcCount >= 0
+    && npcCount <= 2
+    && (npcCount === 0 || (fillWithNpcs && supportsNpcs))
     && validStake
   );
   $("createButton").disabled = !ready;
@@ -522,7 +561,33 @@ function renderSelectedParticipants() {
   $("selectedParticipants").textContent = machines.length
     ? `本局参与小机：${machines.map((item) => item.name).join("、")}${machineBalance} · ${requirement}`
     : `本局尚未选择对手 · ${requirement}`;
+  renderSeatPreview(machines);
   updateCreateButtonState();
+}
+
+function renderSeatPreview(machines) {
+  const preview = $("seatPreview");
+  const {maxPlayers} = selectedGameRequirement();
+  preview.replaceChildren();
+  preview.classList.toggle("hidden", maxPlayers <= 2);
+  if (maxPlayers <= 2) return;
+  const targetCount = selectedTargetPlayerCount();
+  const npcCount = Math.max(0, targetCount - 1 - machines.length);
+  const fill = selectedFillWithNpcs();
+  const seats = [
+    {label: (identity && identity.human_name) || "你", kind: "人类"},
+    ...machines.map((machine) => ({label: machine.name, kind: "小机"})),
+    ...Array.from({length: npcCount}, (_item, index) => ({
+      label: fill ? `随机 NPC ${index + 1}` : "空位",
+      kind: fill ? "NPC" : "未补齐",
+    })),
+  ];
+  seats.slice(0, targetCount).forEach((seat, index) => {
+    const item = document.createElement("span");
+    item.className = "seat-preview-item";
+    item.textContent = `${index + 1} · ${seat.label}（${seat.kind}）`;
+    preview.appendChild(item);
+  });
 }
 
 async function machineSelectionChanged() {
@@ -590,6 +655,8 @@ async function createRoom() {
         game_type: $("gameType").value,
         mode: $("mode").value,
         stake,
+        target_player_count: selectedTargetPlayerCount(),
+        fill_with_npcs: selectedFillWithNpcs(),
       }),
     });
     if (data.room.status === "pending") {
@@ -1047,11 +1114,44 @@ function renderParticipantRoster(targetRoom) {
     if (!participant.active || participant.activity_state !== "active") {
       badge.classList.add("inactive");
     }
-    const status = participant.confirmation_status === "pending"
-      ? " · 待确认"
-      : (!participant.active ? " · 不可行动" : "");
-    badge.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name}${status}`;
+    const kindLabels = {human: "人类", bound_machine: "小机", system_npc: "NPC"};
+    const kind = kindLabels[participant.participant_kind] || (participant.role === "human" ? "人类" : "小机");
+    const states = [];
+    if (participant.join_status === "left") states.push("已离开");
+    else if (participant.join_status === "invited") states.push("待加入");
+    if (participant.confirmation_status === "pending") states.push("待确认");
+    if (participant.activity_state === "eliminated") states.push("已淘汰");
+    else if (participant.activity_state === "inactive") states.push("暂停行动");
+    else if (participant.activity_state === "skipped") states.push("本轮跳过");
+    const chip = participant.participant_kind === "system_npc" ? " · 筹码 ???" : "";
+    const delta = Number.isInteger(participant.settlement_delta)
+      ? ` · 本局 ${participant.settlement_delta >= 0 ? "+" : ""}${participant.settlement_delta}`
+      : "";
+    const status = states.length ? ` · ${states.join("/")}` : "";
+    badge.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name} · ${kind}${chip}${delta}${status}`;
     roster.appendChild(badge);
+  });
+}
+
+function renderPrivateState(targetRoom) {
+  const panel = $("privateStatePanel");
+  const content = $("privateStateContent");
+  const privateState = targetRoom && targetRoom.private_state;
+  const visible = privateState && typeof privateState === "object"
+    && !Array.isArray(privateState) && Object.keys(privateState).length > 0;
+  panel.classList.toggle("hidden", !visible);
+  content.replaceChildren();
+  if (!visible) return;
+  Object.entries(privateState).forEach(([key, value]) => {
+    const row = document.createElement("div");
+    row.className = "private-state-row";
+    const label = document.createElement("strong");
+    const labels = {hand: "我的手牌", dice: "我的骰子", rolls: "我的投掷", legal_actions: "我的合法行动"};
+    label.textContent = labels[key] || key;
+    const body = document.createElement("span");
+    body.textContent = typeof value === "string" ? value : JSON.stringify(value);
+    row.append(label, body);
+    content.appendChild(row);
   });
 }
 
@@ -1135,6 +1235,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   );
   renderPlayers(timeline);
   renderParticipantRoster(room);
+  renderPrivateState(room);
   renderBoard();
   renderTimeline(timeline);
   if (isTerminal(room)) stopPolling();
@@ -1249,7 +1350,7 @@ async function rematch() {
   try {
     const rematchAis = Array.isArray(previousRoom.participants)
       ? previousRoom.participants
-          .filter((item) => item.role === "ai")
+          .filter((item) => item.participant_kind !== "system_npc" && item.role === "ai")
           .map((item) => item.player_id)
       : [previousRoom.ai_player_id].filter(Boolean);
     const data = await request("/api/rooms", {
@@ -1257,6 +1358,11 @@ async function rematch() {
       body: JSON.stringify({
         ai_player: rematchAis[0],
         ai_players: rematchAis,
+        target_player_count: Array.isArray(previousRoom.participants)
+          ? previousRoom.participants.length
+          : 2,
+        fill_with_npcs: Array.isArray(previousRoom.participants)
+          && previousRoom.participants.some((item) => item.participant_kind === "system_npc"),
         game_type: previousRoom.game_type,
         mode: oppositeMode(previousRoom.mode),
         stake: previousRoom.stake || 0,
@@ -1292,6 +1398,19 @@ function stopPolling() {
 
 $("createButton").addEventListener("click", createRoom);
 $("aiPlayer").addEventListener("change", machineSelectionChanged);
+$("targetPlayerCount").addEventListener("change", () => {
+  const target = selectedTargetPlayerCount();
+  const selected = selectedParticipantIds();
+  if (selected.length > target - 1) {
+    [...$("aiPlayer").options]
+      .filter((option) => option.selected && option.value)
+      .slice(target - 1)
+      .forEach((option) => { option.selected = false; });
+  }
+  $("aiPlayer").size = Math.max(2, Math.min(target - 1, 3));
+  machineSelectionChanged();
+});
+$("fillWithNpcs").addEventListener("change", renderSelectedParticipants);
 $("gameType").addEventListener("change", configureParticipantPicker);
 $("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);

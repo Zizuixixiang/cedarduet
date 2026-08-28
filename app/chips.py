@@ -310,10 +310,7 @@ def apply_participant_deltas(
     ).fetchone()
     if existing_batch is not None:
         return False
-    participant_by_id = {
-        item["player_id"]: item for item in participants
-        if item.get("role") in {"human", "ai"}
-    }
+    participant_by_id = {item["player_id"]: item for item in participants}
     if not deltas:
         raise DuelError("结算 delta 不能为空")
     unknown = set(deltas) - set(participant_by_id)
@@ -324,11 +321,21 @@ def apply_participant_deltas(
     if require_zero_sum and sum(deltas.values()) != 0:
         raise DuelError("本次结算 delta 总和必须为 0")
 
+    wallet_participants = {
+        player_id: participant
+        for player_id, participant in participant_by_id.items()
+        if participant.get("participant_kind")
+        in {"human", "bound_machine"}
+        or (
+            participant.get("participant_kind") is None
+            and participant.get("role") in {"human", "ai"}
+        )
+    }
     wallets = {
         player_id: _ensure_wallet(
-            conn, participant_by_id[player_id]["role"], player_id
+            conn, wallet_participants[player_id]["role"], player_id
         )
-        for player_id in deltas
+        for player_id in deltas if player_id in wallet_participants
     }
     existing_ledger = {
         player_id: conn.execute(
@@ -360,7 +367,7 @@ def apply_participant_deltas(
         raise RuntimeError("participant settlement ledger is only partially present")
 
     for player_id, delta in deltas.items():
-        if delta == 0:
+        if delta == 0 or player_id not in wallets:
             continue
         _apply_balance_change(
             conn,
@@ -440,6 +447,12 @@ def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
         "stake": stake,
         "winner": room.get("winner"),
         "winner_player_id": room.get("winner_player_id"),
+        "settlement_deltas": dict(deltas),
+        "npc_deltas": {
+            item["player_id"]: deltas[item["player_id"]]
+            for item in participants
+            if item.get("participant_kind") == "system_npc"
+        },
     }
     return apply_participant_deltas(
         conn,

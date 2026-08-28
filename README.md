@@ -30,6 +30,9 @@ app/
   chips.py             全局娱乐筹码钱包与统一流水
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
+  npc_personas.py      NPC 人设目录加载与严格校验
+  npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
+  config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
 tests/                  单元测试与前端行为测试
 data/                   本地运行数据目录；真实数据库不会提交到 Git
@@ -41,6 +44,13 @@ data/                   本地运行数据目录；真实数据库不会提交�
   `participants`、`current_actor` 和兼容旧前端的 `turn`。
 - 插件声明 `min_players / max_players`，并可通过通用结果对象保留行动权、
   指定下一行动者、临时 skip，或把参与者标记为 inactive / eliminated。
+- 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
+  `system_npc`，旧 `role=human/ai` 字段继续供六棋与旧客户端兼容。生产开房
+  强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多两个，
+  不会接管中途离开的席位。当前六棋未声明 `supports_npcs`，因此不能出现 NPC。
+- NPC 人设从 `app/config/npc_personas/*.json` 随机无重复抽取，仅包含稳定 id、
+  显示名与 persona 文本。人设只影响表达；合法行动始终由插件规则引擎列出。
+  `room_id + revision + npc_id` 决策票据负责跨重试幂等，本仓库当前不会调用模型。
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
 - 落子、发言、认输和终局结果进入同一条共享时间线。
 - AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。
@@ -63,6 +73,9 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 多人筹码默认禁用；具体多人插件必须显式声明支持并给出自己的 settlement
   deltas（完整覆盖每名参与者、整数且总和为 0），框架原子幂等结算，绝不会
   推断“赢家拿走其余人的 stake”。
+- 显式多人结算可以包含 NPC delta，但只有 `human` / `bound_machine` 会写全局
+  钱包；NPC 没有账号或永久钱包，前端显示 `???`，其本局增减保存在房间结果、
+  结算批次和流水 metadata 中。
 - 成就、互动兑换、借款/欠条目前仍在设计/建设中。
 
 ## 本地启动
@@ -91,6 +104,10 @@ curl http://127.0.0.1:8772/health
 DUEL_DB_PATH=/your/path/duel.db \
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
+
+未来启用 NPC 的多人插件还需要提供人设目录。可用
+`DUEL_NPC_PERSONAS_DIR=/your/personas` 覆盖默认目录；格式和限制见
+`app/config/npc_personas/README.md`。空库存不会影响当前六棋。
 
 事件唤醒目前是单进程内机制，因此请保持 uvicorn 单 worker。
 
@@ -147,7 +164,11 @@ Content-Type: application/json
 
 当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
 
-`new` 可传 `stake`（默认 0）。`rooms` 默认也会返回当前 AI 自己的 `pending` 邀请；对 `confirmation_decision=pending` 的房间使用 `accept` 或 `reject`。
+`new` 可传 `stake`（默认 0）。未来支持 NPC 的多人插件还可传
+`target_player_count=3|4` 与 `fill_with_npcs=true`；当前六棋会拒绝这些多人参数。
+`rooms` 默认也会返回当前 AI 自己的 `pending` 邀请；对
+`confirmation_decision=pending` 的房间使用 `accept` 或 `reject`。`npc:*` 不是可认证
+账号，不能作为 MCP `player_id`。
 
 ### 查询自己的房间
 
@@ -213,6 +234,11 @@ POST /api/rooms/{room_id}/delete
 ```
 
 终局保留和删除仅允许该房间中的可信人类参与者操作。
+
+网页创建控件按游戏 metadata 渲染：`max_players=2` 时仍是原有单选小机流程；
+只有 `max_players>2` 才显示 2/3/4 人桌型、多选绑定小机、NPC 补位开关和座位
+预览。房间内 3–4 人使用响应式参与者状态区；`private_state` 非空时才显示只属于
+当前 viewer 的手牌/骰子/合法行动容器。
 
 ## 筹码中心
 

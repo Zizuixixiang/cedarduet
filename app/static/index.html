@@ -90,9 +90,20 @@
                 <span>本局筹码</span>
                 <input id="stake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="stakeHint">
               </label>
+              <div id="multiplayerOptions" class="multiplayer-options hidden">
+                <label class="pixel-field">
+                  <span>目标桌型</span>
+                  <select id="targetPlayerCount"></select>
+                </label>
+                <label class="npc-fill-toggle">
+                  <input id="fillWithNpcs" type="checkbox" checked>
+                  <span>空位由 NPC 补齐</span>
+                </label>
+              </div>
               <button id="createButton" class="pixel-btn create-submit" type="button" disabled>创建对局 →</button>
             </div>
             <div id="selectedParticipants" class="selected-participants" aria-live="polite"></div>
+            <div id="seatPreview" class="seat-preview hidden" aria-label="座位预览"></div>
             <div id="participantHint" class="create-note">
               <span>●</span>
               <p id="stakeHint">筹码必须是大于等于 0 的整数；0 筹码直接开局，非零筹码需对方确认，余额可为负。</p>
@@ -141,6 +152,11 @@
         </div>
         <div id="roomParticipants" class="room-participants pixel-card hidden"
              aria-label="房间参与者"></div>
+        <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
+                 aria-label="仅自己可见的对局信息">
+          <span class="tag pink">PRIVATE</span>
+          <div id="privateStateContent"></div>
+        </section>
 
         <p id="gameMessage" class="notice" role="status"></p>
 

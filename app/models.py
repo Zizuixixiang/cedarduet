@@ -16,6 +16,8 @@ class CreateRoomBody(StrictBody):
     game_type: str = Field(min_length=1, max_length=40)
     mode: Literal["human_first", "ai_first"] = "human_first"
     stake: int = Field(default=0, ge=0)
+    target_player_count: int | None = Field(default=None, ge=2, le=4)
+    fill_with_npcs: bool = False
 
     @field_validator("stake", mode="before")
     @classmethod
@@ -118,6 +120,8 @@ class McpPlayBody(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
     stake: int = Field(default=0, ge=0)
+    target_player_count: int | None = Field(default=None, ge=2, le=4)
+    fill_with_npcs: bool = False
     op: Literal["status", "check_in", "bankruptcy", "ledger"] | None = None
 
     @field_validator("move", mode="before")

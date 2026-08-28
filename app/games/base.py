@@ -29,6 +29,8 @@ class GamePlugin(ABC):
     move_format: str
     min_players: int = 2
     max_players: int = 2
+    recommended_players: int = 2
+    supports_npcs: bool = False
     supports_stakes: bool = False
     # Future multiplayer games must opt in separately and return explicit
     # ``MoveResult.settlement_deltas``; the framework never invents a payout.

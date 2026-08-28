@@ -52,6 +52,7 @@ from .models import (
     RoomDeleteBody,
     RoomRetentionBody,
 )
+from .npc_personas import PersonaConfigError, select_personas
 
 ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
@@ -215,8 +216,16 @@ def ai_response(
 
 def _chip_balances(room: dict) -> dict[str, int] | None:
     participants = room.get("participants", [])
-    humans = [item for item in participants if item["role"] == "human"]
-    ais = [item for item in participants if item["role"] == "ai"]
+    humans = [
+        item for item in participants
+        if item.get("participant_kind") in {None, "human"}
+        and item["role"] == "human"
+    ]
+    ais = [
+        item for item in participants
+        if item.get("participant_kind") in {None, "bound_machine"}
+        and item["role"] == "ai"
+    ]
     if len(participants) != 2 or len(humans) != 1 or len(ais) != 1:
         return None
     ai_player_id = ais[0]["player_id"]
@@ -239,6 +248,8 @@ def _compact_events(events: list[dict]) -> list[dict]:
         }
         if event["sender"].get("seat") is not None:
             item["actor_seat"] = event["sender"]["seat"]
+        if event["sender"].get("participant_kind") is not None:
+            item["actor_kind"] = event["sender"]["participant_kind"]
         if event.get("move") is not None:
             item["move"] = event["move"]
         if event.get("text"):
@@ -586,8 +597,11 @@ async def human_create(request: Request, body: CreateRoomBody):
         game = get_game(body.game_type)
     except ValueError as exc:
         raise DuelError(str(exc)) from exc
-    participant_count = 1 + len(selected_ais)
-    if not game.min_players <= participant_count <= game.max_players:
+    target_count = body.target_player_count or (1 + len(selected_ais))
+    if game.max_players <= 2:
+        if target_count != 2 or body.fill_with_npcs:
+            raise DuelError(f"{game.display_name}只支持双人绑定人机对局")
+    if not game.min_players <= target_count <= min(game.max_players, 4):
         requirement = (
             str(game.min_players)
             if game.min_players == game.max_players
@@ -596,6 +610,31 @@ async def human_create(request: Request, body: CreateRoomBody):
         raise DuelError(
             f"{game.display_name} 需要 {requirement} 名参与者"
         )
+    if len(selected_ais) > target_count - 1:
+        raise DuelError("所选小机数量超过目标桌型座位")
+    npc_count = target_count - 1 - len(selected_ais)
+    if npc_count and not body.fill_with_npcs:
+        raise DuelError("仍有空座；请选择更多绑定小机或启用 NPC 补齐")
+    if npc_count > 2:
+        raise DuelError("每局最多补入 2 名 NPC")
+    if npc_count and not game.supports_npcs:
+        raise DuelError(f"{game.display_name}未启用 NPC 补位")
+    personas = []
+    if npc_count:
+        try:
+            personas = select_personas(npc_count)
+        except PersonaConfigError as exc:
+            raise DuelError(str(exc), 503) from exc
+    npc_participants = [
+        {
+            "player_id": f"npc:{persona.id}",
+            "display_name": persona.display_name,
+            "role": "ai",
+            "participant_kind": "system_npc",
+            "npc_persona_id": persona.id,
+        }
+        for persona in personas
+    ]
     room = create_room(
         body.game_type,
         body.mode,
@@ -605,9 +644,14 @@ async def human_create(request: Request, body: CreateRoomBody):
         ordered_participants=[
             {"player_id": body.player_id, "role": "human"},
             *(
-                {"player_id": selected_ai, "role": "ai"}
+                {
+                    "player_id": selected_ai,
+                    "role": "ai",
+                    "participant_kind": "bound_machine",
+                }
                 for selected_ai in selected_ais
             ),
+            *npc_participants,
         ],
         participant_names={
             body.player_id: (
@@ -617,6 +661,7 @@ async def human_create(request: Request, body: CreateRoomBody):
             **{machine["id"]: machine["name"] for machine in machines},
         },
         stake=body.stake,
+        enforce_trusted_pair=True,
     )
     message = (
         f"房间 {room['room_id']} 已发出 {room['stake_label']} 邀请，等待对方确认。"
@@ -829,6 +874,8 @@ async def human_delete_room(
 @app.post("/mcp/play")
 async def mcp_play(body: McpPlayBody):
     """MCP-friendly JSON action endpoint for the bound AI."""
+    if body.player_id.startswith("npc:"):
+        raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
     if body.action == "rooms":
         room_limit = body.limit if body.limit is not None else 50
         rooms = list_ai_rooms(
@@ -871,14 +918,60 @@ async def mcp_play(body: McpPlayBody):
                 }
                 for participant_id in body.participant_ids
             ]
+        try:
+            game = get_game(require(body.game_type, "new 动作需要 game_type"))
+        except ValueError as exc:
+            raise DuelError(str(exc)) from exc
+        base_count = len(ordered_participants) if ordered_participants else 2
+        target_count = body.target_player_count or base_count
+        if game.max_players <= 2 and (
+            target_count != 2 or body.fill_with_npcs
+        ):
+            raise DuelError(f"{game.display_name}只支持双人绑定人机对局")
+        if not game.min_players <= target_count <= min(game.max_players, 4):
+            raise DuelError("目标桌型人数不在该游戏允许范围内")
+        npc_count = target_count - base_count
+        if npc_count < 0:
+            raise DuelError("participant_ids 超过目标桌型人数")
+        if npc_count and not body.fill_with_npcs:
+            raise DuelError("仍有空座；需要启用 NPC 补齐")
+        if npc_count > 2:
+            raise DuelError("每局最多补入 2 名 NPC")
+        if npc_count and not game.supports_npcs:
+            raise DuelError(f"{game.display_name}未启用 NPC 补位")
+        if npc_count:
+            try:
+                personas = select_personas(npc_count)
+            except PersonaConfigError as exc:
+                raise DuelError(str(exc), 503) from exc
+            if ordered_participants is None:
+                ordered_participants = [
+                    {"player_id": body.opponent_id, "role": "human"},
+                    {
+                        "player_id": body.player_id,
+                        "role": "ai",
+                        "participant_kind": "bound_machine",
+                    },
+                ]
+            ordered_participants.extend(
+                {
+                    "player_id": f"npc:{persona.id}",
+                    "display_name": persona.display_name,
+                    "role": "ai",
+                    "participant_kind": "system_npc",
+                    "npc_persona_id": persona.id,
+                }
+                for persona in personas
+            )
         room = create_room(
-            require(body.game_type, "new 动作需要 game_type"),
+            game.game_type,
             body.mode or "human_first",
             "ai",
             body.player_id,
             opponent_id=body.opponent_id,
             stake=body.stake,
             ordered_participants=ordered_participants,
+            enforce_trusted_pair=True,
         )
         if room["status"] == "playing":
             message = (

@@ -23,6 +23,8 @@ AI_ROOM_LIST_DEFAULT_LIMIT = 50
 AI_ROOM_LIST_MAX_LIMIT = 100
 INVITATION_EXPIRY_HOURS = 24
 ABSOLUTE_MAX_PLAYERS = 4
+PARTICIPANT_KINDS = {"human", "bound_machine", "system_npc"}
+MAX_NPCS_PER_ROOM = 2
 
 
 class DuelError(Exception):
@@ -88,7 +90,10 @@ def _decorate(room: dict) -> dict:
         result["turn"] = current["role"]
         result["current_player"] = {
             key: current[key]
-            for key in ("player_id", "display_name", "role", "seat_index", "token")
+            for key in (
+                "player_id", "display_name", "role", "participant_kind",
+                "seat_index", "token",
+            )
         }
         result["current_actor"] = {
             **result["current_player"],
@@ -105,6 +110,14 @@ def _decorate(room: dict) -> dict:
         if result.get("stake", 0) > 0
         else "娱乐局"
     )
+    settlement_deltas = (result.get("result") or {}).get("settlement_deltas", {})
+    for participant in result["participants"]:
+        is_npc = participant.get("participant_kind") == "system_npc"
+        participant["controller"] = participant.get("participant_kind")
+        participant["wallet_label"] = "???" if is_npc else None
+        participant["settlement_delta"] = settlement_deltas.get(
+            participant["player_id"]
+        )
     _add_retention_metadata(result)
     return result
 
@@ -155,6 +168,7 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     projected["viewer"] = {
         "player_id": viewer["player_id"],
         "role": viewer["role"],
+        "participant_kind": viewer.get("participant_kind"),
         "seat": viewer["seat_index"],
     }
     projected["action_note"] = public_state.get("last_action_note", "")
@@ -323,7 +337,7 @@ def _event_sender(row, room: dict) -> dict:
         ),
         None,
     )
-    return {
+    sender = {
         "player_id": player_id,
         "name": (
             participant.get("display_name")
@@ -333,6 +347,9 @@ def _event_sender(row, room: dict) -> dict:
         "role": participant["role"] if participant else row["sender"],
         "seat": participant["seat_index"] if participant else None,
     }
+    if participant and participant.get("participant_kind") == "system_npc":
+        sender["participant_kind"] = "system_npc"
+    return sender
 
 
 def _timeline_entry(row, room: dict) -> dict:
@@ -449,6 +466,7 @@ def list_human_rooms(
             JOIN room_participants AS human
               ON human.room_id = r.room_id
              AND human.role = 'human'
+             AND human.participant_kind = 'human'
              AND human.player_id = ?
              AND human.join_status <> 'left'
             ORDER BY
@@ -470,7 +488,8 @@ def list_human_rooms(
             item = dict(row)
             participant_rows = conn.execute(
                 """
-                SELECT player_id, display_name, role, seat_index, active,
+                SELECT player_id, display_name, role, participant_kind,
+                       npc_persona_id, seat_index, active,
                        join_status, activity_state
                 FROM room_participants
                 WHERE room_id = ? ORDER BY seat_index
@@ -492,7 +511,7 @@ def list_human_rooms(
             item["current_actor"] = current
             ai_ids = [
                 participant["player_id"] for participant in participants
-                if participant["role"] == "ai"
+                if participant.get("participant_kind") == "bound_machine"
             ]
             item["ai_player_ids"] = ai_ids
             item["ai_player_id"] = ai_ids[0] if ai_ids else None
@@ -571,6 +590,11 @@ def list_ai_rooms(
                        WHERE member.room_id = r.room_id
                    ) AS participant_count,
                    (
+                       SELECT COUNT(*) FROM room_participants AS member
+                       WHERE member.room_id = r.room_id
+                         AND member.participant_kind = 'system_npc'
+                   ) AS npc_count,
+                   (
                        SELECT actor.seat_index FROM room_participants AS actor
                        WHERE actor.room_id = r.room_id
                          AND actor.player_id = r.current_player_id
@@ -580,6 +604,7 @@ def list_ai_rooms(
             JOIN room_participants AS participant
               ON participant.room_id = r.room_id
              AND participant.role = 'ai'
+             AND participant.participant_kind = 'bound_machine'
              AND participant.player_id = ?
              AND participant.join_status <> 'left'
             LEFT JOIN room_confirmations AS confirmation
@@ -610,6 +635,8 @@ def list_ai_rooms(
     )
     for row in rows:
         item = {key: row[key] for key in base_keys}
+        if row["npc_count"]:
+            item["npc_count"] = row["npc_count"]
         if row["status"] == "pending":
             item.update(
                 stake=row["stake"],
@@ -1132,6 +1159,22 @@ def _normalize_ordered_participants(
         participant_role = raw.get("role")
         if participant_role not in {"human", "ai"}:
             raise DuelError("参与者 role 必须是 human 或 ai")
+        participant_kind = raw.get("participant_kind") or (
+            "human" if participant_role == "human" else "bound_machine"
+        )
+        if participant_kind not in PARTICIPANT_KINDS:
+            raise DuelError("参与者 participant_kind 无效")
+        if participant_kind == "human" and participant_role != "human":
+            raise DuelError("human participant_kind 必须使用 human role")
+        if participant_kind != "human" and participant_role != "ai":
+            raise DuelError("小机和 NPC 必须使用 ai role 兼容标识")
+        npc_persona_id = raw.get("npc_persona_id")
+        if participant_kind == "system_npc":
+            if not isinstance(npc_persona_id, str) or not npc_persona_id.strip():
+                raise DuelError("system_npc 必须绑定 npc_persona_id")
+            npc_persona_id = npc_persona_id.strip()
+        elif npc_persona_id is not None:
+            raise DuelError("只有 system_npc 可以绑定 npc_persona_id")
         if participant_id in seen:
             raise DuelError("同一 player_id 不能重复加入房间")
         seen.add(participant_id)
@@ -1145,6 +1188,8 @@ def _normalize_ordered_participants(
                 "player_id": participant_id,
                 "display_name": display_name or participant_id,
                 "role": participant_role,
+                "participant_kind": participant_kind,
+                "npc_persona_id": npc_persona_id,
                 "seat_index": len(participants),
                 "active": bool(raw.get("active", True)),
             }
@@ -1193,6 +1238,7 @@ def create_room(
     stake: int = 0,
     ordered_participants: list[dict] | None = None,
     require_confirmations: bool | None = None,
+    enforce_trusted_pair: bool = False,
 ) -> dict:
     try:
         game = get_game(game_type)
@@ -1217,6 +1263,17 @@ def create_room(
         )
     if len(participants) < 1:
         raise DuelError("房间至少需要一名参与者")
+    npc_count = sum(
+        item["participant_kind"] == "system_npc" for item in participants
+    )
+    if npc_count > MAX_NPCS_PER_ROOM:
+        raise DuelError(f"每局最多补入 {MAX_NPCS_PER_ROOM} 名 NPC")
+    if npc_count and not game.supports_npcs:
+        raise DuelError(f"{game.display_name}未启用 NPC 补位")
+    if enforce_trusted_pair:
+        kinds = {item["participant_kind"] for item in participants}
+        if "human" not in kinds or "bound_machine" not in kinds:
+            raise DuelError("生产对局至少需要 1 个人类和 1 只真实绑定小机")
     if stake > 0:
         if not game.supports_stakes:
             raise DuelError(f"{game.display_name}尚未定义筹码结算规则")
@@ -1230,7 +1287,9 @@ def create_room(
     for participant in participants:
         participant["join_status"] = (
             "invited"
-            if confirmation_required and participant["player_id"] != player_id
+            if confirmation_required
+            and participant["player_id"] != player_id
+            and participant["participant_kind"] != "system_npc"
             else "joined"
         )
         participant["activity_state"] = (
@@ -1282,8 +1341,14 @@ def create_room(
     with write_transaction() as conn:
         _maintain_rooms(conn)
         _check_global_capacity(conn)
-        humans = [item["player_id"] for item in participants if item["role"] == "human"]
-        ais = [item["player_id"] for item in participants if item["role"] == "ai"]
+        humans = [
+            item["player_id"] for item in participants
+            if item["participant_kind"] == "human"
+        ]
+        ais = [
+            item["player_id"] for item in participants
+            if item["participant_kind"] == "bound_machine"
+        ]
         for human_player_id in humans:
             for ai_player_id in ais:
                 _check_pair_capacity(conn, human_player_id, ai_player_id)
@@ -1328,15 +1393,18 @@ def create_room(
                     """
                     INSERT INTO room_participants (
                         room_id, player_id, display_name, role,
+                        participant_kind, npc_persona_id,
                         seat_index, token, join_status, activity_state,
                         active, joined_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         room_id,
                         participant_id,
                         participant["display_name"],
                         participant["role"],
+                        participant["participant_kind"],
+                        participant["npc_persona_id"],
                         participant["seat_index"],
                         participant["token"],
                         participant["join_status"],
@@ -1354,7 +1422,10 @@ def create_room(
                     (room_id, participant_id, timestamp),
                 )
             if confirmation_required:
-                accepted = participant_id == player_id
+                accepted = (
+                    participant_id == player_id
+                    or participant["participant_kind"] == "system_npc"
+                )
                 conn.execute(
                         """
                         INSERT INTO room_confirmations (
@@ -1520,11 +1591,11 @@ def join_room(
             raise DuelError(f"房间已满，最多允许 {capacity} 名参与者", 409)
         humans = [
             item["player_id"] for item in room["participants"]
-            if item["role"] == "human"
+            if item.get("participant_kind") == "human"
         ]
         ais = [
             item["player_id"] for item in room["participants"]
-            if item["role"] == "ai"
+            if item.get("participant_kind") == "bound_machine"
         ]
         if role == "human":
             humans.append(player_id)
@@ -1543,6 +1614,8 @@ def join_room(
                 "player_id": player_id,
                 "display_name": display_name or player_id,
                 "role": role,
+                "participant_kind": "human" if role == "human" else "bound_machine",
+                "npc_persona_id": None,
                 "seat_index": seat_index,
                 "active": True,
             },
@@ -1585,12 +1658,14 @@ def join_room(
             """
             INSERT INTO room_participants (
                 room_id, player_id, display_name, role,
+                participant_kind, npc_persona_id,
                 seat_index, token, join_status, activity_state,
                 active, joined_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'joined', 'active', 1, ?)
+            ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'joined', 'active', 1, ?)
             """,
             (
                 room_id, player_id, (display_name or player_id)[:100], role,
+                "human" if role == "human" else "bound_machine",
                 seat_index, token, _now(),
             ),
         )
