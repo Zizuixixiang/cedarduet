@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from .database import decode_room, write_transaction
@@ -17,6 +18,10 @@ from .framework import DuelError, _now, _player_id, _room_id
 
 
 MAX_NPC_MESSAGE_LENGTH = 500
+# Two provider attempts can each use the configured 60-second maximum timeout.
+# A stale reservation is recovered locally after this lease and never causes a
+# second provider request for the same revision.
+NPC_DECISION_LEASE_SECONDS = 130
 
 
 @dataclass(frozen=True)
@@ -29,6 +34,21 @@ class NpcDecisionTicket:
     status: str
     decision: dict[str, Any] | None = None
     error: str | None = None
+    stale_recovery: bool = False
+
+
+def _reservation_is_stale(updated_at: str | None) -> bool:
+    if not updated_at:
+        return True
+    try:
+        parsed = datetime.fromisoformat(updated_at)
+    except (TypeError, ValueError):
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (
+        datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+    ).total_seconds() >= NPC_DECISION_LEASE_SECONDS
 
 
 def npc_decision_key(room_id: str, revision: int, npc_player_id: str) -> str:
@@ -78,15 +98,52 @@ def reserve_npc_decision(
         )
         stored = conn.execute(
             """
-            SELECT status, decision_json, error_text
+            SELECT status, decision_json, error_text, updated_at
             FROM npc_decisions WHERE idempotency_key = ?
             """,
             (key,),
         ).fetchone()
+        created = cursor.rowcount == 1
+        stale_recovery = False
+        if not created and stored["status"] == "failed":
+            retry = conn.execute(
+                """
+                UPDATE npc_decisions
+                SET status = 'reserved', error_text = NULL, updated_at = ?
+                WHERE idempotency_key = ? AND status = 'failed'
+                """,
+                (timestamp, key),
+            )
+            created = retry.rowcount == 1
+        elif (
+            not created
+            and stored["status"] == "reserved"
+            and _reservation_is_stale(stored["updated_at"])
+        ):
+            recovery = conn.execute(
+                """
+                UPDATE npc_decisions
+                SET error_text = 'stale reservation recovered locally',
+                    updated_at = ?
+                WHERE idempotency_key = ? AND status = 'reserved'
+                  AND updated_at = ?
+                """,
+                (timestamp, key, stored["updated_at"]),
+            )
+            created = recovery.rowcount == 1
+            stale_recovery = created
+        if created and cursor.rowcount != 1:
+            stored = conn.execute(
+                """
+                SELECT status, decision_json, error_text, updated_at
+                FROM npc_decisions WHERE idempotency_key = ?
+                """,
+                (key,),
+            ).fetchone()
     decision = json.loads(stored["decision_json"]) if stored["decision_json"] else None
     return NpcDecisionTicket(
         key, room_id, revision, npc_player_id,
-        cursor.rowcount == 1, stored["status"], decision, stored["error_text"],
+        created, stored["status"], decision, stored["error_text"], stale_recovery,
     )
 
 

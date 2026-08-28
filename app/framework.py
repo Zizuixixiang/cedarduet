@@ -8,6 +8,7 @@ from typing import Literal
 from .database import connect, decode_room, write_transaction
 from .games import get_game
 from .games.base import MoveResult
+from .npc_personas import PersonaConfigError, load_personas
 
 Role = Literal["human", "ai"]
 ROOM_ID_RE = re.compile(r"^[A-Z0-9]{8}$")
@@ -22,9 +23,9 @@ MAX_MESSAGE_LENGTH = 500
 AI_ROOM_LIST_DEFAULT_LIMIT = 50
 AI_ROOM_LIST_MAX_LIMIT = 100
 INVITATION_EXPIRY_HOURS = 24
-ABSOLUTE_MAX_PLAYERS = 4
+ABSOLUTE_MAX_PLAYERS = 6
 PARTICIPANT_KINDS = {"human", "bound_machine", "system_npc"}
-MAX_NPCS_PER_ROOM = 2
+MAX_NPCS_PER_ROOM = 4
 
 
 class DuelError(Exception):
@@ -64,12 +65,14 @@ def _new_room_id(conn) -> str:
 
 def _decorate(room: dict) -> dict:
     game = get_game(room["game_type"])
+    allowed_counts = game.resolved_allowed_player_counts()
     result = dict(room)
     result["rules_text"] = game.rules_text
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
-    result["min_players"] = game.min_players
-    result["max_players"] = game.max_players
+    result["min_players"] = allowed_counts[0]
+    result["max_players"] = allowed_counts[-1]
+    result["allowed_player_counts"] = list(allowed_counts)
     result["participants"] = sorted(
         result.get("participants", []), key=lambda item: item["seat_index"]
     )
@@ -111,10 +114,27 @@ def _decorate(room: dict) -> dict:
         else "娱乐局"
     )
     settlement_deltas = (result.get("result") or {}).get("settlement_deltas", {})
+    avatar_urls: dict[str, str | None] = {}
+    if any(
+        item.get("participant_kind") == "system_npc"
+        for item in result["participants"]
+    ):
+        try:
+            avatar_urls = {
+                persona.id: persona.public_identity()["avatar_url"]
+                for persona in load_personas()
+            }
+        except PersonaConfigError:
+            # Existing rooms remain readable if an administrator temporarily
+            # removes or repairs the external persona/avatar inventory.
+            avatar_urls = {}
     for participant in result["participants"]:
         is_npc = participant.get("participant_kind") == "system_npc"
         participant["controller"] = participant.get("participant_kind")
         participant["wallet_label"] = "???" if is_npc else None
+        participant["avatar_url"] = (
+            avatar_urls.get(participant.get("npc_persona_id")) if is_npc else None
+        )
         participant["settlement_delta"] = settlement_deltas.get(
             participant["player_id"]
         )
@@ -1205,9 +1225,7 @@ def _normalize_ordered_participants(
 
 def _room_can_start(room: dict, game) -> bool:
     participants = room.get("participants", [])
-    if not game.min_players <= len(participants) <= min(
-        game.max_players, ABSOLUTE_MAX_PLAYERS
-    ):
+    if not game.accepts_player_count(len(participants)):
         return False
     if not all(
         participant.get("active", True)
@@ -1257,12 +1275,17 @@ def create_room(
         ordered_participants=ordered_participants,
         participant_names=participant_names,
     )
-    if len(participants) > min(game.max_players, ABSOLUTE_MAX_PLAYERS):
+    allowed_counts = game.resolved_allowed_player_counts()
+    if len(participants) > allowed_counts[-1]:
         raise DuelError(
-            f"{game.display_name}最多允许 {min(game.max_players, ABSOLUTE_MAX_PLAYERS)} 名参与者"
+            f"{game.display_name}最多允许 {allowed_counts[-1]} 名参与者"
         )
-    if len(participants) < 1:
-        raise DuelError("房间至少需要一名参与者")
+    if len(participants) >= allowed_counts[0] and not game.accepts_player_count(
+        len(participants)
+    ):
+        raise DuelError(
+            f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌"
+        )
     npc_count = sum(
         item["participant_kind"] == "system_npc" for item in participants
     )
@@ -1301,7 +1324,7 @@ def create_room(
     for participant, token in zip(participants, tokens):
         participant["token"] = str(token)
     # The six legacy games use X for the mode-selected opening side.
-    if game.max_players == 2 and len(participants) == 2:
+    if allowed_counts == (2,) and len(participants) == 2:
         opening_role = "human" if mode == "human_first" else "ai"
         opener = next(
             (item for item in participants if item["role"] == opening_role), None
@@ -1353,7 +1376,7 @@ def create_room(
             for ai_player_id in ais:
                 _check_pair_capacity(conn, human_player_id, ai_player_id)
         room_id = _new_room_id(conn)
-        enough_players = len(participants) >= game.min_players
+        enough_players = game.accepts_player_count(len(participants))
         status = (
             "pending"
             if confirmation_required
@@ -1586,7 +1609,8 @@ def join_room(
         if row["status"] not in {"waiting", "pending"}:
             raise DuelError("房间已经开始或结束，不能加入", 409)
         game = get_game(room["game_type"])
-        capacity = min(game.max_players, ABSOLUTE_MAX_PLAYERS)
+        allowed_counts = game.resolved_allowed_player_counts()
+        capacity = allowed_counts[-1]
         if len(room["participants"]) >= capacity:
             raise DuelError(f"房间已满，最多允许 {capacity} 名参与者", 409)
         humans = [
@@ -1627,7 +1651,7 @@ def join_room(
             participant["player_id"]: str(prospective_token)
             for participant, prospective_token in zip(prospective, tokens)
         }
-        if game.max_players == 2 and len(prospective) == 2:
+        if allowed_counts == (2,) and len(prospective) == 2:
             opening_role = "human" if room["mode"] == "human_first" else "ai"
             opener = next(
                 item for item in prospective if item["role"] == opening_role
@@ -1726,6 +1750,14 @@ def join_room(
         pending_count = sum(
             item["decision"] == "pending" for item in room["confirmations"]
         )
+        prospective_count = len(prospective)
+        if (
+            prospective_count not in allowed_counts
+            and not any(count > prospective_count for count in allowed_counts)
+        ):
+            raise DuelError(
+                f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌"
+            )
         new_status = (
             "pending" if row["confirmation_required"] and pending_count > 0
             else "playing" if _room_can_start(room, game)
@@ -2185,7 +2217,7 @@ def leave_room(
             item for item in room["participants"]
             if item.get("join_status") == "joined" and item.get("active", True)
         ]
-        terminal = len(remaining) < game.min_players
+        terminal = not game.accepts_player_count(len(remaining))
         winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
         winner = remaining[0]["role"] if winner_player_id else (
             "draw" if terminal else None
@@ -2301,7 +2333,7 @@ def resign(
             and participant.get("active", True)
         ]
         game = get_game(room["game_type"])
-        terminal = len(remaining) < game.min_players
+        terminal = not game.accepts_player_count(len(remaining))
         winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
         winner = remaining[0]["role"] if len(remaining) == 1 else (
             "draw" if terminal else None

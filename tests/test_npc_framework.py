@@ -13,7 +13,12 @@ from app import main as main_module
 from app.games import GAMES
 from app.games.base import GamePlugin, MoveResult
 from app.games.tools import advance_flow, ensure_flow
-from app.npc_personas import PersonaConfigError, load_personas, select_personas
+from app.npc_personas import (
+    PersonaConfigError,
+    load_personas,
+    resolve_avatar_file,
+    select_personas,
+)
 from app.npc_runtime import complete_npc_decision, reserve_npc_decision
 
 
@@ -54,6 +59,15 @@ class DummyNpcMultiplayer(GamePlugin):
             "legal_actions": [{"action": "step"}, {"action": "finish"}],
         }
 
+    def npc_compact_rules(self, state, actor, participants):
+        return "每回合只能从权威合法行动中选择 step 或 finish。"
+
+    def npc_public_actions(self, state, actor, participants):
+        return [{"actor": player_id} for player_id in state["actions"]]
+
+    def npc_legal_actions(self, state, actor, participants):
+        return [{"action": "step"}, {"action": "finish"}]
+
     def validate_move(self, state, move, mark):
         if move.get("action") not in {"step", "finish"}:
             raise ValueError("invalid action")
@@ -92,12 +106,19 @@ class DummyNpcMultiplayer(GamePlugin):
         return None
 
 
-def write_persona(directory: Path, persona_id: str, name: str, text: str = "test"):
+def write_persona(
+    directory: Path,
+    persona_id: str,
+    name: str,
+    text: str = "test",
+    *,
+    avatar: str | None = None,
+):
+    payload = {"id": persona_id, "display_name": name, "persona": text}
+    if avatar is not None:
+        payload["avatar"] = avatar
     (directory / f"{persona_id}.json").write_text(
-        json.dumps(
-            {"id": persona_id, "display_name": name, "persona": text},
-            ensure_ascii=False,
-        ),
+        json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -106,7 +127,9 @@ class PersonaLoaderTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="duel-personas-")
         self.addCleanup(self.temporary.cleanup)
-        self.directory = Path(self.temporary.name)
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / "personas"
+        self.directory.mkdir()
 
     def test_load_and_random_unique_selection(self):
         write_persona(self.directory, "quiet", "安静测试机")
@@ -116,6 +139,19 @@ class PersonaLoaderTests(unittest.TestCase):
         self.assertEqual([item.id for item in loaded], ["bright", "quiet", "third"])
         selected = select_personas(2, path=self.directory, rng=random.Random(7))
         self.assertEqual(len({item.id for item in selected}), 2)
+
+    def test_selection_supports_four_but_never_five_npcs(self):
+        for index in range(5):
+            write_persona(
+                self.directory, f"persona-{index}", f"测试角色 {index}"
+            )
+        selected = select_personas(
+            4, path=self.directory, rng=random.Random(8)
+        )
+        self.assertEqual(len(selected), 4)
+        self.assertEqual(len({item.id for item in selected}), 4)
+        with self.assertRaisesRegex(PersonaConfigError, "最多补入 4"):
+            select_personas(5, path=self.directory)
 
     def test_duplicate_invalid_empty_long_and_insufficient_are_rejected(self):
         write_persona(self.directory, "same", "一号")
@@ -139,6 +175,42 @@ class PersonaLoaderTests(unittest.TestCase):
         write_persona(self.directory, "long", "名字", "x" * 4001)
         with self.assertRaisesRegex(PersonaConfigError, "persona 过长"):
             load_personas(self.directory)
+
+    def test_avatar_mapping_is_external_and_rejects_unsafe_paths(self):
+        avatars = self.root / "avatars"
+        avatars.mkdir()
+        (avatars / "quiet.png").write_bytes(b"test-png-fixture")
+        write_persona(
+            self.directory, "quiet", "安静测试机", avatar="quiet.png"
+        )
+        with patch.dict("os.environ", {"DUEL_NPC_AVATARS_DIR": str(avatars)}):
+            persona = load_personas(self.directory)[0]
+            self.assertEqual(
+                persona.public_identity()["avatar_url"],
+                "/api/npc-avatars/quiet.png",
+            )
+            self.assertEqual(resolve_avatar_file("quiet.png"), avatars / "quiet.png")
+            for invalid in ("../quiet.png", "/quiet.png", "quiet.svg", "quiet.png/next"):
+                with self.subTest(invalid=invalid):
+                    with self.assertRaises(PersonaConfigError):
+                        resolve_avatar_file(invalid)
+            outside = self.root / "outside.png"
+            outside.write_bytes(b"outside")
+            try:
+                (avatars / "linked.png").symlink_to(outside)
+            except OSError:
+                pass
+            else:
+                with self.assertRaisesRegex(PersonaConfigError, "路径越界"):
+                    resolve_avatar_file("linked.png")
+
+        (self.directory / "quiet.json").unlink()
+        write_persona(
+            self.directory, "quiet", "安静测试机", avatar="../quiet.png"
+        )
+        with patch.dict("os.environ", {"DUEL_NPC_AVATARS_DIR": str(avatars)}):
+            with self.assertRaisesRegex(PersonaConfigError, "avatar 非法"):
+                load_personas(self.directory)
 
 
 class NpcRoomContractTests(unittest.TestCase):
@@ -317,14 +389,17 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn('options.classList.toggle("hidden", !multiplayer)', script)
         self.assertIn('maxPlayers <= 2) return 2', script)
         self.assertIn(
-            'return selectedGameRequirement().maxPlayers > 2 && $("fillWithNpcs").checked;',
+            "requirement.supportsNpcs",
             script,
         )
+        self.assertIn("requirement.npcAvailable", script)
+        self.assertIn("allowedPlayerCounts.forEach((count)", script)
         self.assertIn("fill_with_npcs: selectedFillWithNpcs()", script)
         self.assertIn('selectedMachineCount >= 1', script)
         self.assertIn('participant.participant_kind === "system_npc"', script)
         self.assertIn('targetRoom.private_state', script)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
+        self.assertIn(".room-participants.count-5", styles)
 
 
 class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
@@ -335,10 +410,23 @@ class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
         self.db_patch.start()
         self.persona_dir = root / "personas"
         self.persona_dir.mkdir()
-        write_persona(self.persona_dir, "quiet", "安静测试机")
+        self.avatar_dir = root / "avatars"
+        self.avatar_dir.mkdir()
+        (self.avatar_dir / "quiet.png").write_bytes(b"test-png-fixture")
+        write_persona(
+            self.persona_dir, "quiet", "安静测试机", avatar="quiet.png"
+        )
         write_persona(self.persona_dir, "bright", "明亮测试机")
         self.env_patch = patch.dict(
-            "os.environ", {"DUEL_NPC_PERSONAS_DIR": str(self.persona_dir)}
+            "os.environ",
+            {
+                "DUEL_NPC_PERSONAS_DIR": str(self.persona_dir),
+                "DUEL_NPC_AVATARS_DIR": str(self.avatar_dir),
+                "DUEL_NPC_PROVIDER": "openai_compatible",
+                "DUEL_NPC_API_BASE": "https://provider.invalid/v1",
+                "DUEL_NPC_API_KEY": "test-only-key",
+                "DUEL_NPC_MODEL": "test-model",
+            },
         )
         self.env_patch.start()
         self.game_patch = patch.dict(
@@ -370,6 +458,11 @@ class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
         }
 
     async def test_web_fills_only_creation_seats_and_mcp_cannot_impersonate_npc(self):
+        identity = await self.client.get("/api/whoami", headers=self.headers())
+        self.assertTrue(identity.json()["npc_provider"]["available"])
+        self.assertEqual(
+            identity.json()["npc_provider"]["provider"], "openai_compatible"
+        )
         created = await self.client.post(
             "/api/rooms",
             headers=self.headers(),
@@ -391,6 +484,15 @@ class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
             {item["display_name"] for item in room["participants"][2:]},
             {"安静测试机", "明亮测试机"},
         )
+        quiet = next(
+            item for item in room["participants"]
+            if item.get("npc_persona_id") == "quiet"
+        )
+        self.assertEqual(quiet["avatar_url"], "/api/npc-avatars/quiet.png")
+        avatar = await self.client.get(quiet["avatar_url"])
+        self.assertEqual(avatar.status_code, 200)
+        self.assertEqual(avatar.content, b"test-png-fixture")
+        self.assertEqual(avatar.headers["x-content-type-options"], "nosniff")
         npc_id = room["participants"][2]["player_id"]
         forged = await self.client.post(
             "/mcp/play",
@@ -407,6 +509,40 @@ class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(legacy_game.status_code, 400)
+
+    async def test_disabled_provider_blocks_only_npc_fill(self):
+        with patch.dict("os.environ", {"DUEL_NPC_PROVIDER": "disabled"}):
+            disabled_identity = await self.client.get(
+                "/api/whoami", headers=self.headers()
+            )
+            self.assertFalse(
+                disabled_identity.json()["npc_provider"]["available"]
+            )
+            npc_room = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(),
+                json={
+                    "player_id": "human-1",
+                    "ai_players": ["ai-1"],
+                    "game_type": DummyNpcMultiplayer.game_type,
+                    "target_player_count": 4,
+                    "fill_with_npcs": True,
+                },
+            )
+            self.assertEqual(npc_room.status_code, 503, npc_room.text)
+            self.assertIn("未配置", npc_room.text)
+
+            ordinary = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(),
+                json={
+                    "player_id": "human-1",
+                    "ai_players": ["ai-1"],
+                    "game_type": "tictactoe",
+                    "target_player_count": 2,
+                },
+            )
+            self.assertEqual(ordinary.status_code, 200, ordinary.text)
 
 
 if __name__ == "__main__":

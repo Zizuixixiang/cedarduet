@@ -433,11 +433,19 @@ function selectedGameRequirement() {
   const declared = identity && Array.isArray(identity.games)
     ? identity.games.find((game) => game.game_type === gameType)
     : null;
+  const fallbackMin = declared ? declared.min_players : 2;
+  const fallbackMax = declared ? declared.max_players : 2;
+  const allowedPlayerCounts = declared && Array.isArray(declared.allowed_player_counts)
+    ? declared.allowed_player_counts.filter((count) => Number.isInteger(count) && count >= 2 && count <= 6)
+    : Array.from({length: fallbackMax - fallbackMin + 1}, (_item, index) => fallbackMin + index);
+  const providerAvailable = Boolean(identity && identity.npc_provider && identity.npc_provider.available);
   return {
-    minPlayers: declared ? declared.min_players : 2,
-    maxPlayers: declared ? declared.max_players : 2,
+    minPlayers: allowedPlayerCounts[0] || 2,
+    maxPlayers: allowedPlayerCounts[allowedPlayerCounts.length - 1] || 2,
+    allowedPlayerCounts,
     recommendedPlayers: declared ? declared.recommended_players : 2,
     supportsNpcs: Boolean(declared && declared.supports_npcs),
+    npcAvailable: providerAvailable,
   };
 }
 
@@ -448,12 +456,18 @@ function selectedTargetPlayerCount() {
 }
 
 function selectedFillWithNpcs() {
-  return selectedGameRequirement().maxPlayers > 2 && $("fillWithNpcs").checked;
+  const requirement = selectedGameRequirement();
+  return requirement.maxPlayers > 2
+    && requirement.supportsNpcs
+    && requirement.npcAvailable
+    && $("fillWithNpcs").checked;
 }
 
 function configureParticipantPicker() {
   const select = $("aiPlayer");
-  const {minPlayers, maxPlayers, recommendedPlayers, supportsNpcs} = selectedGameRequirement();
+  const {
+    maxPlayers, allowedPlayerCounts, recommendedPlayers, supportsNpcs, npcAvailable,
+  } = selectedGameRequirement();
   const multiplayer = maxPlayers > 2;
   const selected = selectedParticipantIds();
   const options = $("multiplayerOptions");
@@ -462,26 +476,29 @@ function configureParticipantPicker() {
   if (multiplayer) {
     const previousTarget = Number(targetSelect.value);
     targetSelect.replaceChildren();
-    for (let count = Math.max(2, minPlayers); count <= Math.min(4, maxPlayers); count += 1) {
+    allowedPlayerCounts.forEach((count) => {
       const option = document.createElement("option");
       option.value = String(count);
       option.textContent = `${count} 人桌`;
       targetSelect.appendChild(option);
-    }
+    });
     const allowed = [...targetSelect.options].map((option) => Number(option.value));
     const preferred = allowed.includes(previousTarget)
       ? previousTarget
       : (allowed.includes(recommendedPlayers) ? recommendedPlayers : allowed[0]);
     targetSelect.value = String(preferred);
-    $("fillWithNpcs").disabled = !supportsNpcs;
-    if (!supportsNpcs) $("fillWithNpcs").checked = false;
+    $("fillWithNpcs").disabled = !supportsNpcs || !npcAvailable;
+    if (!supportsNpcs || !npcAvailable) $("fillWithNpcs").checked = false;
+    $("npcProviderHint").textContent = !supportsNpcs
+      ? "该游戏不提供 NPC 补位"
+      : (!npcAvailable ? "部署者尚未配置 NPC 通道" : "每桌最多补入 4 名 NPC");
   }
   select.multiple = multiplayer;
   select.closest(".participant-picker").dataset.selectionMode = multiplayer
     ? "multiple"
     : "single";
   if (multiplayer) {
-    select.size = Math.max(2, Math.min(selectedTargetPlayerCount() - 1, 3));
+    select.size = Math.max(2, Math.min(selectedTargetPlayerCount() - 1, 5));
   } else {
     select.removeAttribute("size");
     if (selected.length > 1) select.value = selected[0];
@@ -490,7 +507,9 @@ function configureParticipantPicker() {
 }
 
 function updateCreateButtonState() {
-  const {minPlayers, maxPlayers, supportsNpcs} = selectedGameRequirement();
+  const {
+    allowedPlayerCounts, supportsNpcs, npcAvailable,
+  } = selectedGameRequirement();
   const selectedMachineCount = selectedParticipantIds().length;
   const targetCount = selectedTargetPlayerCount();
   const npcCount = targetCount - 1 - selectedMachineCount;
@@ -502,11 +521,10 @@ function updateCreateButtonState() {
     && $("gameType").value
     && $("mode").value
     && selectedMachineCount >= 1
-    && targetCount >= minPlayers
-    && targetCount <= maxPlayers
+    && allowedPlayerCounts.includes(targetCount)
     && npcCount >= 0
-    && npcCount <= 2
-    && (npcCount === 0 || (fillWithNpcs && supportsNpcs))
+    && npcCount <= 4
+    && (npcCount === 0 || (fillWithNpcs && supportsNpcs && npcAvailable))
     && validStake
   );
   $("createButton").disabled = !ready;
@@ -551,10 +569,8 @@ function renderSelectedParticipants() {
   const machines = identity
     ? identity.machines.filter((item) => selectedIds.includes(item.id))
     : [];
-  const {minPlayers, maxPlayers} = selectedGameRequirement();
-  const requirement = minPlayers === maxPlayers
-    ? `${minPlayers} 人局`
-    : `${minPlayers}–${maxPlayers} 人局`;
+  const {allowedPlayerCounts} = selectedGameRequirement();
+  const requirement = `${allowedPlayerCounts.join("/")} 人局`;
   const machineBalance = selectedMachineWallet && machines.length === 1
     ? ` · 对手筹码：🪙${selectedMachineWallet.balance}`
     : "";
@@ -572,6 +588,10 @@ function renderSeatPreview(machines) {
   preview.classList.toggle("hidden", maxPlayers <= 2);
   if (maxPlayers <= 2) return;
   const targetCount = selectedTargetPlayerCount();
+  [...preview.classList]
+    .filter((name) => name.startsWith("count-"))
+    .forEach((name) => preview.classList.remove(name));
+  preview.classList.add(`count-${targetCount}`);
   const npcCount = Math.max(0, targetCount - 1 - machines.length);
   const fill = selectedFillWithNpcs();
   const seats = [
@@ -1103,6 +1123,10 @@ function renderParticipantRoster(targetRoom) {
     ? targetRoom.participants
     : [];
   roster.replaceChildren();
+  [...roster.classList]
+    .filter((name) => name.startsWith("count-"))
+    .forEach((name) => roster.classList.remove(name));
+  roster.classList.add(`count-${participants.length}`);
   roster.classList.toggle("hidden", participants.length <= 2);
   if (participants.length <= 2) return;
   participants.forEach((participant) => {
@@ -1128,7 +1152,18 @@ function renderParticipantRoster(targetRoom) {
       ? ` · 本局 ${participant.settlement_delta >= 0 ? "+" : ""}${participant.settlement_delta}`
       : "";
     const status = states.length ? ` · ${states.join("/")}` : "";
-    badge.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name} · ${kind}${chip}${delta}${status}`;
+    if (participant.participant_kind === "system_npc" && participant.avatar_url) {
+      const avatar = document.createElement("img");
+      avatar.className = "room-participant-avatar";
+      avatar.src = apiPath(participant.avatar_url);
+      avatar.alt = "";
+      avatar.loading = "lazy";
+      avatar.addEventListener("error", () => avatar.remove(), {once: true});
+      badge.appendChild(avatar);
+    }
+    const text = document.createElement("span");
+    text.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name} · ${kind}${chip}${delta}${status}`;
+    badge.appendChild(text);
     roster.appendChild(badge);
   });
 }
@@ -1407,7 +1442,7 @@ $("targetPlayerCount").addEventListener("change", () => {
       .slice(target - 1)
       .forEach((option) => { option.selected = false; });
   }
-  $("aiPlayer").size = Math.max(2, Math.min(target - 1, 3));
+  $("aiPlayer").size = Math.max(2, Math.min(target - 1, 5));
   machineSelectionChanged();
 });
 $("fillWithNpcs").addEventListener("change", renderSelectedParticipants);

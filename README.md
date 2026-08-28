@@ -16,7 +16,7 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `jungle`：7×9 斗兽棋
 
 当前六种均为双人人类 + 绑定 AI 对局；注册表已明确声明
-`min_players=2 / max_players=2`。多人 Phase 1 只提供未来 2–4 人插件可复用的
+`allowed_player_counts=(2,)`。多人底座只提供未来 2–6 人插件可复用的
 房间底座，没有注册或上线测试游戏。
 
 ## 项目结构
@@ -32,6 +32,9 @@ app/
   games/               棋种插件
   npc_personas.py      NPC 人设目录加载与严格校验
   npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
+  npc_providers.py     disabled / OpenAI-compatible / CedarToy bridge provider
+  npc_controller.py    查看者安全上下文、合法行动映射、重试与保底执行
+  config/npc_avatars/  外部头像目录格式说明；仓库不含生产头像
   config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
 tests/                  单元测试与前端行为测试
@@ -42,15 +45,28 @@ data/                   本地运行数据目录；真实数据库不会提交�
 
 - 一房一局，参与者按稳定 seat / turn order 保存；完整状态同时返回有序
   `participants`、`current_actor` 和兼容旧前端的 `turn`。
-- 插件声明 `min_players / max_players`，并可通过通用结果对象保留行动权、
-  指定下一行动者、临时 skip，或把参与者标记为 inactive / eliminated。
+- 框架绝对上限为 6。插件以 `allowed_player_counts` 权威声明离散桌型，例如
+  `(2, 3, 4)`、`(4,)`；旧插件未声明时才从 `min_players..max_players` 推导。
+  Web、MCP new、直接开房和 join 都按插件允许人数校验，不会因为底座支持 6 人
+  就自动放宽游戏。插件还可通过通用结果对象保留行动权、指定下一行动者、
+  临时 skip，或把参与者标记为 inactive / eliminated。
 - 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
   `system_npc`，旧 `role=human/ai` 字段继续供六棋与旧客户端兼容。生产开房
-  强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多两个，
+  强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多四个，
   不会接管中途离开的席位。当前六棋未声明 `supports_npcs`，因此不能出现 NPC。
-- NPC 人设从 `app/config/npc_personas/*.json` 随机无重复抽取，仅包含稳定 id、
-  显示名与 persona 文本。人设只影响表达；合法行动始终由插件规则引擎列出。
-  `room_id + revision + npc_id` 决策票据负责跨重试幂等，本仓库当前不会调用模型。
+- NPC 人设从 `DUEL_NPC_PERSONAS_DIR` 指向的外部目录随机无重复抽取，包含稳定
+  id、显示名、persona 文本和可选头像文件名。头像只从
+  `DUEL_NPC_AVATARS_DIR` 根目录以站内 `/api/npc-avatars/...` URL 提供；文件名、
+  扩展名、真实路径与越界符号链接均校验。仓库不含正式人设或头像。
+- NPC provider 默认 `disabled`；独立部署可选 `openai_compatible`，官方实例可选
+  内网 `cedartoy_bridge`。普通无 NPC 对局不依赖 provider。人设只影响表达；
+  合法行动始终由插件规则引擎列出。
+- 每次 NPC 请求只含全局玩家规则、当前 persona、精简游戏规则、公共状态和公开
+  行动、当前 NPC 私有状态、权威合法行动；不含其他玩家隐藏状态，也不请求或
+  保存思维链。模型只能返回 `action_id` 和可选短消息，服务端重新映射并校验；
+  非法或格式错误最多重试一次，仍失败则选择稳定排序后的合法保底行动。
+  `room_id + revision + npc_id` 决策票据负责幂等；同一 revision 不重复调用，
+  中断后过期预留只做本地保底恢复，不产生第二次 provider 请求或重复落子。
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
 - 落子、发言、认输和终局结果进入同一条共享时间线。
 - AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。
@@ -105,9 +121,27 @@ DUEL_DB_PATH=/your/path/duel.db \
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
 
-未来启用 NPC 的多人插件还需要提供人设目录。可用
-`DUEL_NPC_PERSONAS_DIR=/your/personas` 覆盖默认目录；格式和限制见
-`app/config/npc_personas/README.md`。空库存不会影响当前六棋。
+不配置 NPC provider 时，当前六棋和其他普通无 NPC 对局照常可玩；只有主动启用
+NPC 补位时才需要部署者自己的兼容 API 和外部人设目录。复制 `.env.example` 后：
+
+```bash
+DUEL_NPC_PROVIDER=openai_compatible
+DUEL_NPC_API_BASE=https://your-provider.example/v1
+DUEL_NPC_API_KEY=your-own-server-secret
+DUEL_NPC_MODEL=your-model
+DUEL_NPC_PERSONAS_DIR=/your/external/personas
+DUEL_NPC_AVATARS_DIR=/your/external/npc-avatars
+```
+
+`openai_compatible` 调标准 `/chat/completions`；API key 只存在服务端环境，不进入
+网页、房间数据库或日志。`DUEL_NPC_TIMEOUT_SECONDS`、`DUEL_NPC_MAX_TOKENS`、
+`DUEL_NPC_MAX_CONCURRENCY` 分别控制单请求超时、输出上限和跨房间全局并发。
+格式和限制见 `app/config/npc_personas/README.md`。仓库内 `_example.json` 只展示
+普通格式且不会加载；空库存与 disabled provider 都不影响当前六棋。
+
+官方 CedarToy 可改用 `DUEL_NPC_PROVIDER=cedartoy_bridge`，由带共享 Bearer token
+的 loopback bridge 调用官方 NPC 池。CedarDuet 不导入海龟汤模块，也不保存或复制
+池中 API key；两种 provider 对控制器都返回同一 `action_id/message` 结构。
 
 事件唤醒目前是单进程内机制，因此请保持 uvicorn 单 worker。
 
@@ -165,7 +199,8 @@ Content-Type: application/json
 当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
 
 `new` 可传 `stake`（默认 0）。未来支持 NPC 的多人插件还可传
-`target_player_count=3|4` 与 `fill_with_npcs=true`；当前六棋会拒绝这些多人参数。
+`target_player_count=2..6` 与 `fill_with_npcs=true`；具体值仍必须属于游戏返回的
+`allowed_player_counts`，当前六棋会拒绝任何非 2 人或 NPC 参数。
 `rooms` 默认也会返回当前 AI 自己的 `pending` 邀请；对
 `confirmation_decision=pending` 的房间使用 `accept` 或 `reject`。`npc:*` 不是可认证
 账号，不能作为 MCP `player_id`。
@@ -235,9 +270,10 @@ POST /api/rooms/{room_id}/delete
 
 终局保留和删除仅允许该房间中的可信人类参与者操作。
 
-网页创建控件按游戏 metadata 渲染：`max_players=2` 时仍是原有单选小机流程；
-只有 `max_players>2` 才显示 2/3/4 人桌型、多选绑定小机、NPC 补位开关和座位
-预览。房间内 3–4 人使用响应式参与者状态区；`private_state` 非空时才显示只属于
+网页创建控件按游戏 metadata 渲染：`allowed_player_counts=[2]` 时仍是原有单选
+小机流程；只有插件允许多人时才显示其明确声明的桌型、多选绑定小机、NPC 补位
+能力状态和座位预览，不会凭全局上限补出 5/6 人选项。房间内 3–6 人使用响应式
+参与者状态区，5–6 人桌面端三列、窄屏两列；`private_state` 非空时才显示只属于
 当前 viewer 的手牌/骰子/合法行动容器。
 
 ## 筹码中心

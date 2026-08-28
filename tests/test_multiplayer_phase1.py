@@ -162,6 +162,39 @@ class DummyPrivateMultiplayer(DummyMultiplayer):
         }
 
 
+class DummySixPlayer(DummyMultiplayer):
+    game_type = "dummy_six_player"
+    display_name = "测试六人底座"
+    min_players = 2
+    max_players = 6
+    allowed_player_counts = (2, 3, 4, 5, 6)
+    recommended_players = 6
+
+
+class DummyDiscretePlayers(DummyMultiplayer):
+    game_type = "dummy_discrete_players"
+    display_name = "测试离散桌型"
+    min_players = 2
+    max_players = 4
+    allowed_player_counts = (2, 3, 4)
+
+
+class DummyFourOnly(DummyMultiplayer):
+    game_type = "dummy_four_only"
+    display_name = "测试四人专用"
+    min_players = 4
+    max_players = 4
+    allowed_player_counts = (4,)
+
+
+class DummyTwoOrThree(DummyMultiplayer):
+    game_type = "dummy_two_or_three"
+    display_name = "测试二三人桌"
+    min_players = 2
+    max_players = 3
+    allowed_player_counts = (2, 3)
+
+
 def ordered_participants(count=4):
     return [
         {"player_id": "human-1", "role": "human", "display_name": "南山"},
@@ -190,6 +223,10 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             {
                 DummyMultiplayer.game_type: DummyMultiplayer(),
                 DummyPrivateMultiplayer.game_type: DummyPrivateMultiplayer(),
+                DummySixPlayer.game_type: DummySixPlayer(),
+                DummyDiscretePlayers.game_type: DummyDiscretePlayers(),
+                DummyFourOnly.game_type: DummyFourOnly(),
+                DummyTwoOrThree.game_type: DummyTwoOrThree(),
             },
         )
         self.game_patch.start()
@@ -222,6 +259,10 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         self.assertEqual(len(production), 6)
         self.assertTrue(all(
             item["min_players"] == item["max_players"] == 2
+            for item in production.values()
+        ))
+        self.assertTrue(all(
+            item["allowed_player_counts"] == [2]
             for item in production.values()
         ))
         with self.assertRaisesRegex(framework.DuelError, "最多允许 2"):
@@ -327,15 +368,74 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_room_hard_limit_is_four(self):
-        with self.assertRaisesRegex(framework.DuelError, "不能超过 4 人"):
+    def test_framework_reaches_six_but_never_expands_plugin_table_sizes(self):
+        room = framework.create_room(
+            DummySixPlayer.game_type,
+            "human_first",
+            "human",
+            "human-1",
+            ordered_participants=ordered_participants(6),
+        )
+        self.assertEqual(len(room["participants"]), 6)
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(
+            room["turn_order"],
+            ["human-1", "ai-1", "ai-2", "ai-3", "ai-4", "ai-5"],
+        )
+        observed = []
+        for player_id in room["turn_order"]:
+            room = self.move(room, player_id)
+            observed.append(room["current_player_id"])
+        self.assertEqual(observed, [
+            "ai-1", "ai-2", "ai-3", "ai-4", "ai-5", "human-1",
+        ])
+        with self.assertRaisesRegex(framework.DuelError, "不能超过 6 人"):
             framework.create_room(
-                DummyMultiplayer.game_type,
+                DummySixPlayer.game_type,
                 "human_first",
                 "human",
                 "human-1",
-                ordered_participants=ordered_participants(5),
+                ordered_participants=ordered_participants(7),
             )
+        for count in (5, 6):
+            with self.subTest(count=count):
+                with self.assertRaisesRegex(framework.DuelError, "最多允许 4"):
+                    framework.create_room(
+                        DummyDiscretePlayers.game_type,
+                        "human_first",
+                        "human",
+                        "human-1",
+                        ordered_participants=ordered_participants(count),
+                    )
+
+    def test_discrete_player_count_contract_models_future_game_shapes(self):
+        expected = {
+            DummyDiscretePlayers.game_type: (2, 3, 4),
+            DummyFourOnly.game_type: (4,),
+            DummyTwoOrThree.game_type: (2, 3),
+        }
+        for game_type, counts in expected.items():
+            with self.subTest(game_type=game_type):
+                plugin = GAMES[game_type]
+                self.assertEqual(plugin.resolved_allowed_player_counts(), counts)
+                self.assertTrue(all(plugin.accepts_player_count(n) for n in counts))
+                self.assertTrue(all(
+                    not plugin.accepts_player_count(n)
+                    for n in range(2, 7) if n not in counts
+                ))
+
+        waiting = framework.create_room(
+            DummyFourOnly.game_type,
+            "human_first", "human", "human-4",
+            ordered_participants=[{"player_id": "human-4", "role": "human"}],
+        )
+        for player_id in ("ai-four-1", "ai-four-2"):
+            waiting = framework.join_room(waiting["room_id"], "ai", player_id)
+            self.assertEqual(waiting["status"], "waiting")
+        started = framework.join_room(waiting["room_id"], "ai", "ai-four-3")
+        self.assertEqual(started["status"], "playing")
+        with self.assertRaisesRegex(framework.DuelError, "已经开始"):
+            framework.join_room(started["room_id"], "ai", "ai-four-4")
 
     def test_waiting_leave_releases_and_reuses_seat_before_start(self):
         room = framework.create_room(
@@ -556,6 +656,10 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             {
                 DummyMultiplayer.game_type: DummyMultiplayer(),
                 DummyPrivateMultiplayer.game_type: DummyPrivateMultiplayer(),
+                DummySixPlayer.game_type: DummySixPlayer(),
+                DummyDiscretePlayers.game_type: DummyDiscretePlayers(),
+                DummyFourOnly.game_type: DummyFourOnly(),
+                DummyTwoOrThree.game_type: DummyTwoOrThree(),
             },
         )
         self.game_patch.start()
@@ -575,10 +679,10 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
         self.temporary.cleanup()
 
     @staticmethod
-    def headers():
+    def headers(machine_count=3):
         machines = [
             {"id": f"ai-{index}", "name": f"小机 {index}"}
-            for index in range(1, 4)
+            for index in range(1, machine_count + 1)
         ]
         encoded = base64.urlsafe_b64encode(
             json.dumps(machines, ensure_ascii=False).encode("utf-8")
@@ -627,6 +731,94 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(two_player.status_code, 400)
+
+    async def test_web_and_mcp_enforce_discrete_counts_up_to_six(self):
+        for target in (5, 6):
+            with self.subTest(target=target):
+                response = await self.client.post(
+                    "/api/rooms",
+                    headers=self.headers(5),
+                    json={
+                        "player_id": "human-1",
+                        "ai_players": [
+                            f"ai-{index}" for index in range(1, target)
+                        ],
+                        "game_type": DummyDiscretePlayers.game_type,
+                        "target_player_count": target,
+                    },
+                )
+                self.assertEqual(response.status_code, 400, response.text)
+
+                mcp = await self.client.post(
+                    "/mcp/play",
+                    json={
+                        "action": "new",
+                        "player_id": "ai-1",
+                        "opponent_id": "human-1",
+                        "participant_ids": [
+                            "human-1",
+                            *[f"ai-{index}" for index in range(1, target)],
+                        ],
+                        "game_type": DummyDiscretePlayers.game_type,
+                        "target_player_count": target,
+                    },
+                )
+                self.assertEqual(mcp.status_code, 400, mcp.text)
+
+        fixed_four = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(3),
+            json={
+                "player_id": "human-1",
+                "ai_players": ["ai-1", "ai-2"],
+                "game_type": DummyFourOnly.game_type,
+                "target_player_count": 3,
+            },
+        )
+        self.assertEqual(fixed_four.status_code, 400, fixed_four.text)
+
+        two_or_three = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(3),
+            json={
+                "player_id": "human-1",
+                "ai_players": ["ai-1", "ai-2", "ai-3"],
+                "game_type": DummyTwoOrThree.game_type,
+                "target_player_count": 4,
+            },
+        )
+        self.assertEqual(two_or_three.status_code, 400, two_or_three.text)
+
+        six = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(5),
+            json={
+                "player_id": "human-1",
+                "ai_players": [f"ai-{index}" for index in range(1, 6)],
+                "game_type": DummySixPlayer.game_type,
+                "target_player_count": 6,
+            },
+        )
+        self.assertEqual(six.status_code, 200, six.text)
+        self.assertEqual(
+            six.json()["room"]["turn_order"],
+            ["human-1", "ai-1", "ai-2", "ai-3", "ai-4", "ai-5"],
+        )
+
+        identity = await self.client.get("/api/whoami", headers=self.headers(5))
+        catalog = {
+            game["game_type"]: game for game in identity.json()["games"]
+        }
+        self.assertEqual(
+            catalog[DummyDiscretePlayers.game_type]["allowed_player_counts"],
+            [2, 3, 4],
+        )
+        self.assertEqual(
+            catalog[DummyFourOnly.game_type]["allowed_player_counts"], [4]
+        )
+        self.assertEqual(
+            catalog[DummyTwoOrThree.game_type]["allowed_player_counts"], [2, 3]
+        )
 
     async def test_waiters_wake_only_for_their_turn_or_visible_event(self):
         room = await self.create_web_room()

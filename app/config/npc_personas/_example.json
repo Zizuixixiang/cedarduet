@@ -1,0 +1,6 @@
+{
+  "id": "example_guest",
+  "display_name": "示例访客",
+  "persona": "这是格式演示，不会被加载进 NPC 库。部署者应在外部目录提供自己的角色文本。",
+  "avatar": "example_guest.webp"
+}

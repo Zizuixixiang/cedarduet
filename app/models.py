@@ -12,11 +12,11 @@ class CreateRoomBody(StrictBody):
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
     ai_player: str | None = Field(default=None, min_length=1, max_length=80)
-    ai_players: list[str] | None = Field(default=None, max_length=3)
+    ai_players: list[str] | None = Field(default=None, max_length=5)
     game_type: str = Field(min_length=1, max_length=40)
     mode: Literal["human_first", "ai_first"] = "human_first"
     stake: int = Field(default=0, ge=0)
-    target_player_count: int | None = Field(default=None, ge=2, le=4)
+    target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
 
     @field_validator("stake", mode="before")
@@ -109,7 +109,7 @@ class McpPlayBody(BaseModel):
     ]
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
-    participant_ids: list[str] | None = Field(default=None, min_length=1, max_length=4)
+    participant_ids: list[str] | None = Field(default=None, min_length=1, max_length=6)
     room_id: str | None = None
     game_type: str | None = Field(default=None, min_length=1, max_length=40)
     mode: Literal["human_first", "ai_first"] | None = None
@@ -120,7 +120,7 @@ class McpPlayBody(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
     stake: int = Field(default=0, ge=0)
-    target_player_count: int | None = Field(default=None, ge=2, le=4)
+    target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
     op: Literal["status", "check_in", "bankruptcy", "ledger"] | None = None
 

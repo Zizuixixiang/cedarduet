@@ -29,12 +29,51 @@ class GamePlugin(ABC):
     move_format: str
     min_players: int = 2
     max_players: int = 2
+    # Legacy plugins derive an inclusive range. New plugins can declare an
+    # explicit tuple when only discrete table sizes are valid.
+    allowed_player_counts: tuple[int, ...] | None = None
     recommended_players: int = 2
     supports_npcs: bool = False
     supports_stakes: bool = False
     # Future multiplayer games must opt in separately and return explicit
     # ``MoveResult.settlement_deltas``; the framework never invents a payout.
     supports_multiplayer_stakes: bool = False
+
+    def resolved_allowed_player_counts(self) -> tuple[int, ...]:
+        raw = self.allowed_player_counts
+        if raw is None:
+            if (
+                isinstance(self.min_players, bool)
+                or isinstance(self.max_players, bool)
+                or not isinstance(self.min_players, int)
+                or not isinstance(self.max_players, int)
+                or not 2 <= self.min_players <= self.max_players <= 6
+            ):
+                raise ValueError("游戏人数范围必须位于 2–6")
+            counts = tuple(range(self.min_players, self.max_players + 1))
+        else:
+            if not isinstance(raw, (tuple, list, set, frozenset)) or not raw:
+                raise ValueError("allowed_player_counts 必须是非空人数集合")
+            if any(
+                isinstance(count, bool)
+                or not isinstance(count, int)
+                or not 2 <= count <= 6
+                for count in raw
+            ):
+                raise ValueError("allowed_player_counts 只能包含 2–6 的整数")
+            counts = tuple(sorted(set(raw)))
+        return counts
+
+    def accepts_player_count(self, count: int) -> bool:
+        return count in self.resolved_allowed_player_counts()
+
+    def resolved_recommended_players(self) -> int:
+        counts = self.resolved_allowed_player_counts()
+        return (
+            self.recommended_players
+            if self.recommended_players in counts
+            else counts[0]
+        )
 
     def public_state(
         self,
@@ -82,6 +121,36 @@ class GamePlugin(ABC):
     ) -> dict[str, Any] | MoveResult:
         """Optional phase/round progression hook, called once per valid action."""
         return applied
+
+    def npc_compact_rules(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> str:
+        """Return concise rules safe to send to an NPC provider."""
+        del state, actor, participants
+        return self.rules_text
+
+    def npc_public_actions(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return already-public action history, never private event payloads."""
+        del state, actor, participants
+        return []
+
+    def npc_legal_actions(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return the authoritative legal moves for the current NPC actor."""
+        del state, actor, participants
+        return []
 
     def settlement_deltas(
         self,

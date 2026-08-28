@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .env.*
+!.env.example
 *.log
 data/*.db
 data/*.db-shm

@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from .database import init_db
 from .framework import (
@@ -52,7 +52,8 @@ from .models import (
     RoomDeleteBody,
     RoomRetentionBody,
 )
-from .npc_personas import PersonaConfigError, select_personas
+from .npc_personas import PersonaConfigError, resolve_avatar_file, select_personas
+from .npc_providers import npc_provider_capabilities
 
 ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
@@ -540,6 +541,21 @@ async def javascript():
     )
 
 
+@app.get("/api/npc-avatars/{filename}", include_in_schema=False)
+async def npc_avatar(filename: str):
+    try:
+        path = resolve_avatar_file(filename)
+    except PersonaConfigError as exc:
+        raise DuelError(str(exc), 404) from exc
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.get("/api/whoami")
 async def human_whoami(request: Request):
     human_player_id = request.headers.get("X-Duel-Human-Player")
@@ -570,6 +586,7 @@ async def human_whoami(request: Request):
         "machines": machines,
         "identity_label": f"{human_name} · {len(machines)} 只已绑定小机",
         "games": game_catalog(),
+        "npc_provider": npc_provider_capabilities(),
         "wallet": get_wallet("human", human_player_id),
         "pending_invitations": list_human_pending_invitations(human_player_id),
         "rooms": list_human_rooms(human_player_id, ai_names),
@@ -597,28 +614,30 @@ async def human_create(request: Request, body: CreateRoomBody):
         game = get_game(body.game_type)
     except ValueError as exc:
         raise DuelError(str(exc)) from exc
+    allowed_counts = game.resolved_allowed_player_counts()
     target_count = body.target_player_count or (1 + len(selected_ais))
-    if game.max_players <= 2:
+    if allowed_counts == (2,):
         if target_count != 2 or body.fill_with_npcs:
             raise DuelError(f"{game.display_name}只支持双人绑定人机对局")
-    if not game.min_players <= target_count <= min(game.max_players, 4):
-        requirement = (
-            str(game.min_players)
-            if game.min_players == game.max_players
-            else f"{game.min_players}–{game.max_players}"
-        )
-        raise DuelError(
-            f"{game.display_name} 需要 {requirement} 名参与者"
-        )
+    if target_count not in allowed_counts:
+        if len(allowed_counts) == 1:
+            raise DuelError(f"{game.display_name}需要 {allowed_counts[0]} 名参与者")
+        raise DuelError(f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌")
     if len(selected_ais) > target_count - 1:
         raise DuelError("所选小机数量超过目标桌型座位")
     npc_count = target_count - 1 - len(selected_ais)
     if npc_count and not body.fill_with_npcs:
         raise DuelError("仍有空座；请选择更多绑定小机或启用 NPC 补齐")
-    if npc_count > 2:
-        raise DuelError("每局最多补入 2 名 NPC")
+    if npc_count > 4:
+        raise DuelError("每局最多补入 4 名 NPC")
     if npc_count and not game.supports_npcs:
         raise DuelError(f"{game.display_name}未启用 NPC 补位")
+    if npc_count:
+        capability = npc_provider_capabilities()
+        if not capability["available"]:
+            raise DuelError(
+                f"NPC 补位当前不可用：{capability['reason']}", 503
+            )
     personas = []
     if npc_count:
         try:
@@ -923,22 +942,31 @@ async def mcp_play(body: McpPlayBody):
         except ValueError as exc:
             raise DuelError(str(exc)) from exc
         base_count = len(ordered_participants) if ordered_participants else 2
+        allowed_counts = game.resolved_allowed_player_counts()
         target_count = body.target_player_count or base_count
-        if game.max_players <= 2 and (
+        if allowed_counts == (2,) and (
             target_count != 2 or body.fill_with_npcs
         ):
             raise DuelError(f"{game.display_name}只支持双人绑定人机对局")
-        if not game.min_players <= target_count <= min(game.max_players, 4):
-            raise DuelError("目标桌型人数不在该游戏允许范围内")
+        if target_count not in allowed_counts:
+            if len(allowed_counts) == 1:
+                raise DuelError(f"{game.display_name}需要 {allowed_counts[0]} 名参与者")
+            raise DuelError(f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌")
         npc_count = target_count - base_count
         if npc_count < 0:
             raise DuelError("participant_ids 超过目标桌型人数")
         if npc_count and not body.fill_with_npcs:
             raise DuelError("仍有空座；需要启用 NPC 补齐")
-        if npc_count > 2:
-            raise DuelError("每局最多补入 2 名 NPC")
+        if npc_count > 4:
+            raise DuelError("每局最多补入 4 名 NPC")
         if npc_count and not game.supports_npcs:
             raise DuelError(f"{game.display_name}未启用 NPC 补位")
+        if npc_count:
+            capability = npc_provider_capabilities()
+            if not capability["available"]:
+                raise DuelError(
+                    f"NPC 补位当前不可用：{capability['reason']}", 503
+                )
         if npc_count:
             try:
                 personas = select_personas(npc_count)
