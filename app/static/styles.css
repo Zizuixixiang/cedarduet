@@ -112,17 +112,104 @@ button, select { cursor: pointer; }
 }
 .home-link:hover { background: rgba(255, 255, 255, 0.12); }
 .home-link:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.chip-balance {
-  min-height: 34px;
-  padding: 7px 9px;
-  display: inline-flex;
+.chip-wallet-link {
+  width: min(280px, 31vw);
+  min-width: 224px;
+  min-height: 44px;
+  padding: 5px 8px;
+  display: grid;
+  grid-template-columns: 32px minmax(70px, 1fr) auto;
   align-items: center;
-  color: var(--purple-darker);
-  background: #fff;
-  border: 2px solid var(--pink);
+  gap: 8px;
+  flex: none;
+  overflow: hidden;
+  color: #704914;
+  background: linear-gradient(135deg, #fff8d7 0%, #f6cf6f 68%, #efb767 100%);
+  border: 3px solid #b87545;
+  border-right-color: #a85868;
+  border-bottom-color: #a85868;
+  box-shadow: 3px 3px 0 rgba(66, 43, 71, .28);
+  text-decoration: none;
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+}
+.chip-wallet-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, .75);
+  border: 2px solid #d59335;
+  box-shadow: inset -2px -2px 0 rgba(184, 117, 69, .18);
+  font-family: system-ui, sans-serif;
+  font-size: 18px;
+}
+.chip-wallet-copy { min-width: 0; display: grid; gap: 1px; }
+.chip-wallet-title {
+  overflow: hidden;
+  color: #895c18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.1;
+}
+.chip-balance {
+  min-width: 0;
+  max-width: 138px;
+  overflow: hidden;
+  color: #5f3c0d;
+  font-family: system-ui, sans-serif;
+  font-size: clamp(16px, 1.65vw, 20px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chip-center-link { flex: none; }
+.chip-wallet-cta {
+  min-width: 0;
+  padding-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #7c4355;
+  border-left: 2px dashed rgba(124, 67, 85, .42);
+  white-space: nowrap;
+  font-size: 10px;
+}
+.chip-wallet-cta b {
+  font-family: system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+.chip-wallet-link:hover {
+  filter: brightness(1.04) saturate(1.06);
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 rgba(66, 43, 71, .3);
+}
+.chip-wallet-link:hover .chip-wallet-cta b { transform: translateX(2px); }
+.chip-wallet-link:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(66, 43, 71, .28);
+}
+.chip-wallet-link:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px #b45e77, 4px 4px 0 rgba(66, 43, 71, .3);
+}
+.chip-wallet-link.negative {
+  color: #77273d;
+  background: linear-gradient(135deg, #fff0ec 0%, #efb3b5 70%, #e6969e 100%);
+  border-color: #9d4059;
+  box-shadow: 3px 3px 0 rgba(74, 34, 50, .32);
+}
+.chip-wallet-link.negative .chip-wallet-icon { border-color: #b85a70; }
+.chip-wallet-link.negative .chip-wallet-title,
+.chip-wallet-link.negative .chip-balance,
+.chip-wallet-link.negative .chip-wallet-cta { color: #77273d; }
+.chip-wallet-link.long-balance .chip-balance {
+  font-size: 14px;
+  letter-spacing: -.025em;
+}
 
 .duel-main {
   width: min(1240px, calc(100% - 40px));
@@ -1732,9 +1819,22 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .brand { gap: 9px; font-size: 16px; }
   .service-badge { display: none; }
   .pair-label { display: none; }
-  .top-actions { gap: 5px; }
-  .chip-balance { min-height: 30px; padding: 5px 7px; font-size: 10px; }
-  .chip-center-link { min-height: 30px; padding: 5px 7px; font-size: 9px; }
+  .top-actions { flex: 1 1 auto; gap: 5px; }
+  .chip-wallet-link {
+    width: min(174px, 44vw);
+    min-width: 132px;
+    min-height: 42px;
+    padding: 4px 6px;
+    grid-template-columns: 29px minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+  .chip-wallet-icon { width: 28px; height: 28px; font-size: 17px; }
+  .chip-wallet-title { font-size: 10px; }
+  .chip-balance { max-width: 92px; font-size: 16px; }
+  .chip-wallet-cta { padding-left: 5px; border-left-width: 1px; }
+  .chip-wallet-cta span { display: none; }
+  .chip-wallet-cta b { font-size: 18px; }
+  .chip-wallet-link.long-balance .chip-balance { font-size: 12px; }
   .home-link { width: 24px; height: 24px; font-size: 15px; }
   .duel-main {
     width: auto;
@@ -1891,4 +1991,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     bottom: calc(var(--safe-bottom) + 16px);
     max-width: none;
   }
+}
+
+@media (max-width: 340px) {
+  .brand > span:last-child { display: none; }
 }

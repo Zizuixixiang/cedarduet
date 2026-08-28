@@ -22,8 +22,19 @@
       <div class="top-actions">
         <span class="service-badge">DUEL / 双弈</span>
         <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
-        <span id="humanChipBalance" class="chip-balance" aria-label="当前人类筹码余额">🪙—</span>
-        <a id="chipCenterLink" class="pixel-btn secondary compact chip-center-link" href="/chips">筹码中心</a>
+        <a id="chipCenterLink" class="chip-wallet-link" href="/chips"
+           aria-label="我的筹码，进入筹码中心">
+          <span class="chip-wallet-icon" aria-hidden="true">🪙</span>
+          <span class="chip-wallet-copy">
+            <span class="chip-wallet-title">我的筹码</span>
+            <strong id="humanChipBalance" class="chip-balance"
+                    aria-label="当前人类筹码余额">—</strong>
+          </span>
+          <span class="chip-wallet-cta" aria-hidden="true">
+            <span>筹码中心</span>
+            <b>→</b>
+          </span>
+        </a>
       </div>
     </header>
 

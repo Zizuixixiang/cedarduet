@@ -671,6 +671,24 @@ async function machineSelectionChanged() {
   }
 }
 
+function renderHumanChipBalance(balance) {
+  const numericBalance = Number(balance);
+  const isNumeric = Number.isFinite(numericBalance);
+  const balanceText = isNumeric
+    ? new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(numericBalance)
+    : String(balance ?? "—");
+  const negative = isNumeric && numericBalance < 0;
+  const longBalance = balanceText.length > 10;
+  const balanceTarget = $("humanChipBalance");
+  const chipLink = $("chipCenterLink");
+  balanceTarget.textContent = balanceText;
+  balanceTarget.title = `当前余额：${balanceText}`;
+  balanceTarget.setAttribute("aria-label", `当前人类筹码余额 ${balanceText}`);
+  chipLink.classList.toggle("negative", negative);
+  chipLink.classList.toggle("long-balance", longBalance);
+  chipLink.setAttribute("aria-label", `我的筹码，余额 ${balanceText}，进入筹码中心`);
+}
+
 async function loadIdentity({quiet = false} = {}) {
   try {
     const data = await request("/api/whoami");
@@ -685,7 +703,7 @@ async function loadIdentity({quiet = false} = {}) {
     identity = data;
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
-    $("humanChipBalance").textContent = `🪙${data.wallet.balance}`;
+    renderHumanChipBalance(data.wallet.balance);
     syncMachinePicker(data.machines || []);
     renderPendingInvitations(data.pending_invitations || []);
     const incoming = new Set((data.pending_invitations || []).map((item) => item.room_id));
