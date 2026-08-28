@@ -288,14 +288,18 @@
        role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
     <section class="result-modal pixel-card">
       <span class="tag pink">GAME OVER</span>
-      <h2 id="resultModalTitle">是否保留该对局？</h2>
+      <h2 id="resultModalTitle">对局结束</h2>
       <strong id="resultModalText">和棋</strong>
-      <p class="result-retention-copy">不保留的对局将在终局 7 天后自动删除，包括棋谱和聊天记录。</p>
-      <p id="resultModalMessage" class="result-modal-message"></p>
-      <div class="result-retention-actions result-action-row" aria-label="对局保留操作">
-        <button id="preserveResultButton" class="pixel-btn" type="button">保留此对局</button>
-        <button id="skipPreserveButton" class="pixel-btn secondary" type="button">不保留（7天后删除）</button>
-      </div>
+      <label class="result-preserve-option" for="resultPreserveCheckbox">
+        <input id="resultPreserveCheckbox" type="checkbox"
+               aria-describedby="resultRetentionHint resultModalMessage">
+        <span class="result-preserve-copy">
+          <strong>保留本局棋谱和聊天记录</strong>
+          <small id="resultRetentionHint">终局 7 天后自动删除</small>
+        </span>
+      </label>
+      <p id="resultModalMessage" class="result-modal-message"
+         role="status" aria-live="polite"></p>
       <div class="result-modal-actions result-action-row" aria-label="对局后续操作">
         <button id="rematchButton" class="pixel-btn" type="button">再来一局</button>
         <button id="finishGameButton" class="pixel-btn secondary" type="button">结束对局</button>

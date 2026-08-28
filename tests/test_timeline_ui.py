@@ -13,8 +13,15 @@ NODE = shutil.which("node")
 
 def function_source(name: str) -> str:
     start = SCRIPT.index(f"function {name}(")
-    end = SCRIPT.find("\nfunction ", start + 1)
-    return SCRIPT[start:] if end < 0 else SCRIPT[start:end]
+    if SCRIPT[start - 6:start] == "async ":
+        start -= 6
+    candidates = (
+        SCRIPT.find("\nfunction ", start + 1),
+        SCRIPT.find("\nasync function ", start + 1),
+    )
+    valid_candidates = [candidate for candidate in candidates if candidate >= 0]
+    end = min(valid_candidates) if valid_candidates else len(SCRIPT)
+    return SCRIPT[start:end]
 
 
 def css_rule(selector: str) -> str:
@@ -24,16 +31,14 @@ def css_rule(selector: str) -> str:
 
 
 class ResultModalLayoutTests(unittest.TestCase):
-    def test_terminal_actions_are_two_ordered_two_button_rows(self):
+    def test_terminal_modal_uses_one_checkbox_and_one_two_button_row(self):
         modal = HTML[
             HTML.index('<div id="resultModal"'):
             HTML.index('<div id="toast"')
         ]
-        retention_start = modal.index(
-            '<div class="result-retention-actions result-action-row"'
-        )
-        retention_row = modal[
-            retention_start:modal.index("</div>", retention_start)
+        retention_start = modal.index('<label class="result-preserve-option"')
+        retention_option = modal[
+            retention_start:modal.index("</label>", retention_start)
         ]
         followup_start = modal.index(
             '<div class="result-modal-actions result-action-row"'
@@ -42,22 +47,21 @@ class ResultModalLayoutTests(unittest.TestCase):
             followup_start:modal.index("</div>", followup_start)
         ]
 
-        self.assertLess(
-            retention_row.index("preserveResultButton"),
-            retention_row.index("skipPreserveButton"),
-        )
-        self.assertNotIn("rematchButton", retention_row)
-        self.assertIn("保留此对局", retention_row)
-        self.assertIn("不保留（7天后删除）", retention_row)
+        self.assertIn('id="resultPreserveCheckbox" type="checkbox"', retention_option)
+        self.assertIn("保留本局棋谱和聊天记录", retention_option)
+        self.assertIn('id="resultRetentionHint"', retention_option)
+        self.assertIn("终局 7 天后自动删除", retention_option)
+        self.assertNotIn("preserveResultButton", modal)
+        self.assertNotIn("skipPreserveButton", modal)
         self.assertLess(
             followup_row.index("rematchButton"),
             followup_row.index("finishGameButton"),
         )
-        self.assertNotIn("preserveResultButton", followup_row)
+        self.assertEqual(followup_row.count("<button"), 2)
         self.assertIn("再来一局", followup_row)
         self.assertIn("结束对局", followup_row)
 
-    def test_action_rows_remain_two_columns_on_mobile(self):
+    def test_modal_stays_compact_and_two_columns_on_mobile(self):
         desktop = css_rule(".result-action-row")
         self.assertIn("grid-template-columns: 1fr 1fr", desktop)
         self.assertIn(
@@ -69,7 +73,215 @@ class ResultModalLayoutTests(unittest.TestCase):
             ".result-modal-actions { grid-template-columns: 1fr; }",
             STYLES,
         )
+        self.assertIn("min-height: 42px", css_rule(".result-action-row .pixel-btn"))
         self.assertIn("white-space: normal", css_rule(".result-action-row .pixel-btn"))
+        self.assertIn("min-height: 52px", STYLES)
+        self.assertIn("font-size: 10px", STYLES)
+
+    @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
+    def test_retention_checkbox_syncs_and_rolls_back_on_api_failure(self):
+        functions = "\n".join(
+            (
+                function_source("isTerminal"),
+                function_source("retentionTextFor"),
+                function_source("retentionDeadlineTitle"),
+                function_source("updateRoomPreservation"),
+                function_source("syncResultPreservationChoice"),
+                function_source("changeResultPreservation"),
+                function_source("renderRetention"),
+            )
+        )
+        harness = f"""
+const assert = require("node:assert/strict");
+let room = {{room_id: "ROOM1", status: "finished", preserved: false}};
+let shouldFail = true;
+let requested = null;
+const elements = {{
+  roomRetentionStatus: {{textContent: "", title: ""}},
+  togglePreserveButton: {{textContent: "", disabled: false}},
+  resultPreserveCheckbox: {{checked: false, disabled: false}},
+  resultRetentionHint: {{textContent: ""}},
+  resultModalMessage: {{textContent: ""}},
+}};
+const $ = (id) => elements[id];
+const request = async (path, options) => {{
+  requested = {{path, options}};
+  if (shouldFail) throw new Error("网络失败");
+  return {{
+    room: {{room_id: "ROOM1", status: "finished", preserved: true}},
+    message: "已保留",
+    timeline: [],
+  }};
+}};
+const renderGame = (nextRoom) => {{ room = nextRoom; }};
+const loadIdentity = async () => {{}};
+const toast = () => {{}};
+{functions}
+(async () => {{
+  renderRetention(room);
+  assert.equal(elements.resultPreserveCheckbox.checked, false);
+  assert.equal(elements.resultRetentionHint.textContent, "终局 7 天后自动删除");
+
+  elements.resultPreserveCheckbox.checked = true;
+  await changeResultPreservation();
+  assert.equal(elements.resultPreserveCheckbox.checked, false);
+  assert.equal(elements.resultPreserveCheckbox.disabled, false);
+  assert.equal(elements.resultRetentionHint.textContent, "终局 7 天后自动删除");
+  assert.equal(elements.resultModalMessage.textContent, "网络失败");
+
+  shouldFail = false;
+  elements.resultPreserveCheckbox.checked = true;
+  await changeResultPreservation();
+  assert.equal(requested.path, "/api/rooms/ROOM1/retention");
+  assert.deepEqual(JSON.parse(requested.options.body), {{preserved: true}});
+  assert.equal(elements.resultPreserveCheckbox.checked, true);
+  assert.equal(elements.resultRetentionHint.textContent, "已保留，不会自动删除");
+  assert.equal(elements.resultModalMessage.textContent, "");
+}})().catch((error) => {{ console.error(error); process.exit(1); }});
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+
+@unittest.skipUnless(NODE, "node is required for frontend rendering tests")
+class LastMoveMarkerTests(unittest.TestCase):
+    def test_authoritative_last_move_marks_exact_target_and_flashes_once(self):
+        functions = "\n".join(
+            (
+                function_source("latestMoveEvent"),
+                function_source("authoritativeLastMove"),
+                function_source("renderLastMoveMarker"),
+            )
+        )
+        harness = f"""
+const assert = require("node:assert/strict");
+let lastMoveMarkerKey = null;
+let room = {{
+  room_id: "C4ROOM",
+  revision: 12,
+  game_type: "connect4",
+  board_state: {{last_move: {{row: 5, col: 3, mark: "X"}}}},
+}};
+const timeline = [
+  {{sequence: 1, event_type: "move", revision_at_send: 12, move: {{col: 3}}}},
+  {{sequence: 2, event_type: "message", revision_at_send: 12, text: "好棋"}},
+];
+class Target {{
+  constructor() {{
+    this.classes = new Set();
+    this.classList = {{add: (name) => this.classes.add(name)}};
+    this.children = [];
+    this.ariaLabel = "第 4 列棋子";
+  }}
+  appendChild(child) {{ this.children.push(child); }}
+}}
+const document = {{
+  createElement: () => ({{className: "", setAttribute() {{}}}}),
+}};
+let target = new Target();
+let selector = "";
+const board = {{querySelector: (value) => {{ selector = value; return target; }}}};
+{functions}
+assert.deepEqual(
+  authoritativeLastMove(room, timeline),
+  {{row: 5, col: 3, orientation: null, revision: 12}},
+);
+renderLastMoveMarker(board, timeline);
+assert.match(selector, /data-move-row="5"/);
+assert.match(selector, /data-move-col="3"/);
+assert.equal(target.classes.has("last-move-target"), true);
+assert.equal(target.classes.has("last-move-fresh"), true);
+assert.equal(target.children[0].className, "last-move-marker");
+assert.match(target.ariaLabel, /上一手/);
+
+target = new Target();
+renderLastMoveMarker(board, timeline);
+assert.equal(target.classes.has("last-move-target"), true);
+assert.equal(target.classes.has("last-move-fresh"), false);
+
+room.board_state.last_move = {{row: 4, col: 3, mark: "O"}};
+room.revision = 13;
+target = new Target();
+renderLastMoveMarker(board, [
+  ...timeline,
+  {{sequence: 3, event_type: "move", revision_at_send: 13, move: {{col: 3}}}},
+]);
+assert.match(selector, /data-move-row="4"/);
+assert.equal(target.classes.has("last-move-fresh"), true);
+
+room = {{
+  room_id: "JUNGLE",
+  revision: 4,
+  game_type: "jungle",
+  board_state: {{last_move: {{from_row: 6, from_col: 0, to_row: 5, to_col: 0}}}},
+}};
+assert.deepEqual(
+  authoritativeLastMove(room, []),
+  {{row: 5, col: 0, orientation: null, revision: 4}},
+);
+const dots = authoritativeLastMove(
+  {{
+    room_id: "DOTS",
+    revision: 7,
+    game_type: "dots_boxes",
+    board_state: {{last_move: {{orientation: "v", row: 2, col: 4}}}},
+  }},
+  [],
+);
+assert.deepEqual(dots, {{row: 2, col: 4, orientation: "v", revision: 7}});
+const gomoku = authoritativeLastMove(
+  {{
+    room_id: "GOMOKU",
+    revision: 9,
+    game_type: "gomoku",
+    board_state: {{last_move: {{row: 7, col: 8, mark: "X"}}}},
+  }},
+  [],
+);
+assert.deepEqual(gomoku, {{row: 7, col: 8, orientation: null, revision: 9}});
+const fallback = authoritativeLastMove(
+  {{room_id: "TTT", revision: 2, game_type: "tictactoe", board_state: {{}}}},
+  [{{event_type: "move", revision_at_send: 2, move: {{row: 1, col: 2}}}}],
+);
+assert.deepEqual(fallback, {{row: 1, col: 2, orientation: null, revision: 2}});
+const noGuess = authoritativeLastMove(
+  {{room_id: "C4", revision: 2, game_type: "connect4", board_state: {{}}}},
+  [{{event_type: "move", revision_at_send: 2, move: {{col: 2}}}}],
+);
+assert.equal(noGuess, null);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_marker_contract_is_small_persistent_and_reduced_motion_safe(self):
+        marker = css_rule(".last-move-marker")
+        self.assertIn("width: 8px", marker)
+        self.assertIn("height: 8px", marker)
+        self.assertIn("border: 2px solid", marker)
+        self.assertIn("animation: last-move-flash .3s", STYLES)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", STYLES)
+        self.assertIn("cell.dataset.moveRow", SCRIPT)
+        self.assertIn("edge.dataset.moveOrientation", SCRIPT)
 
 
 class MobileOperationSizingTests(unittest.TestCase):

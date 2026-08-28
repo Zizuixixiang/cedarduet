@@ -7,6 +7,8 @@ let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
 let selectedJungleCell = null;
 let pendingMove = null;
+let currentTimeline = [];
+let lastMoveMarkerKey = null;
 let selectedMachineWallet = null;
 let machineWalletRequest = 0;
 
@@ -444,9 +446,47 @@ async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {
     }
     if (fromModal) $("resultModalMessage").textContent = data.message;
     toast(data.message);
+    return true;
   } catch (error) {
     if (fromModal) $("resultModalMessage").textContent = error.message;
     else toast(error.message);
+    return false;
+  }
+}
+
+function syncResultPreservationChoice(preserved, disabled = false) {
+  $("resultPreserveCheckbox").checked = Boolean(preserved);
+  $("resultPreserveCheckbox").disabled = disabled;
+  $("resultRetentionHint").textContent = preserved
+    ? "已保留，不会自动删除"
+    : "终局 7 天后自动删除";
+}
+
+async function changeResultPreservation() {
+  const checkbox = $("resultPreserveCheckbox");
+  if (!room || !isTerminal(room)) {
+    syncResultPreservationChoice(Boolean(room && room.preserved), true);
+    return;
+  }
+  const roomId = room.room_id;
+  const previousValue = Boolean(room.preserved);
+  const requestedValue = checkbox.checked;
+  syncResultPreservationChoice(requestedValue, true);
+  $("resultModalMessage").textContent = "";
+  const updated = await updateRoomPreservation(
+    roomId,
+    requestedValue,
+    {fromModal: true}
+  );
+  const sameTerminalRoom = Boolean(
+    room && room.room_id === roomId && isTerminal(room)
+  );
+  const authoritativeValue = updated && sameTerminalRoom
+    ? Boolean(room.preserved)
+    : previousValue;
+  syncResultPreservationChoice(authoritativeValue, !sameTerminalRoom);
+  if (updated && sameTerminalRoom) {
+    $("resultModalMessage").textContent = "";
   }
 }
 
@@ -867,6 +907,8 @@ function boardCell(mark, rowIndex, colIndex, onClick) {
   const cell = document.createElement("button");
   cell.className = `cell${mark ? " occupied" : ""}${pieceClass(mark)}${markClass(mark)}`;
   cell.type = "button";
+  cell.dataset.moveRow = String(rowIndex);
+  cell.dataset.moveCol = String(colIndex);
   if (room.game_type === "tictactoe") cell.textContent = mark || "";
   if (["gomoku", "othello", "connect4"].includes(room.game_type)) {
     const piece = document.createElement("span");
@@ -1004,6 +1046,9 @@ function renderDotsBoard(board, state) {
         const edge = document.createElement("button");
         edge.type = "button";
         edge.className = `edge horizontal${mark ? " drawn" : ""}${pieceClass(mark)}`;
+        edge.dataset.moveOrientation = "h";
+        edge.dataset.moveRow = String(rowIndex);
+        edge.dataset.moveCol = String(colIndex);
         edge.disabled = !canHumanMove() || Boolean(mark);
         edge.ariaLabel = mark
           ? `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条横边，${ownerDescription(mark)}已画`
@@ -1021,6 +1066,9 @@ function renderDotsBoard(board, state) {
         const edge = document.createElement("button");
         edge.type = "button";
         edge.className = `edge vertical${mark ? " drawn" : ""}${pieceClass(mark)}`;
+        edge.dataset.moveOrientation = "v";
+        edge.dataset.moveRow = String(rowIndex);
+        edge.dataset.moveCol = String(colIndex);
         edge.disabled = !canHumanMove() || Boolean(mark);
         edge.ariaLabel = mark
           ? `第 ${rowIndex + 1} 行第 ${colIndex + 1} 条竖边，${ownerDescription(mark)}已画`
@@ -1058,6 +1106,8 @@ function renderJungleBoard(board, state) {
       const owner = piece ? piece.split(":")[0] : null;
       cell.type = "button";
       cell.className = `cell${pieceClass(owner)}`;
+      cell.dataset.moveRow = String(rowIndex);
+      cell.dataset.moveCol = String(colIndex);
       if (JUNGLE_WATER.has(key)) cell.classList.add("water");
       if (JUNGLE_TRAPS.has(key)) cell.classList.add("trap");
       if (JUNGLE_DENS.has(key)) cell.classList.add("den");
@@ -1202,7 +1252,69 @@ function renderLiarsDice(board, state) {
   board.appendChild(controls);
 }
 
-function renderBoard() {
+function latestMoveEvent(timeline = []) {
+  return [...timeline].reverse().find(
+    (event) => event.event_type === "move" && event.move && typeof event.move === "object"
+  ) || null;
+}
+
+function authoritativeLastMove(targetRoom, timeline = []) {
+  if (!targetRoom || targetRoom.game_type === "liars_dice") return null;
+  const stateMove = targetRoom.board_state && targetRoom.board_state.last_move;
+  const event = latestMoveEvent(timeline);
+  const move = stateMove || (event && event.move);
+  if (!move || typeof move !== "object") return null;
+
+  let row = move.row;
+  let col = move.col;
+  let orientation = null;
+  if (targetRoom.game_type === "jungle") {
+    row = move.to_row;
+    col = move.to_col;
+  } else if (targetRoom.game_type === "dots_boxes") {
+    orientation = move.orientation;
+    if (!["h", "v"].includes(orientation)) return null;
+  }
+  if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
+
+  return {
+    row,
+    col,
+    orientation,
+    revision: event && Number.isInteger(event.revision_at_send)
+      ? event.revision_at_send
+      : targetRoom.revision,
+  };
+}
+
+function renderLastMoveMarker(board, timeline = []) {
+  const move = authoritativeLastMove(room, timeline);
+  if (!move) return;
+  const selector = move.orientation
+    ? `.edge[data-move-orientation="${move.orientation}"][data-move-row="${move.row}"][data-move-col="${move.col}"]`
+    : `.cell[data-move-row="${move.row}"][data-move-col="${move.col}"]`;
+  const target = board.querySelector(selector);
+  if (!target) return;
+
+  const markerKey = [
+    room.room_id,
+    move.revision,
+    move.orientation || "cell",
+    move.row,
+    move.col,
+  ].join(":");
+  const isNewMove = markerKey !== lastMoveMarkerKey;
+  lastMoveMarkerKey = markerKey;
+  target.classList.add("last-move-target");
+  if (isNewMove) target.classList.add("last-move-fresh");
+  const marker = document.createElement("span");
+  marker.className = "last-move-marker";
+  marker.setAttribute("aria-hidden", "true");
+  target.appendChild(marker);
+  target.ariaLabel = `${target.ariaLabel || "棋盘位置"}，上一手`;
+}
+
+function renderBoard(timeline = currentTimeline) {
   const state = room.board_state;
   const board = $("board");
   board.replaceChildren();
@@ -1236,6 +1348,7 @@ function renderBoard() {
   } else {
     renderGridBoard(board, state);
   }
+  renderLastMoveMarker(board, timeline);
   updateMoveConfirmation();
 }
 
@@ -1555,8 +1668,7 @@ function renderRetention(targetRoom) {
     ? "取消保留"
     : "保留此对局";
   $("togglePreserveButton").disabled = !terminal;
-  $("preserveResultButton").disabled = !terminal || Boolean(targetRoom.preserved);
-  $("skipPreserveButton").disabled = !terminal;
+  syncResultPreservationChoice(targetRoom.preserved, !terminal);
 }
 
 function renderGame(nextRoom, message = "", timeline = []) {
@@ -1576,6 +1688,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     pendingMove = null;
   }
   room = nextRoom;
+  currentTimeline = timeline;
   showView("gameView");
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
@@ -1606,7 +1719,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   renderPlayers(timeline);
   renderParticipantRoster(room);
   renderPrivateState(room);
-  renderBoard();
+  renderBoard(timeline);
   renderTimeline(timeline);
   if (isTerminal(room)) stopPolling();
   if (becameTerminal) openResultModal(resultText);
@@ -1699,8 +1812,10 @@ function closeHistory() {
 function openResultModal(resultText) {
   $("resultModalText").textContent = resultText;
   $("resultModalMessage").textContent = "";
+  renderRetention(room);
   $("resultModal").classList.remove("hidden");
   $("rematchButton").disabled = false;
+  $("resultPreserveCheckbox").focus();
 }
 
 function closeResultModal() {
@@ -1812,16 +1927,7 @@ $("togglePreserveButton").addEventListener("click", () => {
     updateRoomPreservation(room.room_id, !room.preserved);
   }
 });
-$("preserveResultButton").addEventListener("click", () => {
-  if (room && isTerminal(room)) {
-    updateRoomPreservation(room.room_id, true, {fromModal: true});
-  }
-});
-$("skipPreserveButton").addEventListener("click", () => {
-  if (room && isTerminal(room)) {
-    updateRoomPreservation(room.room_id, false, {fromModal: true});
-  }
-});
+$("resultPreserveCheckbox").addEventListener("change", changeResultPreservation);
 $("rematchButton").addEventListener("click", rematch);
 $("finishGameButton").addEventListener("click", closeResultModal);
 $("rulesScrim").addEventListener("click", (event) => {
