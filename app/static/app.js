@@ -19,6 +19,7 @@ const GAME_GLYPHS = {
   othello: "黑",
   connect4: "四",
   dots_boxes: "点",
+  liars_dice: "骰",
   jungle: "兽",
 };
 const JUNGLE_SYMBOLS = {
@@ -199,6 +200,23 @@ function participantName(role) {
   if (participant && participant.display_name) return participant.display_name;
   if (role === "human") return (identity && identity.human_name) || "你";
   return aiNameFor();
+}
+
+function participantByPlayerId(playerId) {
+  if (!room || !Array.isArray(room.participants)) return null;
+  return room.participants.find((item) => item.player_id === playerId) || null;
+}
+
+function participantForOwner(owner) {
+  if (!owner || !room || !Array.isArray(room.participants)) return null;
+  const direct = room.participants.find(
+    (item) => item.player_id === owner || item.token === owner
+  );
+  if (direct) return direct;
+  const marks = room.board_state && room.board_state.marks;
+  if (marks && owner === marks.human) return participantFor("human");
+  if (marks && owner === marks.ai) return participantFor("ai");
+  return null;
 }
 
 function turnLabel(turn, aiPlayerId, currentActor = null) {
@@ -727,9 +745,13 @@ function canHumanMove() {
 
 function pieceClass(mark) {
   if (!mark || !room) return "";
-  if (mark === room.board_state.marks.human) return " human-piece";
-  if (mark === room.board_state.marks.ai) return " ai-piece";
-  return "";
+  const owner = participantForOwner(mark);
+  if (!owner) return "";
+  const viewerId = room.viewer && room.viewer.player_id;
+  const legacy = owner.player_id === viewerId
+    ? " human-piece"
+    : (owner.role === "ai" ? " ai-piece" : "");
+  return `${legacy} participant-piece seat-${owner.seat_index}`;
 }
 
 function markClass(mark) {
@@ -738,7 +760,10 @@ function markClass(mark) {
 
 function ownerDescription(mark) {
   if (!mark || !room) return "空位";
-  return mark === room.board_state.marks.human ? "你方" : "对方";
+  const owner = participantForOwner(mark);
+  if (!owner) return "未知参与者";
+  if (room.viewer && owner.player_id === room.viewer.player_id) return "你";
+  return owner.display_name || `座位 ${owner.seat_index + 1}`;
 }
 
 function pieceDescription(mark) {
@@ -797,12 +822,23 @@ function selectMove(movePayload) {
 function updateMoveConfirmation() {
   const ready = Boolean(pendingMove && canHumanMove());
   $("confirmMoveButton").disabled = !ready;
+  $("confirmMoveButton").textContent = pendingMove && pendingMove.action === "challenge"
+    ? "确认质疑"
+    : (pendingMove && pendingMove.action === "bid" ? "确认叫点" : "落子");
   if (isTerminal(room)) {
     $("selectionHint").textContent = roomTurnText(room);
   } else {
+    const readyText = pendingMove && pendingMove.action === "challenge"
+      ? "已选择质疑，确认后将公开并结算本轮骰子"
+      : (pendingMove && pendingMove.action === "bid"
+        ? `已选择叫 ${pendingMove.quantity} 个 ${pendingMove.face} 点`
+        : "已选中落点，确认后提交");
+    const waitingText = room && room.game_type === "liars_dice"
+      ? "请选择叫点，已有叫点时也可质疑"
+      : "请先在棋盘上选择落点";
     $("selectionHint").textContent = ready
-      ? "已选中落点，确认后提交"
-      : (canHumanMove() ? "请先在棋盘上选择落点" : "等待轮到你");
+      ? readyText
+      : (canHumanMove() ? waitingText : "等待轮到你");
   }
 }
 
@@ -979,11 +1015,118 @@ function renderJungleBoard(board, state) {
   });
 }
 
+function renderLiarsDice(board, state) {
+  const heading = document.createElement("div");
+  heading.className = "liars-current-bid";
+  const bidLabel = document.createElement("span");
+  bidLabel.textContent = "CURRENT BID";
+  const bidValue = document.createElement("strong");
+  const currentBid = state.current_bid;
+  if (currentBid) {
+    const bidder = participantByPlayerId(currentBid.bidder_player_id);
+    bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点 · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
+  } else {
+    bidValue.textContent = "等待本轮首叫";
+  }
+  heading.append(bidLabel, bidValue);
+  board.appendChild(heading);
+
+  if (state.last_round_result) {
+    const reveal = document.createElement("section");
+    reveal.className = "liars-reveal";
+    const title = document.createElement("strong");
+    const outcome = state.last_round_result;
+    title.textContent = `上一轮：实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点 · ${outcome.bid_holds ? "叫点成立" : "叫点失败"}`;
+    reveal.appendChild(title);
+    const diceList = document.createElement("div");
+    diceList.className = "liars-revealed-dice";
+    Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
+      const row = document.createElement("span");
+      const participant = participantByPlayerId(playerId);
+      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "已淘汰"}`;
+      diceList.appendChild(row);
+    });
+    reveal.appendChild(diceList);
+    board.appendChild(reveal);
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "liars-controls";
+  const quantityLabel = document.createElement("label");
+  quantityLabel.textContent = "数量";
+  const quantity = document.createElement("select");
+  quantity.ariaLabel = "叫点数量";
+  const faceLabel = document.createElement("label");
+  faceLabel.textContent = "点数";
+  const face = document.createElement("select");
+  face.ariaLabel = "叫点点数";
+  const maximum = Number(state.max_bid_quantity || 0);
+  for (let value = 1; value <= maximum; value += 1) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = String(value);
+    quantity.appendChild(option);
+  }
+  for (let value = 1; value <= 6; value += 1) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = String(value);
+    face.appendChild(option);
+  }
+  if (currentBid) {
+    quantity.value = String(currentBid.quantity);
+    face.value = String(Math.min(6, currentBid.face + 1));
+    if (currentBid.face === 6 && currentBid.quantity < maximum) {
+      quantity.value = String(currentBid.quantity + 1);
+      face.value = "1";
+    }
+  }
+  quantityLabel.appendChild(quantity);
+  faceLabel.appendChild(face);
+  const chooseBid = document.createElement("button");
+  chooseBid.type = "button";
+  chooseBid.className = "pixel-btn compact";
+  chooseBid.textContent = "选择叫点";
+  const selectionIsHigher = () => !currentBid
+    || Number(quantity.value) > currentBid.quantity
+    || (
+      Number(quantity.value) === currentBid.quantity
+      && Number(face.value) > currentBid.face
+    );
+  const updateBidAvailability = () => {
+    chooseBid.disabled = !canHumanMove() || !selectionIsHigher();
+  };
+  updateBidAvailability();
+  quantity.addEventListener("change", updateBidAvailability);
+  face.addEventListener("change", updateBidAvailability);
+  chooseBid.addEventListener("click", () => selectMove({
+    action: "bid",
+    quantity: Number(quantity.value),
+    face: Number(face.value),
+  }));
+  const challenge = document.createElement("button");
+  challenge.type = "button";
+  challenge.className = "pixel-btn danger compact";
+  challenge.textContent = "质疑上一手";
+  challenge.disabled = !canHumanMove() || !currentBid;
+  challenge.addEventListener("click", () => selectMove({action: "challenge"}));
+  controls.append(quantityLabel, faceLabel, chooseBid, challenge);
+  board.appendChild(controls);
+}
+
 function renderBoard() {
   const state = room.board_state;
   const board = $("board");
   board.replaceChildren();
   board.className = "board";
+  if (room.game_type === "liars_dice") {
+    board.classList.add("liars_dice");
+    board.removeAttribute("style");
+    board.setAttribute("aria-label", "吹牛骰子公共桌面与叫点操作");
+    renderLiarsDice(board, state);
+    updateMoveConfirmation();
+    return;
+  }
   const rows = state.rows || state.size;
   const cols = state.cols || state.size;
   const visualRows = room.game_type === "dots_boxes" ? 9 : rows;
@@ -1097,6 +1240,9 @@ function renderTimeline(timeline = []) {
 }
 
 function renderPlayers(timeline = []) {
+  const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
+  $("opponentRow").classList.toggle("hidden", multiplayer);
+  $("humanRow").classList.toggle("hidden", multiplayer);
   const aiName = participantName("ai");
   const humanName = participantName("human");
   $("aiName").textContent = aiName;
@@ -1130,7 +1276,7 @@ function renderParticipantRoster(targetRoom) {
   roster.classList.toggle("hidden", participants.length <= 2);
   if (participants.length <= 2) return;
   participants.forEach((participant) => {
-    const badge = document.createElement("span");
+    const badge = document.createElement("article");
     badge.className = "room-participant";
     if (participant.player_id === targetRoom.current_player_id) {
       badge.classList.add("current");
@@ -1147,23 +1293,39 @@ function renderParticipantRoster(targetRoom) {
     if (participant.activity_state === "eliminated") states.push("已淘汰");
     else if (participant.activity_state === "inactive") states.push("暂停行动");
     else if (participant.activity_state === "skipped") states.push("本轮跳过");
-    const chip = participant.participant_kind === "system_npc" ? " · 筹码 ???" : "";
-    const delta = Number.isInteger(participant.settlement_delta)
-      ? ` · 本局 ${participant.settlement_delta >= 0 ? "+" : ""}${participant.settlement_delta}`
-      : "";
-    const status = states.length ? ` · ${states.join("/")}` : "";
+    badge.setAttribute("aria-current", participant.player_id === targetRoom.current_player_id ? "true" : "false");
+    const avatarWrap = document.createElement("span");
+    avatarWrap.className = "room-participant-avatar";
     if (participant.participant_kind === "system_npc" && participant.avatar_url) {
       const avatar = document.createElement("img");
-      avatar.className = "room-participant-avatar";
       avatar.src = apiPath(participant.avatar_url);
       avatar.alt = "";
       avatar.loading = "lazy";
       avatar.addEventListener("error", () => avatar.remove(), {once: true});
-      badge.appendChild(avatar);
+      avatarWrap.appendChild(avatar);
+    } else {
+      avatarWrap.textContent = participant.role === "human" ? "👤" : "🤖";
     }
-    const text = document.createElement("span");
-    text.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name} · ${kind}${chip}${delta}${status}`;
-    badge.appendChild(text);
+    const copy = document.createElement("span");
+    copy.className = "room-participant-copy";
+    const name = document.createElement("strong");
+    name.textContent = participant.display_name;
+    const seat = document.createElement("small");
+    seat.textContent = `座位 ${participant.seat_index + 1} · ${kind}`;
+    copy.append(name, seat);
+    const detail = document.createElement("span");
+    detail.className = "room-participant-detail";
+    const metadataLabels = {score: "得分", dice_count: "剩余骰子"};
+    const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
+      ? participant.game_metadata
+      : {};
+    const fragments = Object.entries(metadata).map(
+      ([key, value]) => `${metadataLabels[key] || key} ${value}`
+    );
+    if (states.length) fragments.push(states.join("/"));
+    else fragments.push(participant.player_id === targetRoom.current_player_id ? "正在行动" : "存活");
+    detail.textContent = fragments.join(" · ");
+    badge.append(avatarWrap, copy, detail);
     roster.appendChild(badge);
   });
 }
@@ -1184,7 +1346,18 @@ function renderPrivateState(targetRoom) {
     const labels = {hand: "我的手牌", dice: "我的骰子", rolls: "我的投掷", legal_actions: "我的合法行动"};
     label.textContent = labels[key] || key;
     const body = document.createElement("span");
-    body.textContent = typeof value === "string" ? value : JSON.stringify(value);
+    if (key === "dice" && Array.isArray(value)) {
+      body.className = "my-dice";
+      value.forEach((die) => {
+        const item = document.createElement("i");
+        item.textContent = String(die);
+        item.setAttribute("aria-label", `${die} 点`);
+        body.appendChild(item);
+      });
+      if (!value.length) body.textContent = "已淘汰";
+    } else {
+      body.textContent = typeof value === "string" ? value : JSON.stringify(value);
+    }
     row.append(label, body);
     content.appendChild(row);
   });
@@ -1198,6 +1371,12 @@ function resultTextFor(targetRoom, timeline = []) {
     return resultEvent.display_text || resultEvent.text || "对局结束";
   }
   if (targetRoom.winner === "draw") return "和棋";
+  if (targetRoom.winner_player_id) {
+    const winner = Array.isArray(targetRoom.participants)
+      ? targetRoom.participants.find((item) => item.player_id === targetRoom.winner_player_id)
+      : null;
+    return `${(winner && winner.display_name) || targetRoom.winner_player_id} 获胜`;
+  }
   if (targetRoom.winner === "human") {
     const human = Array.isArray(targetRoom.participants)
       ? targetRoom.participants.find((item) => item.role === "human")
@@ -1250,7 +1429,9 @@ function renderGame(nextRoom, message = "", timeline = []) {
   const resultText = resultTextFor(room, timeline);
   const winner = room.winner === "draw"
     ? " · 和棋"
-    : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : "");
+    : (room.winner_player_id
+      ? ` · ${(participantByPlayerId(room.winner_player_id) || {}).display_name || room.winner_player_id} 胜`
+      : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : ""));
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
   $("roomStake").textContent = room.stake_label || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
@@ -1295,7 +1476,7 @@ async function confirmMove() {
     $("confirmMoveButton").disabled = true;
     const data = await request(`/api/rooms/${room.room_id}/move`, {
       method: "POST",
-      body: JSON.stringify({move: movePayload}),
+      body: JSON.stringify({move: movePayload, revision: room.revision}),
     });
     pendingMove = null;
     selectedJungleCell = null;

@@ -250,21 +250,19 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             {"action": "step", **payload},
         )
 
-    def test_six_production_games_remain_exactly_two_player(self):
+    def test_production_catalog_keeps_legacy_games_and_declares_new_tables(self):
         production = {
             item["game_type"]: item
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 6)
-        self.assertTrue(all(
-            item["min_players"] == item["max_players"] == 2
-            for item in production.values()
-        ))
-        self.assertTrue(all(
-            item["allowed_player_counts"] == [2]
-            for item in production.values()
-        ))
+        self.assertEqual(len(production), 7)
+        for game_type in ("tictactoe", "gomoku", "othello", "connect4", "jungle"):
+            self.assertEqual(production[game_type]["allowed_player_counts"], [2])
+        self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
+        self.assertEqual(
+            production["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6]
+        )
         with self.assertRaisesRegex(framework.DuelError, "最多允许 2"):
             framework.create_room(
                 "tictactoe", "human_first", "human", "human-1",

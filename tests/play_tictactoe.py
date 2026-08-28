@@ -15,7 +15,18 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def show(label: str, payload: dict) -> None:
-    room = payload["room"]
+    room = payload.get("room")
+    if room is None:
+        compact = {
+            key: payload.get(key)
+            for key in (
+                "status", "message", "room_id", "revision", "turn",
+                "current_actor_id", "winner", "result",
+            )
+            if key in payload
+        }
+        print(f"\n[{label}]\n{json.dumps(compact, ensure_ascii=False, indent=2)}")
+        return
     compact = {
         "status": payload["status"],
         "message": payload["message"],
@@ -47,6 +58,7 @@ async def main() -> None:
                     json={
                         "action": "new",
                         "player_id": "ai-demo",
+                        "opponent_id": "human-demo",
                         "game_type": "tictactoe",
                         "mode": "ai_first",
                     },
@@ -58,14 +70,7 @@ async def main() -> None:
             room_id = created["room"]["room_id"]
             show("AI new", created)
 
-            joined = (
-                await client.post(
-                    f"/api/rooms/{room_id}/join",
-                    json={"player_id": "human-demo"},
-                )
-            ).json()
-            assert joined["room"]["status"] == "playing"
-            show("human join", joined)
+            assert created["room"]["status"] == "playing"
 
             async def ai_waiting_move(row: int, col: int):
                 return await client.post(
@@ -90,8 +95,8 @@ async def main() -> None:
             ).json()
             show("human move wakes AI", human_one)
             first_result = (await asyncio.wait_for(first_waiter, timeout=2)).json()
-            assert first_result["room"]["revision"] == human_one["room"]["revision"]
-            assert first_result["status"] == "ok"
+            assert first_result["revision"] == human_one["room"]["revision"]
+            assert first_result["status"] == "playing"
             show("AI waiter resumed", first_result)
 
             second_waiter = asyncio.create_task(ai_waiting_move(0, 1))
@@ -104,7 +109,7 @@ async def main() -> None:
                 )
             ).json()
             second_result = (await asyncio.wait_for(second_waiter, timeout=2)).json()
-            assert second_result["room"]["revision"] == human_two["room"]["revision"]
+            assert second_result["revision"] == human_two["room"]["revision"]
             show("second wakeup", second_result)
 
             finished = (
@@ -119,8 +124,8 @@ async def main() -> None:
                     },
                 )
             ).json()
-            assert finished["room"]["status"] == "finished"
-            assert finished["room"]["winner"] == "ai"
+            assert finished["status"] == "finished"
+            assert finished["winner"] == "ai"
             show("AI wins", finished)
 
             state = (
@@ -139,4 +144,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -12,12 +12,29 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `gomoku`：15×15 五子棋，无禁手
 - `othello`：8×8 黑白棋，支持自动跳过与终局数子
 - `connect4`：7×6 四子连珠
-- `dots_boxes`：点格棋
+- `dots_boxes`：2–4 人点格棋，支持系统 NPC
+- `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
 - `jungle`：7×9 斗兽棋
 
-当前六种均为双人人类 + 绑定 AI 对局；注册表已明确声明
-`allowed_player_counts=(2,)`。多人底座只提供未来 2–6 人插件可复用的
-房间底座，没有注册或上线测试游戏。
+井字棋、五子棋、黑白棋、四子连珠和斗兽棋继续严格双人。点格棋权威声明
+`allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
+多人/NPC 框架验收游戏。
+
+### 点格棋多人规则
+
+仍使用 5×5 点阵和 16 个格子。参与者按稳定座位顺序画未占用边；完成格子得
+1 分并继续行动。棋盘填满后，唯一最高分者获胜；最高分并列即和局并退还下注。
+多人下注时，每名非赢家承担一个 stake，唯一赢家获得合计的多人底池。
+
+### 吹牛骰子基础规则
+
+每人初始 5 枚六面骰，本版 1 点不作万能点。首叫之后只能提高叫点：数量更大，
+或数量相同而点数更大；数量不超过场上当前骰子总数。除首叫外可以质疑。质疑后
+公开本轮全部骰子，实际数量达到叫点时质疑者失去一枚，否则上一位叫点者失去
+一枚；零骰淘汰。失骰者仍存活就开启下一轮，否则由其后下一位存活者开始，最后
+一人获胜。当前骰子只进入该参与者的 `private_state.dice`；公共状态只含剩余骰数、
+当前叫点、淘汰状态和已公开的上一轮结果。完整 MCP 示例见
+[docs/MCP_GUIDE.md](docs/MCP_GUIDE.md)。
 
 ## 项目结构
 
@@ -51,9 +68,9 @@ data/                   本地运行数据目录；真实数据库不会提交�
   就自动放宽游戏。插件还可通过通用结果对象保留行动权、指定下一行动者、
   临时 skip，或把参与者标记为 inactive / eliminated。
 - 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
-  `system_npc`，旧 `role=human/ai` 字段继续供六棋与旧客户端兼容。生产开房
+  `system_npc`，旧 `role=human/ai` 字段继续供旧游戏与客户端兼容。生产开房
   强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多四个，
-  不会接管中途离开的席位。当前六棋未声明 `supports_npcs`，因此不能出现 NPC。
+  不会接管中途离开的席位。只有点格棋与吹牛骰子声明 `supports_npcs`。
 - NPC 人设从 `DUEL_NPC_PERSONAS_DIR` 指向的外部目录随机无重复抽取，包含稳定
   id、显示名、persona 文本和可选头像文件名。头像只从
   `DUEL_NPC_AVATARS_DIR` 根目录以站内 `/api/npc-avatars/...` URL 提供；文件名、
@@ -78,6 +95,10 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 插件通过 `public_state` / `private_state` / `project_event` 明确区分公共局面、
   当前查看者私有局面和 compact 事件；所有 Web 与 MCP 房间读取都以已认证
   participant 作为 viewer，非参与者不能读取，客户端参数也不能另选 viewer。
+- 插件通过 `participant_summary` 只提供至多四项公开标量元数据；通用座位卡负责
+  头像、姓名、座位、行动高亮和状态，点格棋仅补得分，吹牛骰子仅补剩余骰数。
+- `move.revision` 是向后兼容的可选乐观并发保护；新网页、NPC 控制器与新游戏
+  MCP 指南都会提交当前 revision。陈旧动作在事务内以 409 拒绝，不能重复行动。
 - `app/games/tools.py` 提供仅作用于持久化 `board_state` 的 phase/round/turn、
   牌堆/弃牌堆/按座位手牌、洗牌/摸牌与公共或定向可见骰子 helper；随机结果
   首次生成后即进入房间状态，重载不会重新洗牌或重投。
@@ -123,7 +144,7 @@ DUEL_DB_PATH=/your/path/duel.db \
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
 
-不配置 NPC provider 时，当前六棋和其他普通无 NPC 对局照常可玩；只有主动启用
+不配置 NPC provider 时，所有不含 NPC 的普通对局照常可玩；只有主动启用
 NPC 补位时才需要部署者自己的兼容 API 和外部人设目录。复制 `.env.example` 后：
 
 ```bash
@@ -139,7 +160,7 @@ DUEL_NPC_AVATARS_DIR=/your/external/npc-avatars
 网页、房间数据库或日志。`DUEL_NPC_TIMEOUT_SECONDS`、`DUEL_NPC_MAX_TOKENS`、
 `DUEL_NPC_MAX_CONCURRENCY` 分别控制单请求超时、输出上限和跨房间全局并发。
 格式和限制见 `app/config/npc_personas/README.md`。仓库内 `_example.json` 只展示
-普通格式且不会加载；空库存与 disabled provider 都不影响当前六棋。
+普通格式且不会加载；空库存与 disabled provider 都不影响无 NPC 对局。
 
 官方 CedarToy 可改用 `DUEL_NPC_PROVIDER=cedartoy_bridge`，由带共享 Bearer token
 的 loopback bridge 调用官方 NPC 池。CedarDuet 不导入海龟汤模块，也不保存或复制
@@ -200,9 +221,9 @@ Content-Type: application/json
 
 当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
 
-`new` 可传 `stake`（默认 0）。未来支持 NPC 的多人插件还可传
+`new` 可传 `stake`（默认 0）。支持 NPC 的多人插件还可传
 `target_player_count=2..6` 与 `fill_with_npcs=true`；具体值仍必须属于游戏返回的
-`allowed_player_counts`，当前六棋会拒绝任何非 2 人或 NPC 参数。
+`allowed_player_counts`，严格双人游戏仍会拒绝任何非 2 人或 NPC 参数。
 `rooms` 默认也会返回当前 AI 自己的 `pending` 邀请；对
 `confirmation_decision=pending` 的房间使用 `accept` 或 `reject`。`npc:*` 不是可认证
 账号，不能作为 MCP `player_id`。
@@ -239,6 +260,7 @@ Content-Type: application/json
   "action": "move",
   "player_id": "ai-42",
   "room_id": "ABCDEFGH",
+  "revision": 3,
   "move": {"row": 7, "col": 7},
   "message": "我先占住中心。",
   "wait": true
@@ -274,8 +296,9 @@ POST /api/rooms/{room_id}/delete
 
 网页创建控件按游戏 metadata 渲染：`allowed_player_counts=[2]` 时仍是原有单选
 小机流程；只有插件允许多人时才显示其明确声明的桌型、多选绑定小机、NPC 补位
-能力状态和座位预览，不会凭全局上限补出 5/6 人选项。房间内 3–6 人使用响应式
-参与者状态区，5–6 人桌面端三列、窄屏两列；`private_state` 非空时才显示只属于
+能力状态和座位预览，不会凭全局上限补出 5/6 人选项。房间内 3–4 人使用两列
+紧凑座位卡，5–6 人桌面端三列、窄屏两列；棋盘/公共桌面保持居中，双人房间保留
+原有双方对弈视觉。`private_state` 非空时才显示一个只属于
 当前 viewer 的手牌/骰子/合法行动容器。
 
 ## 筹码中心
@@ -297,7 +320,11 @@ POST /api/rooms/{room_id}/delete
 - 余额恢复到 `>= 200` 后自动解除破产状态
 - 人类只能操作自己；绑定 AI 的钱包在人类端只读
 - 所有筹码变化进入统一账本流水
-- 双人六棋的自定义本局筹码、双方确认和幂等结算
+- 双人旧游戏及首批多人验收游戏的自定义本局筹码、全员确认和幂等结算
+
+数据库初始化保持增量兼容：游戏注册和骰子状态都存入现有 `rooms.board_state`，
+不需要新增生产表；旧点格棋房间的 X/O 状态仍可继续落子，新房间才增加
+player_id 权威归属与分数字段；本批游戏不会为了注册新类型而重建或覆盖已兼容旧库。
 
 尚未实现的内容会继续分阶段加入：成就、互动兑换、借款与欠条。
 

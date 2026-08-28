@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 
 
 def function_source(name: str) -> str:
@@ -72,6 +73,37 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("JUNGLE_SYMBOLS[beast]", renderer)
         self.assertIn('pieceOwner === humanMark ? "●" : "○"', renderer)
         self.assertNotIn("cell.textContent = piece", renderer)
+
+    def test_multiplayer_roster_contract_is_two_three_column_not_six_column(self):
+        self.assertIn(".room-participants {", STYLES)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", STYLES)
+        self.assertIn(".room-participants.count-5, .room-participants.count-6", STYLES)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", STYLES)
+        self.assertIn(".room-participants.count-5, .room-participants.count-6,", STYLES)
+        self.assertNotIn("repeat(6, minmax(0, 1fr))", STYLES)
+        roster = function_source("renderParticipantRoster")
+        self.assertIn("participant.game_metadata", roster)
+        self.assertIn("dice_count: \"剩余骰子\"", roster)
+        self.assertIn("score: \"得分\"", roster)
+
+    def test_two_player_rows_remain_and_multiplayer_uses_compact_roster(self):
+        self.assertIn('id="opponentRow" class="player-row opponent-row"', HTML)
+        self.assertIn('id="humanRow" class="player-row human-row"', HTML)
+        players = function_source("renderPlayers")
+        self.assertIn('participants.length > 2', players)
+        self.assertIn('classList.toggle("hidden", multiplayer)', players)
+
+    def test_liars_dice_has_public_controls_private_dice_and_revision_guard(self):
+        renderer = function_source("renderLiarsDice")
+        self.assertIn('challenge.textContent = "质疑上一手"', renderer)
+        self.assertIn('chooseBid.textContent = "选择叫点"', renderer)
+        self.assertIn("revealed_dice_by_player", renderer)
+        private_renderer = function_source("renderPrivateState")
+        self.assertIn('key === "dice"', private_renderer)
+        self.assertIn("my-dice", private_renderer)
+        confirm = SCRIPT[SCRIPT.index("async function confirmMove("):]
+        self.assertIn("revision: room.revision", confirm)
+        self.assertIn('value="liars_dice"', HTML)
 
 
 if __name__ == "__main__":

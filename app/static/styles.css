@@ -460,7 +460,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .seat-preview {
   margin-top: 9px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 .seat-preview-item {
@@ -478,7 +478,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-participants {
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   font-family: system-ui, sans-serif;
   font-size: 12px;
@@ -488,8 +488,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .room-participant {
-  padding: 5px 8px;
-  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   color: var(--purple-darker);
@@ -503,6 +506,28 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   object-fit: cover;
   border: 2px solid var(--purple);
   image-rendering: pixelated;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #fff;
+  font-size: 16px;
+}
+.room-participant-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.room-participant-copy { min-width: 0; display: grid; gap: 3px; }
+.room-participant-copy strong,
+.room-participant-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-participant-copy strong { font-size: 12px; }
+.room-participant-copy small { color: var(--muted); font-size: 9px; }
+.room-participant-detail {
+  max-width: 132px;
+  color: var(--purple-dark);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: right;
 }
 .room-participant.current { border-color: var(--pink); box-shadow: inset 0 0 0 1px var(--pink); }
 .room-participant.inactive { opacity: .58; }
@@ -517,6 +542,19 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 12px;
 }
 .private-state-row span { overflow-wrap: anywhere; }
+.my-dice { display: flex; flex-wrap: wrap; gap: 7px; }
+.my-dice i {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--purple-dark);
+  border: 3px solid var(--purple-darker);
+  box-shadow: 2px 2px 0 rgba(92, 84, 99, .22);
+  font-style: normal;
+  font-size: 15px;
+}
 .create-submit { min-width: 150px; }
 .pixel-field {
   display: grid;
@@ -998,6 +1036,69 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .box.owned.ai-piece::after { content: "◆"; }
 
+.edge.drawn.seat-0 { background: #d95f7a; }
+.edge.drawn.seat-1 { background: #6f4f95; }
+.edge.drawn.seat-2 { background: #3f8f8a; }
+.edge.drawn.seat-3 { background: #d18a37; }
+.box.owned.seat-0 { background-color: #d95f7a; }
+.box.owned.seat-1 { background-color: #6f4f95; }
+.box.owned.seat-2 { background-color: #3f8f8a; }
+.box.owned.seat-3 { background-color: #d18a37; }
+.box.owned.seat-0::after { content: "1"; }
+.box.owned.seat-1::after { content: "2"; }
+.box.owned.seat-2::after { content: "3"; }
+.box.owned.seat-3::after { content: "4"; }
+
+.board.liars_dice {
+  width: min(700px, 100%);
+  min-height: 260px;
+  padding: 16px;
+  aspect-ratio: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto auto;
+  align-content: center;
+  gap: 12px;
+  color: var(--purple-darker);
+  background: rgba(230, 223, 240, .5);
+  border-color: var(--purple-dark);
+}
+.liars-current-bid {
+  padding: 13px;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 3px solid var(--pink);
+  text-align: center;
+}
+.liars-current-bid span { color: var(--muted); font-size: 9px; }
+.liars-current-bid strong { color: var(--pink-dark); font-size: clamp(17px, 4vw, 26px); }
+.liars-reveal {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: #fff;
+  border: 2px dashed var(--purple);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+}
+.liars-revealed-dice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.liars-revealed-dice span { overflow-wrap: anywhere; }
+.liars-controls {
+  display: grid;
+  grid-template-columns: minmax(82px, 1fr) minmax(82px, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+}
+.liars-controls label { display: grid; gap: 5px; font-size: 10px; }
+.liars-controls select {
+  min-height: 38px;
+  color: var(--purple-darker);
+  background: #fff;
+  border: 3px solid var(--purple);
+}
+
 .chat-compose {
   width: min(700px, 100%);
   margin: 2px auto 0;
@@ -1451,6 +1552,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .multiplayer-options { grid-template-columns: 1fr; }
   .room-participants { padding: 8px; gap: 5px; }
   .room-participant { padding: 5px 6px; font-size: 10px; line-height: 1.4; }
+  .room-participant-detail { max-width: 96px; font-size: 9px; }
   .room-open { min-height: 82px; padding: 9px; grid-template-columns: 46px 1fr; }
   .room-glyph { width: 44px; height: 44px; }
   .room-state { grid-column: 2; display: flex; justify-content: space-between; }
@@ -1483,6 +1585,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .board.connect4 .cell { margin: 1px; border-width: 3px; }
   .board.connect4 .cell.human-piece .piece,
   .board.connect4 .cell.ai-piece .piece { border-width: 2px; }
+  .board.liars_dice { width: 100%; min-height: 0; padding: 10px; }
+  .liars-revealed-dice { grid-template-columns: 1fr; }
+  .liars-controls { grid-template-columns: 1fr 1fr; }
+  .liars-controls .pixel-btn { width: 100%; min-width: 0; }
   .move-confirm { align-items: stretch; gap: 8px; }
   .move-confirm span { flex: 1; align-self: center; font-size: 12px; }
   .move-confirm .pixel-btn { min-width: 88px; }

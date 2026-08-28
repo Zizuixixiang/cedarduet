@@ -2,6 +2,7 @@ from .connect4 import Connect4
 from .dots_boxes import DotsBoxes
 from .gomoku import Gomoku
 from .jungle import Jungle
+from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
 
@@ -11,6 +12,7 @@ GAMES = {
     Othello.game_type: Othello(),
     Connect4.game_type: Connect4(),
     DotsBoxes.game_type: DotsBoxes(),
+    LiarsDice.game_type: LiarsDice(),
     Jungle.game_type: Jungle(),
 }
 

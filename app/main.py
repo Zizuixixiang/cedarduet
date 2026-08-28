@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import mimetypes
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,7 +9,7 @@ from urllib.parse import unquote
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .database import init_db
 from .framework import (
@@ -547,8 +548,17 @@ async def npc_avatar(filename: str):
         path = resolve_avatar_file(filename)
     except PersonaConfigError as exc:
         raise DuelError(str(exc), 404) from exc
-    return FileResponse(
-        path,
+    try:
+        # Avatar files are validated local assets. Reading here avoids delegating
+        # this tiny response to a second thread-pool hop, which also keeps the
+        # in-process ASGI test transport deterministic.
+        content = path.read_bytes()
+    except OSError as exc:
+        raise DuelError("NPC 头像暂时无法读取", 404) from exc
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return Response(
+        content,
+        media_type=media_type,
         headers={
             "Cache-Control": "private, max-age=300",
             "X-Content-Type-Options": "nosniff",
@@ -799,6 +809,7 @@ async def human_move(room_id: str, body: MoveBody):
         move,
         opponent_id=body.opponent_id,
         message=body.message,
+        expected_revision=body.revision,
     )
     revision_events.notify(room["room_id"])
     return human_response(
@@ -1142,7 +1153,8 @@ async def mcp_play(body: McpPlayBody):
 
     move = require(body.move, "move 动作需要 move 对象")
     room = play_move(
-        room_id, "ai", body.player_id, move, message=body.message
+        room_id, "ai", body.player_id, move, message=body.message,
+        expected_revision=body.revision,
     )
     revision_events.notify(room["room_id"])
     if (

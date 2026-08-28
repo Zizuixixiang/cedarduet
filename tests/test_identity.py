@@ -98,11 +98,10 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 6)
-        self.assertTrue(all(
-            game["min_players"] == game["max_players"] == 2
-            for game in payload["games"]
-        ))
+        self.assertEqual(len(payload["games"]), 7)
+        games = {game["game_type"]: game for game in payload["games"]}
+        self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
+        self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],
@@ -184,13 +183,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected.status_code, 403)
         self.assertIn("席位不匹配", rejected.json()["message"])
 
-    async def test_page_has_six_games_and_no_identity_or_room_join_inputs(self):
+    async def test_page_has_all_games_and_no_identity_or_room_join_inputs(self):
         response = await self.client.get("/")
         self.assertEqual(response.status_code, 200)
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "dots_boxes", "jungle",
+            "connect4", "dots_boxes", "liars_dice", "jungle",
         ):
             self.assertIn(f'value="{game_type}"', html)
         self.assertNotIn('id="playerId"', html)

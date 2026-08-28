@@ -159,7 +159,8 @@ async def run_current_npc_turn(
         action, message = _stored_decision(ticket)
         try:
             updated = play_move(
-                room["room_id"], "ai", npc_player_id, action, message=message
+                room["room_id"], "ai", npc_player_id, action, message=message,
+                expected_revision=room["revision"],
             )
         except DuelError:
             latest = _load_room(room["room_id"])
@@ -215,6 +216,7 @@ async def run_current_npc_turn(
         updated = play_move(
             room["room_id"], "ai", npc_player_id, action,
             message=selected.message,
+            expected_revision=room["revision"],
         )
     except DuelError:
         latest = _load_room(room["room_id"])

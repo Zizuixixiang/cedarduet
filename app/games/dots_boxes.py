@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from .base import GamePlugin, MoveResult
@@ -5,19 +6,27 @@ from .base import GamePlugin, MoveResult
 
 class DotsBoxes(GamePlugin):
     supports_stakes = True
+    supports_multiplayer_stakes = True
+    supports_npcs = True
     game_type = "dots_boxes"
     display_name = "点格棋"
+    min_players = 2
+    max_players = 4
+    allowed_player_counts = (2, 3, 4)
+    recommended_players = 2
     rules_text = (
-        "点格棋使用 5×5 点阵，共 4×4 个格子。双方轮流连接相邻两点画一条未画过的横边或竖边；"
-        "完成一个格子的第四条边便获得该格并得 1 分，且继续行动。全部 16 格归属后终局，"
-        "得分较高者获胜，同分和棋。"
+        "点格棋使用 5×5 点阵，共 4×4 个格子，支持 2–4 人。参与者按座位顺序轮流连接"
+        "相邻两点，画一条尚未占用的横边或竖边；完成一个格子的第四条边便获得该格并得 "
+        "1 分，而且继续行动。全部 16 格归属后终局；唯一最高分者获胜，最高分并列则和局，"
+        "下注原样退还。多人下注局由唯一赢家获得其他每名参与者各自承担的 stake。"
     )
     move_format = (
-        '画边参数：{"move":{"orientation":"h","row":0,"col":0}}；'
+        '画边参数：{"move":{"orientation":"h","row":0,"col":0},"revision":当前版本}；'
         "orientation 为 h（横边，row 0–4、col 0–3）或 v（竖边，row 0–3、col 0–4）。"
     )
 
-    def initial_state(self) -> dict[str, Any]:
+    @staticmethod
+    def _empty_board(scores: dict[str, int]) -> dict[str, Any]:
         return {
             "size": 5,
             "rows": 5,
@@ -26,8 +35,27 @@ class DotsBoxes(GamePlugin):
             "horizontal_edges": [[None for _ in range(4)] for _ in range(5)],
             "vertical_edges": [[None for _ in range(5)] for _ in range(4)],
             "boxes": [[None for _ in range(4)] for _ in range(4)],
-            "scores": {"X": 0, "O": 0},
+            "scores": dict(scores),
+            "action_history": [],
         }
+
+    def initial_state(self) -> dict[str, Any]:
+        """Keep the historical X/O shape for direct callers and old rooms."""
+        return self._empty_board({"X": 0, "O": 0})
+
+    def initialize(self, participants: list[dict[str, Any]]) -> dict[str, Any]:
+        player_ids = [str(item["player_id"]) for item in participants]
+        token_by_player = {
+            str(item["player_id"]): str(item["token"]) for item in participants
+        }
+        state = self._empty_board({token: 0 for token in token_by_player.values()})
+        state.update({
+            "ownership_kind": "player_id",
+            "participant_order": player_ids,
+            "tokens_by_player": token_by_player,
+            "scores_by_player": {player_id: 0 for player_id in player_ids},
+        })
+        return state
 
     @staticmethod
     def _edge(move: dict[str, Any]) -> tuple[str, int, int]:
@@ -59,6 +87,7 @@ class DotsBoxes(GamePlugin):
     def validate_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> None:
+        del mark
         orientation, row, col = self._edge(move)
         edges = (
             state["horizontal_edges"] if orientation == "h"
@@ -67,15 +96,20 @@ class DotsBoxes(GamePlugin):
         if edges[row][col] is not None:
             raise ValueError("这条边已经画过")
 
-    def apply_move(
-        self, state: dict[str, Any], move: dict[str, Any], mark: str
+    def _apply_owner(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        owner: str,
+        *,
+        token: str | None = None,
     ) -> MoveResult:
         orientation, row, col = self._edge(move)
         edges = (
             state["horizontal_edges"] if orientation == "h"
             else state["vertical_edges"]
         )
-        edges[row][col] = mark
+        edges[row][col] = owner
         candidates = (
             ((row - 1, col), (row, col))
             if orientation == "h"
@@ -89,32 +123,203 @@ class DotsBoxes(GamePlugin):
                 and state["boxes"][box_row][box_col] is None
                 and self._box_complete(state, box_row, box_col)
             ):
-                state["boxes"][box_row][box_col] = mark
+                state["boxes"][box_row][box_col] = owner
                 completed.append((box_row, box_col))
-        state["scores"][mark] += len(completed)
-        state["last_move"] = {
+        if "scores_by_player" in state:
+            state["scores_by_player"][owner] += len(completed)
+            score_token = token or state.get("tokens_by_player", {}).get(owner)
+            if score_token is not None:
+                state.setdefault("scores", {}).setdefault(score_token, 0)
+                state["scores"][score_token] += len(completed)
+        else:
+            state.setdefault("scores", {}).setdefault(owner, 0)
+            state["scores"][owner] += len(completed)
+        last_move = {
             "orientation": orientation,
             "row": row,
             "col": col,
-            "mark": mark,
+            "owner": owner,
+            "mark": token or owner,
             "completed_boxes": len(completed),
         }
+        state["last_move"] = last_move
+        state.setdefault("action_history", []).append(deepcopy(last_move))
         note = ""
         if completed:
             note = f"本手完成 {len(completed)} 个格子并得分，行动权保留。"
         return MoveResult(state, retain_turn=bool(completed), note=note)
 
+    def apply_move(
+        self, state: dict[str, Any], move: dict[str, Any], mark: str
+    ) -> MoveResult:
+        return self._apply_owner(state, move, mark, token=mark)
+
+    def validate_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> None:
+        self.validate_move(state, move, str(actor["token"]))
+
+    def apply_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> MoveResult:
+        # Persisted legacy rooms have only token-keyed scores. New rooms use IDs.
+        owner = (
+            str(actor["player_id"])
+            if "scores_by_player" in state
+            else str(actor["token"])
+        )
+        return self._apply_owner(state, move, owner, token=str(actor["token"]))
+
+    @staticmethod
+    def _board_full(state: dict[str, Any]) -> bool:
+        return not any(box is None for row in state["boxes"] for box in row)
+
     def check_winner(self, state: dict[str, Any]) -> str | None:
-        if any(box is None for row in state["boxes"] for box in row):
+        if not self._board_full(state):
             return None
-        x_score, o_score = state["scores"]["X"], state["scores"]["O"]
-        if x_score == o_score:
+        scores = state.get("scores", {})
+        if not scores:
             return "draw"
-        return "X" if x_score > o_score else "O"
+        best = max(scores.values())
+        leaders = [token for token, score in scores.items() if score == best]
+        return leaders[0] if len(leaders) == 1 else "draw"
+
+    def result_for(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if "scores_by_player" not in state:
+            return super().result_for(state, participants)
+        if not self._board_full(state):
+            return None
+        scores = state["scores_by_player"]
+        best = max(scores.values())
+        leaders = [player_id for player_id, score in scores.items() if score == best]
+        result: dict[str, Any] = {
+            "draw": len(leaders) != 1,
+            "scores": dict(scores),
+        }
+        if len(leaders) == 1:
+            result["winner_player_id"] = leaders[0]
+        else:
+            result["tied_player_ids"] = leaders
+        return result
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        del state
+        player_ids = [str(item["player_id"]) for item in participants]
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        winner = result.get("winner_player_id")
+        if winner not in player_ids:
+            raise ValueError("点格棋终局缺少有效唯一赢家")
+        return {
+            player_id: stake * (len(player_ids) - 1)
+            if player_id == winner else -stake
+            for player_id in player_ids
+        }
+
+    def public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        projected = deepcopy(state)
+        if state.get("ownership_kind") != "player_id" or len(participants) != 2:
+            return projected
+        # Existing two-player Web/MCP clients still see X/O ownership values;
+        # persistence and all multiplayer rooms remain player_id-authoritative.
+        token_by_player = {
+            item["player_id"]: item["token"] for item in participants
+        }
+
+        def legacy_owner(owner: str | None) -> str | None:
+            return token_by_player.get(owner, owner)
+
+        for key in ("horizontal_edges", "vertical_edges", "boxes"):
+            projected[key] = [
+                [legacy_owner(owner) for owner in row] for row in state[key]
+            ]
+        if projected.get("last_move"):
+            projected["last_move"]["owner"] = legacy_owner(
+                projected["last_move"].get("owner")
+            )
+        for action in projected.get("action_history", []):
+            action["owner"] = legacy_owner(action.get("owner"))
+        return projected
+
+    def participant_summary(
+        self,
+        state: dict[str, Any],
+        participant: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        del participants
+        player_id = str(participant["player_id"])
+        if "scores_by_player" in state:
+            score = state["scores_by_player"].get(player_id, 0)
+        else:
+            score = state.get("scores", {}).get(participant.get("token"), 0)
+        return {"score": int(score)}
+
+    def npc_compact_rules(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> str:
+        del state, actor, participants
+        return (
+            "从权威列表选择一条未画边。完成格子得 1 分并继续行动；"
+            "16 格填满后唯一最高分获胜，并列和局。"
+        )
+
+    def npc_public_actions(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        del actor, participants
+        return deepcopy(state.get("action_history", []))
+
+    def npc_legal_actions(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        del actor, participants
+        actions: list[dict[str, Any]] = []
+        for row, edges in enumerate(state["horizontal_edges"]):
+            actions.extend(
+                {"orientation": "h", "row": row, "col": col}
+                for col, owner in enumerate(edges) if owner is None
+            )
+        for row, edges in enumerate(state["vertical_edges"]):
+            actions.extend(
+                {"orientation": "v", "row": row, "col": col}
+                for col, owner in enumerate(edges) if owner is None
+            )
+        return actions
 
     def format_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> str:
+        del state, mark
         orientation, row, col = self._edge(move)
         start = f"{chr(ord('A') + col)}{row + 1}"
         end_col = col + (1 if orientation == "h" else 0)

@@ -183,6 +183,23 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     if not isinstance(public_state, dict) or not isinstance(private_state, dict):
         raise DuelError("游戏插件 public_state/private_state 必须返回对象")
     projected = deepcopy(room)
+    projected_participants = deepcopy(participants)
+    for participant in projected_participants:
+        try:
+            summary = game.participant_summary(
+                deepcopy(public_state), deepcopy(participant), deepcopy(participants)
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DuelError(f"游戏插件 participant_summary 无效：{exc}") from exc
+        if not isinstance(summary, dict) or len(summary) > 4:
+            raise DuelError("游戏插件 participant_summary 必须是至多 4 项的对象")
+        if any(
+            not isinstance(value, (str, int, bool, type(None)))
+            for value in summary.values()
+        ):
+            raise DuelError("游戏插件 participant_summary 只能包含简短标量")
+        participant["game_metadata"] = summary
+    projected["participants"] = projected_participants
     projected["board_state"] = public_state
     projected["private_state"] = private_state
     projected["viewer"] = {
@@ -1906,6 +1923,7 @@ def play_move(
     move: dict,
     opponent_id: str | None = None,
     message: str | None = None,
+    expected_revision: int | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
@@ -1918,6 +1936,18 @@ def play_move(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if expected_revision is not None:
+            if (
+                isinstance(expected_revision, bool)
+                or not isinstance(expected_revision, int)
+                or expected_revision < 0
+            ):
+                raise DuelError("revision 必须是非负整数")
+            if room["revision"] != expected_revision:
+                raise DuelError(
+                    f"局面 revision 已变化（期望 {expected_revision}，当前 {room['revision']}），请刷新后重试",
+                    409,
+                )
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] != "playing":

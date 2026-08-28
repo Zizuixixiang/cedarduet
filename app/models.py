@@ -52,6 +52,7 @@ class MoveBody(StrictBody):
     to_row: int | None = None
     to_col: int | None = None
     message: str | None = Field(default=None, max_length=500)
+    revision: int | None = Field(default=None, ge=0)
 
     @field_validator("move", mode="before")
     @classmethod
@@ -63,6 +64,15 @@ class MoveBody(StrictBody):
                 return value
             if isinstance(parsed, dict):
                 return parsed
+        return value
+
+    @field_validator("revision", mode="before")
+    @classmethod
+    def require_integer_revision(cls, value):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
+            raise ValueError("revision 必须是非负整数")
         return value
 
 
@@ -123,6 +133,7 @@ class McpPlayBody(BaseModel):
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
     op: Literal["status", "check_in", "bankruptcy", "ledger"] | None = None
+    revision: int | None = Field(default=None, ge=0)
 
     @field_validator("move", mode="before")
     @classmethod
@@ -153,6 +164,15 @@ class McpPlayBody(BaseModel):
     def require_integer_stake(cls, value):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("stake 必须是大于等于 0 的整数")
+        return value
+
+    @field_validator("revision", mode="before")
+    @classmethod
+    def require_integer_revision(cls, value):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
+            raise ValueError("revision 必须是非负整数")
         return value
 
     @field_validator("participant_ids")

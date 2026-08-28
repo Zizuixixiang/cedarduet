@@ -97,6 +97,22 @@ class GamePlugin(ABC):
         """Return only the authenticated viewer's private state."""
         return {}
 
+    def participant_summary(
+        self,
+        state: dict[str, Any],
+        participant: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, str | int | bool | None]:
+        """Return compact public metadata for one generic roster card.
+
+        ``state`` is the already public projection, so hidden-information games
+        cannot accidentally derive a roster badge from another player's hand.
+        Plugins should keep this to a few scalar values such as score or dice
+        count; the common web renderer owns the surrounding seat-card layout.
+        """
+        del state, participant, participants
+        return {}
+
     def project_event(
         self,
         event: dict[str, Any],

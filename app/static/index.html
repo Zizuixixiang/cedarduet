@@ -76,6 +76,7 @@
                   <option value="othello">黑白棋 / 8×8</option>
                   <option value="connect4">四子连珠 / 7×6</option>
                   <option value="dots_boxes">点格棋 / 5×5 点阵</option>
+                  <option value="liars_dice">吹牛骰子 / 2–6 人</option>
                   <option value="jungle">斗兽棋 / 7×9</option>
                 </select>
               </label>
@@ -170,8 +171,8 @@
           <button id="togglePreserveButton" class="pixel-btn secondary compact" type="button">保留此对局</button>
         </section>
 
-        <section class="battle-stage pixel-card">
-          <div class="player-row opponent-row">
+        <section class="battle-stage pixel-card" id="battleStage">
+          <div id="opponentRow" class="player-row opponent-row">
             <div class="player-identity">
               <span id="aiAvatar" class="player-avatar ai-avatar" aria-hidden="true">🤖</span>
               <strong id="aiName" class="player-name ai-name">你的小机</strong>
@@ -189,7 +190,7 @@
             </div>
           </div>
 
-          <div class="player-row human-row">
+          <div id="humanRow" class="player-row human-row">
             <div class="player-identity">
               <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true">👤</span>
               <strong id="humanName" class="player-name human-name">你</strong>
