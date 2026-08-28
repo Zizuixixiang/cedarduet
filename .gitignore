@@ -11,3 +11,16 @@ data/*.db-shm
 data/*.db-wal
 data/*.sqlite
 data/*.sqlite3
+
+# Official deployment-only NPC content; keep it outside the public repository.
+/app/config/npc_personas/*.json
+!/app/config/npc_personas/_schema.json
+!/app/config/npc_personas/_example.json
+/app/config/npc_avatars/*
+!/app/config/npc_avatars/README.md
+/XuZhiHeng.png
+/YueMingChuan.png
+/WenXingZhi.png
+/TangYi.png
+/ShangLingYi.png
+/QiaoMai.png
