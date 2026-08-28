@@ -13,6 +13,7 @@ from app.npc_controller import run_current_npc_turn
 from app.npc_providers import (
     CedarToyBridgeNpcProvider,
     DisabledNpcProvider,
+    GLOBAL_PLAYER_RULES,
     NpcDecisionRequest,
     NpcProvider,
     OpenAICompatibleNpcProvider,
@@ -38,6 +39,36 @@ def provider_request() -> NpcDecisionRequest:
 class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         reset_npc_provider_cache()
+
+    async def test_global_rules_prioritize_winning_and_allow_public_inference(self):
+        system_message = provider_request().messages()[0]
+        self.assertEqual(system_message, {
+            "role": "system", "content": GLOBAL_PLAYER_RULES,
+        })
+        for required in (
+            "首要目标是理解规则并争取获胜",
+            "己方私有信息、公共局面和其他玩家已公开行动",
+            "允许依据公开信息正常推理和估计",
+            "不得把对手隐藏状态当作已知事实",
+            "只能从权威合法行动列表选择",
+            "人设只影响合理行动之间的选择、风险偏好和交流方式",
+            "不得为了维持性格故意走明显坏棋",
+            "只返回 JSON 对象",
+            "不要返回分析、解释或思维过程",
+        ):
+            self.assertIn(required, GLOBAL_PLAYER_RULES)
+        self.assertNotIn("不得推测其他玩家隐藏信息", GLOBAL_PLAYER_RULES)
+
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        persona_guide = (
+            root / "app" / "config" / "npc_personas" / "README.md"
+        ).read_text(encoding="utf-8")
+        for document in (readme, persona_guide):
+            compact = "".join(document.split())
+            self.assertIn("公开信息正常推理", compact)
+            self.assertIn("不得把对手隐藏状态当作已知事实", compact)
+            self.assertIn("不得为了维持性格故意走明显坏棋", compact)
 
     async def test_disabled_is_default_and_exposes_no_configuration_secret(self):
         with patch.dict("os.environ", {"DUEL_NPC_PROVIDER": "disabled"}, clear=False):
