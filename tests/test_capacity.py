@@ -57,6 +57,14 @@ class CapacityFrameworkTests(unittest.TestCase):
             third["room_id"], "human", "human-join-pair"
         )
         self.assertEqual(joined["status"], "playing")
+        self.assertEqual(joined["current_player_id"], "human-join-pair")
+        self.assertEqual(
+            next(
+                item["token"] for item in joined["participants"]
+                if item["player_id"] == "human-join-pair"
+            ),
+            "X",
+        )
 
         fourth = framework.create_room(
             "tictactoe", "human_first", "ai", "ai-join-pair"
@@ -164,7 +172,7 @@ class CapacityFrameworkTests(unittest.TestCase):
                 human_player_id, ai_player_id
             ) VALUES (
                 'MIGRATE1', 'tictactoe', 'human_first',
-                '{}',
+                '{"size":3,"board":[[null,null,null],[null,null,null],[null,null,null]]}',
                 'human', 0, 'playing', NULL,
                 '2026-07-01T00:00:00+00:00',
                 '2026-07-01T00:00:00+00:00',
@@ -201,6 +209,23 @@ class CapacityFrameworkTests(unittest.TestCase):
             participants,
             [("human-old", "human", 0), ("ai-old", "ai", 1)],
         )
+        with database.write_transaction() as writable:
+            writable.execute(
+                "UPDATE rooms SET last_move_at = ? WHERE room_id = 'MIGRATE1'",
+                (framework._now(),),
+            )
+        migrated_room = framework.get_room(
+            "MIGRATE1", "human", "human-old"
+        )
+        self.assertEqual(migrated_room["current_player_id"], "human-old")
+        self.assertEqual(
+            [item["join_status"] for item in migrated_room["participants"]],
+            ["joined", "joined"],
+        )
+        continued = framework.play_move(
+            "MIGRATE1", "human", "human-old", {"row": 0, "col": 0}
+        )
+        self.assertEqual(continued["current_player_id"], "ai-old")
 
     def test_current_schema_migrates_messages_with_participants(self):
         database.DB_PATH.unlink()
@@ -367,7 +392,8 @@ class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):
         payload = downgraded.json()
         self.assertEqual(downgraded.status_code, 200)
         self.assertTrue(payload["wait_downgraded"])
-        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["status"], "playing")
+        self.assertNotIn("room", payload)
 
         human_move = await self.client.post(
             f"/api/rooms/{first_room}/move",

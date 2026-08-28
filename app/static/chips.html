@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8d9f1">
   <title>筹码中心 · Duel</title>
-  <link rel="stylesheet" href="/static/chips.css?v=0.1.0">
+  <link rel="stylesheet" href="/static/chips.css?v=0.3.0">
 </head>
 <body>
   <main class="chip-shell">
@@ -14,118 +14,122 @@
         <p class="eyebrow">DUEL CHIP HOUSE</p>
         <h1>筹码中心</h1>
       </div>
-      <span class="fun-only">仅供娱乐</span>
+      <span class="fun-only">仅供娱乐 · 不支持人民币充值</span>
     </header>
 
     <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
 
     <section class="balance-strip" aria-labelledby="balanceTitle">
-      <div>
-        <p id="balanceTitle" class="section-kicker">我的筹码</p>
-        <p class="balance-line"><strong id="myBalance">--</strong><span>枚</span></p>
-      </div>
-      <div class="status-stack">
-        <span id="myBankruptcyState" class="status-pill">读取中</span>
-        <span id="myBankruptcyCount" class="count-label">破产 -- 次</span>
-      </div>
-    </section>
-
-    <section class="machine-switch" aria-labelledby="machineTitle">
-      <div class="machine-control">
-        <label id="machineTitle" for="machineSelect">查看小机</label>
-        <select id="machineSelect" disabled>
-          <option value="">正在读取绑定关系…</option>
+      <div class="subject-control">
+        <label for="subjectSelect">查看对象</label>
+        <select id="subjectSelect" disabled>
+          <option value="human">我</option>
         </select>
+        <span id="readOnlyTag" class="readonly-tag hidden">只读</span>
       </div>
-      <div id="machineEmpty" class="machine-empty">选择后可只读查看小机钱包。</div>
-      <div id="machineWallet" class="machine-wallet hidden">
-        <span id="machineName">小机</span>
-        <strong><span id="machineBalance">--</span> 枚</strong>
-        <span id="machineState" class="mini-state">状态读取中</span>
-      </div>
-      <p class="readonly-note">小机钱包严格独立；人类不能替小机签到或宣布破产。</p>
-    </section>
-
-    <div class="module-grid">
-      <section class="module-card" aria-labelledby="walletModuleTitle">
-        <div class="module-heading">
-          <span class="pixel-icon" aria-hidden="true">◆</span>
-          <div>
-            <h2 id="walletModuleTitle">A. 我的筹码</h2>
-            <p>全棋牌屋通用，不按游戏拆分</p>
-          </div>
+      <div class="balance-summary">
+        <div>
+          <p id="balanceTitle" class="section-kicker">我的筹码</p>
+          <p class="balance-line"><strong id="myBalance">--</strong><span>枚</span></p>
         </div>
-        <dl class="fact-grid">
-          <div><dt>当前余额</dt><dd id="walletBalance">-- 枚</dd></div>
-          <div><dt>今日签到</dt><dd id="checkInState">--</dd></div>
-          <div><dt>破产状态</dt><dd id="walletBankruptcy">--</dd></div>
-          <div><dt>破产次数</dt><dd id="walletBankruptcyCount">--</dd></div>
-        </dl>
+        <div class="status-stack">
+          <span id="myBankruptcyState" class="status-pill">读取中</span>
+          <span id="myBankruptcyCount" class="count-label">破产 -- 次</span>
+        </div>
+      </div>
+      <div class="bankruptcy-compact">
+        <div>
+          <strong>破产处理</strong>
+          <p id="bankruptcyDescription">余额 ≤ -500 时可自愿宣布，重置为 50 枚。</p>
+        </div>
         <button id="bankruptcyButton" class="button danger" type="button" disabled>
           宣布破产
         </button>
-        <p class="button-note">余额 ≤ -500 时可自愿宣布；重置为 50 枚。</p>
-      </section>
+      </div>
+    </section>
 
-      <section class="module-card checkin-card" aria-labelledby="checkInTitle">
-        <div class="module-heading">
-          <span class="pixel-icon" aria-hidden="true">✦</span>
-          <div>
-            <h2 id="checkInTitle">B. 每日签到</h2>
-            <p>固定奖励，不连签、不补签</p>
+    <section class="module-switcher" aria-labelledby="moduleSwitcherTitle">
+      <div class="module-intro">
+        <div>
+          <p class="section-kicker">功能模块</p>
+          <h2 id="moduleSwitcherTitle">选择要查看的内容</h2>
+        </div>
+        <span>一次只看一项</span>
+      </div>
+
+      <div class="module-tabs" role="tablist" aria-label="筹码中心功能">
+        <button id="tab-checkin" class="module-tab" type="button" role="tab"
+          aria-selected="true" aria-controls="panel-checkin" data-panel="panel-checkin">每日签到</button>
+        <button id="tab-achievements" class="module-tab" type="button" role="tab" tabindex="-1"
+          aria-selected="false" aria-controls="panel-achievements" data-panel="panel-achievements">成就</button>
+        <button id="tab-social" class="module-tab" type="button" role="tab" tabindex="-1"
+          aria-selected="false" aria-controls="panel-social" data-panel="panel-social">互动与借款</button>
+        <button id="tab-ledger" class="module-tab" type="button" role="tab" tabindex="-1"
+          aria-selected="false" aria-controls="panel-ledger" data-panel="panel-ledger">筹码流水</button>
+      </div>
+
+      <div class="module-panels">
+        <section id="panel-checkin" class="module-card module-panel checkin-card" role="tabpanel"
+          aria-labelledby="tab-checkin">
+          <div class="module-heading">
+            <span class="pixel-icon" aria-hidden="true">✦</span>
+            <div>
+              <h2>每日签到</h2>
+              <p id="checkInDescription">固定奖励，不连签、不补签</p>
+            </div>
+            <span id="checkInState" class="panel-state">读取中</span>
           </div>
-        </div>
-        <div class="reward-row">
-          <strong>+20</strong>
-          <span>筹码 / 今日</span>
-          <button id="checkInButton" class="button primary" type="button" disabled>立即签到</button>
-        </div>
-      </section>
-
-      <section class="module-card placeholder-card" aria-labelledby="achievementTitle">
-        <div class="module-heading">
-          <span class="pixel-icon" aria-hidden="true">★</span>
-          <div>
-            <h2 id="achievementTitle">C. 成就</h2>
-            <p>对局成就与奖励正在筹备</p>
+          <div class="reward-row">
+            <strong>+20</strong>
+            <span>筹码 / 今日</span>
+            <button id="checkInButton" class="button primary" type="button" disabled>立即签到</button>
           </div>
-        </div>
-        <button class="button ghost" type="button" disabled>即将开放</button>
-      </section>
+        </section>
 
-      <section class="module-card placeholder-card" aria-labelledby="socialTitle">
-        <div class="module-heading">
-          <span class="pixel-icon" aria-hidden="true">♡</span>
-          <div>
-            <h2 id="socialTitle">D. 互动与借款</h2>
-            <p>亲亲、抱抱、借款与欠条规则筹备中</p>
+        <section id="panel-achievements" class="module-card module-panel placeholder-card" role="tabpanel"
+          aria-labelledby="tab-achievements" hidden>
+          <div class="module-heading">
+            <span class="pixel-icon" aria-hidden="true">★</span>
+            <div>
+              <h2>成就</h2>
+              <p id="achievementDescription">我的对局成就与奖励正在筹备</p>
+            </div>
           </div>
-        </div>
-        <div class="placeholder-actions">
-          <button class="button ghost" type="button" disabled>互动兑换</button>
-          <button class="button ghost" type="button" disabled>借款 / 欠条</button>
-        </div>
-      </section>
+          <button class="button ghost" type="button" disabled>即将开放</button>
+        </section>
 
-      <section class="module-card ledger-card" aria-labelledby="ledgerTitle">
-        <div class="module-heading">
-          <span class="pixel-icon" aria-hidden="true">▤</span>
-          <div>
-            <h2 id="ledgerTitle">E. 筹码流水</h2>
-            <p>统一账本 · 最近流水</p>
+        <section id="panel-social" class="module-card module-panel placeholder-card" role="tabpanel"
+          aria-labelledby="tab-social" hidden>
+          <div class="module-heading">
+            <span class="pixel-icon" aria-hidden="true">♡</span>
+            <div>
+              <h2 id="socialTitle">互动与借款</h2>
+              <p id="socialDescription">选择一只绑定小机后查看关系功能；规则筹备中</p>
+            </div>
           </div>
-        </div>
-        <ol id="ledgerList" class="ledger-list">
-          <li class="ledger-empty">正在读取流水…</li>
-        </ol>
-      </section>
-    </div>
+          <div class="placeholder-actions">
+            <button class="button ghost" type="button" disabled>互动兑换</button>
+            <button class="button ghost" type="button" disabled>借款 / 欠条</button>
+          </div>
+        </section>
 
-    <footer>
-      <strong>娱乐筹码声明</strong>
-      <p>不支持人民币充值、提现或任何形式的真钱兑换。</p>
-    </footer>
+        <section id="panel-ledger" class="module-card module-panel ledger-card" role="tabpanel"
+          aria-labelledby="tab-ledger" hidden>
+          <div class="module-heading">
+            <span class="pixel-icon" aria-hidden="true">▤</span>
+            <div>
+              <h2>筹码流水</h2>
+              <p id="ledgerDescription">我的统一账本 · 最近流水</p>
+            </div>
+          </div>
+          <ol id="ledgerList" class="ledger-list">
+            <li class="ledger-empty">正在读取流水…</li>
+          </ol>
+        </section>
+      </div>
+    </section>
+
   </main>
-  <script src="/static/chips.js?v=0.1.0"></script>
+  <script src="/static/chips.js?v=0.3.0"></script>
 </body>
 </html>

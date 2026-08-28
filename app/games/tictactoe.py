@@ -4,6 +4,7 @@ from .base import GamePlugin, move_coordinates
 
 
 class TicTacToe(GamePlugin):
+    supports_stakes = True
     game_type = "tictactoe"
     display_name = "井字棋"
     rules_text = (
@@ -45,4 +46,3 @@ class TicTacToe(GamePlugin):
         if all(cell is not None for row in board for cell in row):
             return "draw"
         return None
-

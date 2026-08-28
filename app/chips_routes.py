@@ -91,8 +91,9 @@ def create_chips_router(
             raise DuelError("这只小机不在当前账号的绑定清单中", 403)
         return {
             "ok": True,
-            "machine": {"name": selected["name"]},
+            "machine": {"id": machine_id, "name": selected["name"]},
             "wallet": get_wallet("ai", machine_id),
+            "ledger": list_ledger("ai", machine_id),
             "read_only": True,
         }
 

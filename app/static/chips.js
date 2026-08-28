@@ -2,9 +2,15 @@
 
 const $ = (id) => document.getElementById(id);
 let summary = null;
+let currentSubject = {type: "human", id: null, name: "我"};
+let subjectRequestSequence = 0;
+
+function apiPath(path) {
+  return window.location.pathname.startsWith("/duel") ? `/duel${path}` : path;
+}
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetch(apiPath(url), {
     credentials: "same-origin",
     headers: {"Content-Type": "application/json", ...(options.headers || {})},
     ...options,
@@ -23,43 +29,98 @@ function showNotice(message, isError = false) {
   notice.classList.remove("hidden");
 }
 
+function activateModuleTab(selectedTab, moveFocus = false) {
+  const tabs = Array.from(document.querySelectorAll('[role="tab"][data-panel]'));
+  const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+  for (const tab of tabs) {
+    const isSelected = tab === selectedTab;
+    tab.setAttribute("aria-selected", String(isSelected));
+    tab.tabIndex = isSelected ? 0 : -1;
+  }
+  for (const panel of panels) {
+    panel.hidden = panel.id !== selectedTab.dataset.panel;
+  }
+  if (moveFocus) selectedTab.focus();
+}
+
+function handleModuleTabKeydown(event) {
+  const tabs = Array.from(document.querySelectorAll('[role="tab"][data-panel]'));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  let nextIndex = currentIndex;
+  if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
+  if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  if (event.key === "Home") nextIndex = 0;
+  if (event.key === "End") nextIndex = tabs.length - 1;
+  if (nextIndex === currentIndex) return;
+  event.preventDefault();
+  activateModuleTab(tabs[nextIndex], true);
+}
+
+function initModuleTabs() {
+  const tabs = Array.from(document.querySelectorAll('[role="tab"][data-panel]'));
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => activateModuleTab(tab));
+    tab.addEventListener("keydown", handleModuleTabKeydown);
+  }
+  const initialTab = tabs.find((tab) => tab.getAttribute("aria-selected") === "true") || tabs[0];
+  if (initialTab) activateModuleTab(initialTab);
+}
+
 function bankruptcyText(wallet) {
   return wallet.bankruptcy_active
     ? wallet.bankruptcy_badge.name
     : "正常营业";
 }
 
-function renderWallet(wallet) {
+function renderSubject(subject, wallet, ledger) {
+  const readOnly = subject.type === "ai";
+  currentSubject = subject;
+  $("balanceTitle").textContent = readOnly ? `${subject.name} 的筹码` : "我的筹码";
   $("myBalance").textContent = String(wallet.balance);
-  $("walletBalance").textContent = `${wallet.balance} 枚`;
   $("checkInState").textContent = wallet.checked_in_today ? "今日已签到" : "今日未签到";
-  $("walletBankruptcy").textContent = bankruptcyText(wallet);
-  $("walletBankruptcyCount").textContent = `${wallet.bankruptcy_count} 次`;
   $("myBankruptcyState").textContent = bankruptcyText(wallet);
   $("myBankruptcyState").classList.toggle("active", wallet.bankruptcy_active);
   $("myBankruptcyCount").textContent = `破产 ${wallet.bankruptcy_count} 次`;
-  $("checkInButton").disabled = wallet.checked_in_today;
+  $("readOnlyTag").classList.toggle("hidden", !readOnly);
+  $("checkInButton").classList.toggle("hidden", readOnly);
+  $("checkInButton").disabled = readOnly || wallet.checked_in_today;
   $("checkInButton").textContent = wallet.checked_in_today ? "今日已签到" : "立即签到";
-  $("bankruptcyButton").disabled = !wallet.can_declare_bankruptcy;
+  $("bankruptcyButton").classList.toggle("hidden", readOnly);
+  $("bankruptcyButton").disabled = readOnly || !wallet.can_declare_bankruptcy;
+  $("checkInDescription").textContent = readOnly
+    ? `${subject.name} 的今日签到状态；只能由小机自己操作`
+    : "固定奖励，不连签、不补签";
+  $("bankruptcyDescription").textContent = readOnly
+    ? `${subject.name} 的破产信息只读；人类不能代为宣布`
+    : "余额 ≤ -500 时可自愿宣布，重置为 50 枚。";
+  $("achievementDescription").textContent = readOnly
+    ? `${subject.name} 的对局成就与奖励正在筹备`
+    : "我的对局成就与奖励正在筹备";
+  $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的互动与借款` : "互动与借款";
+  $("socialDescription").textContent = readOnly
+    ? `你与 ${subject.name} 的互动、借款与欠条规则筹备中`
+    : "选择一只绑定小机后查看关系功能；规则筹备中";
+  $("ledgerDescription").textContent = readOnly
+    ? `${subject.name} 的统一账本 · 最近流水`
+    : "我的统一账本 · 最近流水";
+  renderLedger(ledger);
 }
 
 function renderMachines(machines) {
-  const select = $("machineSelect");
+  const select = $("subjectSelect");
   select.replaceChildren();
-  const emptyOption = document.createElement("option");
-  emptyOption.value = "";
-  emptyOption.textContent = machines.length ? "选择一只绑定小机" : "暂时没有绑定小机";
-  select.append(emptyOption);
+  const humanOption = document.createElement("option");
+  humanOption.value = "human";
+  humanOption.textContent = "我";
+  select.append(humanOption);
   for (const machine of machines) {
     const option = document.createElement("option");
-    option.value = machine.id;
+    option.value = `ai:${machine.id}`;
     option.textContent = machine.name;
     select.append(option);
   }
-  select.disabled = machines.length === 0;
-  $("machineEmpty").textContent = machines.length
-    ? "选择后可只读查看小机钱包。"
-    : "当前账号没有绑定小机；绑定后会在这里出现。";
+  select.value = "human";
+  select.disabled = false;
 }
 
 function renderLedger(entries) {
@@ -91,55 +152,82 @@ function renderLedger(entries) {
 async function loadSummary() {
   try {
     summary = await requestJson("/api/chips");
-    renderWallet(summary.wallet);
     renderMachines(summary.machines);
-    renderLedger(summary.ledger);
+    renderSubject(
+      {type: "human", id: null, name: summary.human_name || "我"},
+      summary.wallet,
+      summary.ledger,
+    );
   } catch (error) {
     showNotice(error.message, true);
-    $("machineSelect").disabled = true;
+    $("subjectSelect").disabled = true;
   }
 }
 
 async function runHumanAction(url) {
+  if (!summary || currentSubject.type !== "human") return;
   $("checkInButton").disabled = true;
   $("bankruptcyButton").disabled = true;
   try {
     const payload = await requestJson(url, {method: "POST", body: "{}"});
     summary.wallet = payload.wallet;
     summary.ledger = payload.ledger;
-    renderWallet(payload.wallet);
-    renderLedger(payload.ledger);
+    if (currentSubject.type === "human") {
+      renderSubject(currentSubject, payload.wallet, payload.ledger);
+    }
     showNotice(payload.message);
   } catch (error) {
     showNotice(error.message, true);
-    if (summary) renderWallet(summary.wallet);
+    if (summary && currentSubject.type === "human") {
+      renderSubject(currentSubject, summary.wallet, summary.ledger);
+    }
   }
 }
 
-async function loadMachine(machineId) {
-  if (!machineId) {
-    $("machineWallet").classList.add("hidden");
-    $("machineEmpty").classList.remove("hidden");
+async function selectSubject(value) {
+  const requestSequence = ++subjectRequestSequence;
+  if (value === "human") {
+    renderSubject(
+      {type: "human", id: null, name: summary.human_name || "我"},
+      summary.wallet,
+      summary.ledger,
+    );
     return;
   }
-  $("machineEmpty").textContent = "正在读取小机钱包…";
-  $("machineEmpty").classList.remove("hidden");
-  $("machineWallet").classList.add("hidden");
+  const machineId = value.slice(3);
+  const machine = summary.machines.find((item) => item.id === machineId);
+  if (!machine) {
+    showNotice("这只小机不在当前账号的绑定清单中", true);
+    $("subjectSelect").value = "human";
+    await selectSubject("human");
+    return;
+  }
+  const subject = {type: "ai", id: machineId, name: machine.name};
+  renderSubject(subject, {
+    balance: "--",
+    checked_in_today: false,
+    bankruptcy_active: false,
+    bankruptcy_badge: null,
+    bankruptcy_count: "--",
+    can_declare_bankruptcy: false,
+  }, []);
+  $("checkInState").textContent = "读取中";
+  $("myBankruptcyState").textContent = "读取中";
   try {
     const payload = await requestJson(`/api/chips/machines/${encodeURIComponent(machineId)}`);
-    $("machineName").textContent = payload.machine.name;
-    $("machineBalance").textContent = String(payload.wallet.balance);
-    $("machineState").textContent = bankruptcyText(payload.wallet);
-    $("machineEmpty").classList.add("hidden");
-    $("machineWallet").classList.remove("hidden");
+    if (requestSequence !== subjectRequestSequence) return;
+    renderSubject(subject, payload.wallet, payload.ledger);
   } catch (error) {
-    $("machineEmpty").textContent = error.message;
+    if (requestSequence !== subjectRequestSequence) return;
     showNotice(error.message, true);
+    $("subjectSelect").value = "human";
+    await selectSubject("human");
   }
 }
 
 $("checkInButton").addEventListener("click", () => runHumanAction("/api/chips/check-in"));
 $("bankruptcyButton").addEventListener("click", () => runHumanAction("/api/chips/bankruptcy"));
-$("machineSelect").addEventListener("change", (event) => loadMachine(event.target.value));
+$("subjectSelect").addEventListener("change", (event) => selectSubject(event.target.value));
 
+initModuleTabs();
 loadSummary();

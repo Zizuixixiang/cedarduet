@@ -4,6 +4,7 @@ from .base import GamePlugin, MoveResult, move_coordinates
 
 
 class Othello(GamePlugin):
+    supports_stakes = True
     game_type = "othello"
     display_name = "黑白棋"
     rules_text = (

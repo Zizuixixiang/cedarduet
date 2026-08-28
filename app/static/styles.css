@@ -49,6 +49,13 @@ button, select { cursor: pointer; }
   border-bottom: 4px solid var(--purple-dark);
 }
 
+.topbar-leading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .brand {
   min-width: 0;
   display: inline-flex;
@@ -74,7 +81,7 @@ button, select { cursor: pointer; }
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .service-badge {
@@ -89,7 +96,33 @@ button, select { cursor: pointer; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.home-link { flex: none; }
+.home-link {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  font-family: system-ui, sans-serif;
+  font-size: 18px;
+  line-height: 1;
+}
+.home-link:hover { background: rgba(255, 255, 255, 0.12); }
+.home-link:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.chip-balance {
+  min-height: 34px;
+  padding: 7px 9px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--purple-darker);
+  background: #fff;
+  border: 2px solid var(--pink);
+  white-space: nowrap;
+}
+.chip-center-link { flex: none; }
 
 .duel-main {
   width: min(1240px, calc(100% - 40px));
@@ -205,17 +238,16 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 
 .lobby-view, .game-view { display: grid; gap: 12px; }
 
-.hero {
-  min-height: 142px;
-  padding: 18px 22px;
+.lobby-header {
+  min-height: 54px;
+  padding: 2px 2px 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 30px;
-  overflow: hidden;
+  gap: 16px;
 }
-.hero h1 { margin: 5px 0 3px; }
-.hero-pair { color: var(--pink-dark); font-size: 12px; }
+.lobby-header h1 { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); }
+.hero-pair { color: var(--pink-dark); font-size: 13px; line-height: 1.5; text-align: right; }
 .hero-art {
   width: min(360px, 38vw);
   height: 104px;
@@ -326,25 +358,24 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 19px;
 }
 .room-copy { min-width: 0; }
-.room-title { display: block; color: var(--purple-darker); font-size: 12px; }
-.room-meta { display: block; margin-top: 5px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.room-title { display: block; color: var(--purple-darker); font-size: 14px; }
+.room-meta { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .room-state { align-self: stretch; display: grid; justify-items: end; align-content: space-between; gap: 8px; }
-.room-state .turn { color: var(--pink-dark); font-size: 10px; white-space: nowrap; }
-.room-enter { color: var(--pink); font-size: 9px; }
+.room-state .turn { color: var(--pink-dark); font-size: 12px; white-space: nowrap; }
+.room-enter { color: var(--pink); font-size: 10px; }
 .room-record-controls {
   padding: 8px 10px;
   position: relative;
   z-index: 1;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   background: var(--purple-light);
   border-top: 2px dashed var(--purple);
 }
 .room-retention {
   min-width: 0;
-  margin-right: auto;
   color: var(--pink-dark);
   font-family: system-ui, sans-serif;
   font-size: 11px;
@@ -363,6 +394,15 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: var(--pink-dark);
   border-color: var(--pink-dark);
 }
+.room-stake {
+  display: inline-flex;
+  margin-top: 5px;
+  padding: 3px 6px;
+  color: var(--purple-darker);
+  background: var(--purple-light);
+  border: 1px solid var(--purple);
+  font-size: 10px;
+}
 .room-empty {
   min-height: 150px;
   padding: 24px;
@@ -380,7 +420,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .create-panel .section-head { margin-bottom: 14px; }
 .create-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1.2fr) minmax(150px, .8fr) auto;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(160px, 1.1fr) minmax(130px, .8fr) minmax(120px, .7fr) auto;
   align-items: end;
   gap: 12px;
 }
@@ -388,9 +428,26 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   margin-top: 10px;
   min-height: 14px;
   color: var(--pink-dark);
-  font-size: 8px;
-  line-height: 1.4;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
 }
+.room-participants {
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+}
+.room-participant {
+  padding: 5px 8px;
+  color: var(--purple-darker);
+  background: var(--purple-light);
+  border: 2px solid var(--purple);
+}
+.room-participant.current { border-color: var(--pink); }
+.room-participant.inactive { opacity: .58; }
 .create-submit { min-width: 150px; }
 .pixel-field {
   display: grid;
@@ -398,7 +455,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   color: var(--purple-dark);
   font-size: 12px;
 }
-.pixel-field select, .pixel-field textarea {
+.pixel-field select, .pixel-field textarea, .pixel-field input {
   width: 100%;
   min-height: 40px;
   padding: 7px 9px;
@@ -414,7 +471,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.pixel-field select:focus, .pixel-field textarea:focus { border-color: var(--pink); }
+.pixel-field select:focus, .pixel-field textarea:focus, .pixel-field input:focus { border-color: var(--pink); }
 .create-note {
   margin-top: 12px;
   padding: 7px 9px;
@@ -423,10 +480,26 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   color: var(--purple-darker);
   background: var(--purple-light);
   border: 2px dashed var(--purple);
-  font-size: 9px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
   line-height: 1.6;
 }
 .create-note span { color: var(--pink); }
+.pending-list { display: grid; gap: 8px; }
+.compact-head { margin-bottom: 8px; }
+.pending-card {
+  padding: 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  background: rgba(230, 223, 240, .52);
+  border: 2px solid var(--purple);
+}
+.pending-copy { min-width: 0; display: grid; gap: 5px; }
+.pending-title { color: var(--purple-darker); font-size: 14px; }
+.pending-meta { color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; line-height: 1.45; }
+.pending-card .pixel-btn { min-height: 36px; padding: 7px 10px; font-size: 10px; }
 
 .game-toolbar {
   min-height: 82px;
@@ -447,7 +520,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .game-meta {
   padding: 14px 18px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 .game-meta div { display: grid; gap: 5px; }
@@ -538,7 +611,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-bottom: 3px solid var(--purple-darker);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 13px;
 }
 .ai-name { margin-left: -2px; }
 .human-name {
@@ -1280,30 +1353,36 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 
 @media (max-width: 599px) {
   .app { min-height: 100dvh; display: block; }
-  .topbar { min-height: 58px; padding: 10px 14px; }
+  .topbar { min-height: 52px; padding: 7px 10px; gap: 8px; }
   .pixel-logo { width: 20px; height: 15px; border-width: 3px; }
+  .topbar-leading { gap: 7px; }
   .brand { gap: 9px; font-size: 16px; }
   .service-badge { display: none; }
   .pair-label { display: none; }
-  .home-link { min-height: 32px; padding: 5px 7px; font-size: 8px; }
+  .top-actions { gap: 5px; }
+  .chip-balance { min-height: 30px; padding: 5px 7px; font-size: 10px; }
+  .chip-center-link { min-height: 30px; padding: 5px 7px; font-size: 9px; }
+  .home-link { width: 24px; height: 24px; font-size: 15px; }
   .duel-main {
     width: auto;
-    min-height: calc(100dvh - 58px);
-    padding: 16px 14px calc(var(--safe-bottom) + 24px);
+    min-height: calc(100dvh - 52px);
+    padding: 10px 12px calc(var(--safe-bottom) + 24px);
   }
   .gate-view { min-height: 420px; padding: 24px 16px; }
-  .hero { min-height: 126px; padding: 14px; }
-  .hero-art { width: 132px; height: 100px; padding: 12px; gap: 7px; }
-  .hero-piece { width: 38px; height: 38px; border-width: 3px; font-size: 21px; }
-  .hero-art small { display: none; }
-  .hero-pair { font-size: 12px; }
+  .lobby-header { min-height: 46px; padding-inline: 1px; }
+  .lobby-header h1 { font-size: 21px; }
+  .hero-pair { max-width: 55%; font-size: 12px; }
   .section-panel { padding: 12px; }
   .create-form { grid-template-columns: 1fr; }
   .room-open { min-height: 82px; padding: 9px; grid-template-columns: 46px 1fr; }
   .room-glyph { width: 44px; height: 44px; }
   .room-state { grid-column: 2; display: flex; justify-content: space-between; }
-  .room-record-controls { flex-wrap: wrap; }
-  .room-retention { width: 100%; flex-basis: 100%; }
+  .room-record-controls { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px; }
+  .room-retention { font-size: 10px; line-height: 1.35; }
+  .room-record-button { padding: 4px 6px; font-size: 8px; }
+  .pending-card { grid-template-columns: 1fr 1fr; }
+  .pending-copy { grid-column: 1 / -1; }
+  .pending-card .pixel-btn { width: 100%; }
   .game-toolbar { padding: 11px; grid-template-columns: auto 1fr auto; }
   .game-nav-btn { min-width: 72px; padding: 7px 8px; font-size: 13px; }
   .game-heading h1 { font-size: 16px; }
@@ -1317,7 +1396,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .battle-stage { padding: 14px 10px 16px; gap: 11px; }
   .player-row { min-height: 52px; gap: 8px; }
   .player-avatar { width: 48px; height: 48px; border-width: 3px; font-size: 25px; }
-  .player-name { max-width: 112px; padding: 6px 8px; font-size: 9px; }
+  .player-name { max-width: 132px; padding: 6px 8px; font-size: 12px; }
   .speech-bubble { max-width: calc(100% - 145px); padding: 7px 9px; font-size: 12px; }
   .board { width: min(82vw, 560px); border-width: 3px; gap: 1px; }
   .board.gomoku { width: min(88vw, 560px); padding: 4px; gap: 0; }

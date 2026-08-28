@@ -44,7 +44,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["new_messages"], [])
+        self.assertNotIn("new_messages", response.json())
         return response.json()["room"]["room_id"]
 
     async def test_message_on_human_move_wakes_ai_and_is_read_once(self):
@@ -80,25 +80,25 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         resumed = await asyncio.wait_for(waiter, timeout=1)
         payload = resumed.json()
         self.assertEqual(
-            [message["text"] for message in payload["new_messages"]],
+            [message["message"] for message in payload["new_messages"]],
             ["那我守中间。"],
         )
         event = payload["new_messages"][0]
         self.assertEqual(event["event_type"], "move")
-        self.assertEqual(event["sender"]["player_id"], "human-one")
-        self.assertEqual(event["sender"]["name"], "human-one")
-        self.assertEqual(event["sender"]["role"], "human")
-        self.assertEqual(event["sequence"], event["id"])
+        self.assertEqual(event["actor"], "human")
+        self.assertEqual(event["move"], {"row": 1, "col": 1})
         state = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
         )
         self.assertEqual(state.json()["new_messages"], [])
 
-    async def test_standalone_message_is_stored_without_wakeup(self):
+    async def test_standalone_visible_message_wakes_waiters_and_is_read_once(self):
         room_id = await self.new_room()
         initial = await self.client.get(
-            f"/api/rooms/{room_id}", params={"player_id": "human-one"}
+            f"/api/rooms/{room_id}",
+            params={"player_id": "human-one"},
+            headers={"X-Duel-Human-Player": "human-one"},
         )
         baseline = initial.json()["room"]["revision"]
         event = main_module.revision_events.current(room_id)
@@ -108,7 +108,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sent.status_code, 200, sent.text)
         self.assertEqual(sent.json()["room"]["revision"], baseline)
-        self.assertFalse(event.is_set())
+        self.assertTrue(event.is_set())
         state = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
@@ -233,16 +233,8 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
             ["move", "result"],
         )
         result = new_events[-1]
-        self.assertEqual(result["text"], "南杉 获胜")
-        self.assertEqual(result["display_text"], "南杉 获胜")
-        self.assertEqual(
-            result["sender"],
-            {
-                "player_id": "system",
-                "name": "双弈裁判",
-                "role": "system",
-            },
-        )
+        self.assertEqual(result["message"], "南杉 获胜")
+        self.assertEqual(result["actor"], "system")
         repeated = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
@@ -273,7 +265,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
             if event["event_type"] == "result"
         ]
         self.assertEqual(len(result_events), 1)
-        self.assertEqual(result_events[0]["display_text"], "clio_web 认输")
+        self.assertEqual(result_events[0]["message"], "clio_web 认输")
 
     async def test_three_participants_have_independent_ordered_cursors(self):
         room = framework.create_room(
@@ -331,16 +323,19 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
                     "player_id": "human-one",
                     "name": "Human One",
                     "role": "human",
+                    "seat": 0,
                 },
                 {
                     "player_id": "Beta",
                     "name": "Beta Bot",
                     "role": "ai",
+                    "seat": 2,
                 },
                 {
                     "player_id": "human-one",
                     "name": "Human One",
                     "role": "human",
+                    "seat": 0,
                 },
             ],
         )
@@ -354,7 +349,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(beta_events[1]["sender"]["name"], "Clio")
 
-    async def test_still_waiting_delivers_stored_message(self):
+    async def test_visible_standalone_message_wakes_wait_and_is_delivered(self):
         room_id = await self.new_room()
         with patch.object(main_module, "MAX_WAIT_SECONDS", 0.08):
             waiter = asyncio.create_task(
@@ -375,19 +370,22 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
                 json={"player_id": "human-one", "message": "我还在想。"},
             )
             self.assertEqual(sent.status_code, 200, sent.text)
-            self.assertFalse(waiter.done())
             result = await asyncio.wait_for(waiter, timeout=1)
         payload = result.json()
-        self.assertEqual(payload["status"], "still_waiting")
+        self.assertEqual(payload["status"], "playing")
+        self.assertNotIn("room", payload)
         self.assertEqual(
-            [message["text"] for message in payload["new_messages"]],
+            [message["message"] for message in payload["new_messages"]],
             ["我还在想。"],
         )
         repeated = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "Clio", "room_id": room_id},
         )
-        self.assertEqual(repeated.json()["new_messages"], [])
+        self.assertEqual(
+            [message["text"] for message in repeated.json()["new_messages"]],
+            [],
+        )
 
     async def test_message_length_is_limited_to_500(self):
         room_id = await self.new_room()

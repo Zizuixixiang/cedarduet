@@ -15,7 +15,9 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `dots_boxes`：点格棋
 - `jungle`：7×9 斗兽棋
 
-当前六种均为双人局。框架已经使用参与者席位表保存身份，为后续多人棋牌预留了扩展空间。
+当前六种均为双人人类 + 绑定 AI 对局；注册表已明确声明
+`min_players=2 / max_players=2`。多人 Phase 1 只提供未来 2–4 人插件可复用的
+房间底座，没有注册或上线测试游戏。
 
 ## 项目结构
 
@@ -35,17 +37,33 @@ data/                   本地运行数据目录；真实数据库不会提交�
 
 ## 核心能力
 
-- 一房一局，人类与 AI 作为独立参与者保存。
+- 一房一局，参与者按稳定 seat / turn order 保存；完整状态同时返回有序
+  `participants`、`current_actor` 和兼容旧前端的 `turn`。
+- 插件声明 `min_players / max_players`，并可通过通用结果对象保留行动权、
+  指定下一行动者、临时 skip，或把参与者标记为 inactive / eliminated。
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
 - 落子、发言、认输和终局结果进入同一条共享时间线。
 - AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。
-- `move` 支持 `wait=true`：AI 落子后可等待人类动作，最长 50 秒；等待期间不持有 SQLite 事务或锁。
+- `move` 和 `state` 支持 `wait=true`：非当前 AI 可等待轮到自己或出现自己可见
+  的新事件，最长 50 秒；等待期间不持有 SQLite 事务或锁。
+- 每个参与者拥有独立事件 cursor；一个参与者读取事件不会替其他人消费。
+- 插件通过 `public_state` / `private_state` / `project_event` 明确区分公共局面、
+  当前查看者私有局面和 compact 事件；所有 Web 与 MCP 房间读取都以已认证
+  participant 作为 viewer，非参与者不能读取，客户端参数也不能另选 viewer。
+- `app/games/tools.py` 提供仅作用于持久化 `board_state` 的 phase/round/turn、
+  牌堆/弃牌堆/按座位手牌、洗牌/摸牌与公共或定向可见骰子 helper；随机结果
+  首次生成后即进入房间状态，重载不会重新洗牌或重投。
 - 全局最多 20 个并发等待；超过容量时落子仍然成功，只是不继续挂等。
 - 活跃房间长期无动作时可惰性归档。
 - 终局房间支持“保留 / 取消保留 / 手动删除”。当前版本已暂停自动物理删除终局记录，避免旧对局在正式公告前被清理。
 - 人类普通聊天、AI 普通聊天、落子事件和结果事件使用不同的前端视觉层级。
 - 全局娱乐筹码第一版已经包含：首次 200、每日签到 +20、允许负数、`<= -500` 可自愿破产、破产后重置 50、破产次数与状态标记、统一筹码流水。
-- 成就、互动兑换、借款/欠条，以及每局筹码下注与结算目前仍在设计/建设中。
+- 开局可设置大于等于 0 的整数“本局筹码”：0 筹码直接开局，非零筹码需另一方在 24 小时内接受，拒绝或过期即取消。
+- 终局结算使用同一全局钱包与流水：胜方 `+stake`、负方 `-stake`、和棋 0；认输按输结算，重复读取终局不会重复记账。
+- 多人筹码默认禁用；具体多人插件必须显式声明支持并给出自己的 settlement
+  deltas（完整覆盖每名参与者、整数且总和为 0），框架原子幂等结算，绝不会
+  推断“赢家拿走其余人的 stake”。
+- 成就、互动兑换、借款/欠条目前仍在设计/建设中。
 
 ## 本地启动
 
@@ -122,8 +140,14 @@ Content-Type: application/json
 - `move`
 - `state`
 - `resign`
+- `leave`
+- `accept`
+- `reject`
+- `chips`
 
 当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
+
+`new` 可传 `stake`（默认 0）。`rooms` 默认也会返回当前 AI 自己的 `pending` 邀请；对 `confirmation_decision=pending` 的房间使用 `accept` 或 `reject`。
 
 ### 查询自己的房间
 
@@ -163,7 +187,13 @@ Content-Type: application/json
 }
 ```
 
-响应为结构化 JSON，包含 `ok`、`status`、自然语言 `message`、`new_messages` 和完整 `room`。AI 可以读取共享时间线中的落子、聊天和裁判终局事件。
+第一次进入 `playing` 时返回完整 bootstrap（`room`、棋盘、规则、落子格式、先手、stake 和双方余额）。之后 `move` / `wait=true` 只返回 `room_id`、`revision`、`turn`、`status`、本手确认及按 sequence 排列的对方事件；落子事件保留原始 `move` payload，不再重复整盘。终局增量另带 winner/result、筹码结算 delta 与双方新余额。
+
+`state` 是显式全量恢复接口，仅在上下文丢失、复盘或怀疑不同步时使用，不要每轮调用。
+非当前参与者也可用 `state + wait=true` 等待自己的行动权或可见事件。
+`still_waiting` 只返回房间号、revision 和必要的当前行动者信息。
+
+小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持 `status`、`check_in`、`bankruptcy`、`ledger`；只能操作当前 canonical AI 自己的钱包，绑定人类余额只读。ledger 默认 5 条、硬上限 10。正常 bootstrap 已有双方余额，无需额外查询。
 
 ## 人类网页 API
 
@@ -176,6 +206,8 @@ GET  /api/rooms/{room_id}
 POST /api/rooms/{room_id}/move
 POST /api/rooms/{room_id}/messages
 POST /api/rooms/{room_id}/resign
+POST /api/rooms/{room_id}/leave
+POST /api/rooms/{room_id}/invitation
 POST /api/rooms/{room_id}/retention
 POST /api/rooms/{room_id}/delete
 ```
@@ -201,8 +233,9 @@ POST /api/rooms/{room_id}/delete
 - 余额恢复到 `>= 200` 后自动解除破产状态
 - 人类只能操作自己；绑定 AI 的钱包在人类端只读
 - 所有筹码变化进入统一账本流水
+- 双人六棋的自定义本局筹码、双方确认和幂等结算
 
-尚未实现的内容会继续分阶段加入：每局筹码、双方确认、对局结算、成就、互动兑换、借款与欠条。
+尚未实现的内容会继续分阶段加入：成就、互动兑换、借款与欠条。
 
 ## 数据与隐私
 

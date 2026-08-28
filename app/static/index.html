@@ -12,14 +12,18 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="返回 CEDAR TOY">
-        <span class="pixel-logo"></span>
-        <span>CEDAR TOY</span>
-      </a>
+      <div class="topbar-leading">
+        <a class="home-link" href="https://toy.cedarstar.org/" aria-label="返回 CedarToy 首页">←</a>
+        <a class="brand" href="/" aria-label="返回双弈首页">
+          <span class="pixel-logo"></span>
+          <span>CEDAR TOY</span>
+        </a>
+      </div>
       <div class="top-actions">
         <span class="service-badge">DUEL / 双弈</span>
         <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
-        <a class="pixel-btn secondary compact home-link" href="https://toy.cedarstar.org/">← 返回首页</a>
+        <span id="humanChipBalance" class="chip-balance" aria-label="当前人类筹码余额">🪙—</span>
+        <a id="chipCenterLink" class="pixel-btn secondary compact chip-center-link" href="/chips">筹码中心</a>
       </div>
     </header>
 
@@ -40,19 +44,11 @@
       </section>
 
       <section id="lobbyView" class="lobby-view hidden">
-        <div class="hero pixel-card">
+        <div class="lobby-header">
           <div>
-            <span class="tag pink">HUMAN × BOUND AIS</span>
-            <span class="tag">🚧 施工中 · 半成品试营业</span>
-            <p class="eyebrow">MISSION: DUEL</p>
-            <h1>双弈 <span style="font-size:11px;color:var(--pink-dark);vertical-align:middle;">🚧 施工中</span></h1>
-            <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
+            <h1>双弈</h1>
           </div>
-          <div class="hero-art" aria-hidden="true">
-            <span class="hero-piece human-piece">○</span>
-            <span class="hero-piece ai-piece">×</span>
-            <small>YOUR TURN_</small>
-          </div>
+          <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
         </div>
 
         <p id="notice" class="notice" role="status"></p>
@@ -90,13 +86,27 @@
                   <option value="ai_first">你的小机先手</option>
                 </select>
               </label>
+              <label class="pixel-field stake-field">
+                <span>本局筹码</span>
+                <input id="stake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="stakeHint">
+              </label>
               <button id="createButton" class="pixel-btn create-submit" type="button" disabled>创建对局 →</button>
             </div>
             <div id="selectedParticipants" class="selected-participants" aria-live="polite"></div>
             <div id="participantHint" class="create-note">
               <span>●</span>
-              <p>从已绑定小机中选择对手；房间会自动出现在你的列表里。</p>
+              <p id="stakeHint">筹码必须是大于等于 0 的整数；0 筹码直接开局，非零筹码需对方确认，余额可为负。</p>
             </div>
+          </section>
+
+          <section id="pendingPanel" class="section-panel pixel-card pending-panel hidden">
+            <div class="section-head compact-head">
+              <div>
+                <span class="tag pink">CHALLENGES</span>
+                <h2>待应战</h2>
+              </div>
+            </div>
+            <div id="pendingList" class="pending-list"></div>
           </section>
 
           <section class="section-panel pixel-card room-panel">
@@ -126,8 +136,11 @@
           <div><span>ROOM</span><strong id="roomId">—</strong></div>
           <div><span>STATUS</span><strong id="status">—</strong></div>
           <div><span>TURN</span><strong id="turn">—</strong></div>
+          <div><span>STAKE</span><strong id="roomStake">娱乐局</strong></div>
           <div><span>REV</span><strong id="revision">0</strong></div>
         </div>
+        <div id="roomParticipants" class="room-participants pixel-card hidden"
+             aria-label="房间参与者"></div>
 
         <p id="gameMessage" class="notice" role="status"></p>
 

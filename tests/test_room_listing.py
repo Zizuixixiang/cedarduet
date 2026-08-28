@@ -69,6 +69,8 @@ class AiRoomListingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(
             set(item) == {
                 "room_id", "game_type", "status", "turn",
+                "revision", "current_player_id", "current_actor_seat",
+                "own_seat", "participant_count",
                 "created_at", "updated_at",
             }
             for item in default_a

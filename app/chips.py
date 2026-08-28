@@ -52,10 +52,22 @@ CREATE TABLE IF NOT EXISTS chip_ledger (
 )
 """
 
+CHIP_SETTLEMENT_BATCHES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS chip_settlement_batches (
+    idempotency_key TEXT PRIMARY KEY,
+    reference_type TEXT,
+    reference_id TEXT,
+    deltas_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
 TRANSACTION_LABELS = {
     "wallet_opened": "新钱包初始筹码",
     "daily_check_in": "每日签到",
     "bankruptcy_reset": "宣布破产",
+    "duel_win": "双弈胜局",
+    "duel_loss": "双弈负局",
 }
 
 
@@ -63,6 +75,7 @@ def init_chips_schema(conn: sqlite3.Connection) -> None:
     """Create the additive chip-center schema; safe to run on every startup."""
     conn.execute(CHIP_WALLETS_SCHEMA)
     conn.execute(CHIP_LEDGER_SCHEMA)
+    conn.execute(CHIP_SETTLEMENT_BATCHES_SCHEMA)
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_chip_ledger_wallet_recent
@@ -273,6 +286,171 @@ def change_balance(
             metadata=metadata,
         )
         return _wallet_payload(conn, wallet)
+
+
+def apply_participant_deltas(
+    conn: sqlite3.Connection,
+    participants: list[dict],
+    deltas: dict[str, int],
+    *,
+    idempotency_key: str,
+    reference_type: str,
+    reference_id: str,
+    require_zero_sum: bool = False,
+    metadata: dict | None = None,
+) -> bool:
+    """Atomically apply one idempotent N-participant settlement batch."""
+    if not idempotency_key.strip():
+        raise DuelError("结算幂等键不能为空")
+    existing_batch = conn.execute(
+        """
+        SELECT 1 FROM chip_settlement_batches WHERE idempotency_key = ?
+        """,
+        (idempotency_key,),
+    ).fetchone()
+    if existing_batch is not None:
+        return False
+    participant_by_id = {
+        item["player_id"]: item for item in participants
+        if item.get("role") in {"human", "ai"}
+    }
+    if not deltas:
+        raise DuelError("结算 delta 不能为空")
+    unknown = set(deltas) - set(participant_by_id)
+    if unknown:
+        raise DuelError("结算包含不属于房间的参与者")
+    if any(isinstance(delta, bool) or not isinstance(delta, int) for delta in deltas.values()):
+        raise DuelError("每名参与者的筹码 delta 必须是整数")
+    if require_zero_sum and sum(deltas.values()) != 0:
+        raise DuelError("本次结算 delta 总和必须为 0")
+
+    wallets = {
+        player_id: _ensure_wallet(
+            conn, participant_by_id[player_id]["role"], player_id
+        )
+        for player_id in deltas
+    }
+    existing_ledger = {
+        player_id: conn.execute(
+            """
+            SELECT 1 FROM chip_ledger
+            WHERE wallet_id = ? AND idempotency_key = ?
+            """,
+            (wallet["id"], idempotency_key),
+        ).fetchone() is not None
+        for player_id, wallet in wallets.items()
+        if deltas[player_id] != 0
+    }
+    if existing_ledger and all(existing_ledger.values()):
+        conn.execute(
+            """
+            INSERT INTO chip_settlement_batches (
+                idempotency_key, reference_type, reference_id,
+                deltas_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                idempotency_key, reference_type, reference_id,
+                json.dumps(deltas, ensure_ascii=False, separators=(",", ":")),
+                _timestamp(),
+            ),
+        )
+        return False
+    if any(existing_ledger.values()):
+        raise RuntimeError("participant settlement ledger is only partially present")
+
+    for player_id, delta in deltas.items():
+        if delta == 0:
+            continue
+        _apply_balance_change(
+            conn,
+            wallets[player_id],
+            delta,
+            "duel_win" if delta > 0 else "duel_loss",
+            idempotency_key=idempotency_key,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            metadata=metadata,
+        )
+    conn.execute(
+        """
+        INSERT INTO chip_settlement_batches (
+            idempotency_key, reference_type, reference_id,
+            deltas_json, created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            idempotency_key, reference_type, reference_id,
+            json.dumps(deltas, ensure_ascii=False, separators=(",", ":")),
+            _timestamp(),
+        ),
+    )
+    return True
+
+
+def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
+    """Resolve plugin deltas or preserve the exact legacy two-player payout."""
+    stake = room.get("stake", 0)
+    if isinstance(stake, bool) or not isinstance(stake, int) or stake < 0:
+        raise DuelError("房间本局筹码必须是大于等于 0 的整数")
+    result = room.get("result") or {}
+    explicit_deltas = result.get("settlement_deltas")
+    # A zero-stake room never moves chips. Multiplayer plugins may provide an
+    # explicit payout map only after their own non-zero stake policy is enabled.
+    if stake == 0:
+        return False
+    if room.get("status") not in {"finished", "archived"}:
+        raise DuelError("只有终局房间可以结算筹码", 409)
+    participants = room.get("participants", [])
+    settlement_key = f"duel_settlement:{room['room_id']}"
+    if explicit_deltas is not None:
+        if not isinstance(explicit_deltas, dict):
+            raise DuelError("插件 settlement_deltas 必须是 player_id 到整数的映射")
+        participant_ids = {item["player_id"] for item in participants}
+        if set(explicit_deltas) != participant_ids:
+            raise DuelError("插件 settlement_deltas 必须完整覆盖房间每名参与者")
+        deltas = explicit_deltas
+        require_zero_sum = True
+    else:
+        if room.get("winner") == "draw" or result.get("draw"):
+            return False
+        if len(participants) != 2:
+            # Multiplayer payout rules belong to each concrete game plugin.
+            return False
+        winner_player_id = room.get("winner_player_id")
+        if winner_player_id is None and room.get("winner") in {"human", "ai"}:
+            winner_player_id = next(
+                (
+                    item["player_id"] for item in participants
+                    if item["role"] == room["winner"]
+                ),
+                None,
+            )
+        if winner_player_id not in {item["player_id"] for item in participants}:
+            raise DuelError("终局赢家无效，无法结算筹码")
+        deltas = {
+            item["player_id"]: (
+                stake if item["player_id"] == winner_player_id else -stake
+            )
+            for item in participants
+        }
+        require_zero_sum = True
+    metadata = {
+        "game_type": room["game_type"],
+        "stake": stake,
+        "winner": room.get("winner"),
+        "winner_player_id": room.get("winner_player_id"),
+    }
+    return apply_participant_deltas(
+        conn,
+        participants,
+        deltas,
+        idempotency_key=settlement_key,
+        reference_type="duel_room",
+        reference_id=room["room_id"],
+        require_zero_sum=require_zero_sum,
+        metadata=metadata,
+    )
 
 
 def claim_daily_check_in(subject_type: SubjectType, subject_id: str) -> dict:

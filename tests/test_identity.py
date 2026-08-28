@@ -200,7 +200,12 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="createButton"', html)
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
-        self.assertIn("← 返回首页", html)
+        self.assertIn(
+            'class="home-link" href="https://toy.cedarstar.org/" '
+            'aria-label="返回 CedarToy 首页">←</a>',
+            html,
+        )
+        self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/app.js?v=0.9.0", html)
         self.assertIn("/static/styles.css?v=0.9.0", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))

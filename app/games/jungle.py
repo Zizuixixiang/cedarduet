@@ -4,6 +4,7 @@ from .base import GamePlugin, MoveResult
 
 
 class Jungle(GamePlugin):
+    supports_stakes = True
     game_type = "jungle"
     display_name = "斗兽棋"
     rules_text = (

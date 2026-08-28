@@ -16,11 +16,19 @@ CREATE TABLE rooms (
     mode TEXT NOT NULL CHECK (mode IN ('human_first', 'ai_first')),
     board_state TEXT NOT NULL,
     turn TEXT NOT NULL CHECK (turn IN ('human', 'ai')),
+    current_player_id TEXT,
     revision INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK (
-        status IN ('waiting', 'playing', 'finished', 'archived')
+        status IN ('pending', 'waiting', 'playing', 'finished', 'archived')
     ),
     winner TEXT CHECK (winner IN ('human', 'ai', 'draw') OR winner IS NULL),
+    winner_player_id TEXT,
+    result_json TEXT,
+    stake INTEGER NOT NULL DEFAULT 0 CHECK (stake >= 0),
+    initiator_player_id TEXT,
+    confirmation_required INTEGER NOT NULL DEFAULT 0
+        CHECK (confirmation_required IN (0, 1)),
+    confirmation_expires_at TEXT,
     preserved INTEGER NOT NULL DEFAULT 0 CHECK (preserved IN (0, 1)),
     terminal_at TEXT,
     created_at TEXT NOT NULL,
@@ -36,6 +44,12 @@ CREATE TABLE IF NOT EXISTS room_participants (
     display_name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('human', 'ai')),
     seat_index INTEGER NOT NULL CHECK (seat_index >= 0),
+    token TEXT,
+    join_status TEXT NOT NULL DEFAULT 'joined'
+        CHECK (join_status IN ('invited', 'joined', 'left')),
+    activity_state TEXT NOT NULL DEFAULT 'active'
+        CHECK (activity_state IN ('active', 'inactive', 'eliminated', 'skipped')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     joined_at TEXT NOT NULL,
     PRIMARY KEY (room_id, player_id),
     UNIQUE (room_id, seat_index)
@@ -52,8 +66,10 @@ CREATE TABLE IF NOT EXISTS room_messages (
     revision_at_send INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     event_type TEXT NOT NULL DEFAULT 'message'
-        CHECK (event_type IN ('message', 'move', 'resign', 'result')),
-    move_label TEXT
+        CHECK (event_type IN ('message', 'move', 'resign', 'leave', 'result')),
+    move_label TEXT,
+    move_payload TEXT,
+    visible_to_json TEXT
 )
 """
 
@@ -63,6 +79,19 @@ CREATE TABLE IF NOT EXISTS room_event_cursors (
     player_id TEXT NOT NULL,
     last_event_id INTEGER NOT NULL DEFAULT 0 CHECK (last_event_id >= 0),
     updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, player_id),
+    FOREIGN KEY (room_id, player_id)
+        REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
+)
+"""
+
+ROOM_CONFIRMATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS room_confirmations (
+    room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('pending', 'accepted')),
+    decided_at TEXT,
+    created_at TEXT NOT NULL,
     PRIMARY KEY (room_id, player_id),
     FOREIGN KEY (room_id, player_id)
         REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
@@ -102,7 +131,11 @@ def init_db() -> None:
             ).fetchone()
             if (
                 "'archived'" not in sql
+                or "'pending'" not in sql
                 or "last_move_at" not in columns
+                or "stake" not in columns
+                or "initiator_player_id" not in columns
+                or "confirmation_expires_at" not in columns
                 or "human_player_id" in columns
                 or "ai_player_id" in columns
                 or participants_exists is None
@@ -122,6 +155,25 @@ def init_db() -> None:
             )
         if "terminal_at" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN terminal_at TEXT")
+        if "current_player_id" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN current_player_id TEXT")
+        if "winner_player_id" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN winner_player_id TEXT")
+        if "result_json" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN result_json TEXT")
+        if "confirmation_required" not in room_columns:
+            conn.execute(
+                """
+                ALTER TABLE rooms ADD COLUMN confirmation_required INTEGER
+                NOT NULL DEFAULT 0 CHECK (confirmation_required IN (0, 1))
+                """
+            )
+            conn.execute(
+                """
+                UPDATE rooms SET confirmation_required = 1
+                WHERE stake > 0 OR status = 'pending'
+                """
+            )
         conn.execute(
             """
             UPDATE rooms
@@ -145,6 +197,49 @@ def init_db() -> None:
                 WHERE display_name IS NULL OR display_name = ''
                 """
             )
+        if "token" not in participant_columns:
+            conn.execute("ALTER TABLE room_participants ADD COLUMN token TEXT")
+        if "active" not in participant_columns:
+            conn.execute(
+                """
+                ALTER TABLE room_participants ADD COLUMN active INTEGER NOT NULL
+                DEFAULT 1 CHECK (active IN (0, 1))
+                """
+            )
+        if "join_status" not in participant_columns:
+            conn.execute(
+                """
+                ALTER TABLE room_participants ADD COLUMN join_status TEXT
+                NOT NULL DEFAULT 'joined'
+                CHECK (join_status IN ('invited', 'joined'))
+                """
+            )
+        if "activity_state" not in participant_columns:
+            conn.execute(
+                """
+                ALTER TABLE room_participants ADD COLUMN activity_state TEXT
+                NOT NULL DEFAULT 'active'
+                CHECK (activity_state IN ('active', 'inactive', 'eliminated', 'skipped'))
+                """
+            )
+            conn.execute(
+                """
+                UPDATE room_participants
+                SET activity_state = CASE WHEN active = 1 THEN 'active' ELSE 'inactive' END
+                """
+            )
+        participant_schema_row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'room_participants'
+            """
+        ).fetchone()
+        participant_schema = (
+            (participant_schema_row["sql"] or "") if participant_schema_row else ""
+        )
+        if "'left'" not in participant_schema:
+            _migrate_participant_membership_schema(conn)
+        _backfill_multiplayer_room_fields(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rooms_updated_at ON rooms(updated_at)"
         )
@@ -181,10 +276,32 @@ def init_db() -> None:
             "sender_player_id" not in message_columns
             or "read_by_ai" in message_columns
             or "'result'" not in message_schema
+            or "'leave'" not in message_schema
             or "'system'" not in message_schema
         ):
             _migrate_message_events(conn, message_columns)
+        message_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(room_messages)")
+        }
+        if "move_payload" not in message_columns:
+            conn.execute("ALTER TABLE room_messages ADD COLUMN move_payload TEXT")
+        if "visible_to_json" not in message_columns:
+            conn.execute("ALTER TABLE room_messages ADD COLUMN visible_to_json TEXT")
         conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
+        conn.execute(ROOM_CONFIRMATIONS_SCHEMA)
+        _repair_participant_child_foreign_keys(conn)
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_room_confirmations_pending
+            ON room_confirmations(player_id, decision, room_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rooms_pending_expiry
+            ON rooms(status, confirmation_expires_at)
+            """
+        )
         _seed_missing_event_cursors(conn)
         _backfill_terminal_result_events(conn)
         conn.execute(
@@ -221,6 +338,20 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
         "human_player_id", "ai_player_id"
     }.issubset(columns)
     preserved_expr = "COALESCE(preserved, 0)" if "preserved" in columns else "0"
+    stake_expr = "COALESCE(stake, 0)" if "stake" in columns else "0"
+    initiator_expr = (
+        "initiator_player_id" if "initiator_player_id" in columns else "NULL"
+    )
+    confirmation_expiry_expr = (
+        "confirmation_expires_at"
+        if "confirmation_expires_at" in columns
+        else "NULL"
+    )
+    confirmation_required_expr = (
+        "COALESCE(confirmation_required, 0)"
+        if "confirmation_required" in columns
+        else "CASE WHEN status = 'pending' OR " + stake_expr + " > 0 THEN 1 ELSE 0 END"
+    )
     terminal_expr = (
         "CASE WHEN status IN ('finished', 'archived') "
         "THEN COALESCE(terminal_at, updated_at, created_at) ELSE NULL END"
@@ -274,12 +405,16 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
             f"""
             INSERT INTO rooms (
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, preserved, terminal_at,
+                current_player_id, status, winner, winner_player_id,
+                result_json, stake, initiator_player_id,
+                confirmation_required, confirmation_expires_at, preserved, terminal_at,
                 created_at, updated_at, last_move_at
             )
             SELECT
                 room_id, game_type, mode, board_state, turn, revision,
-                status, winner, {preserved_expr}, {terminal_expr},
+                NULL, status, winner, NULL, NULL, {stake_expr}, {initiator_expr},
+                {confirmation_required_expr}, {confirmation_expiry_expr},
+                {preserved_expr}, {terminal_expr},
                 created_at, updated_at, {last_move_expr}
             FROM rooms_legacy
             """
@@ -295,10 +430,16 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
                 f"""
                 INSERT INTO room_participants (
                     room_id, player_id, display_name, role,
-                    seat_index, joined_at
+                    seat_index, token, join_status, activity_state,
+                    active, joined_at
                 )
                 SELECT room_id, player_id, {display_name_expr}, role,
-                       seat_index, joined_at
+                       seat_index,
+                       {"token" if "token" in participant_columns else "NULL"},
+                       {"join_status" if "join_status" in participant_columns else "'joined'"},
+                       {"activity_state" if "activity_state" in participant_columns else "CASE WHEN active = 1 THEN 'active' ELSE 'inactive' END" if "active" in participant_columns else "'active'"},
+                       {"active" if "active" in participant_columns else "1"},
+                       joined_at
                 FROM room_participants_legacy
                 """
             )
@@ -307,10 +448,11 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
                 """
                 INSERT INTO room_participants (
                     room_id, player_id, display_name, role,
-                    seat_index, joined_at
+                    seat_index, token, join_status, activity_state,
+                    active, joined_at
                 )
                 SELECT room_id, human_player_id, human_player_id,
-                       'human', 0, created_at
+                       'human', 0, NULL, 'joined', 'active', 1, created_at
                 FROM rooms_legacy
                 WHERE human_player_id IS NOT NULL
                 """
@@ -319,10 +461,11 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
                 """
                 INSERT INTO room_participants (
                     room_id, player_id, display_name, role,
-                    seat_index, joined_at
+                    seat_index, token, join_status, activity_state,
+                    active, joined_at
                 )
                 SELECT room_id, ai_player_id, ai_player_id,
-                       'ai', 1, created_at
+                       'ai', 1, NULL, 'joined', 'active', 1, created_at
                 FROM rooms_legacy
                 WHERE ai_player_id IS NOT NULL
                 """
@@ -335,6 +478,7 @@ def _migrate_to_participants(conn: sqlite3.Connection) -> None:
         if participants_exists:
             conn.execute("DROP TABLE room_participants_legacy")
         conn.execute("DROP TABLE rooms_legacy")
+        _backfill_multiplayer_room_fields(conn)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -359,16 +503,20 @@ def _copy_legacy_messages_and_seed_cursors(
         f"AND participant.role = {legacy_table}.sender "
         "ORDER BY participant.seat_index LIMIT 1)"
     )
+    move_payload_expr = "move_payload" if "move_payload" in columns else "NULL"
+    visible_to_expr = "visible_to_json" if "visible_to_json" in columns else "NULL"
     conn.execute(ROOM_MESSAGES_SCHEMA)
     conn.execute(
         f"""
         INSERT INTO room_messages (
             id, room_id, sender, sender_player_id, text,
-            revision_at_send, created_at, event_type, move_label
+            revision_at_send, created_at, event_type, move_label,
+            move_payload, visible_to_json
         )
         SELECT
             id, room_id, sender, COALESCE({sender_player_expr}, sender), text,
-            revision_at_send, created_at, event_type, move_label
+            revision_at_send, created_at, event_type, move_label,
+            {move_payload_expr}, {visible_to_expr}
         FROM {legacy_table}
         """
     )
@@ -427,6 +575,74 @@ def _migrate_message_events(
         raise
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_participant_membership_schema(conn: sqlite3.Connection) -> None:
+    """Add the historical ``left`` membership state without losing seats."""
+    columns = [
+        row["name"] for row in conn.execute("PRAGMA table_info(room_participants)")
+    ]
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "ALTER TABLE room_participants RENAME TO room_participants_legacy"
+        )
+        conn.execute(ROOM_PARTICIPANTS_SCHEMA)
+        quoted = ", ".join(columns)
+        conn.execute(
+            f"INSERT INTO room_participants ({quoted}) "
+            f"SELECT {quoted} FROM room_participants_legacy"
+        )
+        conn.execute("DROP TABLE room_participants_legacy")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _repair_participant_child_foreign_keys(conn: sqlite3.Connection) -> None:
+    """Repair child tables whose FK target was rewritten by an older table rename.
+
+    SQLite may rewrite REFERENCES room_participants to room_participants_legacy
+    when a migration renames the participant table. If the legacy table is then
+    dropped, inserts into the child table fail at startup. Rebuild only the
+    affected child tables and preserve their rows.
+    """
+    specs = (
+        ("room_event_cursors", ROOM_EVENT_CURSORS_SCHEMA),
+        ("room_confirmations", ROOM_CONFIRMATIONS_SCHEMA),
+    )
+    for table_name, create_sql in specs:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        ).fetchone()
+        if not exists:
+            continue
+        targets = {row["table"] for row in conn.execute(f"PRAGMA foreign_key_list({table_name})")}
+        if not targets or "room_participants" in targets:
+            continue
+        legacy_name = f"{table_name}_fk_legacy"
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_name}")
+            conn.execute(create_sql)
+            columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({legacy_name})")]
+            quoted = ", ".join(columns)
+            conn.execute(
+                f"INSERT INTO {table_name} ({quoted}) SELECT {quoted} FROM {legacy_name}"
+            )
+            conn.execute(f"DROP TABLE {legacy_name}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _seed_missing_event_cursors(conn: sqlite3.Connection) -> None:
@@ -520,6 +736,68 @@ def _backfill_terminal_result_events(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_multiplayer_room_fields(conn: sqlite3.Connection) -> None:
+    """Safely derive additive multiplayer fields from legacy two-seat data."""
+    conn.execute(
+        """
+        UPDATE room_participants
+        SET token = CASE
+            WHEN seat_index = 0 THEN CASE
+                WHEN role = 'human' AND room_id IN (
+                    SELECT room_id FROM rooms WHERE mode = 'human_first'
+                ) THEN 'X'
+                WHEN role = 'ai' AND room_id IN (
+                    SELECT room_id FROM rooms WHERE mode = 'ai_first'
+                ) THEN 'X'
+                ELSE 'O'
+            END
+            WHEN seat_index = 1 THEN CASE
+                WHEN role = 'ai' AND room_id IN (
+                    SELECT room_id FROM rooms WHERE mode = 'human_first'
+                ) THEN 'O'
+                WHEN role = 'human' AND room_id IN (
+                    SELECT room_id FROM rooms WHERE mode = 'ai_first'
+                ) THEN 'O'
+                ELSE 'X'
+            END
+            ELSE 'P' || CAST(seat_index + 1 AS TEXT)
+        END
+        WHERE token IS NULL OR token = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE rooms
+        SET current_player_id = (
+            SELECT participant.player_id
+            FROM room_participants AS participant
+            WHERE participant.room_id = rooms.room_id
+              AND participant.role = rooms.turn
+              AND participant.active = 1
+            ORDER BY participant.seat_index
+            LIMIT 1
+        )
+        WHERE current_player_id IS NULL
+          AND status IN ('pending', 'waiting', 'playing')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE rooms
+        SET winner_player_id = (
+            SELECT participant.player_id
+            FROM room_participants AS participant
+            WHERE participant.room_id = rooms.room_id
+              AND participant.role = rooms.winner
+            ORDER BY participant.seat_index
+            LIMIT 1
+        )
+        WHERE winner_player_id IS NULL
+          AND winner IN ('human', 'ai')
+        """
+    )
+
+
 @contextmanager
 def write_transaction() -> Iterator[sqlite3.Connection]:
     """Reserve the SQLite writer before loading state for a mutation."""
@@ -546,10 +824,20 @@ def decode_room(
     try:
         participant_rows = conn.execute(
             """
-            SELECT player_id, display_name, role, seat_index, joined_at
+            SELECT player_id, display_name, role, seat_index, token,
+                   join_status, activity_state, active, joined_at
             FROM room_participants
             WHERE room_id = ?
             ORDER BY seat_index, joined_at, player_id
+            """,
+            (room["room_id"],),
+        ).fetchall()
+        confirmation_rows = conn.execute(
+            """
+            SELECT player_id, decision, decided_at, created_at
+            FROM room_confirmations
+            WHERE room_id = ?
+            ORDER BY created_at, player_id
             """,
             (room["room_id"],),
         ).fetchall()
@@ -557,6 +845,25 @@ def decode_room(
         if owns_connection:
             conn.close()
     room["participants"] = [dict(participant) for participant in participant_rows]
+    decisions = {
+        item["player_id"]: item["decision"] for item in confirmation_rows
+    }
+    for participant in room["participants"]:
+        participant["active"] = bool(participant.get("active", True))
+        participant["seat"] = participant["seat_index"]
+        participant["order"] = participant["seat_index"]
+        participant["confirmation_status"] = decisions.get(
+            participant["player_id"], "not_required"
+        )
+    room["confirmations"] = [dict(item) for item in confirmation_rows]
+    room["confirmation_required"] = bool(room.get("confirmation_required", False))
+    room["pending_for"] = [
+        item["player_id"]
+        for item in room["confirmations"]
+        if item["decision"] == "pending"
+    ]
+    raw_result = room.get("result_json")
+    room["result"] = json.loads(raw_result) if raw_result else None
     room["human_player_id"] = next(
         (
             participant["player_id"]

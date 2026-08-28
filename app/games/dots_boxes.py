@@ -4,6 +4,7 @@ from .base import GamePlugin, MoveResult
 
 
 class DotsBoxes(GamePlugin):
+    supports_stakes = True
     game_type = "dots_boxes"
     display_name = "点格棋"
     rules_text = (

@@ -174,6 +174,9 @@ class ChipApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bound_ai_wallet_is_read_only_and_separate(self):
         headers = self.trusted_headers([{"id": "ai-9", "name": "克莱奥"}])
+        chips.claim_daily_check_in("ai", "ai-9")
+        chips.change_balance("ai", "ai-9", -720, "test_loss")
+        chips.declare_bankruptcy("ai", "ai-9")
         response = await self.client.get(
             "/api/chips/machines/ai-9", headers=headers
         )
@@ -181,8 +184,15 @@ class ChipApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertTrue(payload["read_only"])
-        self.assertEqual(payload["machine"], {"name": "克莱奥"})
-        self.assertEqual(payload["wallet"]["balance"], 200)
+        self.assertEqual(payload["machine"], {"id": "ai-9", "name": "克莱奥"})
+        self.assertEqual(payload["wallet"]["balance"], 50)
+        self.assertTrue(payload["wallet"]["checked_in_today"])
+        self.assertTrue(payload["wallet"]["bankruptcy_active"])
+        self.assertEqual(payload["wallet"]["bankruptcy_count"], 1)
+        self.assertEqual(
+            [entry["transaction_type"] for entry in payload["ledger"]],
+            ["bankruptcy_reset", "test_loss", "daily_check_in", "wallet_opened"],
+        )
 
         for action in ("check-in", "bankruptcy"):
             forbidden_target = await self.client.post(

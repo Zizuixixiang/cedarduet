@@ -7,6 +7,8 @@ let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
 let selectedJungleCell = null;
 let pendingMove = null;
+let selectedMachineWallet = null;
+let machineWalletRequest = 0;
 
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
 const WAIT_HINT_FOREVER = "forever";
@@ -143,7 +145,7 @@ function showWaitModeModalOnce(
   today = localDateString()
 ) {
   const visitKey = `${waitHintPreferenceKey(targetRoom)}:${targetRoom.room_id}`;
-  if (isTerminal(targetRoom) || !shouldShowWaitModeHint(targetRoom, storage, today)) {
+  if (targetRoom.status !== "playing" || !shouldShowWaitModeHint(targetRoom, storage, today)) {
     hideWaitModeModal();
     return false;
   }
@@ -161,6 +163,7 @@ function showWaitModeModalOnce(
 
 function statusLabel(status) {
   return {
+    pending: "待确认",
     waiting: "等待加入",
     playing: "对局中",
     finished: "已结束",
@@ -198,8 +201,15 @@ function participantName(role) {
   return aiNameFor();
 }
 
-function turnLabel(turn, aiPlayerId) {
+function turnLabel(turn, aiPlayerId, currentActor = null) {
   if (!identity) return turn;
+  if (currentActor) {
+    const humanId = (room && room.human_player_id)
+      || (currentActor.role === "human" ? currentActor.player_id : null);
+    return currentActor.player_id === humanId
+      ? "轮到你"
+      : `轮到 ${currentActor.display_name || currentActor.player_id}`;
+  }
   return turn === "human" ? "轮到你" : `轮到 ${aiNameFor(aiPlayerId)}`;
 }
 
@@ -207,7 +217,10 @@ function roomTurnText(targetRoom) {
   if (isTerminal(targetRoom)) {
     return targetRoom.status === "archived" ? "对局已归档" : "对局已结束";
   }
-  return turnLabel(targetRoom.turn, targetRoom.ai_player_id);
+  if (targetRoom.status === "pending") return "等待对方确认";
+  return turnLabel(
+    targetRoom.turn, targetRoom.ai_player_id, targetRoom.current_actor
+  );
 }
 
 function relativeTime(value) {
@@ -265,18 +278,23 @@ function renderRooms(rooms) {
     copy.className = "room-copy";
     const title = document.createElement("span");
     title.className = "room-title";
-    title.textContent = `${summary.game_name} × ${summary.ai_name}`;
+    title.textContent = summary.participant_names && summary.participant_names.length > 2
+      ? `${summary.game_name} × ${summary.participant_names.join(" / ")}`
+      : `${summary.game_name} × ${summary.ai_name}`;
     const meta = document.createElement("span");
     meta.className = "room-meta";
     meta.textContent = `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
-    copy.append(title, meta);
+    const stake = document.createElement("span");
+    stake.className = "room-stake";
+    stake.textContent = summary.stake_label || (summary.stake > 0 ? `🪙${summary.stake}/人` : "娱乐局");
+    copy.append(title, meta, stake);
 
     const state = document.createElement("span");
     state.className = "room-state";
     const turn = document.createElement("span");
     turn.className = "turn";
     turn.textContent = summary.status === "playing"
-      ? turnLabel(summary.turn, summary.ai_player_id)
+      ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor)
       : (summary.winner === "draw" ? "和棋" : statusLabel(summary.status));
     const enter = document.createElement("span");
     enter.className = "room-enter";
@@ -299,7 +317,7 @@ function renderRooms(rooms) {
       const preserve = document.createElement("button");
       preserve.className = "room-record-button";
       preserve.type = "button";
-      preserve.textContent = summary.preserved ? "取消保留" : "保留此对局";
+      preserve.textContent = summary.preserved ? "取消保留" : "保留";
       preserve.addEventListener("click", () => {
         updateRoomPreservation(summary.room_id, !summary.preserved);
       });
@@ -315,6 +333,57 @@ function renderRooms(rooms) {
     }
     list.appendChild(card);
   });
+}
+
+function renderPendingInvitations(invitations = []) {
+  const panel = $("pendingPanel");
+  const list = $("pendingList");
+  list.replaceChildren();
+  panel.classList.toggle("hidden", invitations.length === 0);
+  invitations.forEach((invitation) => {
+    const card = document.createElement("article");
+    card.className = "pending-card";
+    const copy = document.createElement("div");
+    copy.className = "pending-copy";
+    const title = document.createElement("strong");
+    title.className = "pending-title";
+    title.textContent = `${invitation.initiator_name} 发起的${invitation.game_name}`;
+    const meta = document.createElement("span");
+    meta.className = "pending-meta";
+    meta.textContent = `发起方：${invitation.initiator_name} · 棋种：${invitation.game_name} · ${invitation.stake_label}`;
+    copy.append(title, meta);
+    const accept = document.createElement("button");
+    accept.className = "pixel-btn";
+    accept.type = "button";
+    accept.textContent = "接受";
+    accept.addEventListener("click", () => respondToInvitation(invitation.room_id, "accept"));
+    const reject = document.createElement("button");
+    reject.className = "pixel-btn secondary";
+    reject.type = "button";
+    reject.textContent = "拒绝";
+    reject.addEventListener("click", () => respondToInvitation(invitation.room_id, "reject"));
+    card.append(copy, accept, reject);
+    list.appendChild(card);
+  });
+}
+
+async function respondToInvitation(roomId, decision) {
+  try {
+    const data = await request(`/api/rooms/${roomId}/invitation`, {
+      method: "POST",
+      body: JSON.stringify({decision}),
+    });
+    if (decision === "accept" && data.room) {
+      renderGame(data.room, data.message, data.timeline);
+      startRoomPolling();
+      return;
+    }
+    await loadIdentity({quiet: true});
+    toast(data.message);
+  } catch (error) {
+    toast(error.message);
+    await loadIdentity({quiet: true});
+  }
 }
 
 async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {}) {
@@ -370,15 +439,36 @@ function selectedGameRequirement() {
   };
 }
 
+function configureParticipantPicker() {
+  const select = $("aiPlayer");
+  const {maxPlayers} = selectedGameRequirement();
+  const multiplayer = maxPlayers > 2;
+  const selected = selectedParticipantIds();
+  select.multiple = multiplayer;
+  select.closest(".participant-picker").dataset.selectionMode = multiplayer
+    ? "multiple"
+    : "single";
+  if (multiplayer) {
+    select.size = Math.max(2, Math.min(maxPlayers - 1, 4));
+  } else {
+    select.removeAttribute("size");
+    if (selected.length > 1) select.value = selected[0];
+  }
+  renderSelectedParticipants();
+}
+
 function updateCreateButtonState() {
   const {minPlayers, maxPlayers} = selectedGameRequirement();
   const participantCount = 1 + selectedParticipantIds().length;
+  const stakeValue = Number($("stake").value);
+  const validStake = Number.isInteger(stakeValue) && stakeValue >= 0;
   const ready = Boolean(
     identity
     && $("gameType").value
     && $("mode").value
     && participantCount >= minPlayers
     && participantCount <= maxPlayers
+    && validStake
   );
   $("createButton").disabled = !ready;
   return ready;
@@ -413,7 +503,8 @@ function syncMachinePicker(machines) {
   select.disabled = false;
   select.dataset.locked = machines.length === 1 ? "true" : "false";
   if (machines.length === 1) select.value = machines[0].id;
-  renderSelectedParticipants();
+  configureParticipantPicker();
+  machineSelectionChanged();
 }
 
 function renderSelectedParticipants() {
@@ -425,10 +516,29 @@ function renderSelectedParticipants() {
   const requirement = minPlayers === maxPlayers
     ? `${minPlayers} 人局`
     : `${minPlayers}–${maxPlayers} 人局`;
+  const machineBalance = selectedMachineWallet && machines.length === 1
+    ? ` · 对手筹码：🪙${selectedMachineWallet.balance}`
+    : "";
   $("selectedParticipants").textContent = machines.length
-    ? `本局对手：${machines.map((machine) => machine.name).join("、")} · ${requirement}`
+    ? `本局参与小机：${machines.map((item) => item.name).join("、")}${machineBalance} · ${requirement}`
     : `本局尚未选择对手 · ${requirement}`;
   updateCreateButtonState();
+}
+
+async function machineSelectionChanged() {
+  const selectedId = selectedParticipantIds()[0];
+  selectedMachineWallet = null;
+  const requestNumber = ++machineWalletRequest;
+  renderSelectedParticipants();
+  if (!selectedId || selectedParticipantIds().length !== 1) return;
+  try {
+    const data = await request(`/api/chips/machines/${encodeURIComponent(selectedId)}`);
+    if (requestNumber !== machineWalletRequest) return;
+    selectedMachineWallet = data.wallet;
+    renderSelectedParticipants();
+  } catch (_error) {
+    if (requestNumber === machineWalletRequest) renderSelectedParticipants();
+  }
 }
 
 async function loadIdentity({quiet = false} = {}) {
@@ -445,8 +555,11 @@ async function loadIdentity({quiet = false} = {}) {
     identity = data;
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
+    $("humanChipBalance").textContent = `🪙${data.wallet.balance}`;
     syncMachinePicker(data.machines || []);
-    renderRooms(data.rooms);
+    renderPendingInvitations(data.pending_invitations || []);
+    const incoming = new Set((data.pending_invitations || []).map((item) => item.room_id));
+    renderRooms((data.rooms || []).filter((item) => !incoming.has(item.room_id)));
     if (!room) showView("lobbyView");
     if (!quiet) showNotice("");
   } catch (error) {
@@ -464,17 +577,27 @@ async function createRoom() {
     showNotice("请按当前棋种人数要求选好对手、棋种与先手。", true);
     return;
   }
-  const aiPlayer = selectedParticipantIds()[0];
+  const participantIds = selectedParticipantIds();
+  const aiPlayer = participantIds[0];
+  const stake = Number($("stake").value);
   try {
     $("createButton").disabled = true;
     const data = await request("/api/rooms", {
       method: "POST",
       body: JSON.stringify({
         ai_player: aiPlayer,
+        ai_players: participantIds,
         game_type: $("gameType").value,
         mode: $("mode").value,
+        stake,
       }),
     });
+    if (data.room.status === "pending") {
+      room = null;
+      await loadIdentity({quiet: true});
+      showNotice(data.message);
+      return;
+    }
     renderGame(data.room, data.message, data.timeline);
     startRoomPolling();
   } catch (error) {
@@ -506,7 +629,13 @@ function backToLobby() {
 }
 
 function canHumanMove() {
-  return room && room.status === "playing" && room.turn === "human";
+  const human = participantFor("human");
+  return Boolean(
+    room
+    && human
+    && room.status === "playing"
+    && room.current_player_id === human.player_id
+  );
 }
 
 function pieceClass(mark) {
@@ -901,6 +1030,31 @@ function renderPlayers(timeline = []) {
   });
 }
 
+function renderParticipantRoster(targetRoom) {
+  const roster = $("roomParticipants");
+  const participants = Array.isArray(targetRoom.participants)
+    ? targetRoom.participants
+    : [];
+  roster.replaceChildren();
+  roster.classList.toggle("hidden", participants.length <= 2);
+  if (participants.length <= 2) return;
+  participants.forEach((participant) => {
+    const badge = document.createElement("span");
+    badge.className = "room-participant";
+    if (participant.player_id === targetRoom.current_player_id) {
+      badge.classList.add("current");
+    }
+    if (!participant.active || participant.activity_state !== "active") {
+      badge.classList.add("inactive");
+    }
+    const status = participant.confirmation_status === "pending"
+      ? " · 待确认"
+      : (!participant.active ? " · 不可行动" : "");
+    badge.textContent = `座位 ${participant.seat_index + 1} · ${participant.display_name}${status}`;
+    roster.appendChild(badge);
+  });
+}
+
 function resultTextFor(targetRoom, timeline = []) {
   const resultEvent = [...timeline].reverse().find(
     (event) => event.event_type === "result"
@@ -964,10 +1118,11 @@ function renderGame(nextRoom, message = "", timeline = []) {
     : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : "");
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
+  $("roomStake").textContent = room.stake_label || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
   $("revision").textContent = room.revision;
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
-  $("resignButton").disabled = ["finished", "archived"].includes(room.status);
+  $("resignButton").disabled = room.status !== "playing";
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
   $("resultBannerText").textContent = resultText;
@@ -979,6 +1134,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
       : (message || (canHumanMove() ? "轮到你落子。" : ""))
   );
   renderPlayers(timeline);
+  renderParticipantRoster(room);
   renderBoard();
   renderTimeline(timeline);
   if (isTerminal(room)) stopPolling();
@@ -1091,15 +1247,31 @@ async function rematch() {
   $("rematchButton").disabled = true;
   $("resultModalMessage").textContent = "";
   try {
+    const rematchAis = Array.isArray(previousRoom.participants)
+      ? previousRoom.participants
+          .filter((item) => item.role === "ai")
+          .map((item) => item.player_id)
+      : [previousRoom.ai_player_id].filter(Boolean);
     const data = await request("/api/rooms", {
       method: "POST",
       body: JSON.stringify({
-        ai_player: previousRoom.ai_player_id,
+        ai_player: rematchAis[0],
+        ai_players: rematchAis,
         game_type: previousRoom.game_type,
         mode: oppositeMode(previousRoom.mode),
+        stake: previousRoom.stake || 0,
       }),
     });
     closeResultModal();
+    $("stake").value = String(previousRoom.stake || 0);
+    if (data.room.status === "pending") {
+      room = null;
+      stopPolling();
+      showView("lobbyView");
+      await loadIdentity({quiet: true});
+      showNotice(data.message);
+      return;
+    }
     renderGame(data.room, data.message, data.timeline);
     startRoomPolling();
   } catch (error) {
@@ -1119,9 +1291,10 @@ function stopPolling() {
 }
 
 $("createButton").addEventListener("click", createRoom);
-$("aiPlayer").addEventListener("change", renderSelectedParticipants);
-$("gameType").addEventListener("change", renderSelectedParticipants);
+$("aiPlayer").addEventListener("change", machineSelectionChanged);
+$("gameType").addEventListener("change", configureParticipantPicker);
 $("mode").addEventListener("change", updateCreateButtonState);
+$("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());
@@ -1179,4 +1352,5 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+$("chipCenterLink").href = apiPath("/chips");
 loadIdentity();

@@ -1,0 +1,902 @@
+import asyncio
+import base64
+import json
+import random
+import tempfile
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest.mock import patch
+
+import httpx
+
+from app import database, framework
+from app import main as main_module
+from app.games import GAMES, game_catalog
+from app.games.base import GamePlugin, MoveResult
+from app.games.tools import (
+    advance_flow,
+    draw_cards,
+    ensure_card_zones,
+    ensure_flow,
+    private_hand,
+    public_card_state,
+    roll_dice,
+    visible_dice_rolls,
+)
+
+
+class DummyMultiplayer(GamePlugin):
+    """Test-only turn game. It is never added to the production registry."""
+
+    game_type = "dummy_multiplayer"
+    display_name = "测试多人轮转"
+    rules_text = "测试专用。"
+    move_format = '{"move":{"action":"step"}}'
+    min_players = 3
+    max_players = 4
+    supports_stakes = False
+
+    def initial_state(self):
+        return {"actions": []}
+
+    def validate_move(self, state, move, mark):
+        if not isinstance(move.get("action"), str):
+            raise ValueError("action 必须是字符串")
+
+    def apply_move(self, state, move, mark):
+        state["actions"].append({"token": mark, "action": move["action"]})
+        return state
+
+    def validate_action(self, state, move, actor):
+        self.validate_move(state, move, actor["token"])
+
+    def apply_action(self, state, move, actor):
+        state["actions"].append(
+            {"player_id": actor["player_id"], "action": move["action"]}
+        )
+        return MoveResult(
+            state=state,
+            skipped_player_ids=list(move.get("skip", [])),
+            participant_activity=dict(move.get("activity", {})),
+        )
+
+    def check_winner(self, state):
+        return None
+
+
+class DummyPrivateMultiplayer(DummyMultiplayer):
+    """Test-only hidden-information and explicit-settlement fixture."""
+
+    game_type = "dummy_private_multiplayer"
+    display_name = "测试私有多人轮转"
+    supports_stakes = True
+    supports_multiplayer_stakes = True
+
+    def initialize(self, participants):
+        state = {"actions": [], "legal_actions": {}}
+        ensure_flow(state, phase="deal")
+        player_ids = [item["player_id"] for item in participants]
+        ensure_card_zones(
+            state,
+            [f"card-{index}" for index in range(16)],
+            player_ids,
+            rng=random.Random(20260828),
+        )
+        for player_id in player_ids:
+            draw_cards(state, player_id, 2)
+            state["legal_actions"][player_id] = [f"act-{player_id}"]
+            roll_dice(
+                state,
+                roller_player_id=player_id,
+                visible_to_player_ids={player_id},
+                rng=random.Random(player_ids.index(player_id) + 7),
+            )
+        roll_dice(
+            state,
+            roller_player_id="system",
+            rng=random.Random(42),
+        )
+        return state
+
+    def public_state(self, state, participants):
+        return {
+            "actions": list(state["actions"]),
+            "flow": dict(state["flow"]),
+            "cards": public_card_state(state),
+            "dice_rolls": visible_dice_rolls(state, "__public__"),
+            "last_action_note": state.get("last_action_note", ""),
+            "last_skipped_player_ids": list(
+                state.get("last_skipped_player_ids", [])
+            ),
+        }
+
+    def private_state(self, state, viewer, participants):
+        player_id = viewer["player_id"]
+        return {
+            "hand": private_hand(state, player_id),
+            "dice_rolls": visible_dice_rolls(state, player_id),
+            "legal_actions": list(state["legal_actions"][player_id]),
+        }
+
+    def project_event(self, event, viewer, participants):
+        move = event.get("move")
+        if isinstance(move, dict) and move.get("reveal_to") != viewer["player_id"]:
+            move.pop("secret", None)
+        return event
+
+    def apply_action(self, state, move, actor):
+        state["actions"].append(
+            {"player_id": actor["player_id"], "action": move["action"]}
+        )
+        result = None
+        if move["action"] == "finish":
+            result = {
+                "winner_player_id": "human-1",
+                "draw": False,
+                "placements": ["human-1", "ai-1", "ai-2", "ai-3"],
+            }
+        return MoveResult(
+            state=state,
+            retain_turn=bool(move.get("retain")),
+            next_player_id=move.get("next_player_id"),
+            skipped_player_ids=list(move.get("skip", [])),
+            participant_activity=dict(move.get("activity", {})),
+            result=result,
+        )
+
+    def progress_after_action(self, state, move, actor, participants, applied):
+        advance_flow(
+            state,
+            phase=move.get("phase"),
+            next_round=bool(move.get("next_round")),
+        )
+        return applied
+
+    def settlement_deltas(self, state, result, participants, stake):
+        return {
+            participant["player_id"]: (
+                stake * 3 if participant["player_id"] == "human-1" else -stake
+            )
+            for participant in participants
+        }
+
+
+def ordered_participants(count=4):
+    return [
+        {"player_id": "human-1", "role": "human", "display_name": "南山"},
+        *[
+            {
+                "player_id": f"ai-{index}",
+                "role": "ai",
+                "display_name": f"小机 {index}",
+            }
+            for index in range(1, count)
+        ],
+    ]
+
+
+class MultiplayerFrameworkTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="duel-multiplayer-")
+        self.addCleanup(self.temporary.cleanup)
+        self.db_patch = patch.object(
+            database, "DB_PATH", Path(self.temporary.name) / "test.db"
+        )
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
+        self.game_patch = patch.dict(
+            GAMES,
+            {
+                DummyMultiplayer.game_type: DummyMultiplayer(),
+                DummyPrivateMultiplayer.game_type: DummyPrivateMultiplayer(),
+            },
+        )
+        self.game_patch.start()
+        self.addCleanup(self.game_patch.stop)
+        database.init_db()
+
+    def create_four(self, **kwargs):
+        return framework.create_room(
+            DummyMultiplayer.game_type,
+            "human_first",
+            "human",
+            "human-1",
+            ordered_participants=ordered_participants(),
+            **kwargs,
+        )
+
+    def move(self, room, player_id, **payload):
+        role = "human" if player_id.startswith("human") else "ai"
+        return framework.play_move(
+            room["room_id"], role, player_id,
+            {"action": "step", **payload},
+        )
+
+    def test_six_production_games_remain_exactly_two_player(self):
+        production = {
+            item["game_type"]: item
+            for item in game_catalog()
+            if not item["game_type"].startswith("dummy_")
+        }
+        self.assertEqual(len(production), 6)
+        self.assertTrue(all(
+            item["min_players"] == item["max_players"] == 2
+            for item in production.values()
+        ))
+        with self.assertRaisesRegex(framework.DuelError, "最多允许 2"):
+            framework.create_room(
+                "tictactoe", "human_first", "human", "human-1",
+                ordered_participants=ordered_participants(3),
+            )
+
+    def test_frontend_stays_single_select_until_plugin_allows_multiplayer(self):
+        root = Path(__file__).resolve().parents[1] / "app" / "static"
+        script = (root / "app.js").read_text(encoding="utf-8")
+        html = (root / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const multiplayer = maxPlayers > 2", script)
+        self.assertIn("select.multiple = multiplayer", script)
+        self.assertIn("ai_players: participantIds", script)
+        self.assertIn('id="roomParticipants"', html)
+
+    def test_four_seats_are_stable_and_turns_cycle_by_player_id(self):
+        room = self.create_four()
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(room["turn_order"], ["human-1", "ai-1", "ai-2", "ai-3"])
+        self.assertEqual(
+            [item["seat"] for item in room["participants"]], [0, 1, 2, 3]
+        )
+        self.assertEqual(room["current_actor"]["player_id"], "human-1")
+        self.assertEqual(room["current_actor_seat"], 0)
+
+        observed = []
+        for player_id in ("human-1", "ai-1", "ai-2", "ai-3"):
+            room = self.move(room, player_id)
+            observed.append(room["current_player_id"])
+        self.assertEqual(observed, ["ai-1", "ai-2", "ai-3", "human-1"])
+
+        room = self.move(room, "human-1")
+        room = self.move(room, "ai-1", skip=["ai-2"])
+        self.assertEqual(room["current_player_id"], "ai-3")
+        self.assertEqual(room["board_state"]["last_skipped_player_ids"], ["ai-2"])
+        room = self.move(
+            room, "ai-3", activity={"ai-1": "eliminated"}
+        )
+        eliminated = next(
+            item for item in room["participants"] if item["player_id"] == "ai-1"
+        )
+        self.assertFalse(eliminated["active"])
+        self.assertEqual(eliminated["activity_state"], "eliminated")
+        self.assertEqual(room["current_player_id"], "human-1")
+        room = self.move(room, "human-1")
+        self.assertEqual(room["current_player_id"], "ai-2")
+
+    def test_multiplayer_confirmations_accept_one_by_one_and_reject_cancels(self):
+        room = self.create_four(require_confirmations=True)
+        self.assertEqual(room["status"], "pending")
+        self.assertEqual(room["pending_for"], ["ai-1", "ai-2", "ai-3"])
+        self.assertEqual(
+            [item["join_status"] for item in room["participants"]],
+            ["joined", "invited", "invited", "invited"],
+        )
+        for player_id in ("ai-1", "ai-2"):
+            room = framework.respond_to_invitation(
+                room["room_id"], "ai", player_id, "accept"
+            )
+            self.assertEqual(room["status"], "pending")
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "ai-3", "accept"
+        )
+        self.assertEqual(room["status"], "playing")
+        retried = framework.respond_to_invitation(
+            room["room_id"], "ai", "ai-3", "accept"
+        )
+        self.assertEqual(retried["status"], "playing")
+        self.assertTrue(all(
+            item["join_status"] == "joined"
+            and item["confirmation_status"] == "accepted"
+            for item in room["participants"]
+        ))
+
+        rejected = framework.create_room(
+            DummyMultiplayer.game_type,
+            "human_first",
+            "human",
+            "human-2",
+            ordered_participants=[
+                {"player_id": "human-2", "role": "human"},
+                {"player_id": "ai-a", "role": "ai"},
+                {"player_id": "ai-b", "role": "ai"},
+            ],
+            require_confirmations=True,
+        )
+        cancelled = framework.respond_to_invitation(
+            rejected["room_id"], "ai", "ai-b", "reject"
+        )
+        self.assertEqual(cancelled["status"], "cancelled")
+        with self.assertRaisesRegex(framework.DuelError, "不存在"):
+            framework.get_room(rejected["room_id"])
+
+    def test_multiplayer_stake_is_rejected_without_settlement_policy(self):
+        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码结算规则"):
+            self.create_four(stake=3)
+        conn = database.connect()
+        try:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM rooms").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chip_ledger").fetchone()[0], 0)
+        finally:
+            conn.close()
+
+    def test_room_hard_limit_is_four(self):
+        with self.assertRaisesRegex(framework.DuelError, "不能超过 4 人"):
+            framework.create_room(
+                DummyMultiplayer.game_type,
+                "human_first",
+                "human",
+                "human-1",
+                ordered_participants=ordered_participants(5),
+            )
+
+    def test_waiting_leave_releases_and_reuses_seat_before_start(self):
+        room = framework.create_room(
+            DummyMultiplayer.game_type,
+            "human_first",
+            "human",
+            "human-1",
+            ordered_participants=ordered_participants(1),
+        )
+        self.assertEqual(room["status"], "waiting")
+        room = framework.join_room(room["room_id"], "ai", "ai-old")
+        self.assertEqual(room["status"], "waiting")
+        self.assertEqual(room["turn_order"], ["human-1", "ai-old"])
+
+        room = framework.leave_room(room["room_id"], "ai", "ai-old")
+        self.assertEqual(room["turn_order"], ["human-1"])
+        self.assertEqual(room["active_participant_count"], 1)
+        room = framework.join_room(room["room_id"], "ai", "ai-new")
+        room = framework.join_room(room["room_id"], "ai", "ai-third")
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(
+            [(item["player_id"], item["seat"]) for item in room["participants"]],
+            [("human-1", 0), ("ai-new", 1), ("ai-third", 2)],
+        )
+        self.assertEqual(room["current_player_id"], "human-1")
+
+    def test_playing_leave_preserves_history_and_obeys_plugin_minimum(self):
+        room = self.create_four()
+        room = framework.leave_room(room["room_id"], "ai", "ai-2", "human-1")
+        departed = next(
+            item for item in room["participants"] if item["player_id"] == "ai-2"
+        )
+        self.assertEqual(departed["join_status"], "left")
+        self.assertEqual(departed["activity_state"], "inactive")
+        self.assertFalse(departed["active"])
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(room["current_player_id"], "human-1")
+        self.assertEqual(room["active_participant_count"], 3)
+        self.assertEqual(
+            [item["event_type"] for item in framework.read_new_room_events(
+                room["room_id"], "ai-1"
+            )],
+            ["leave"],
+        )
+        with self.assertRaisesRegex(framework.DuelError, "已经离开"):
+            framework.post_message(
+                room["room_id"], "ai", "ai-2", "我又回来了"
+            )
+
+        room = framework.leave_room(
+            room["room_id"], "human", "human-1"
+        )
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["winner"], "draw")
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(room["result"]["reason"], "insufficient_players")
+        self.assertEqual(room["active_participant_count"], 2)
+
+    def test_duplicate_concurrent_leave_is_idempotent(self):
+        room = self.create_four()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(
+                lambda _index: framework.leave_room(
+                    room["room_id"], "ai", "ai-3"
+                ),
+                range(2),
+            ))
+        self.assertEqual({item["revision"] for item in results}, {1})
+        timeline = framework.list_timeline(room["room_id"])
+        self.assertEqual(
+            [item["event_type"] for item in timeline].count("leave"), 1
+        )
+        self.assertEqual(framework.list_ai_rooms("ai-3"), [])
+
+    def test_additive_migration_is_idempotent_and_preserves_seats(self):
+        room = self.create_four()
+        database.init_db()
+        database.init_db()
+        restored = framework.get_room(room["room_id"])
+        self.assertEqual(restored["turn_order"], room["turn_order"])
+        conn = database.connect()
+        try:
+            participant_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(room_participants)")
+            }
+            message_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(room_messages)")
+            }
+        finally:
+            conn.close()
+        self.assertTrue(
+            {"join_status", "activity_state", "token"} <= participant_columns
+        )
+        self.assertIn("visible_to_json", message_columns)
+
+    def test_each_cursor_is_independent_and_honors_event_visibility(self):
+        room = self.create_four()
+        room_id = room["room_id"]
+        framework.post_message(room_id, "human", "human-1", "公开消息")
+        self.assertEqual(
+            [item["text"] for item in framework.read_new_room_events(room_id, "ai-1")],
+            ["公开消息"],
+        )
+        self.assertEqual(
+            [item["text"] for item in framework.read_new_room_events(room_id, "ai-2")],
+            ["公开消息"],
+        )
+        framework.post_message(
+            room_id, "human", "human-1", "只给一号",
+            visible_to_player_ids={"ai-1"},
+        )
+        self.assertTrue(framework.has_new_room_events(room_id, "ai-1"))
+        self.assertFalse(framework.has_new_room_events(room_id, "ai-2"))
+        self.assertEqual(
+            [item["text"] for item in framework.read_new_room_events(room_id, "ai-1")],
+            ["只给一号"],
+        )
+        self.assertEqual(framework.read_new_room_events(room_id, "ai-2"), [])
+        framework.post_message(room_id, "ai", "ai-3", "再次公开")
+        self.assertEqual(
+            [item["text"] for item in framework.read_new_room_events(room_id, "ai-1")],
+            ["再次公开"],
+        )
+        self.assertEqual(
+            [item["text"] for item in framework.read_new_room_events(room_id, "ai-2")],
+            ["再次公开"],
+        )
+
+    def test_card_dice_and_flow_helpers_persist_without_rerandomizing(self):
+        state = {}
+        ensure_flow(state, phase="deal")
+        zones = ensure_card_zones(
+            state, list(range(12)), ["p1", "p2", "p3"],
+            rng=random.Random(9),
+        )
+        original_deck = list(zones["deck"])
+        first_hand = draw_cards(state, "p1", 3)
+        private_roll = roll_dice(
+            state, roller_player_id="p1", count=2,
+            visible_to_player_ids={"p1"}, rng=random.Random(4),
+        )
+        public_roll = roll_dice(
+            state, roller_player_id="p2", rng=random.Random(5),
+        )
+        advance_flow(state, phase="play", next_round=True)
+
+        restored = json.loads(json.dumps(state))
+        self.assertIs(ensure_card_zones(
+            restored, ["replacement"], ["p1", "p2", "p3"]
+        ), restored["cards"])
+        self.assertEqual(restored["cards"]["deck"], original_deck[:-3])
+        self.assertEqual(private_hand(restored, "p1"), first_hand)
+        self.assertEqual(restored["flow"], {
+            "phase": "play", "round_number": 2, "turn_number": 0,
+        })
+        self.assertEqual(
+            visible_dice_rolls(restored, "p1"),
+            [private_roll, public_roll],
+        )
+        self.assertEqual(visible_dice_rolls(restored, "p3"), [public_roll])
+        public_cards = public_card_state(restored)
+        self.assertNotIn("hands", public_cards)
+        self.assertEqual(public_cards["hand_counts"]["p1"], 3)
+
+    def test_nonparticipant_cannot_project_private_room_state(self):
+        room = framework.create_room(
+            DummyPrivateMultiplayer.game_type,
+            "human_first",
+            "human",
+            "human-1",
+            ordered_participants=ordered_participants(),
+        )
+        with self.assertRaisesRegex(framework.DuelError, "viewer"):
+            framework.project_room_for_viewer(room, "outsider")
+
+    def test_multiplayer_settlement_requires_complete_zero_sum_integer_map(self):
+        plugin = GAMES[DummyPrivateMultiplayer.game_type]
+        invalid_maps = (
+            {"human-1": 15, "ai-1": -5, "ai-2": -5},
+            {"human-1": 16, "ai-1": -5, "ai-2": -5, "ai-3": -5},
+            {"human-1": 15, "ai-1": -5, "ai-2": -5, "ai-3": -5.0},
+        )
+        for index, invalid in enumerate(invalid_maps):
+            with self.subTest(invalid=invalid):
+                room = framework.create_room(
+                    DummyPrivateMultiplayer.game_type,
+                    "human_first", "human", "human-1",
+                    ordered_participants=ordered_participants(),
+                    stake=5, require_confirmations=True,
+                )
+                for player_id in ("ai-1", "ai-2", "ai-3"):
+                    room = framework.respond_to_invitation(
+                        room["room_id"], "ai", player_id, "accept"
+                    )
+                baseline_revision = room["revision"]
+                with patch.object(plugin, "settlement_deltas", return_value=invalid):
+                    with self.assertRaises(framework.DuelError):
+                        framework.play_move(
+                            room["room_id"], "human", "human-1",
+                            {"action": "finish"},
+                        )
+                restored = framework.get_room(room["room_id"])
+                self.assertEqual(restored["status"], "playing")
+                self.assertEqual(restored["revision"], baseline_revision)
+
+
+class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="duel-multi-api-")
+        self.db_patch = patch.object(
+            database, "DB_PATH", Path(self.temporary.name) / "test.db"
+        )
+        self.db_patch.start()
+        self.game_patch = patch.dict(
+            GAMES,
+            {
+                DummyMultiplayer.game_type: DummyMultiplayer(),
+                DummyPrivateMultiplayer.game_type: DummyPrivateMultiplayer(),
+            },
+        )
+        self.game_patch.start()
+        database.init_db()
+        self.original_events = main_module.revision_events
+        main_module.revision_events = main_module.RevisionEvents()
+        self.client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=main_module.app),
+            base_url="http://duel.test",
+        )
+
+    async def asyncTearDown(self):
+        await self.client.aclose()
+        main_module.revision_events = self.original_events
+        self.game_patch.stop()
+        self.db_patch.stop()
+        self.temporary.cleanup()
+
+    @staticmethod
+    def headers():
+        machines = [
+            {"id": f"ai-{index}", "name": f"小机 {index}"}
+            for index in range(1, 4)
+        ]
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(machines, ensure_ascii=False).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        return {
+            "X-Duel-Human-Player": "human-1",
+            "X-Duel-Human-Name": "%E5%8D%97%E5%B1%B1",
+            "X-Duel-Bound-Ais": encoded,
+        }
+
+    async def create_web_room(self):
+        response = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(),
+            json={
+                "player_id": "human-1",
+                "ai_players": ["ai-1", "ai-2", "ai-3"],
+                "game_type": DummyMultiplayer.game_type,
+                "mode": "human_first",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["room"]
+
+    async def test_web_multiselect_creates_only_trusted_stable_seats(self):
+        room = await self.create_web_room()
+        self.assertEqual(room["turn_order"], ["human-1", "ai-1", "ai-2", "ai-3"])
+        rejected = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(),
+            json={
+                "player_id": "human-1",
+                "ai_players": ["ai-1", "unbound-ai"],
+                "game_type": DummyMultiplayer.game_type,
+            },
+        )
+        self.assertEqual(rejected.status_code, 403)
+
+        two_player = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(),
+            json={
+                "player_id": "human-1",
+                "ai_players": ["ai-1", "ai-2"],
+                "game_type": "tictactoe",
+            },
+        )
+        self.assertEqual(two_player.status_code, 400)
+
+    async def test_waiters_wake_only_for_their_turn_or_visible_event(self):
+        room = await self.create_web_room()
+        room_id = room["room_id"]
+        with patch.object(main_module, "MAX_WAIT_SECONDS", 0.5):
+            public_waiters = [
+                asyncio.create_task(self.client.post(
+                    "/mcp/play",
+                    json={
+                        "action": "state", "player_id": player_id,
+                        "room_id": room_id, "wait": True,
+                    },
+                ))
+                for player_id in ("ai-1", "ai-2", "ai-3")
+            ]
+            await asyncio.sleep(0.02)
+            sent = await self.client.post(
+                f"/api/rooms/{room_id}/messages",
+                json={"player_id": "human-1", "message": "大家可见"},
+            )
+            self.assertEqual(sent.status_code, 200, sent.text)
+            public_results = await asyncio.gather(*public_waiters)
+            self.assertTrue(all(result.status_code == 200 for result in public_results))
+            self.assertTrue(all(
+                [item["text"] for item in result.json()["new_messages"]]
+                == ["大家可见"]
+                for result in public_results
+            ))
+
+            turn_waiters = {
+                player_id: asyncio.create_task(self.client.post(
+                    "/mcp/play",
+                    json={
+                        "action": "state", "player_id": player_id,
+                        "room_id": room_id, "wait": True,
+                    },
+                ))
+                for player_id in ("ai-1", "ai-2")
+            }
+            await asyncio.sleep(0.02)
+            with database.write_transaction() as conn:
+                conn.execute(
+                    """
+                    UPDATE rooms SET current_player_id = 'ai-1', turn = 'ai',
+                                     revision = revision + 1
+                    WHERE room_id = ?
+                    """,
+                    (room_id,),
+                )
+            main_module.revision_events.notify(room_id)
+            actor_result = await asyncio.wait_for(turn_waiters["ai-1"], timeout=1)
+            self.assertEqual(actor_result.json()["room"]["current_player_id"], "ai-1")
+            self.assertFalse(turn_waiters["ai-2"].done())
+            other_result = await asyncio.wait_for(turn_waiters["ai-2"], timeout=1)
+            self.assertEqual(other_result.json()["status"], "still_waiting")
+
+            human_waiter = asyncio.create_task(self.client.get(
+                f"/api/rooms/{room_id}",
+                headers=self.headers(),
+                params={"player_id": "human-1", "wait": "true"},
+            ))
+            await asyncio.sleep(0.02)
+            framework.post_message(
+                room_id, "ai", "ai-1", "只给人类",
+                visible_to_player_ids={"human-1"},
+            )
+            main_module.revision_events.notify(room_id)
+            human_result = await asyncio.wait_for(human_waiter, timeout=1)
+            self.assertEqual(human_result.status_code, 200)
+            self.assertEqual(
+                human_result.json()["timeline"][-1]["text"], "只给人类"
+            )
+
+            private_waiters = {
+                player_id: asyncio.create_task(self.client.post(
+                    "/mcp/play",
+                    json={
+                        "action": "state", "player_id": player_id,
+                        "room_id": room_id, "wait": True,
+                    },
+                ))
+                for player_id in ("ai-2", "ai-3")
+            }
+            await asyncio.sleep(0.02)
+            framework.post_message(
+                room_id, "human", "human-1", "只给二号",
+                visible_to_player_ids={"ai-2"},
+            )
+            main_module.revision_events.notify(room_id)
+            visible_result = await asyncio.wait_for(private_waiters["ai-2"], timeout=1)
+            self.assertEqual(
+                [item["text"] for item in visible_result.json()["new_messages"]],
+                ["只给二号"],
+            )
+            self.assertFalse(private_waiters["ai-3"].done())
+            hidden_result = await asyncio.wait_for(private_waiters["ai-3"], timeout=1)
+            self.assertEqual(hidden_result.json()["status"], "still_waiting")
+
+    async def test_leave_wakes_waiters_with_one_visible_membership_event(self):
+        room = await self.create_web_room()
+        waiter = asyncio.create_task(self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-2",
+                "room_id": room["room_id"], "wait": True,
+            },
+        ))
+        await asyncio.sleep(0.02)
+        left = await self.client.post(
+            f"/api/rooms/{room['room_id']}/leave",
+            headers=self.headers(),
+            json={},
+        )
+        self.assertEqual(left.status_code, 200, left.text)
+        self.assertEqual(left.json()["status"], "left")
+        resumed = await asyncio.wait_for(waiter, timeout=1)
+        self.assertEqual(resumed.status_code, 200, resumed.text)
+        self.assertEqual(
+            [item["event_type"] for item in resumed.json()["new_messages"]],
+            ["leave"],
+        )
+
+    async def test_private_four_player_full_flow_and_explicit_settlement(self):
+        room = framework.create_room(
+            DummyPrivateMultiplayer.game_type,
+            "human_first",
+            "human",
+            "human-1",
+            ordered_participants=ordered_participants(),
+            participant_names={
+                item["player_id"]: item["display_name"]
+                for item in ordered_participants()
+            },
+            stake=5,
+            require_confirmations=True,
+        )
+        room_id = room["room_id"]
+        for player_id in ("ai-1", "ai-2", "ai-3"):
+            accepted = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "accept", "player_id": player_id,
+                    "room_id": room_id,
+                },
+            )
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(accepted.json()["status"], "playing")
+
+        views = {}
+        for player_id in ("ai-1", "ai-2", "ai-3"):
+            response = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "state", "player_id": player_id,
+                    "room_id": room_id,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            views[player_id] = response.json()["room"]
+        self.assertEqual(len({
+            tuple(view["private_state"]["hand"])
+            for view in views.values()
+        }), 3)
+        for player_id, view in views.items():
+            self.assertNotIn("hands", view["board_state"]["cards"])
+            self.assertNotIn("legal_actions", view["board_state"])
+            self.assertEqual(
+                view["private_state"]["legal_actions"], [f"act-{player_id}"]
+            )
+            self.assertEqual(view["viewer"]["player_id"], player_id)
+
+        unauthenticated = await self.client.get(f"/api/rooms/{room_id}")
+        self.assertEqual(unauthenticated.status_code, 403)
+        spoofed = await self.client.get(
+            f"/api/rooms/{room_id}",
+            headers=self.headers(),
+            params={"player_id": "ai-1"},
+        )
+        self.assertEqual(spoofed.status_code, 403)
+        web = await self.client.get(
+            f"/api/rooms/{room_id}", headers=self.headers()
+        )
+        self.assertEqual(web.status_code, 200, web.text)
+        self.assertEqual(web.json()["room"]["viewer"]["player_id"], "human-1")
+        outsider = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "outsider", "room_id": room_id},
+        )
+        self.assertEqual(outsider.status_code, 403)
+        forged_viewer = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-1", "room_id": room_id,
+                "viewer": "ai-2",
+            },
+        )
+        self.assertEqual(forged_viewer.status_code, 422)
+
+        human_move = await self.client.post(
+            f"/api/rooms/{room_id}/move",
+            headers=self.headers(),
+            json={
+                "player_id": "human-1",
+                "move": {
+                    "action": "step", "secret": "only-ai-2",
+                    "reveal_to": "ai-2",
+                },
+            },
+        )
+        self.assertEqual(human_move.status_code, 200, human_move.text)
+        hidden_delta = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-3", "room_id": room_id},
+        )
+        self.assertNotIn(
+            "secret", hidden_delta.json()["new_messages"][0]["move"]
+        )
+        ai_one = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-1", "room_id": room_id,
+                "move": {
+                    "action": "step", "phase": "play", "next_round": True,
+                    "activity": {"ai-3": "eliminated"},
+                },
+            },
+        )
+        self.assertEqual(ai_one.status_code, 200, ai_one.text)
+        self.assertNotIn(
+            "secret", ai_one.json()["new_messages"][0]["move"]
+        )
+        retained = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-2", "room_id": room_id,
+                "move": {"action": "step", "retain": True},
+            },
+        )
+        self.assertEqual(retained.json()["current_actor_id"], "ai-2")
+        self.assertEqual(
+            retained.json()["new_messages"][0]["move"]["secret"],
+            "only-ai-2",
+        )
+        terminal = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-2", "room_id": room_id,
+                "move": {"action": "finish"},
+            },
+        )
+        self.assertEqual(terminal.status_code, 200, terminal.text)
+        self.assertEqual(terminal.json()["status"], "finished")
+        restored = framework.get_room(room_id)
+        self.assertEqual(restored["board_state"]["flow"], {
+            "phase": "play", "round_number": 2, "turn_number": 2,
+        })
+        self.assertEqual(
+            next(item for item in restored["participants"]
+                 if item["player_id"] == "ai-3")["activity_state"],
+            "eliminated",
+        )
+        self.assertEqual(
+            restored["result"]["settlement_deltas"],
+            {"human-1": 15, "ai-1": -5, "ai-2": -5, "ai-3": -5},
+        )
+        from app import chips
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 215)
+        for player_id in ("ai-1", "ai-2", "ai-3"):
+            self.assertEqual(chips.get_wallet("ai", player_id)["balance"], 195)
+
+
+if __name__ == "__main__":
+    unittest.main()

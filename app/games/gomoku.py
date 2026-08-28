@@ -4,6 +4,7 @@ from .base import GamePlugin, move_coordinates
 
 
 class Gomoku(GamePlugin):
+    supports_stakes = True
     game_type = "gomoku"
     display_name = "五子棋"
     rules_text = (
@@ -55,4 +56,3 @@ class Gomoku(GamePlugin):
         if all(cell is not None for row in board for cell in row):
             return "draw"
         return None
-

@@ -30,6 +30,8 @@ def game_catalog() -> list[dict]:
             "display_name": plugin.display_name,
             "min_players": plugin.min_players,
             "max_players": plugin.max_players,
+            "supports_stakes": plugin.supports_stakes,
+            "supports_multiplayer_stakes": plugin.supports_multiplayer_stakes,
         }
         for plugin in GAMES.values()
     ]

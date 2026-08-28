@@ -58,7 +58,8 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertIsNotNone(response.json()["room"]["board_state"]["board"][0][0])
+        self.assertEqual(response.json()["your_move"], {"row": 0, "col": 0})
+        self.assertNotIn("room", response.json())
 
     async def test_human_web_move_accepts_string_object(self):
         room_id = await self.new_room("web", mode="human_first")
@@ -99,10 +100,14 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(human.status_code, 200, human.text)
         resumed = await asyncio.wait_for(waiter, timeout=1)
         self.assertEqual(resumed.status_code, 200, resumed.text)
-        self.assertEqual(resumed.json()["status"], "ok")
+        self.assertEqual(resumed.json()["status"], "playing")
         self.assertEqual(
-            resumed.json()["room"]["revision"],
+            resumed.json()["revision"],
             human.json()["room"]["revision"],
+        )
+        self.assertEqual(
+            resumed.json()["new_messages"][0]["move"],
+            {"row": 1, "col": 0},
         )
 
     async def test_bad_string_fields_remain_422_with_field_details(self):

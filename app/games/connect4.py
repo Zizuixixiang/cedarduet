@@ -4,6 +4,7 @@ from .base import GamePlugin
 
 
 class Connect4(GamePlugin):
+    supports_stakes = True
     game_type = "connect4"
     display_name = "四子连珠"
     rules_text = (
