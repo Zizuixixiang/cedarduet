@@ -269,12 +269,19 @@ class MultiplayerFrameworkTests(unittest.TestCase):
                 ordered_participants=ordered_participants(3),
             )
 
-    def test_frontend_stays_single_select_until_plugin_allows_multiplayer(self):
+    def test_frontend_uses_collapsed_custom_picker_only_for_multiplayer(self):
         root = Path(__file__).resolve().parents[1] / "app" / "static"
         script = (root / "app.js").read_text(encoding="utf-8")
         html = (root / "index.html").read_text(encoding="utf-8")
         self.assertIn("const multiplayer = maxPlayers > 2", script)
-        self.assertIn("select.multiple = multiplayer", script)
+        self.assertNotIn("select.multiple = multiplayer", script)
+        self.assertNotIn("selectedOptions", script)
+        self.assertIn('id="aiMultiTrigger"', html)
+        self.assertIn('aria-haspopup="listbox" aria-expanded="false"', html)
+        self.assertIn('id="aiMultiMenu" class="ai-multi-menu hidden" role="listbox"', html)
+        self.assertIn('aria-multiselectable="true"', html)
+        self.assertIn("selectedMachineIds", script)
+        self.assertIn("closeMachineMultiPicker", script)
         self.assertIn("ai_players: participantIds", script)
         self.assertIn('id="roomParticipants"', html)
 
@@ -729,6 +736,93 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(two_player.status_code, 400)
+
+    async def test_web_opening_preferences_resolve_to_exact_player_and_seat(self):
+        base_body = {
+            "player_id": "human-1",
+            "ai_players": ["ai-1", "ai-2", "ai-3"],
+            "game_type": DummyMultiplayer.game_type,
+            "target_player_count": 4,
+        }
+        chosen_candidates = []
+
+        def choose_second(candidates):
+            chosen_candidates.append(list(candidates))
+            return candidates[1]
+
+        with patch.object(main_module, "secure_choice", side_effect=choose_second):
+            machine_first = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(),
+                json={**base_body, "mode": "ai_first"},
+            )
+        self.assertEqual(machine_first.status_code, 200, machine_first.text)
+        machine_payload = machine_first.json()
+        self.assertEqual(chosen_candidates, [["ai-1", "ai-2", "ai-3"]])
+        self.assertEqual(machine_payload["room"]["current_player_id"], "ai-2")
+        self.assertEqual(machine_payload["room"]["current_actor_seat"], 2)
+        self.assertEqual(machine_payload["room"]["turn"], "ai")
+        self.assertEqual(machine_payload["room"]["mode"], "ai_first")
+        self.assertIn("先手：小机 2", machine_payload["message"])
+
+        chosen_candidates.clear()
+
+        def choose_last(candidates):
+            chosen_candidates.append(list(candidates))
+            return candidates[-1]
+
+        with patch.object(main_module, "secure_choice", side_effect=choose_last):
+            random_first = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(),
+                json={**base_body, "mode": "random"},
+            )
+        self.assertEqual(random_first.status_code, 200, random_first.text)
+        random_payload = random_first.json()
+        self.assertEqual(
+            chosen_candidates,
+            [["human-1", "ai-1", "ai-2", "ai-3"]],
+        )
+        self.assertEqual(random_payload["room"]["current_player_id"], "ai-3")
+        self.assertEqual(random_payload["room"]["current_actor_seat"], 3)
+        self.assertEqual(random_payload["room"]["turn"], "ai")
+        self.assertIn("先手：小机 3", random_payload["message"])
+
+        human_first = await self.client.post(
+            "/api/rooms",
+            headers=self.headers(),
+            json={**base_body, "mode": "human_first"},
+        )
+        self.assertEqual(human_first.status_code, 200, human_first.text)
+        human_payload = human_first.json()
+        self.assertEqual(human_payload["room"]["current_player_id"], "human-1")
+        self.assertEqual(human_payload["room"]["current_actor_seat"], 0)
+        self.assertEqual(human_payload["room"]["turn"], "human")
+        self.assertEqual(human_payload["room"]["mode"], "human_first")
+        self.assertIn("先手：南山", human_payload["message"])
+
+    async def test_two_player_random_keeps_opener_and_x_token_in_sync(self):
+        with patch.object(main_module, "secure_choice", return_value="ai-1") as chooser:
+            response = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(1),
+                json={
+                    "player_id": "human-1",
+                    "ai_players": ["ai-1"],
+                    "game_type": "tictactoe",
+                    "mode": "random",
+                    "target_player_count": 2,
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        chooser.assert_called_once_with(["human-1", "ai-1"])
+        room = response.json()["room"]
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(room["current_actor_seat"], 1)
+        self.assertEqual(room["mode"], "ai_first")
+        self.assertEqual(room["board_state"]["marks"]["ai"], "X")
+        ai = next(item for item in room["participants"] if item["player_id"] == "ai-1")
+        self.assertEqual(ai["token"], "X")
 
     async def test_web_and_mcp_enforce_discrete_counts_up_to_six(self):
         for target in (5, 6):

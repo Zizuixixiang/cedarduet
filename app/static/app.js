@@ -9,6 +9,7 @@ let selectedJungleCell = null;
 let pendingMove = null;
 let currentTimeline = [];
 let lastMoveMarkerKey = null;
+const selectedMachineIds = new Set();
 let selectedMachineWallet = null;
 let machineWalletRequest = 0;
 
@@ -508,9 +509,122 @@ async function deleteRoom(summary) {
 }
 
 function selectedParticipantIds() {
-  return [...$("aiPlayer").selectedOptions]
-    .map((option) => option.value)
-    .filter(Boolean);
+  if ($("aiPlayer").closest(".participant-picker").dataset.selectionMode !== "multiple") {
+    return [$("aiPlayer").value].filter(Boolean);
+  }
+  const machines = identity && Array.isArray(identity.machines)
+    ? identity.machines
+    : [];
+  return machines
+    .map((machine) => machine.id)
+    .filter((playerId) => selectedMachineIds.has(playerId));
+}
+
+function machinePickerSummary(machines) {
+  if (!machines.length) return "请选择对手";
+  return `已选 ${machines.length} 位：${machines.map((machine) => machine.name).join("、")}`;
+}
+
+function closeMachineMultiPicker({restoreFocus = false} = {}) {
+  const trigger = $("aiMultiTrigger");
+  trigger.setAttribute("aria-expanded", "false");
+  $("aiMultiMenu").classList.add("hidden");
+  $("aiMultiField").classList.remove("open");
+  if (restoreFocus) trigger.focus();
+}
+
+function focusAdjacentMachineOption(current, direction) {
+  const options = [...$("aiMultiMenu").querySelectorAll('[role="option"]')];
+  if (!options.length) return;
+  const index = options.indexOf(current);
+  const nextIndex = direction === "first"
+    ? 0
+    : (direction === "last"
+      ? options.length - 1
+      : (index + direction + options.length) % options.length);
+  options[nextIndex].focus();
+}
+
+function toggleMachineSelection(playerId) {
+  if (selectedMachineIds.has(playerId)) {
+    selectedMachineIds.delete(playerId);
+  } else {
+    const maximum = selectedTargetPlayerCount() - 1;
+    if (selectedMachineIds.size >= maximum) {
+      showNotice(`当前桌型最多选择 ${maximum} 位小机。`, true);
+      return;
+    }
+    selectedMachineIds.add(playerId);
+  }
+  renderMachineMultiPicker(playerId);
+  machineSelectionChanged();
+}
+
+function renderMachineMultiPicker(focusPlayerId = null) {
+  const menu = $("aiMultiMenu");
+  const machines = identity && Array.isArray(identity.machines)
+    ? identity.machines
+    : [];
+  const selected = machines.filter((machine) => selectedMachineIds.has(machine.id));
+  const summary = machinePickerSummary(selected);
+  $("aiMultiSummary").textContent = summary;
+  $("aiMultiTrigger").title = summary;
+  $("aiMultiTrigger").disabled = machines.length === 0;
+  menu.replaceChildren();
+  machines.forEach((machine) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "ai-multi-option";
+    option.dataset.playerId = machine.id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(selectedMachineIds.has(machine.id)));
+    const check = document.createElement("span");
+    check.className = "ai-multi-check";
+    check.textContent = selectedMachineIds.has(machine.id) ? "✓" : "";
+    check.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span");
+    name.className = "ai-multi-name";
+    name.textContent = machine.name;
+    option.append(check, name);
+    option.addEventListener("click", () => toggleMachineSelection(machine.id));
+    option.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMachineMultiPicker({restoreFocus: true});
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusAdjacentMachineOption(option, event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        focusAdjacentMachineOption(option, event.key === "Home" ? "first" : "last");
+      }
+    });
+    menu.appendChild(option);
+  });
+  if (focusPlayerId && !menu.classList.contains("hidden")) {
+    const target = [...menu.querySelectorAll('[role="option"]')]
+      .find((option) => option.dataset.playerId === focusPlayerId);
+    if (target) target.focus();
+  }
+}
+
+function openMachineMultiPicker() {
+  if ($("aiMultiTrigger").disabled) return;
+  renderMachineMultiPicker();
+  $("aiMultiTrigger").setAttribute("aria-expanded", "true");
+  $("aiMultiMenu").classList.remove("hidden");
+  $("aiMultiField").classList.add("open");
+  const selected = $("aiMultiMenu").querySelector('[aria-selected="true"]');
+  const first = $("aiMultiMenu").querySelector('[role="option"]');
+  if (selected || first) (selected || first).focus();
+}
+
+function toggleMachineMultiPicker() {
+  if ($("aiMultiTrigger").getAttribute("aria-expanded") === "true") {
+    closeMachineMultiPicker();
+  } else {
+    openMachineMultiPicker();
+  }
 }
 
 function allowedPlayerCountsForGame(declared) {
@@ -597,6 +711,14 @@ function configureParticipantPicker() {
   } = selectedGameRequirement();
   const multiplayer = maxPlayers > 2;
   const selected = selectedParticipantIds();
+  const picker = select.closest(".participant-picker");
+  const wasMultiplayer = picker.dataset.selectionMode === "multiple";
+  if (multiplayer && !wasMultiplayer) {
+    selectedMachineIds.clear();
+    selected.forEach((playerId) => selectedMachineIds.add(playerId));
+  } else if (!multiplayer && wasMultiplayer) {
+    select.value = selected[0] || "";
+  }
   const options = $("multiplayerOptions");
   options.classList.toggle("hidden", !multiplayer);
   const targetSelect = $("targetPlayerCount");
@@ -620,14 +742,17 @@ function configureParticipantPicker() {
       ? "该游戏不提供 NPC 补位"
       : (!npcAvailable ? "部署者尚未配置 NPC 通道" : "每桌最多补入 4 名 NPC");
   }
-  select.multiple = multiplayer;
-  select.closest(".participant-picker").dataset.selectionMode = multiplayer
-    ? "multiple"
-    : "single";
+  picker.dataset.selectionMode = multiplayer ? "multiple" : "single";
+  $("aiSingleField").classList.toggle("hidden", multiplayer);
+  $("aiMultiField").classList.toggle("hidden", !multiplayer);
   if (multiplayer) {
-    select.size = Math.max(2, Math.min(selectedTargetPlayerCount() - 1, 5));
+    const allowedIds = new Set(selectedParticipantIds().slice(0, selectedTargetPlayerCount() - 1));
+    [...selectedMachineIds].forEach((playerId) => {
+      if (!allowedIds.has(playerId)) selectedMachineIds.delete(playerId);
+    });
+    renderMachineMultiPicker();
   } else {
-    select.removeAttribute("size");
+    closeMachineMultiPicker();
     if (selected.length > 1) select.value = selected[0];
   }
   renderSelectedParticipants();
@@ -660,6 +785,7 @@ function updateCreateButtonState() {
 
 function syncMachinePicker(machines) {
   const select = $("aiPlayer");
+  selectedMachineIds.clear();
   select.replaceChildren();
   if (!machines.length) {
     const option = document.createElement("option");
@@ -667,6 +793,7 @@ function syncMachinePicker(machines) {
     option.textContent = "尚未绑定小机";
     select.appendChild(option);
     select.disabled = true;
+    renderMachineMultiPicker();
     $("selectedParticipants").textContent = "请先在主站绑定一只小机";
     updateCreateButtonState();
     return;
@@ -691,19 +818,38 @@ function syncMachinePicker(machines) {
   machineSelectionChanged();
 }
 
+function openingPreferenceText() {
+  if ($("mode").value === "human_first") return "先手：你";
+  if ($("mode").value === "random") return "先手：全桌随机";
+  return selectedParticipantIds().length > 1
+    ? "先手：从已选小机中随机"
+    : "先手：所选小机";
+}
+
 function renderSelectedParticipants() {
   const selectedIds = selectedParticipantIds();
   const machines = identity
     ? identity.machines.filter((item) => selectedIds.includes(item.id))
     : [];
-  const {allowedPlayerCounts} = selectedGameRequirement();
+  const {allowedPlayerCounts, maxPlayers} = selectedGameRequirement();
   const requirement = `${allowedPlayerCounts.join("/")} 人局`;
   const machineBalance = selectedMachineWallet && machines.length === 1
     ? ` · 对手筹码：🪙${selectedMachineWallet.balance}`
     : "";
-  $("selectedParticipants").textContent = machines.length
-    ? `本局参与小机：${machines.map((item) => item.name).join("、")}${machineBalance} · ${requirement}`
-    : `本局尚未选择对手 · ${requirement}`;
+  if (maxPlayers > 2) {
+    const targetCount = selectedTargetPlayerCount();
+    const npcCount = Math.max(0, targetCount - 1 - machines.length);
+    const confirmedSeats = 1 + machines.length + (selectedFillWithNpcs() ? npcCount : 0);
+    $("selectedParticipants").textContent = [
+      machines.length ? `已选 ${machines.length} 位小机` : "尚未选择对手",
+      `${confirmedSeats}/${targetCount} 席已确定`,
+      openingPreferenceText(),
+    ].join(" · ");
+  } else {
+    $("selectedParticipants").textContent = machines.length
+      ? `本局对手：${machines[0].name}${machineBalance} · ${requirement} · ${openingPreferenceText()}`
+      : `本局尚未选择对手 · ${requirement}`;
+  }
   renderSeatPreview(machines);
   updateCreateButtonState();
 }
@@ -715,10 +861,6 @@ function renderSeatPreview(machines) {
   preview.classList.toggle("hidden", maxPlayers <= 2);
   if (maxPlayers <= 2) return;
   const targetCount = selectedTargetPlayerCount();
-  [...preview.classList]
-    .filter((name) => name.startsWith("count-"))
-    .forEach((name) => preview.classList.remove(name));
-  preview.classList.add(`count-${targetCount}`);
   const npcCount = Math.max(0, targetCount - 1 - machines.length);
   const fill = selectedFillWithNpcs();
   const seats = [
@@ -729,12 +871,9 @@ function renderSeatPreview(machines) {
       kind: fill ? "NPC" : "未补齐",
     })),
   ];
-  seats.slice(0, targetCount).forEach((seat, index) => {
-    const item = document.createElement("span");
-    item.className = "seat-preview-item";
-    item.textContent = `${index + 1} · ${seat.label}（${seat.kind}）`;
-    preview.appendChild(item);
-  });
+  preview.textContent = `座位：${seats.slice(0, targetCount).map(
+    (seat, index) => `${index + 1} ${seat.label}${seat.kind === "NPC" ? "[NPC]" : ""}`
+  ).join(" · ")}`;
 }
 
 async function machineSelectionChanged() {
@@ -1883,21 +2022,34 @@ function stopPolling() {
 
 $("createButton").addEventListener("click", createRoom);
 $("aiPlayer").addEventListener("change", machineSelectionChanged);
+$("aiMultiTrigger").addEventListener("click", toggleMachineMultiPicker);
+$("aiMultiTrigger").addEventListener("keydown", (event) => {
+  if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+    event.preventDefault();
+    openMachineMultiPicker();
+    if (event.key === "ArrowUp") {
+      const options = [...$("aiMultiMenu").querySelectorAll('[role="option"]')];
+      if (options.length) options[options.length - 1].focus();
+    }
+  } else if (event.key === "Escape") {
+    closeMachineMultiPicker();
+  }
+});
 $("targetPlayerCount").addEventListener("change", () => {
   const target = selectedTargetPlayerCount();
   const selected = selectedParticipantIds();
   if (selected.length > target - 1) {
-    [...$("aiPlayer").options]
-      .filter((option) => option.selected && option.value)
-      .slice(target - 1)
-      .forEach((option) => { option.selected = false; });
+    const retained = new Set(selected.slice(0, target - 1));
+    [...selectedMachineIds].forEach((playerId) => {
+      if (!retained.has(playerId)) selectedMachineIds.delete(playerId);
+    });
   }
-  $("aiPlayer").size = Math.max(2, Math.min(target - 1, 5));
+  renderMachineMultiPicker();
   machineSelectionChanged();
 });
 $("fillWithNpcs").addEventListener("change", renderSelectedParticipants);
 $("gameType").addEventListener("change", configureParticipantPicker);
-$("mode").addEventListener("change", updateCreateButtonState);
+$("mode").addEventListener("change", renderSelectedParticipants);
 $("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
@@ -1918,6 +2070,9 @@ $("closeWaitModalForeverButton").addEventListener("click", () => {
 });
 $("waitModeModal").addEventListener("click", (event) => {
   if (event.target === $("waitModeModal")) hideWaitModeModal();
+});
+document.addEventListener("click", (event) => {
+  if (!$("aiMultiField").contains(event.target)) closeMachineMultiPicker();
 });
 $("historyDrawer").addEventListener("click", (event) => {
   if (event.target === $("historyDrawer")) closeHistory();
@@ -1941,6 +2096,7 @@ $("chatInput").addEventListener("keydown", (event) => {
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    closeMachineMultiPicker();
     hideWaitModeModal();
     closeRules();
     closeHistory();

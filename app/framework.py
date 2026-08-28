@@ -1274,6 +1274,7 @@ def create_room(
     ordered_participants: list[dict] | None = None,
     require_confirmations: bool | None = None,
     enforce_trusted_pair: bool = False,
+    first_player_id: str | None = None,
 ) -> dict:
     try:
         game = get_game(game_type)
@@ -1292,6 +1293,19 @@ def create_room(
         ordered_participants=ordered_participants,
         participant_names=participant_names,
     )
+    explicit_opener = None
+    if first_player_id is not None:
+        first_player_id = _player_id(first_player_id)
+        explicit_opener = next(
+            (
+                item for item in participants
+                if item["player_id"] == first_player_id
+                and item.get("active", True)
+            ),
+            None,
+        )
+        if explicit_opener is None:
+            raise DuelError("指定先手必须是本房间可行动参与者")
     allowed_counts = game.resolved_allowed_player_counts()
     if len(participants) > allowed_counts[-1]:
         raise DuelError(
@@ -1342,15 +1356,20 @@ def create_room(
         participant["token"] = str(token)
     # The six legacy games use X for the mode-selected opening side.
     if allowed_counts == (2,) and len(participants) == 2:
-        opening_role = "human" if mode == "human_first" else "ai"
-        opener = next(
-            (item for item in participants if item["role"] == opening_role), None
-        )
+        if explicit_opener is not None:
+            opener = explicit_opener
+        else:
+            opening_role = "human" if mode == "human_first" else "ai"
+            opener = next(
+                (item for item in participants if item["role"] == opening_role),
+                None,
+            )
         if opener is not None and opener["token"] != "X":
             other = next(item for item in participants if item is not opener)
             opener["token"], other["token"] = other["token"], opener["token"]
     try:
-        first_player_id = game.first_player_id(participants, mode)
+        if first_player_id is None:
+            first_player_id = game.first_player_id(participants, mode)
         state = game.initialize(participants)
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc

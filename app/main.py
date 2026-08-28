@@ -5,6 +5,7 @@ import mimetypes
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from secrets import choice as secure_choice
 from urllib.parse import unquote
 
 from fastapi import FastAPI, Query, Request
@@ -664,9 +665,22 @@ async def human_create(request: Request, body: CreateRoomBody):
         }
         for persona in personas
     ]
+    if body.mode == "human_first":
+        first_player_id = body.player_id
+    elif body.mode == "ai_first":
+        first_player_id = secure_choice(selected_ais)
+    else:
+        first_player_id = secure_choice([
+            body.player_id,
+            *selected_ais,
+            *(participant["player_id"] for participant in npc_participants),
+        ])
+    resolved_mode = (
+        "human_first" if first_player_id == body.player_id else "ai_first"
+    )
     room = create_room(
         body.game_type,
-        body.mode,
+        resolved_mode,
         "human",
         body.player_id,
         opponent_id=selected_ais[0],
@@ -691,13 +705,16 @@ async def human_create(request: Request, body: CreateRoomBody):
         },
         stake=body.stake,
         enforce_trusted_pair=True,
+        first_player_id=first_player_id,
     )
+    opener = room.get("current_actor") or {}
+    opening_note = f"先手：{opener.get('display_name') or first_player_id}。"
     message = (
-        f"房间 {room['room_id']} 已发出 {room['stake_label']} 邀请，等待对方确认。"
+        f"房间 {room['room_id']} 已发出 {room['stake_label']} 邀请，等待对方确认。{opening_note}"
         if room["status"] == "pending"
-        else f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。"
+        else f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。{opening_note}"
         if room["status"] == "playing"
-        else f"房间 {room['room_id']} 已创建，等待 AI 加入。"
+        else f"房间 {room['room_id']} 已创建，等待 AI 加入。{opening_note}"
     )
     return human_response(room, message, trusted_human)
 

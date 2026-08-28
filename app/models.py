@@ -14,7 +14,7 @@ class CreateRoomBody(StrictBody):
     ai_player: str | None = Field(default=None, min_length=1, max_length=80)
     ai_players: list[str] | None = Field(default=None, max_length=5)
     game_type: str = Field(min_length=1, max_length=40)
-    mode: Literal["human_first", "ai_first"] = "human_first"
+    mode: Literal["human_first", "ai_first", "random"] = "human_first"
     stake: int = Field(default=0, ge=0)
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False

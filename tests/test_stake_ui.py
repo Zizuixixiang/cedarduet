@@ -83,6 +83,109 @@ class StakeLobbyUiTests(unittest.TestCase):
         self.assertIn("white-space: nowrap", mobile)
         self.assertNotIn(".brand > span:last-child { display: none; }", mobile)
 
+    def test_multiplayer_picker_is_collapsed_accessible_and_not_native_multiple(self):
+        picker = HTML[
+            HTML.index('<div class="participant-picker"'):
+            HTML.index('<label class="pixel-field">\n                <span>棋种</span>')
+        ]
+        self.assertIn('id="aiPlayer"', picker)
+        self.assertNotIn(" multiple", picker)
+        self.assertIn('id="aiMultiTrigger"', picker)
+        self.assertIn('aria-haspopup="listbox"', picker)
+        self.assertIn('aria-expanded="false"', picker)
+        self.assertIn('aria-controls="aiMultiMenu"', picker)
+        self.assertIn('id="aiMultiMenu" class="ai-multi-menu hidden"', picker)
+        self.assertIn('role="listbox"', picker)
+        self.assertIn('aria-multiselectable="true"', picker)
+        self.assertIn('id="aiMultiSummary">请选择对手', picker)
+        self.assertIn('option.setAttribute("role", "option")', SCRIPT)
+        self.assertIn('option.setAttribute("aria-selected"', SCRIPT)
+        self.assertIn('event.key === "ArrowDown"', SCRIPT)
+        self.assertIn('event.key === "ArrowUp"', SCRIPT)
+        self.assertIn('event.key === "Home"', SCRIPT)
+        self.assertIn('event.key === "Escape"', SCRIPT)
+        self.assertIn('document.addEventListener("click"', SCRIPT)
+        self.assertIn('closeMachineMultiPicker({restoreFocus: true})', SCRIPT)
+
+    def test_opening_modes_and_compact_mobile_form_contract(self):
+        mode = HTML[
+            HTML.index('<select id="mode">'):
+            HTML.index("</select>", HTML.index('<select id="mode">'))
+        ]
+        for value, label in (
+            ("human_first", "你先手"),
+            ("ai_first", "小机先手"),
+            ("random", "随机"),
+        ):
+            self.assertIn(f'<option value="{value}">{label}</option>', mode)
+        self.assertIn('return "先手：全桌随机"', SCRIPT)
+        self.assertIn('"先手：从已选小机中随机"', SCRIPT)
+        self.assertIn("mode: $(\"mode\").value", SCRIPT)
+        self.assertIn("min-height: 44px", STYLES)
+        self.assertIn("#aiMultiSummary", STYLES)
+        self.assertIn("text-overflow: ellipsis", STYLES)
+        self.assertIn("max-height: min(264px, 45vh)", STYLES)
+        self.assertIn("minmax(250px, 1.4fr) auto", STYLES)
+        self.assertIn("@media (max-width: 1100px)", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(
+            "grid-template-columns: minmax(96px, .75fr) minmax(0, 1.25fr)",
+            mobile,
+        )
+        self.assertNotIn(".seat-preview-item", STYLES)
+        seat_preview = function_source("renderSeatPreview")
+        self.assertIn('preview.textContent = `座位：', seat_preview)
+        self.assertNotIn("document.createElement", seat_preview)
+
+    @unittest.skipUnless(NODE, "node is required for multiplayer picker tests")
+    def test_multiplayer_summary_and_selection_order_follow_identity_catalog(self):
+        functions = "\n".join((
+            function_source("selectedParticipantIds"),
+            function_source("machinePickerSummary"),
+            function_source("openingPreferenceText"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+const selectedMachineIds = new Set(["ai-2", "ai-1"]);
+const picker = {{dataset: {{selectionMode: "multiple"}}}};
+const elements = {{
+  aiPlayer: {{value: "ai-3", closest: () => picker}},
+  mode: {{value: "ai_first"}},
+}};
+const identity = {{machines: [
+  {{id: "ai-1", name: "甲"}},
+  {{id: "ai-2", name: "乙"}},
+  {{id: "ai-3", name: "丙"}},
+]}};
+const $ = (id) => elements[id];
+{functions}
+assert.deepEqual(selectedParticipantIds(), ["ai-1", "ai-2"]);
+assert.equal(
+  machinePickerSummary(identity.machines.slice(0, 2)),
+  "已选 2 位：甲、乙",
+);
+assert.equal(openingPreferenceText(), "先手：从已选小机中随机");
+elements.mode.value = "random";
+assert.equal(openingPreferenceText(), "先手：全桌随机");
+picker.dataset.selectionMode = "single";
+assert.deepEqual(selectedParticipantIds(), ["ai-3"]);
+elements.aiPlayer.value = "";
+assert.deepEqual(selectedParticipantIds(), []);
+assert.equal(machinePickerSummary([]), "请选择对手");
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
     def test_custom_integer_stake_and_pending_area_precede_room_list(self):
         self.assertIn(
             'id="stake" type="number" min="0" step="1" inputmode="numeric" value="0"',

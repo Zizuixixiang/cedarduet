@@ -513,6 +513,39 @@ class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(legacy_game.status_code, 400)
 
+    async def test_random_opening_includes_every_determined_npc_seat(self):
+        observed_candidates = []
+
+        def choose_npc(candidates):
+            observed_candidates.append(list(candidates))
+            return next(player_id for player_id in candidates if player_id.startswith("npc:"))
+
+        with patch.object(main_module, "secure_choice", side_effect=choose_npc):
+            created = await self.client.post(
+                "/api/rooms",
+                headers=self.headers(),
+                json={
+                    "player_id": "human-1",
+                    "ai_players": ["ai-1"],
+                    "game_type": DummyNpcMultiplayer.game_type,
+                    "target_player_count": 4,
+                    "fill_with_npcs": True,
+                    "mode": "random",
+                },
+            )
+        self.assertEqual(created.status_code, 200, created.text)
+        room = created.json()["room"]
+        expected_candidates = [
+            participant["player_id"] for participant in room["participants"]
+        ]
+        self.assertEqual(observed_candidates, [expected_candidates])
+        self.assertTrue(room["current_player_id"].startswith("npc:"))
+        self.assertEqual(room["current_actor"]["participant_kind"], "system_npc")
+        self.assertEqual(
+            room["current_actor_seat"],
+            expected_candidates.index(room["current_player_id"]),
+        )
+
     async def test_disabled_provider_blocks_only_npc_fill(self):
         with patch.dict("os.environ", {"DUEL_NPC_PROVIDER": "disabled"}):
             disabled_identity = await self.client.get(

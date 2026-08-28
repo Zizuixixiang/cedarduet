@@ -70,10 +70,22 @@
             </div>
             <div class="create-form">
               <div class="participant-picker" data-selection-mode="single">
-                <label class="pixel-field">
+                <label id="aiSingleField" class="pixel-field">
                   <span>选对手</span>
                   <select id="aiPlayer" aria-describedby="participantHint"></select>
                 </label>
+                <div id="aiMultiField" class="pixel-field ai-multi-field hidden">
+                  <span id="aiMultiLabel">选对手</span>
+                  <button id="aiMultiTrigger" class="ai-multi-trigger" type="button"
+                          aria-haspopup="listbox" aria-expanded="false"
+                          aria-controls="aiMultiMenu" aria-labelledby="aiMultiLabel aiMultiSummary"
+                          aria-describedby="participantHint">
+                    <span id="aiMultiSummary">请选择对手</span>
+                    <span class="ai-multi-caret" aria-hidden="true">▾</span>
+                  </button>
+                  <div id="aiMultiMenu" class="ai-multi-menu hidden" role="listbox"
+                       aria-multiselectable="true" aria-labelledby="aiMultiLabel"></div>
+                </div>
               </div>
               <label class="pixel-field">
                 <span>棋种</span>
@@ -91,7 +103,8 @@
                 <span>谁先走</span>
                 <select id="mode">
                   <option value="human_first">你先手</option>
-                  <option value="ai_first">你的小机先手</option>
+                  <option value="ai_first">小机先手</option>
+                  <option value="random">随机</option>
                 </select>
               </label>
               <label class="pixel-field stake-field">
