@@ -238,9 +238,10 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("小机正在等你落子", html)
         self.assertIn('id="historyDrawerPanel"', html)
         self.assertIn('class="chat-compose game-compose"', html)
+        battle_stage_start = html.index('<section class="battle-stage')
         battle_stage = html[
-            html.index('<section class="battle-stage'):
-            html.index('</section>', html.index('<section class="battle-stage'))
+            battle_stage_start:
+            html.index('<button id="historyDrawerTab"', battle_stage_start)
         ]
         self.assertIn('id="chatInput" maxlength="500"', battle_stage)
         self.assertIn('placeholder="说点什么…"', battle_stage)

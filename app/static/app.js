@@ -219,6 +219,33 @@ function participantForOwner(owner) {
   return null;
 }
 
+function participantAvatarFallback(participant) {
+  const name = participant && String(participant.display_name || "").trim();
+  if (name) return Array.from(name)[0];
+  const seatIndex = participant ? Number(participant.seat_index) : Number.NaN;
+  return Number.isInteger(seatIndex) ? String(seatIndex + 1) : "?";
+}
+
+function renderParticipantAvatar(target, participant) {
+  target.replaceChildren();
+  const fallback = participantAvatarFallback(participant);
+  target.textContent = fallback;
+  target.setAttribute(
+    "aria-label",
+    participant && participant.display_name ? `${participant.display_name}的头像` : "玩家头像"
+  );
+  if (!participant || !participant.avatar_url) return;
+  const avatar = document.createElement("img");
+  avatar.src = apiPath(participant.avatar_url);
+  avatar.alt = "";
+  avatar.loading = "lazy";
+  avatar.addEventListener("error", () => {
+    avatar.remove();
+    target.textContent = fallback;
+  }, {once: true});
+  target.replaceChildren(avatar);
+}
+
 function turnLabel(turn, aiPlayerId, currentActor = null) {
   if (!identity) return turn;
   if (currentActor) {
@@ -1241,6 +1268,7 @@ function renderTimeline(timeline = []) {
 
 function renderPlayers(timeline = []) {
   const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
+  applyParticipantLayout(room);
   $("opponentRow").classList.toggle("hidden", multiplayer);
   $("humanRow").classList.toggle("hidden", multiplayer);
   const aiName = participantName("ai");
@@ -1250,17 +1278,90 @@ function renderPlayers(timeline = []) {
   $("aiAvatar").textContent = "🤖";
   $("humanAvatar").textContent = "👤";
 
-  const latestSpeech = (role) => [...timeline].reverse().find((event) => {
-    const senderRole = event.sender_role
-      || (typeof event.sender === "object" && event.sender ? event.sender.role : event.sender);
-    return senderRole === role && Boolean(event.text);
-  });
   [["ai", "aiSpeech"], ["human", "humanSpeech"]].forEach(([role, targetId]) => {
-    const event = latestSpeech(role);
-    const bubble = $(targetId);
-    bubble.textContent = event ? event.text : "";
-    bubble.classList.toggle("hidden", !event);
+    renderSpeechBubble({
+      bubble: $(targetId),
+      event: latestSpeechEvent(timeline, role),
+    });
   });
+  renderSpeechBubble({
+    bubble: $("sharedSpeech"),
+    event: latestSpeechEvent(timeline),
+    textTarget: $("sharedSpeechText"),
+    nameTarget: $("sharedSpeechName"),
+    avatarTarget: $("sharedSpeechAvatar"),
+    reserveSpace: true,
+  });
+}
+
+function participantLayoutClass(playerCount) {
+  if (playerCount === 3) return "layout-triangle";
+  if (playerCount === 4) return "layout-corners";
+  if (playerCount >= 5) return "layout-top-row";
+  return "layout-duel";
+}
+
+function applyParticipantLayout(targetRoom) {
+  const playerCount = targetRoom && Array.isArray(targetRoom.participants)
+    ? targetRoom.participants.length
+    : 2;
+  const layoutClass = participantLayoutClass(playerCount);
+  const table = $("tableLayout");
+  table.className = `table-layout ${layoutClass} count-${playerCount}`;
+  table.dataset.playerCount = String(playerCount);
+  $("battleStage").dataset.playerCount = String(playerCount);
+  $("sharedSpeechSlot").classList.toggle("hidden", playerCount <= 2);
+}
+
+function speechSenderRole(event) {
+  if (!event) return "";
+  return event.sender_role
+    || (typeof event.sender === "object" && event.sender ? event.sender.role : event.sender)
+    || "";
+}
+
+function latestSpeechEvent(timeline = [], role = null) {
+  return [...timeline].reverse().find((event) => (
+    ["message", "move", "resign", "leave"].includes(event.event_type)
+    && Boolean(event.text)
+    && (!role || speechSenderRole(event) === role)
+  )) || null;
+}
+
+function renderSpeechBubble({
+  bubble,
+  event,
+  textTarget = bubble,
+  nameTarget = null,
+  avatarTarget = null,
+  reserveSpace = false,
+}) {
+  const visible = Boolean(event && event.text);
+  [...bubble.classList]
+    .filter((name) => /^seat-\d+$/.test(name))
+    .forEach((name) => bubble.classList.remove(name));
+  bubble.classList.toggle("hidden", !reserveSpace && !visible);
+  bubble.classList.toggle("empty", reserveSpace && !visible);
+  bubble.setAttribute("aria-hidden", visible ? "false" : "true");
+  textTarget.textContent = visible ? event.text : "";
+  if (!nameTarget && !avatarTarget) return;
+
+  const sender = visible && typeof event.sender === "object" && event.sender
+    ? event.sender
+    : {};
+  const participant = visible ? participantByPlayerId(sender.player_id) : null;
+  const speakerName = visible
+    ? (sender.name || event.sender_name || (participant && participant.display_name) || "玩家")
+    : "";
+  if (nameTarget) nameTarget.textContent = speakerName;
+  if (avatarTarget) {
+    renderParticipantAvatar(avatarTarget, participant || {
+      display_name: speakerName,
+      seat_index: sender.seat,
+    });
+  }
+  const seatIndex = participant ? participant.seat_index : sender.seat;
+  if (Number.isInteger(seatIndex)) bubble.classList.add(`seat-${seatIndex}`);
 }
 
 function renderParticipantRoster(targetRoom) {
@@ -1277,7 +1378,7 @@ function renderParticipantRoster(targetRoom) {
   if (participants.length <= 2) return;
   participants.forEach((participant) => {
     const badge = document.createElement("article");
-    badge.className = "room-participant";
+    badge.className = `room-participant seat-${participant.seat_index}`;
     if (participant.player_id === targetRoom.current_player_id) {
       badge.classList.add("current");
     }
@@ -1296,16 +1397,7 @@ function renderParticipantRoster(targetRoom) {
     badge.setAttribute("aria-current", participant.player_id === targetRoom.current_player_id ? "true" : "false");
     const avatarWrap = document.createElement("span");
     avatarWrap.className = "room-participant-avatar";
-    if (participant.participant_kind === "system_npc" && participant.avatar_url) {
-      const avatar = document.createElement("img");
-      avatar.src = apiPath(participant.avatar_url);
-      avatar.alt = "";
-      avatar.loading = "lazy";
-      avatar.addEventListener("error", () => avatar.remove(), {once: true});
-      avatarWrap.appendChild(avatar);
-    } else {
-      avatarWrap.textContent = participant.role === "human" ? "👤" : "🤖";
-    }
+    renderParticipantAvatar(avatarWrap, participant);
     const copy = document.createElement("span");
     copy.className = "room-participant-copy";
     const name = document.createElement("strong");
@@ -1322,9 +1414,10 @@ function renderParticipantRoster(targetRoom) {
     const fragments = Object.entries(metadata).map(
       ([key, value]) => `${metadataLabels[key] || key} ${value}`
     );
+    if (participant.player_id === targetRoom.current_player_id) fragments.unshift("▶ 正在行动");
     if (states.length) fragments.push(states.join("/"));
-    else fragments.push(participant.player_id === targetRoom.current_player_id ? "正在行动" : "存活");
     detail.textContent = fragments.join(" · ");
+    detail.classList.toggle("hidden", !fragments.length);
     badge.append(avatarWrap, copy, detail);
     roster.appendChild(badge);
   });

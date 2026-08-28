@@ -152,14 +152,6 @@
           <div><span>STAKE</span><strong id="roomStake">娱乐局</strong></div>
           <div><span>REV</span><strong id="revision">0</strong></div>
         </div>
-        <div id="roomParticipants" class="room-participants pixel-card hidden"
-             aria-label="房间参与者"></div>
-        <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
-                 aria-label="仅自己可见的对局信息">
-          <span class="tag pink">PRIVATE</span>
-          <div id="privateStateContent"></div>
-        </section>
-
         <p id="gameMessage" class="notice" role="status"></p>
 
         <section id="resultBanner" class="result-banner hidden" aria-live="polite">
@@ -180,13 +172,28 @@
             <p id="aiSpeech" class="speech-bubble ai-speech hidden"></p>
           </div>
 
-          <div class="board-zone">
-            <div class="board-frame">
-              <div id="board" class="board" aria-label="棋盘"></div>
+          <div id="tableLayout" class="table-layout layout-duel count-2" data-player-count="2">
+            <div id="roomParticipants" class="room-participants count-2 hidden"
+                 aria-label="围桌席位"></div>
+
+            <div id="sharedSpeechSlot" class="shared-speech-slot hidden" aria-live="polite">
+              <div id="sharedSpeech" class="speech-bubble shared-speech empty" aria-hidden="true">
+                <span id="sharedSpeechAvatar" class="shared-speech-avatar" aria-hidden="true"></span>
+                <span class="shared-speech-copy">
+                  <strong id="sharedSpeechName"></strong>
+                  <span id="sharedSpeechText"></span>
+                </span>
+              </div>
             </div>
-            <div class="move-confirm">
-              <span id="selectionHint">请先在棋盘上选择落点</span>
-              <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
+
+            <div class="board-zone">
+              <div class="board-frame">
+                <div id="board" class="board" aria-label="棋盘"></div>
+              </div>
+              <div class="move-confirm">
+                <span id="selectionHint">请先在棋盘上选择落点</span>
+                <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
+              </div>
             </div>
           </div>
 
@@ -197,6 +204,12 @@
             </div>
             <p id="humanSpeech" class="speech-bubble human-speech hidden"></p>
           </div>
+
+          <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
+                   aria-label="我的信息，仅自己可见">
+            <span class="tag pink">我的信息 · PRIVATE</span>
+            <div id="privateStateContent"></div>
+          </section>
 
           <div class="chat-compose game-compose" aria-label="对局聊天">
             <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">

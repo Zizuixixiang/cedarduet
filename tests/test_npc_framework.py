@@ -396,10 +396,13 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn("allowedPlayerCounts.forEach((count)", script)
         self.assertIn("fill_with_npcs: selectedFillWithNpcs()", script)
         self.assertIn('selectedMachineCount >= 1', script)
-        self.assertIn('participant.participant_kind === "system_npc"', script)
+        self.assertIn("renderParticipantAvatar(avatarWrap, participant)", script)
+        self.assertIn("participant.avatar_url", script)
         self.assertIn('targetRoom.private_state', script)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
-        self.assertIn(".room-participants.count-5", styles)
+        self.assertIn(".table-layout.layout-top-row", styles)
+        self.assertIn(".layout-top-row .room-participants", styles)
+        self.assertIn("overflow-x: auto", styles)
 
 
 class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):
