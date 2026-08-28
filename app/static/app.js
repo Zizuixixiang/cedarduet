@@ -762,13 +762,13 @@ function renderHumanChipBalance(balance) {
   const negative = isNumeric && numericBalance < 0;
   const longBalance = balanceText.length > 10;
   const balanceTarget = $("humanChipBalance");
-  const chipLink = $("chipCenterLink");
+  const balanceLink = $("chipBalanceLink");
   balanceTarget.textContent = balanceText;
   balanceTarget.title = `当前余额：${balanceText}`;
   balanceTarget.setAttribute("aria-label", `当前人类筹码余额 ${balanceText}`);
-  chipLink.classList.toggle("negative", negative);
-  chipLink.classList.toggle("long-balance", longBalance);
-  chipLink.setAttribute("aria-label", `我的筹码，余额 ${balanceText}，进入筹码中心`);
+  balanceLink.classList.toggle("negative", negative);
+  balanceLink.classList.toggle("long-balance", longBalance);
+  balanceLink.setAttribute("aria-label", `我的筹码，余额 ${balanceText}，进入筹码中心`);
 }
 
 async function loadIdentity({quiet = false} = {}) {
@@ -1947,5 +1947,6 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+$("chipBalanceLink").href = apiPath("/chips");
 $("chipCenterLink").href = apiPath("/chips");
 loadIdentity();

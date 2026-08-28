@@ -18,45 +18,70 @@ def function_source(name: str) -> str:
 
 
 class StakeLobbyUiTests(unittest.TestCase):
-    def test_mobile_first_header_has_wallet_and_chip_center_without_hero_art(self):
+    def test_header_has_separate_balance_badge_and_chip_center_button(self):
         self.assertIn('id="humanChipBalance"', HTML)
+        self.assertIn('id="chipBalanceLink"', HTML)
         self.assertIn('id="chipCenterLink"', HTML)
-        self.assertIn('href="/chips"', HTML)
-        wallet = HTML[
+        actions = HTML[
+            HTML.index('<div class="chip-wallet-actions"'):
+            HTML.index("</div>", HTML.index('<div class="chip-wallet-actions"'))
+        ]
+        balance = HTML[
+            HTML.index('<a id="chipBalanceLink"'):
+            HTML.index("</a>", HTML.index('<a id="chipBalanceLink"'))
+        ]
+        center = HTML[
             HTML.index('<a id="chipCenterLink"'):
             HTML.index("</a>", HTML.index('<a id="chipCenterLink"'))
         ]
-        self.assertIn('class="chip-wallet-icon"', wallet)
-        self.assertIn('class="chip-wallet-title">我的筹码', wallet)
-        self.assertIn('id="humanChipBalance"', wallet)
-        self.assertIn("筹码中心", wallet)
-        self.assertIn("→", wallet)
-        self.assertNotIn("pixel-btn", wallet)
+        self.assertLess(actions.index("chipBalanceLink"), actions.index("chipCenterLink"))
+        self.assertIn('href="/chips"', balance)
+        self.assertIn('class="chip-wallet-icon"', balance)
+        self.assertIn('id="humanChipBalance"', balance)
+        self.assertNotIn('class="chip-center-button"', balance)
+        self.assertIn('href="/chips"', center)
+        self.assertIn("筹码中心", center)
+        self.assertNotIn('id="humanChipBalance"', center)
+        self.assertNotIn("→", actions)
+        self.assertNotIn("chip-wallet-link", actions)
+        self.assertIn('$("chipBalanceLink").href = apiPath("/chips")', SCRIPT)
+        self.assertIn('$("chipCenterLink").href = apiPath("/chips")', SCRIPT)
         self.assertIn('class="lobby-header"', HTML)
         self.assertNotIn('class="hero pixel-card"', HTML)
         self.assertNotIn('class="hero-art"', HTML)
         self.assertIn(".topbar { min-height: 52px;", STYLES)
         self.assertIn(".lobby-header { min-height: 46px;", STYLES)
 
-    def test_chip_wallet_link_has_prominent_interaction_and_mobile_contracts(self):
+    def test_compact_chip_entries_share_height_and_mobile_row_contract(self):
         for selector in (
-            ".chip-wallet-link:hover",
-            ".chip-wallet-link:active",
-            ".chip-wallet-link:focus-visible",
-            ".chip-wallet-link.negative",
-            ".chip-wallet-link.long-balance .chip-balance",
+            ".chip-balance-link:hover",
+            ".chip-center-button:hover",
+            ".chip-balance-link:active",
+            ".chip-center-button:active",
+            ".chip-balance-link:focus-visible",
+            ".chip-center-button:focus-visible",
+            ".chip-balance-link.negative",
+            ".chip-balance-link.long-balance .chip-balance",
         ):
             self.assertIn(selector, STYLES)
-        self.assertIn("linear-gradient(135deg, #fff8d7", STYLES)
+        shared_controls = STYLES[
+            STYLES.index(".chip-balance-link,\n.chip-center-button {"):
+            STYLES.index("}", STYLES.index(".chip-balance-link,\n.chip-center-button {"))
+        ]
+        self.assertIn("height: 36px", shared_controls)
+        self.assertIn("min-height: 36px", shared_controls)
+        self.assertNotIn("linear-gradient(135deg, #fff8d7", STYLES)
+        self.assertNotIn("box-shadow: 3px 3px 0 rgba(66, 43, 71", STYLES)
         self.assertIn("font-variant-numeric: tabular-nums", STYLES)
         self.assertIn("text-overflow: ellipsis", STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
-        self.assertIn(".chip-wallet-link {", mobile)
-        self.assertIn("min-width: 132px", mobile)
-        self.assertIn(".chip-wallet-title { font-size: 10px; }", mobile)
-        self.assertIn(".chip-balance { max-width: 92px; font-size: 16px; }", mobile)
-        self.assertIn(".chip-wallet-cta span { display: none; }", mobile)
-        self.assertIn(".chip-wallet-cta b { font-size: 18px; }", mobile)
+        self.assertIn(".chip-wallet-actions { gap: 4px; flex-wrap: nowrap; }", mobile)
+        self.assertIn("height: 34px; min-height: 34px", mobile)
+        self.assertIn("max-width: 80px", mobile)
+        self.assertIn(".chip-balance { max-width: 48px; font-size: 14px; }", mobile)
+        self.assertIn(".chip-center-button { padding: 5px 6px; font-size: 10px; }", mobile)
+        self.assertIn("white-space: nowrap", mobile)
+        self.assertNotIn(".brand > span:last-child { display: none; }", mobile)
 
     def test_custom_integer_stake_and_pending_area_precede_room_list(self):
         self.assertIn(
@@ -125,20 +150,20 @@ class ClassList {{
 }}
 const elements = {{
   humanChipBalance: {{textContent: "", title: "", attributes: {{}}, setAttribute(name, value) {{ this.attributes[name] = value; }}}},
-  chipCenterLink: {{classList: new ClassList(), attributes: {{}}, setAttribute(name, value) {{ this.attributes[name] = value; }}}},
+  chipBalanceLink: {{classList: new ClassList(), attributes: {{}}, setAttribute(name, value) {{ this.attributes[name] = value; }}}},
 }};
 const $ = (id) => elements[id];
 {renderer}
 renderHumanChipBalance(-1234567890123);
 assert.equal(elements.humanChipBalance.textContent, "-1,234,567,890,123");
 assert.equal(elements.humanChipBalance.title, "当前余额：-1,234,567,890,123");
-assert.ok(elements.chipCenterLink.classList.contains("negative"));
-assert.ok(elements.chipCenterLink.classList.contains("long-balance"));
-assert.match(elements.chipCenterLink.attributes["aria-label"], /余额 -1,234,567,890,123/);
+assert.ok(elements.chipBalanceLink.classList.contains("negative"));
+assert.ok(elements.chipBalanceLink.classList.contains("long-balance"));
+assert.match(elements.chipBalanceLink.attributes["aria-label"], /余额 -1,234,567,890,123/);
 renderHumanChipBalance(1280);
 assert.equal(elements.humanChipBalance.textContent, "1,280");
-assert.ok(!elements.chipCenterLink.classList.contains("negative"));
-assert.ok(!elements.chipCenterLink.classList.contains("long-balance"));
+assert.ok(!elements.chipBalanceLink.classList.contains("negative"));
+assert.ok(!elements.chipBalanceLink.classList.contains("long-balance"));
 """
         completed = subprocess.run(
             [NODE, "-e", harness],
