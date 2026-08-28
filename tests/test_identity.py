@@ -246,14 +246,24 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="chatInput" maxlength="500"', battle_stage)
         self.assertIn('placeholder="说点什么…"', battle_stage)
         self.assertIn('id="sendMessageButton"', battle_stage)
+        self.assertNotIn('id="refreshButton"', battle_stage)
+        self.assertNotIn('id="resignButton"', battle_stage)
         self.assertLess(
             battle_stage.index('class="player-row human-row"'),
             battle_stage.index('id="chatInput"'),
         )
-        self.assertLess(
-            battle_stage.index('id="chatInput"'),
-            battle_stage.index('class="game-actions"'),
-        )
+        toolbar = html[
+            html.index('<div class="game-toolbar pixel-card">'):
+            html.index('<div class="game-meta pixel-card">')
+        ]
+        for button_id in ("refreshButton", "rulesButton", "resignButton"):
+            self.assertIn(f'id="{button_id}"', toolbar)
+        chat_start = battle_stage.index('<div class="chat-compose game-compose"')
+        chat = battle_stage[chat_start:battle_stage.index("</div>", chat_start)]
+        self.assertIn('id="chatInput"', chat)
+        self.assertIn('id="sendMessageButton"', chat)
+        self.assertNotIn("刷新局面", chat)
+        self.assertNotIn("认输", chat)
         history_drawer = html[
             html.index('<div id="historyDrawer"'):
             html.index('<div id="resultModal"')

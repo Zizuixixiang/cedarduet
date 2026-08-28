@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import unittest
@@ -84,6 +85,31 @@ class ChipCenterStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
 class ChipCenterTabBehaviorTests(unittest.TestCase):
+    def test_utc_ledger_timestamp_is_rendered_in_browser_local_timezone(self):
+        formatter = function_source("formatLedgerCreatedAt")
+        harness = f"""
+const assert = require("node:assert/strict");
+{formatter}
+assert.equal(
+  formatLedgerCreatedAt("2026-08-27T10:59:00+00:00"),
+  "2026/08/27 18:59"
+);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "TZ": "Asia/Shanghai"},
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+        self.assertNotIn('created_at.replace("T", " ")', SCRIPT)
+
     def test_clicking_a_tab_shows_only_its_panel(self):
         functions = "\n".join(
             (
@@ -209,12 +235,12 @@ const payloads = {{
   "/api/chips": {{
     ok: true, human_name: "南山君", wallet: humanWallet,
     machines: [{{id: "ai-9", name: "clio_web"}}],
-    ledger: [{{label: "人类流水", amount: 10, created_at: "2026-08-27T01:00:00", balance_after: 310}}],
+    ledger: [{{label: "人类流水", amount: 10, created_at: "2026-08-27T01:00:00+00:00", balance_after: 310}}],
   }},
   "/api/chips/machines/ai-9": {{
     ok: true, machine: {{id: "ai-9", name: "clio_web"}}, read_only: true,
     wallet: machineWallet,
-    ledger: [{{label: "小机流水", amount: -20, created_at: "2026-08-27T02:00:00", balance_after: 50}}],
+    ledger: [{{label: "小机流水", amount: -20, created_at: "2026-08-27T02:00:00+00:00", balance_after: 50}}],
   }},
 }};
 const fetch = async (url) => ({{

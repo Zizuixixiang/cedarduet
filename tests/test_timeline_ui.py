@@ -80,8 +80,12 @@ class MobileOperationSizingTests(unittest.TestCase):
         )
         self.assertIn("min-width: 64px", STYLES)
         self.assertIn("min-height: 40px", STYLES)
-        self.assertIn("width: min(320px, 100%)", STYLES)
-        self.assertIn(".game-actions .pixel-btn {", STYLES)
+        self.assertIn(".game-toolbar-actions {", STYLES)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", STYLES)
+        self.assertIn(".game-toolbar-actions .pixel-btn {", STYLES)
+        self.assertNotIn(".game-actions", STYLES)
+        self.assertLess(HTML.index('id="refreshButton"'), HTML.index('id="chatInput"'))
+        self.assertLess(HTML.index('id="resignButton"'), HTML.index('id="chatInput"'))
         self.assertIn(
             ".move-confirm span { flex: 1; align-self: center; font-size: 12px; }",
             STYLES,

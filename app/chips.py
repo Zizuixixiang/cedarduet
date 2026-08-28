@@ -5,6 +5,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from .database import write_transaction
 from .framework import DuelError
@@ -17,6 +18,7 @@ BANKRUPTCY_THRESHOLD = -500
 BANKRUPTCY_RESET_BALANCE = 50
 BANKRUPTCY_BADGE_ID = "pixel_dirt_poor"
 BANKRUPTCY_BADGE_NAME = "像素吃土中"
+CHIP_CALENDAR_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 SUBJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$")
 
@@ -99,7 +101,10 @@ def _timestamp(now: datetime | None = None) -> str:
 
 
 def _effective_date(now: datetime | None = None) -> str:
-    return (now or _utc_now()).date().isoformat()
+    current = now or _utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(CHIP_CALENDAR_TIMEZONE).date().isoformat()
 
 
 def _validate_subject(subject_type: str, subject_id: str) -> None:
@@ -467,7 +472,7 @@ def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
 
 
 def claim_daily_check_in(subject_type: SubjectType, subject_id: str) -> dict:
-    """Claim one +20 grant per UTC calendar day for the authenticated subject."""
+    """Claim one +20 grant per Asia/Shanghai calendar day."""
     today = _effective_date()
     key = f"daily_check_in:{today}"
     with write_transaction() as conn:

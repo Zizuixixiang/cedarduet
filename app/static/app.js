@@ -473,16 +473,58 @@ function selectedParticipantIds() {
     .filter(Boolean);
 }
 
+function allowedPlayerCountsForGame(declared) {
+  const minimum = Number.isInteger(declared && declared.min_players)
+    ? declared.min_players
+    : 2;
+  const maximum = Number.isInteger(declared && declared.max_players)
+    ? declared.max_players
+    : minimum;
+  const rawCounts = declared && Array.isArray(declared.allowed_player_counts)
+    ? declared.allowed_player_counts
+    : Array.from(
+        {length: Math.max(0, maximum - minimum + 1)},
+        (_item, index) => minimum + index
+      );
+  const normalized = [...new Set(rawCounts)]
+    .filter((count) => Number.isInteger(count) && count >= 2 && count <= 6)
+    .sort((left, right) => left - right);
+  return normalized.length ? normalized : [2];
+}
+
+function gamePlayerCountLabel(declared) {
+  const counts = allowedPlayerCountsForGame(declared);
+  if (counts.length === 1) return `${counts[0]}人`;
+  const continuous = counts.every(
+    (count, index) => count === counts[0] + index
+  );
+  return continuous
+    ? `${counts[0]}–${counts[counts.length - 1]}人`
+    : `${counts.join("、")}人`;
+}
+
+function syncGameTypeOptions(games) {
+  if (!Array.isArray(games) || !games.length) return;
+  const select = $("gameType");
+  const previousValue = select.value;
+  select.replaceChildren();
+  games.forEach((game) => {
+    if (!game || !game.game_type) return;
+    const option = document.createElement("option");
+    option.value = game.game_type;
+    option.textContent = `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    select.appendChild(option);
+  });
+  const values = [...select.options].map((option) => option.value);
+  if (values.includes(previousValue)) select.value = previousValue;
+}
+
 function selectedGameRequirement() {
   const gameType = $("gameType").value;
   const declared = identity && Array.isArray(identity.games)
     ? identity.games.find((game) => game.game_type === gameType)
     : null;
-  const fallbackMin = declared ? declared.min_players : 2;
-  const fallbackMax = declared ? declared.max_players : 2;
-  const allowedPlayerCounts = declared && Array.isArray(declared.allowed_player_counts)
-    ? declared.allowed_player_counts.filter((count) => Number.isInteger(count) && count >= 2 && count <= 6)
-    : Array.from({length: fallbackMax - fallbackMin + 1}, (_item, index) => fallbackMin + index);
+  const allowedPlayerCounts = allowedPlayerCountsForGame(declared);
   const providerAvailable = Boolean(identity && identity.npc_provider && identity.npc_provider.available);
   return {
     minPlayers: allowedPlayerCounts[0] || 2,
@@ -704,6 +746,7 @@ async function loadIdentity({quiet = false} = {}) {
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
     renderHumanChipBalance(data.wallet.balance);
+    syncGameTypeOptions(data.games || []);
     syncMachinePicker(data.machines || []);
     renderPendingInvitations(data.pending_invitations || []);
     const incoming = new Set((data.pending_invitations || []).map((item) => item.room_id));

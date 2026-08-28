@@ -710,15 +710,24 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   min-height: 82px;
   padding: 14px 18px;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
 }
 .game-heading { min-width: 0; text-align: center; }
 .game-heading h1 { margin-top: 5px; font-size: 22px; }
+.game-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: 7px;
+}
+.game-toolbar-actions .pixel-btn { min-width: 64px; }
 .game-nav-btn {
   min-height: 44px;
   padding: 9px 14px;
+  justify-self: start;
   font-size: 15px;
 }
 
@@ -1363,12 +1372,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1.45;
 }
 .move-confirm .pixel-btn { min-width: 112px; }
-.game-actions {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
-
 .history-drawer-tab {
   position: fixed;
   right: 0;
@@ -1867,7 +1870,25 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .pending-card { grid-template-columns: 1fr 1fr; }
   .pending-copy { grid-column: 1 / -1; }
   .pending-card .pixel-btn { width: 100%; }
-  .game-toolbar { padding: 11px; grid-template-columns: auto 1fr auto; }
+  .game-toolbar {
+    padding: 11px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px;
+  }
+  .game-toolbar-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-self: stretch;
+    gap: 6px;
+  }
+  .game-toolbar-actions .pixel-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding: 6px 7px;
+    font-size: 10px;
+  }
   .game-nav-btn { min-width: 72px; padding: 7px 8px; font-size: 13px; }
   .game-heading h1 { font-size: 16px; }
   .game-meta { grid-template-columns: repeat(2, 1fr); padding: 12px; }
@@ -1913,18 +1934,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     min-width: 64px;
     min-height: 40px;
     padding: 6px 8px;
-    font-size: 10px;
-  }
-  .game-actions {
-    width: min(320px, 100%);
-    margin-inline: auto;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-  .game-actions .pixel-btn {
-    min-height: 40px;
-    padding: 6px 10px;
     font-size: 10px;
   }
   .history-drawer-panel { width: 100vw; }

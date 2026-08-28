@@ -82,13 +82,13 @@
               <label class="pixel-field">
                 <span>棋种</span>
                 <select id="gameType">
-                  <option value="tictactoe">井字棋 / 3×3</option>
-                  <option value="gomoku">五子棋 / 15×15</option>
-                  <option value="othello">黑白棋 / 8×8</option>
-                  <option value="connect4">四子连珠 / 7×6</option>
-                  <option value="dots_boxes">点格棋 / 5×5 点阵</option>
-                  <option value="liars_dice">吹牛骰子 / 2–6 人</option>
-                  <option value="jungle">斗兽棋 / 7×9</option>
+                  <option value="tictactoe">井字棋 / 2人</option>
+                  <option value="gomoku">五子棋 / 2人</option>
+                  <option value="othello">黑白棋 / 2人</option>
+                  <option value="connect4">四子连珠 / 2人</option>
+                  <option value="dots_boxes">点格棋 / 2–4人</option>
+                  <option value="liars_dice">吹牛骰子 / 2–6人</option>
+                  <option value="jungle">斗兽棋 / 2人</option>
                 </select>
               </label>
               <label class="pixel-field">
@@ -153,7 +153,11 @@
             <span id="gameBadge" class="tag pink">GAME</span>
             <h1 id="gameTitle">双弈</h1>
           </div>
-          <button id="rulesButton" class="pixel-btn secondary game-nav-btn" type="button">规则</button>
+          <div class="game-toolbar-actions" aria-label="对局操作">
+            <button id="refreshButton" class="pixel-btn secondary compact" type="button">刷新局面</button>
+            <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
+            <button id="resignButton" class="pixel-btn danger compact" type="button">认输</button>
+          </div>
         </div>
 
         <div class="game-meta pixel-card">
@@ -225,11 +229,6 @@
           <div class="chat-compose game-compose" aria-label="对局聊天">
             <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">
             <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
-          </div>
-
-          <div class="game-actions">
-            <button id="refreshButton" class="pixel-btn secondary" type="button">刷新局面</button>
-            <button id="resignButton" class="pixel-btn danger" type="button">认输</button>
           </div>
         </section>
 

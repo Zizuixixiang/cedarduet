@@ -183,6 +183,53 @@ for (const [count, layout] of expected) {{
 """
         self.run_node(harness)
 
+    def test_game_options_are_rebuilt_from_catalog_player_counts(self):
+        functions = "\n".join((
+            function_source("allowedPlayerCountsForGame"),
+            function_source("gamePlayerCountLabel"),
+            function_source("syncGameTypeOptions"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class Option {{ constructor() {{ this.value = ""; this.textContent = ""; }} }}
+class Select {{
+  constructor() {{ this.children = []; this.value = "dots"; }}
+  get options() {{ return this.children; }}
+  replaceChildren() {{ this.children = []; }}
+  appendChild(child) {{ this.children.push(child); }}
+}}
+const select = new Select();
+const document = {{createElement: () => new Option()}};
+const $ = (id) => {{ assert.equal(id, "gameType"); return select; }};
+{functions}
+syncGameTypeOptions([
+  {{game_type: "duel", display_name: "双人棋", allowed_player_counts: [2]}},
+  {{game_type: "dots", display_name: "点格棋", allowed_player_counts: [2, 3, 4]}},
+  {{game_type: "discrete", display_name: "离散桌", allowed_player_counts: [2, 4]}},
+]);
+assert.deepEqual(
+  select.options.map((option) => option.textContent),
+  ["双人棋 / 2人", "点格棋 / 2–4人", "离散桌 / 2、4人"]
+);
+assert.equal(select.value, "dots");
+"""
+        self.run_node(harness)
+        game_select = HTML[
+            HTML.index('<select id="gameType">'):
+            HTML.index("</select>", HTML.index('<select id="gameType">'))
+        ]
+        for board_size in ("3×3", "15×15", "8×8", "7×6", "5×5", "7×9"):
+            self.assertNotIn(board_size, game_select)
+        self.assertIn("井字棋 / 2人", game_select)
+        self.assertIn("点格棋 / 2–4人", game_select)
+        self.assertIn("吹牛骰子 / 2–6人", game_select)
+        loader = function_source("loadIdentity")
+        self.assertIn("syncGameTypeOptions(data.games || [])", loader)
+        self.assertLess(
+            loader.index("syncGameTypeOptions(data.games || [])"),
+            loader.index("syncMachinePicker(data.machines || [])"),
+        )
+
     def test_roster_marks_current_actor_and_keeps_game_values_compact(self):
         functions = "\n".join((
             function_source("participantAvatarFallback"),

@@ -2,6 +2,7 @@ import base64
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,6 +72,27 @@ class ChipServiceTests(unittest.TestCase):
         ]
         self.assertEqual(len(check_ins), 1)
         self.assertEqual(check_ins[0]["amount"], 20)
+
+    def test_daily_check_in_day_changes_at_utc_16_for_shanghai(self):
+        before_boundary = datetime(2026, 8, 27, 15, 59, 59, tzinfo=timezone.utc)
+        after_boundary = datetime(2026, 8, 27, 16, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(chips._effective_date(before_boundary), "2026-08-27")
+        self.assertEqual(chips._effective_date(after_boundary), "2026-08-28")
+
+        with patch.object(chips, "_utc_now", return_value=before_boundary):
+            first = chips.claim_daily_check_in("human", "boundary-human")
+        with patch.object(chips, "_utc_now", return_value=after_boundary):
+            second = chips.claim_daily_check_in("human", "boundary-human")
+
+        self.assertTrue(first["claimed"])
+        self.assertTrue(second["claimed"])
+        self.assertEqual(second["wallet"]["balance"], 240)
+        effective_dates = [
+            row["effective_date"]
+            for row in chips.list_ledger("human", "boundary-human")
+            if row["transaction_type"] == "daily_check_in"
+        ]
+        self.assertEqual(effective_dates, ["2026-08-28", "2026-08-27"])
 
     def test_balance_above_threshold_cannot_declare_bankruptcy(self):
         chips.change_balance("human", "human-1", -699, "test_loss")

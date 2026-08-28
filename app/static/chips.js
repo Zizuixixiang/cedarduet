@@ -123,6 +123,19 @@ function renderMachines(machines) {
   select.disabled = false;
 }
 
+function formatLedgerCreatedAt(createdAt) {
+  const parsed = new Date(createdAt);
+  if (Number.isNaN(parsed.getTime())) return String(createdAt || "—");
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(parsed);
+}
+
 function renderLedger(entries) {
   const list = $("ledgerList");
   list.replaceChildren();
@@ -143,7 +156,7 @@ function renderLedger(entries) {
     amount.textContent = `${entry.amount >= 0 ? "+" : ""}${entry.amount}`;
     const meta = document.createElement("span");
     meta.className = "ledger-meta";
-    meta.textContent = `${entry.created_at.replace("T", " ")} · 余额 ${entry.balance_after}`;
+    meta.textContent = `${formatLedgerCreatedAt(entry.created_at)} · 余额 ${entry.balance_after}`;
     item.append(label, amount, meta);
     list.append(item);
   }
