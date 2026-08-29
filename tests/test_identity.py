@@ -147,6 +147,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "checkers": "board",
                 "dots_boxes": "board",
                 "liars_dice": "dice",
+                "yahtzee": "dice",
                 "jungle": "board",
                 "xiangqi": "board",
             },
@@ -161,12 +162,16 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "checkers": "西洋跳棋",
                 "dots_boxes": "点格棋",
                 "liars_dice": "吹牛骰子",
+                "yahtzee": "快艇骰子",
                 "jungle": "斗兽棋",
                 "xiangqi": "象棋",
             },
         )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])
+        self.assertEqual(games["yahtzee"]["allowed_player_counts"], [2, 3, 4, 5, 6])
+        self.assertTrue(games["yahtzee"]["supports_npcs"])
+        self.assertFalse(games["yahtzee"]["supports_stakes"])
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],

@@ -452,6 +452,10 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 升变、将军/将死与和棋；网页 renderer 位于 `app/static/games/chess.js`，使用内联 SVG
 棋子并只提交服务端 `legal_moves`。
 
+
+快艇骰子支持 2–6 人与系统 NPC，使用独立 `yahtzee.js` renderer 展示五枚骰子与计分卡；
+每回合最多三掷并可保留骰子，第一版不开放筹码局，也不实现重复快艇 bonus/Joker。
+
 ## 筹码中心
 
 独立页面：
