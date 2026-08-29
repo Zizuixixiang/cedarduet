@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8d9f1">
   <title>筹码中心 · Duel</title>
-  <link rel="stylesheet" href="/static/chips.css?v=1.0.0">
+  <link rel="stylesheet" href="/static/chips.css?v=1.1.0">
 </head>
 <body>
   <main class="chip-shell">
@@ -14,7 +14,6 @@
         <p class="eyebrow">DUEL CHIP HOUSE</p>
         <h1>筹码中心</h1>
       </div>
-      <span class="fun-only">仅供娱乐 · 不支持人民币充值</span>
     </header>
 
     <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
@@ -62,8 +61,10 @@
           aria-selected="true" aria-controls="panel-checkin" data-panel="panel-checkin">每日签到</button>
         <button id="tab-achievements" class="module-tab" type="button" role="tab" tabindex="-1"
           aria-selected="false" aria-controls="panel-achievements" data-panel="panel-achievements">成就</button>
-        <button id="tab-social" class="module-tab" type="button" role="tab" tabindex="-1"
-          aria-selected="false" aria-controls="panel-social" data-panel="panel-social">互动与借款</button>
+        <button id="tab-shop" class="module-tab" type="button" role="tab" tabindex="-1"
+          aria-selected="false" aria-controls="panel-shop" data-panel="panel-shop">互动商店</button>
+        <button id="tab-loans" class="module-tab" type="button" role="tab" tabindex="-1"
+          aria-selected="false" aria-controls="panel-loans" data-panel="panel-loans">欠条</button>
         <button id="tab-ledger" class="module-tab" type="button" role="tab" tabindex="-1"
           aria-selected="false" aria-controls="panel-ledger" data-panel="panel-ledger">筹码流水</button>
       </div>
@@ -99,17 +100,89 @@
           <div id="achievementSections" class="achievement-sections" aria-live="polite"></div>
         </section>
 
-        <section id="panel-social" class="module-card module-panel loans-card" role="tabpanel"
-          aria-labelledby="tab-social" hidden>
+        <section id="panel-shop" class="module-card module-panel exchange-card" role="tabpanel"
+          aria-labelledby="tab-shop" hidden>
           <div class="module-heading">
             <span class="pixel-icon" aria-hidden="true">♡</span>
             <div>
-              <h2 id="socialTitle">互动与借款</h2>
-              <p id="socialDescription">借款已开放；互动交换仍在筹备中</p>
+              <h2 id="exchangeTitle">互动商店</h2>
+              <p id="exchangeDescription">用筹码换一个要在聊天里兑现的小约定</p>
             </div>
           </div>
-          <div class="exchange-placeholder">
-            <strong>互动交换</strong><span>筹备中</span>
+          <p class="exchange-boundary">请在常用聊天中自行完成；双弈不保存互动内容，也不介入履约争议。</p>
+
+          <div class="exchange-tabs" role="tablist" aria-label="互动商店内容">
+            <button id="exchange-tab-shop" class="exchange-tab" type="button"
+              aria-selected="true" data-exchange-view="exchange-view-shop">商店</button>
+            <button id="exchange-tab-requests" class="exchange-tab" type="button"
+              aria-selected="false" data-exchange-view="exchange-view-requests">
+              申请<span id="exchangePendingBadge" class="exchange-badge hidden" aria-label="待我确认数量">0</span>
+            </button>
+            <button id="exchange-tab-history" class="exchange-tab" type="button"
+              aria-selected="false" data-exchange-view="exchange-view-history">记录</button>
+          </div>
+
+          <section id="exchange-view-shop" class="exchange-view">
+            <div id="exchangeCatalog" class="exchange-catalog" aria-live="polite">
+              <p class="exchange-empty">正在摆放商品…</p>
+            </div>
+            <form id="exchangeCreateForm" class="exchange-form hidden" autocomplete="off">
+              <div class="exchange-form-heading">
+                <div><span id="exchangeFormSymbol" aria-hidden="true">♡</span></div>
+                <div><h3 id="exchangeFormTitle">发起兑换</h3><p id="exchangeFormDescription"></p></div>
+              </div>
+              <input id="exchangeItemKey" type="hidden">
+              <div class="exchange-form-grid">
+                <label>目标小机<select id="exchangeMachineSelect" required disabled></select></label>
+                <label>筹码数（1–100）<input id="exchangeAmount" type="number" min="1" max="100" step="1" required></label>
+              </div>
+              <label id="exchangeCustomTitleWrap" class="hidden">自定义标题（1–30 字）
+                <input id="exchangeCustomTitle" type="text" minlength="1" maxlength="30">
+              </label>
+              <label>本次说明（1–120 字）
+                <textarea id="exchangeRequestNote" minlength="1" maxlength="120" rows="3"
+                  placeholder="例如：我发一张今天窗外的照片" required></textarea>
+              </label>
+              <div class="exchange-form-actions">
+                <button id="exchangeCreateButton" class="button primary" type="submit">发送申请</button>
+                <button id="exchangeCancelButton" class="button ghost" type="button">取消</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="exchange-view-requests" class="exchange-view" hidden>
+            <section class="exchange-request-group" aria-labelledby="pendingForMeTitle">
+              <div class="exchange-list-heading">
+                <h3 id="pendingForMeTitle">待我确认</h3>
+                <span id="exchangePendingCount" class="panel-state urgent">0 张</span>
+              </div>
+              <div id="exchangePendingList" class="exchange-list" aria-live="polite"></div>
+            </section>
+            <section class="exchange-request-group" aria-labelledby="waitingMachineTitle">
+              <div class="exchange-list-heading">
+                <h3 id="waitingMachineTitle">等待小机</h3>
+                <span id="exchangeWaitingCount" class="panel-state quiet">0 张</span>
+              </div>
+              <div id="exchangeWaitingList" class="exchange-list" aria-live="polite"></div>
+            </section>
+          </section>
+
+          <section id="exchange-view-history" class="exchange-view" hidden>
+            <div class="exchange-list-heading">
+              <h3>兑换记录</h3><span id="exchangeHistoryCount" class="panel-state">0 张</span>
+            </div>
+            <div id="exchangeHistoryList" class="exchange-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section id="panel-loans" class="module-card module-panel loans-card" role="tabpanel"
+          aria-labelledby="tab-loans" hidden>
+          <div class="module-heading">
+            <span class="pixel-icon" aria-hidden="true">◇</span>
+            <div>
+              <h2 id="socialTitle">欠条</h2>
+              <p id="socialDescription">借款提案、协商与还款</p>
+            </div>
           </div>
           <form id="loanCreateForm" class="loan-form" autocomplete="off">
             <h3>我要借款</h3>
@@ -152,6 +225,6 @@
     </section>
 
   </main>
-  <script src="/static/chips.js?v=1.0.0"></script>
+  <script src="/static/chips.js?v=1.1.0"></script>
 </body>
 </html>

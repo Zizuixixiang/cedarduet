@@ -68,7 +68,6 @@ h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: clamp(1.55rem, 7vw, 2rem); }
 h2 { margin-bottom: 3px; font-size: 1rem; }
 
-.fun-only,
 .status-pill,
 .readonly-tag {
   border: 2px solid var(--ink);
@@ -78,8 +77,6 @@ h2 { margin-bottom: 3px; font-size: 1rem; }
   font-size: 0.78rem;
   font-weight: 800;
 }
-
-.fun-only { padding: 6px 8px; white-space: nowrap; transform: rotate(1.5deg); }
 
 .notice {
   margin-bottom: 10px;
@@ -280,13 +277,149 @@ footer {
 .placeholder-actions { gap: 8px; margin-top: 11px; }
 .placeholder-actions .button { flex: 1; min-width: 0; padding-inline: 6px; font-size: 0.78rem; }
 
-.loans-card { background: rgba(255, 249, 253, 0.94); }
-.exchange-placeholder {
-  display: flex; justify-content: space-between; gap: 8px; margin-top: 12px;
-  padding: 8px 10px; border: 1px dashed var(--line); color: var(--muted);
-  background: var(--soft-purple); font-size: 0.75rem;
+.exchange-card, .loans-card { background: rgba(255, 249, 253, 0.94); }
+.exchange-boundary {
+  margin: 11px 0 0;
+  padding: 8px 9px;
+  border: 1px dashed var(--pink-dark);
+  color: #70425f;
+  background: #fff1f8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.45;
 }
-.exchange-placeholder span { font-weight: 900; }
+.exchange-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: var(--soft-purple);
+}
+.exchange-tab {
+  position: relative;
+  min-height: 33px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+.exchange-tab[aria-selected="true"] {
+  border-color: var(--ink);
+  color: #fff;
+  background: linear-gradient(115deg, var(--pink), var(--lilac));
+}
+.exchange-tab:focus-visible { outline: 3px solid #ffd246; outline-offset: 1px; }
+.exchange-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 4px;
+  place-items: center;
+  border: 1px solid #7b173c;
+  border-radius: 9px;
+  color: #fff;
+  background: #d8245d;
+  font-size: 0.62rem;
+  line-height: 1;
+  vertical-align: middle;
+}
+.exchange-view { margin-top: 10px; }
+.exchange-view[hidden] { display: none; }
+.exchange-catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.exchange-product {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 86px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 2px 2px 0 rgba(64, 43, 76, 0.14);
+  text-align: left;
+  cursor: pointer;
+}
+.exchange-product:focus-visible { outline: 3px solid #ffd246; outline-offset: 2px; }
+.exchange-product:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 rgba(64, 43, 76, 0.14); }
+.exchange-art {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  border-right: 2px dashed var(--line);
+  color: var(--pink-dark);
+  background:
+    linear-gradient(45deg, rgba(255,255,255,.42) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.42) 75%),
+    var(--soft-purple);
+  background-size: 12px 12px;
+  font-size: 1.65rem;
+  font-weight: 900;
+}
+.exchange-copy { min-width: 0; padding: 9px 8px; }
+.exchange-copy strong { display: block; font-size: 0.78rem; overflow-wrap: anywhere; }
+.exchange-copy span { display: block; margin-top: 4px; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
+.exchange-form {
+  margin-top: 10px;
+  padding: 11px;
+  border: 2px solid var(--pink-dark);
+  background: #fff;
+  box-shadow: 2px 2px 0 rgba(64, 43, 76, 0.12);
+}
+.exchange-form-heading { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; align-items: center; }
+.exchange-form-heading > div:first-child {
+  display: grid; width: 38px; height: 38px; place-items: center;
+  border: 2px solid var(--ink); color: var(--pink-dark); background: var(--soft-purple); font-weight: 900;
+}
+.exchange-form h3, .exchange-list-heading h3 { margin: 0; font-size: 0.85rem; }
+.exchange-form-heading p { margin: 2px 0 0; color: var(--muted); font-size: 0.66rem; line-height: 1.35; }
+.exchange-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.exchange-form > label, .exchange-form-grid label {
+  display: grid; gap: 4px; margin-top: 9px; color: var(--muted); font-size: 0.68rem; font-weight: 800;
+}
+.exchange-form input, .exchange-form select, .exchange-form textarea {
+  min-width: 0; width: 100%; min-height: 36px; padding: 6px 7px;
+  border: 2px solid var(--ink); border-radius: 2px; color: var(--ink); background: #fff;
+}
+.exchange-form textarea { min-height: 62px; resize: vertical; line-height: 1.4; }
+.exchange-form-actions { display: flex; gap: 7px; margin-top: 10px; }
+.exchange-form-actions .button { flex: 1; }
+.exchange-request-group + .exchange-request-group { margin-top: 15px; padding-top: 13px; border-top: 2px dashed var(--line); }
+.exchange-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-state.urgent { border-color: #b51f55; color: #fff; background: #d8245d; }
+.panel-state.quiet { color: var(--muted); background: #fff; }
+.exchange-list { display: grid; gap: 8px; margin-top: 7px; }
+.exchange-empty { margin: 0; padding: 11px; border: 1px dashed var(--line); color: var(--muted); font-size: 0.72rem; }
+.exchange-request {
+  padding: 9px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  box-shadow: 2px 2px 0 rgba(64, 43, 76, 0.1);
+}
+.exchange-request.completed { border-color: #548565; background: #f3fff7; }
+.exchange-request.rejected, .exchange-request.withdrawn, .exchange-request.expired { color: #6f6672; background: #f1edf0; }
+.exchange-request-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.exchange-request-title strong { font-size: 0.78rem; overflow-wrap: anywhere; }
+.exchange-status { flex: 0 0 auto; padding: 2px 5px; color: #fff; background: var(--lilac); font-size: 0.62rem; font-weight: 900; }
+.exchange-request.completed .exchange-status { background: #4d8062; }
+.exchange-request.rejected .exchange-status,
+.exchange-request.withdrawn .exchange-status,
+.exchange-request.expired .exchange-status { background: #776c78; }
+.exchange-request-meta { margin: 5px 0 0; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
+.exchange-request-note { margin: 7px 0 0; padding: 7px; background: var(--soft); font-size: 0.7rem; line-height: 1.45; overflow-wrap: anywhere; }
+.exchange-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.exchange-actions .button { min-height: 32px; padding: 5px 8px; font-size: 0.68rem; }
+
 .loan-form { margin-top: 12px; padding: 11px; border: 2px solid var(--line); background: #fff; }
 .loan-form h3, .loan-list-heading h3 { margin: 0; font-size: 0.88rem; }
 .loan-form > p { margin: 4px 0 10px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
@@ -394,6 +527,7 @@ footer p { margin: 3px 0 0; font-size: 0.75rem; line-height: 1.45; }
 @media (max-width: 540px) {
   .achievement-grid { grid-template-columns: minmax(0, 1fr); }
   .achievement-condition { min-height: 0; }
+  .exchange-catalog, .exchange-form-grid,
   .loan-form-grid, .loan-counter-grid, .loan-terms { grid-template-columns: minmax(0, 1fr); }
 }
 

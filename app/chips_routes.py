@@ -20,6 +20,13 @@ from .chips import (
 )
 from .achievements import filter_unlocks, get_achievements
 from .framework import DuelError
+from .exchanges import (
+    close_exchange_request,
+    confirm_exchange_request,
+    create_exchange_request,
+    list_catalog,
+    list_exchange_requests,
+)
 from .loans import (
     accept_loan,
     close_proposal,
@@ -30,6 +37,8 @@ from .loans import (
     repay_loan,
 )
 from .models import (
+    ExchangeCreateBody,
+    ExchangeDecisionBody,
     LoanCounterBody,
     LoanCreateBody,
     LoanDecisionBody,
@@ -53,6 +62,26 @@ def create_chips_router(
     trusted_bound_ais: Callable[[Request], list[dict[str, str]]],
 ) -> APIRouter:
     router = APIRouter()
+
+    def named_exchange_payload(
+        human_id: str,
+        machines: list[dict[str, str]],
+        *,
+        machine_id: str | None = None,
+    ) -> dict:
+        names = {machine["id"]: machine["name"] for machine in machines}
+        exchange = list_exchange_requests(
+            "human",
+            human_id,
+            counterparty_id=machine_id,
+            bound_counterparty_ids=set(names),
+        )
+        for bucket in exchange.values():
+            for item in bucket:
+                item["machine_name"] = names.get(item["ai_id"], item["ai_id"])
+        exchange["catalog"] = list_catalog("human")
+        exchange["pending_count"] = len(exchange["pending_for_me"])
+        return exchange
 
     @router.get("/chips", response_class=HTMLResponse, include_in_schema=False)
     async def chips_page():
@@ -91,6 +120,7 @@ def create_chips_router(
             "machines": machines,
             "ledger": list_ledger("human", human_id),
             "loans": loans,
+            "exchange": named_exchange_payload(human_id, machines),
             "achievements": achievements,
             "rules": {
                 "initial_balance": INITIAL_BALANCE,
@@ -123,6 +153,9 @@ def create_chips_router(
             "wallet": get_wallet("ai", machine_id),
             "ledger": list_ledger("ai", machine_id),
             "loans": loans,
+            "exchange": named_exchange_payload(
+                human_id, machines, machine_id=machine_id
+            ),
             "achievements": achievements,
             "read_only": True,
         }
@@ -185,6 +218,139 @@ def create_chips_router(
             "wallet": get_wallet("human", human_id),
             "ledger": list_ledger("human", human_id),
             "achievements": get_achievements("human", human_id),
+        }
+
+    def human_exchange_payload(
+        request: Request, human_id: str, exchange_request: dict
+    ) -> dict:
+        machines = trusted_bound_ais(request)
+        return {
+            "ok": True,
+            "request": exchange_request,
+            "exchange": named_exchange_payload(human_id, machines),
+            "wallet": get_wallet("human", human_id),
+            "ledger": list_ledger("human", human_id),
+        }
+
+    def current_exchange_for_human(
+        request: Request, human_id: str, request_id: str
+    ) -> tuple[dict, str]:
+        machines = trusted_bound_ais(request)
+        exchange = named_exchange_payload(human_id, machines)
+        match = next(
+            (
+                item
+                for bucket in ("pending_for_me", "waiting_for_other", "history")
+                for item in exchange[bucket]
+                if item["request_id"] == request_id
+            ),
+            None,
+        )
+        if match is None:
+            raise DuelError("这张兑换申请不属于当前绑定关系", 403)
+        return match, match["ai_id"]
+
+    @router.get("/api/chips/exchanges/catalog")
+    async def human_exchange_catalog(request: Request):
+        trusted_human_player(request)
+        return {"ok": True, "catalog": list_catalog("human")}
+
+    @router.get("/api/chips/exchanges")
+    async def human_list_exchanges(request: Request, machine_id: str | None = None):
+        human_id = trusted_human_player(request)
+        machines = trusted_bound_ais(request)
+        if machine_id is not None and machine_id not in {
+            machine["id"] for machine in machines
+        }:
+            raise DuelError("这只小机不在当前账号的绑定清单中", 403)
+        return {
+            "ok": True,
+            "exchange": named_exchange_payload(
+                human_id, machines, machine_id=machine_id
+            ),
+        }
+
+    @router.post("/api/chips/exchanges")
+    async def human_create_exchange(request: Request, body: ExchangeCreateBody):
+        human_id = trusted_human_player(request)
+        machines = trusted_bound_ais(request)
+        machine_ids = {machine["id"] for machine in machines}
+        created = create_exchange_request(
+            "human",
+            human_id,
+            body.machine_id,
+            item_key=body.item_key,
+            request_note=body.request_note,
+            chip_amount=body.chip_amount,
+            custom_title=body.custom_title,
+            idempotency_key=body.idempotency_key,
+            pair_is_bound=body.machine_id in machine_ids,
+        )
+        return {
+            **human_exchange_payload(request, human_id, created),
+            "message": "兑换申请已发给小机，记得去常用聊天里完成约定。",
+        }
+
+    @router.post("/api/chips/exchanges/{request_id}/confirm")
+    async def human_confirm_exchange(
+        request_id: str, request: Request, body: ExchangeDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        _existing, machine_id = current_exchange_for_human(
+            request, human_id, request_id
+        )
+        confirmed = confirm_exchange_request(
+            request_id,
+            "human",
+            human_id,
+            idempotency_key=body.idempotency_key,
+            bound_counterparty_id=machine_id,
+        )
+        return {
+            **human_exchange_payload(request, human_id, confirmed),
+            "message": f"已确认发放 {confirmed['chip_amount']} 枚筹码。",
+        }
+
+    @router.post("/api/chips/exchanges/{request_id}/reject")
+    async def human_reject_exchange(
+        request_id: str, request: Request, body: ExchangeDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        _existing, machine_id = current_exchange_for_human(
+            request, human_id, request_id
+        )
+        rejected = close_exchange_request(
+            request_id,
+            "human",
+            human_id,
+            action="reject",
+            idempotency_key=body.idempotency_key,
+            bound_counterparty_id=machine_id,
+        )
+        return {
+            **human_exchange_payload(request, human_id, rejected),
+            "message": "已拒绝这张兑换申请，不会移动筹码。",
+        }
+
+    @router.post("/api/chips/exchanges/{request_id}/withdraw")
+    async def human_withdraw_exchange(
+        request_id: str, request: Request, body: ExchangeDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        _existing, machine_id = current_exchange_for_human(
+            request, human_id, request_id
+        )
+        withdrawn = close_exchange_request(
+            request_id,
+            "human",
+            human_id,
+            action="withdraw",
+            idempotency_key=body.idempotency_key,
+            bound_counterparty_id=machine_id,
+        )
+        return {
+            **human_exchange_payload(request, human_id, withdrawn),
+            "message": "已撤回兑换申请，不会移动筹码。",
         }
 
     @router.post("/api/chips/loans")

@@ -75,6 +75,8 @@ TRANSACTION_LABELS = {
     "loan_principal_in": "借款本金入账",
     "loan_repayment_out": "欠条还款出账",
     "loan_repayment_in": "欠条还款入账",
+    "exchange_out": "互动兑换支出",
+    "exchange_in": "互动兑换收入",
 }
 
 

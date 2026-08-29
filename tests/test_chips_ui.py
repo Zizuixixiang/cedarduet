@@ -41,14 +41,16 @@ class ChipCenterStructureTests(unittest.TestCase):
         tabs = [attrs for _, attrs in self.elements if attrs.get("role") == "tab"]
         panels = [attrs for _, attrs in self.elements if attrs.get("role") == "tabpanel"]
 
-        self.assertEqual(len(tabs), 4)
-        self.assertEqual(len(panels), 4)
+        self.assertEqual(len(tabs), 5)
+        self.assertEqual(len(panels), 5)
         self.assertEqual(
             [tab["id"] for tab in tabs if tab.get("aria-selected") == "true"],
             ["tab-checkin"],
         )
         self.assertNotIn("hidden", self.attributes_for_id("panel-checkin"))
-        for panel_id in ("panel-achievements", "panel-social", "panel-ledger"):
+        for panel_id in (
+            "panel-achievements", "panel-shop", "panel-loans", "panel-ledger"
+        ):
             self.assertIn("hidden", self.attributes_for_id(panel_id))
 
     def test_overview_is_not_repeated_as_a_module(self):
@@ -77,7 +79,7 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn('id="achievementSections"', HTML)
         self.assertNotIn("成就与奖励正在筹备", HTML)
         achievement_panel = HTML[
-            HTML.index('id="panel-achievements"'):HTML.index('id="panel-social"')
+            HTML.index('id="panel-achievements"'):HTML.index('id="panel-shop"')
         ]
         self.assertNotIn("即将开放", achievement_panel)
         self.assertIn("function renderAchievements(payload)", SCRIPT)
@@ -96,17 +98,49 @@ class ChipCenterStructureTests(unittest.TestCase):
             self.assertIn(path, SCRIPT)
         self.assertIn("fetch(apiPath(url)", SCRIPT)
 
-    def test_loan_panel_has_real_terms_and_keeps_exchange_as_placeholder(self):
+    def test_shop_and_loan_are_separate_complete_modules(self):
         for element_id in (
             "loanCreateForm", "loanMachineSelect", "loanPrincipal", "loanRate",
             "loanDueDate", "loanCapEnabled", "loanCapWarning", "loanList",
         ):
             self.attributes_for_id(element_id)
-        self.assertIn("互动交换", HTML)
-        self.assertIn("筹备中", HTML)
+        for element_id in (
+            "exchangeCatalog", "exchangeCreateForm", "exchangeMachineSelect",
+            "exchangeRequestNote", "exchangeAmount", "exchangeCustomTitle",
+            "exchangePendingList", "exchangeWaitingList", "exchangeHistoryList",
+        ):
+            self.attributes_for_id(element_id)
+        self.assertIn("互动商店", HTML)
+        self.assertIn("请在常用聊天中自行完成", HTML)
+        self.assertNotIn("筹备中", HTML)
+        self.assertNotIn("不支持人民币充值", HTML)
         self.assertIn("function renderLoans(loans)", SCRIPT)
+        self.assertIn("function renderExchange(exchange)", SCRIPT)
         self.assertIn("daily_rate_micro_percent", SCRIPT)
         self.assertNotIn('reward.textContent = `+${achievement.reward}`;', SCRIPT.split("if (achievement.reward > 0)")[0])
+
+    def test_exchange_has_exactly_three_compact_views_and_only_incoming_badge(self):
+        exchange_buttons = [
+            attrs for _, attrs in self.elements if "data-exchange-view" in attrs
+        ]
+        self.assertEqual(
+            [attrs["data-exchange-view"] for attrs in exchange_buttons],
+            ["exchange-view-shop", "exchange-view-requests", "exchange-view-history"],
+        )
+        self.assertEqual(HTML.count('class="exchange-badge'), 1)
+        self.assertIn('id="exchangePendingBadge"', HTML)
+        self.assertNotIn('id="exchangeWaitingBadge"', HTML)
+        requests = HTML[
+            HTML.index('id="exchange-view-requests"'):HTML.index('id="exchange-view-history"')
+        ]
+        self.assertLess(requests.index("待我确认"), requests.index("等待小机"))
+
+    def test_exchange_cards_are_two_columns_and_mobile_one_column(self):
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        self.assertIn(".exchange-product", styles)
+        self.assertIn("grid-template-columns: 68px minmax(0, 1fr)", styles)
+        self.assertIn(".exchange-catalog", styles)
+        self.assertIn(".exchange-catalog, .exchange-form-grid", styles)
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
@@ -164,7 +198,8 @@ class Element {{
 const tabs = [
   new Element("tab-checkin", "panel-checkin", true),
   new Element("tab-achievements", "panel-achievements"),
-  new Element("tab-social", "panel-social"),
+  new Element("tab-shop", "panel-shop"),
+  new Element("tab-loans", "panel-loans"),
   new Element("tab-ledger", "panel-ledger"),
 ];
 const panels = tabs.map((tab) => new Element(tab.dataset.panel));
@@ -173,10 +208,10 @@ const document = {{
 }};
 {functions}
 initModuleTabs();
-assert.deepEqual(panels.map((panel) => panel.hidden), [false, true, true, true]);
+assert.deepEqual(panels.map((panel) => panel.hidden), [false, true, true, true, true]);
 tabs[2].listeners.click();
-assert.deepEqual(tabs.map((tab) => tab.attributes["aria-selected"]), ["false", "false", "true", "false"]);
-assert.deepEqual(panels.map((panel) => panel.hidden), [true, true, false, true]);
+assert.deepEqual(tabs.map((tab) => tab.attributes["aria-selected"]), ["false", "false", "true", "false", "false"]);
+assert.deepEqual(panels.map((panel) => panel.hidden), [true, true, false, true, true]);
 """
         completed = subprocess.run(
             [NODE, "-e", harness],
@@ -232,6 +267,15 @@ const ids = [
   "myBankruptcyState", "myBankruptcyCount", "bankruptcyDescription",
   "bankruptcyButton", "checkInState", "checkInDescription", "checkInButton",
   "achievementDescription", "achievementSummary", "achievementSections",
+  "exchangeTitle", "exchangeDescription", "exchangeCatalog",
+  "exchangeCreateForm", "exchangeMachineSelect", "exchangeItemKey",
+  "exchangeFormSymbol", "exchangeFormTitle", "exchangeFormDescription",
+  "exchangeCustomTitleWrap", "exchangeCustomTitle", "exchangeRequestNote",
+  "exchangeAmount", "exchangeCreateButton", "exchangeCancelButton",
+  "exchangePendingCount", "exchangeWaitingCount", "exchangeHistoryCount",
+  "exchangePendingBadge", "exchangePendingList", "exchangeWaitingList",
+  "exchangeHistoryList", "exchange-view-shop", "exchange-view-requests",
+  "exchange-view-history",
   "socialTitle", "socialDescription", "loanCreateForm", "loanMachineSelect",
   "loanPrincipal", "loanRate", "loanDueDate", "loanCapEnabled",
   "loanCapWarning", "loanCreateButton", "loanCount", "loanList",
@@ -243,7 +287,8 @@ elements.readOnlyTag.classList.add("hidden");
 const tabs = [
   new Element("tab-checkin", "panel-checkin", true),
   new Element("tab-achievements", "panel-achievements"),
-  new Element("tab-social", "panel-social"),
+  new Element("tab-shop", "panel-shop"),
+  new Element("tab-loans", "panel-loans"),
   new Element("tab-ledger", "panel-ledger"),
 ];
 const panels = tabs.map((tab) => new Element(tab.dataset.panel));
@@ -270,6 +315,7 @@ const payloads = {{
       {{id: "human", name: "人类专属", items: [{{id: "h1", name: "人类成就", condition: "条件", reward: 5, progress: {{current: 1, target: 1}}, unlocked: true, unlocked_at: "2026-08-27T01:00:00+00:00"}}]}},
     ]}},
     loans: [],
+    exchange: {{catalog: [], pending_for_me: [], waiting_for_other: [], history: []}},
     ledger: [{{label: "人类流水", amount: 10, created_at: "2026-08-27T01:00:00+00:00", balance_after: 310}}],
   }},
   "/api/chips/machines/ai-9": {{
@@ -279,6 +325,7 @@ const payloads = {{
       {{id: "relationship", name: "你们之间", items: [{{id: "pair", name: "来都来了", condition: "完成一局", reward: 5, progress: {{current: 0, target: 1}}, unlocked: false}}]}},
     ]}},
     loans: [],
+    exchange: {{catalog: [], pending_for_me: [], waiting_for_other: [], history: []}},
     ledger: [{{label: "小机流水", amount: -20, created_at: "2026-08-27T02:00:00+00:00", balance_after: 50}}],
   }},
 }};
@@ -315,7 +362,8 @@ assert.equal(elements.achievementSections.children[0].children[0].textContent, "
 assert.equal(elements.checkInDescription.textContent, "clio_web 的今日签到状态；只能由小机自己操作");
 assert.equal(elements.bankruptcyDescription.textContent, "clio_web 的破产信息只读；人类不能代为宣布");
 assert.equal(elements.achievementDescription.textContent, "clio_web 的永久成就；含你们之间的配对进度");
-assert.equal(elements.socialTitle.textContent, "与 clio_web 的互动与借款");
+assert.equal(elements.exchangeTitle.textContent, "与 clio_web 的互动商店");
+assert.equal(elements.socialTitle.textContent, "与 clio_web 的欠条");
 assert.equal(elements.ledgerDescription.textContent, "clio_web 的统一账本 · 最近流水");
 assert.equal(elements.readOnlyTag.classList.contains("hidden"), false);
 assert.equal(elements.checkInButton.disabled, true);
@@ -331,8 +379,9 @@ assert.equal(elements.checkInState.textContent, "今日未签到");
 assert.equal(elements.myBankruptcyCount.textContent, "破产 0 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "人类流水");
 assert.equal(elements.achievementDescription.textContent, "我的永久成就；奖励在解锁时自动到账");
-assert.equal(elements.socialTitle.textContent, "互动与借款");
-assert.equal(elements.socialDescription.textContent, "借款已开放；互动交换仍在筹备中");
+assert.equal(elements.exchangeTitle.textContent, "互动商店");
+assert.equal(elements.socialTitle.textContent, "欠条");
+assert.equal(elements.socialDescription.textContent, "借款提案、协商与还款");
 assert.equal(elements.checkInButton.disabled, false);
 assert.equal(elements.checkInButton.classList.contains("hidden"), false);
 assert.equal(elements.bankruptcyButton.classList.contains("hidden"), false);

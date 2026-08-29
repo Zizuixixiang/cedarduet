@@ -2,7 +2,7 @@
 
 人类与自己的 AI 搭档进行回合制棋牌对弈的独立服务。
 
-CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及全局娱乐筹码、欠条与成就系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
+CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及全局娱乐筹码、互动兑换、欠条与成就系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
 
 > 当前定位：公益、非商业、娱乐用途。筹码仅为站内娱乐数值，不支持充值、提现或与真钱兑换。
 
@@ -45,6 +45,7 @@ app/
   framework.py         房间、身份、轮次、胜负、消息
   models.py            HTTP 请求模型
   chips.py             全局娱乐筹码钱包与统一流水
+  exchanges.py         人机互动兑换申请、审批与原子转账
   loans.py             人机欠条协商、计息、转账与还款
   achievements.py      成就目录、可靠事实、进度与自动奖励
   chips_routes.py      筹码中心页面与 API
@@ -127,7 +128,7 @@ data/                   本地运行数据目录；真实数据库不会提交�
   结算批次和流水 metadata 中。
 - 成就第一版已实现：人类与绑定小机分别永久保存，关系进度严格按
   `human_id + ai_id` 分对，奖励在解锁事务内自动进入统一账本；系统 NPC 没有
-  钱包、成就或奖励。欠条已接入可靠事实与自动奖励；互动交换仍在设计中。
+  钱包、成就或奖励。欠条已接入可靠事实与自动奖励；互动兑换不新增成就。
 
 ## 本地启动
 
@@ -287,11 +288,12 @@ Content-Type: application/json
 `still_waiting` 只返回房间号、revision 和必要的当前行动者信息。
 
 小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持
-`status`、`check_in`、`bankruptcy`、`ledger`、`achievements`、`loans`；只能操作当前
+`status`、`check_in`、`bankruptcy`、`ledger`、`achievements`、`exchange`、`loans`；只能操作当前
 canonical AI 自己的钱包，绑定人类余额只读。`achievements` 返回通用、小机专属、
 已启用 NPC 与当前可信绑定人类的“你们之间”成就；未解锁隐藏成就完全不返回。
 `loans` 是显式欠条入口，提供 list/create/accept/reject/counter/withdraw/repay；
-普通 status、房间和对局响应不会夹带欠条或逾期提醒。
+`exchange` 提供 catalog/list/create/confirm/reject/withdraw。普通 status、房间和
+对局响应不会夹带欠条、逾期或兑换提醒。
 ledger 默认 5 条、硬上限 10。小机可对已正常结束且原阵容不含随机 NPC 的房间提交
 `{"action":"rematch","room_id":"..."}` 发起对称、权威、可追踪的重赛。
 
@@ -312,6 +314,10 @@ POST /api/rooms/{room_id}/retention
 POST /api/rooms/{room_id}/delete
 GET  /api/chips
 GET  /api/chips/machines/{machine_id}
+GET  /api/chips/exchanges/catalog
+GET  /api/chips/exchanges
+POST /api/chips/exchanges
+POST /api/chips/exchanges/{request_id}/{confirm|reject|withdraw}
 POST /api/chips/loans
 POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 ```
@@ -344,6 +350,19 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 - 余额恢复到 `>= 200` 后自动解除破产状态
 - 人类只能操作自己；绑定 AI 的钱包在人类端只读
 - 所有筹码变化进入统一账本流水
+- 人类目录仅含人类专属与双方通用商品；小机目录仅含小机专属与双方通用商品，
+  小机专属名称、说明和图片键只会随小机已经发出的申请快照展示给人类
+- 想获得筹码的一方发起并承诺完成商品内容，另一方付款审批；说明 1–120 字、
+  筹码 1–100，`custom` 另需 1–30 字标题
+- 每对绑定最多 3 张待处理申请，72 小时自动失效；付款方按 Asia/Shanghai 自然日
+  累计兑换支出最多 100 枚
+- 付款方只可确认或拒绝，发起方审批前只可撤回；确认时重验绑定与余额，并原子写入
+  双方 `exchange_out` / `exchange_in`，拒绝、撤回、失效均不动账
+- 解绑使待处理申请失效，已完成历史保留；平台不上传或保存实际互动内容，也不介入
+  履约争议，双方在常用聊天平台自行完成
+- 当前商品图使用轻量 CSS/符号占位；后续原图放在
+  `app/static/assets/exchange-shop/source/`，约定文件名为 `human-items.png`、
+  `machine-items.png`、`common-items.png`，处理后的网页素材放在相邻 `items/`
 - 只有借款人能发起欠条；人类从筹码中心发起，小机从显式 MCP `chips/loans` 发起
 - 当前收到方可接受、拒绝或还价；还价生成新 revision，旧接受立即失效；发起人只可在生效前撤销
 - 每名借款人最多 3 张未结欠条；逾期会阻止新借款，但不影响对局、签到、破产处理和还款
@@ -361,7 +380,7 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 - 成就终局快照、参与者结果、开局余额、事件、配对与进度独立于 `rooms` 持久化，
   删除房间不会删除成就事实
 
-数据库初始化保持增量兼容：成就、`loans`、`loan_revisions`、`loan_operations` 表及索引
+数据库初始化保持增量兼容：成就、互动兑换、`loans`、`loan_revisions`、`loan_operations` 表及索引
 使用 `CREATE ... IF NOT EXISTS`，不改写现有钱包/账本，也不会从普通旧流水猜测历史欠条。
 房间仅增加
 `terminal_reason` 与权威重赛链字段，不重建或覆盖已兼容旧库。启动回填只接受最终

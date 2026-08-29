@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 let summary = null;
 let currentSubject = {type: "human", id: null, name: "我"};
 let subjectRequestSequence = 0;
+let currentExchange = null;
 
 function apiPath(path) {
   return window.location.pathname.startsWith("/duel") ? `/duel${path}` : path;
@@ -66,13 +67,29 @@ function initModuleTabs() {
   if (initialTab) activateModuleTab(initialTab);
 }
 
+function activateExchangeView(selectedButton) {
+  const buttons = Array.from(document.querySelectorAll("[data-exchange-view]"));
+  for (const button of buttons) {
+    button.setAttribute("aria-selected", String(button === selectedButton));
+    const view = $(button.dataset.exchangeView);
+    if (view) view.hidden = button !== selectedButton;
+  }
+}
+
+function initExchangeTabs() {
+  const buttons = Array.from(document.querySelectorAll("[data-exchange-view]"));
+  for (const button of buttons) {
+    button.addEventListener("click", () => activateExchangeView(button));
+  }
+}
+
 function bankruptcyText(wallet) {
   return wallet.bankruptcy_active
     ? wallet.bankruptcy_badge.name
     : "正常营业";
 }
 
-function renderSubject(subject, wallet, ledger, achievements = null, loans = null) {
+function renderSubject(subject, wallet, ledger, achievements = null, loans = null, exchange = null) {
   const readOnly = subject.type === "ai";
   currentSubject = subject;
   $("balanceTitle").textContent = readOnly ? `${subject.name} 的筹码` : "我的筹码";
@@ -97,16 +114,21 @@ function renderSubject(subject, wallet, ledger, achievements = null, loans = nul
   $("achievementDescription").textContent = readOnly
     ? `${subject.name} 的永久成就；含你们之间的配对进度`
     : "我的永久成就；奖励在解锁时自动到账";
-  $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的互动与借款` : "互动与借款";
+  $("exchangeTitle").textContent = readOnly ? `与 ${subject.name} 的互动商店` : "互动商店";
+  $("exchangeDescription").textContent = readOnly
+    ? `只显示你与 ${subject.name} 的申请；仍可确认由人类钱包付款的申请`
+    : "汇总全部绑定小机；用筹码换一个聊天里兑现的小约定";
+  $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的欠条` : "欠条";
   $("socialDescription").textContent = readOnly
     ? `你与 ${subject.name} 的欠条；人类只能执行自己角色允许的操作`
-    : "借款已开放；互动交换仍在筹备中";
+    : "借款提案、协商与还款";
   $("ledgerDescription").textContent = readOnly
     ? `${subject.name} 的统一账本 · 最近流水`
     : "我的统一账本 · 最近流水";
   renderLedger(ledger);
   renderAchievements(achievements);
   renderLoans(loans || []);
+  renderExchange(exchange);
 }
 
 function renderAchievements(payload) {
@@ -211,6 +233,17 @@ function renderMachines(machines) {
       loanSelect.append(option);
     }
     loanSelect.disabled = machines.length === 0;
+  }
+  const exchangeSelect = $("exchangeMachineSelect");
+  if (exchangeSelect) {
+    exchangeSelect.replaceChildren();
+    for (const machine of machines) {
+      const option = document.createElement("option");
+      option.value = machine.id;
+      option.textContent = machine.name;
+      exchangeSelect.append(option);
+    }
+    exchangeSelect.disabled = machines.length === 0;
   }
 }
 
@@ -334,7 +367,7 @@ async function runLoanAction(loan, action, body) {
     if (currentSubject.type === "human") {
       renderSubject(
         currentSubject, payload.wallet, payload.ledger,
-        payload.achievements, payload.loans,
+        payload.achievements, payload.loans, currentExchange,
       );
     } else {
       await selectSubject(`ai:${currentSubject.id}`);
@@ -505,6 +538,186 @@ function renderLoans(loans) {
   }
 }
 
+const exchangeStatusLabels = {
+  pending: "待处理", completed: "已完成", rejected: "已拒绝",
+  withdrawn: "已撤回", expired: "已失效",
+};
+
+function exchangeSymbol(itemKey) {
+  const item = currentExchange?.catalog?.find((entry) => entry.key === itemKey);
+  return item?.symbol || "♡";
+}
+
+function syncExchangeTarget() {
+  const select = $("exchangeMachineSelect");
+  if (!select || !summary) return;
+  if (currentSubject.type === "ai") {
+    select.value = currentSubject.id;
+    select.disabled = true;
+  } else {
+    select.disabled = !summary.machines.length;
+    if (!select.value && summary.machines.length) select.value = summary.machines[0].id;
+  }
+}
+
+function openExchangeForm(item) {
+  if (!summary?.machines?.length) {
+    showNotice("还没有可选择的绑定小机", true);
+    return;
+  }
+  $("exchangeItemKey").value = item.key;
+  $("exchangeFormSymbol").textContent = item.symbol || "♡";
+  $("exchangeFormTitle").textContent = item.title;
+  $("exchangeFormDescription").textContent = item.description;
+  const custom = item.key === "custom";
+  $("exchangeCustomTitleWrap").classList.toggle("hidden", !custom);
+  $("exchangeCustomTitle").required = custom;
+  if (!custom) $("exchangeCustomTitle").value = "";
+  $("exchangeCreateForm").classList.remove("hidden");
+  syncExchangeTarget();
+  $(custom ? "exchangeCustomTitle" : "exchangeRequestNote").focus();
+}
+
+function renderExchangeCatalog(items) {
+  const container = $("exchangeCatalog");
+  container.replaceChildren();
+  if (!items?.length) {
+    const empty = document.createElement("p");
+    empty.className = "exchange-empty";
+    empty.textContent = "当前没有可发起的商品。";
+    container.append(empty);
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "exchange-product";
+    card.dataset.itemKey = item.key;
+    const art = document.createElement("span");
+    art.className = "exchange-art";
+    art.setAttribute("aria-hidden", "true");
+    art.textContent = item.symbol || "♡";
+    const copy = document.createElement("span");
+    copy.className = "exchange-copy";
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+    const description = document.createElement("span");
+    description.textContent = item.description;
+    copy.append(title, description);
+    card.append(art, copy);
+    card.addEventListener("click", () => openExchangeForm(item));
+    container.append(card);
+  }
+}
+
+function renderExchangeRequest(item) {
+  const card = document.createElement("article");
+  card.className = `exchange-request ${item.status}`;
+  const titleRow = document.createElement("div");
+  titleRow.className = "exchange-request-title";
+  const title = document.createElement("strong");
+  title.textContent = `${exchangeSymbol(item.item.key)} ${item.display_title}`;
+  const status = document.createElement("span");
+  status.className = "exchange-status";
+  status.textContent = exchangeStatusLabels[item.status] || item.status;
+  titleRow.append(title, status);
+  const direction = item.initiator.type === "human"
+    ? "人类完成约定 · 小机付款" : "小机完成约定 · 人类付款";
+  const meta = document.createElement("p");
+  meta.className = "exchange-request-meta";
+  meta.textContent = `${item.machine_name || machineName(item.ai_id)} · ${direction} · ${item.chip_amount} 枚`;
+  const description = document.createElement("p");
+  description.className = "exchange-request-meta";
+  description.textContent = item.item.description;
+  const note = document.createElement("p");
+  note.className = "exchange-request-note";
+  note.textContent = `本次说明：${item.request_note}`;
+  const time = document.createElement("p");
+  time.className = "exchange-request-meta";
+  time.textContent = item.status === "pending"
+    ? `72 小时有效，至 ${formatLedgerCreatedAt(item.expires_at)}`
+    : `创建于 ${formatLedgerCreatedAt(item.created_at)}`;
+  card.append(titleRow, meta, description, note, time);
+  if (item.allowed_actions?.length) {
+    const actions = document.createElement("div");
+    actions.className = "exchange-actions";
+    const labels = {confirm: "确认发放", reject: "拒绝", withdraw: "撤回"};
+    for (const action of item.allowed_actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `button ${action === "confirm" ? "primary" : "ghost"}`;
+      button.textContent = labels[action];
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        await runExchangeAction(item, action);
+      });
+      actions.append(button);
+    }
+    card.append(actions);
+  }
+  return card;
+}
+
+function renderExchangeList(containerId, items, emptyText) {
+  const container = $(containerId);
+  container.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "exchange-empty";
+    empty.textContent = emptyText;
+    container.append(empty);
+    return;
+  }
+  for (const item of items) container.append(renderExchangeRequest(item));
+}
+
+function renderExchange(exchange) {
+  currentExchange = exchange;
+  const pending = exchange?.pending_for_me || [];
+  const waiting = exchange?.waiting_for_other || [];
+  const history = exchange?.history || [];
+  renderExchangeCatalog(exchange?.catalog || []);
+  $("exchangePendingCount").textContent = `${pending.length} 张`;
+  $("exchangeWaitingCount").textContent = `${waiting.length} 张`;
+  $("exchangeHistoryCount").textContent = `${history.length} 张`;
+  const badge = $("exchangePendingBadge");
+  badge.textContent = String(pending.length);
+  badge.classList.toggle("hidden", pending.length === 0);
+  renderExchangeList("exchangePendingList", pending, "没有需要你确认的申请。");
+  renderExchangeList("exchangeWaitingList", waiting, "没有等待小机处理的申请。");
+  renderExchangeList("exchangeHistoryList", history, "还没有兑换记录。");
+  syncExchangeTarget();
+}
+
+async function runExchangeAction(item, action) {
+  try {
+    const payload = await requestJson(
+      `/api/chips/exchanges/${encodeURIComponent(item.request_id)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          idempotency_key: newIdempotencyKey(`web:exchange:${item.request_id}:${action}`),
+        }),
+      },
+    );
+    summary.wallet = payload.wallet;
+    summary.ledger = payload.ledger;
+    summary.exchange = payload.exchange;
+    if (currentSubject.type === "human") {
+      renderSubject(
+        currentSubject, summary.wallet, summary.ledger,
+        summary.achievements, summary.loans, summary.exchange,
+      );
+    } else {
+      await selectSubject(`ai:${currentSubject.id}`);
+    }
+    showNotice(payload.message);
+  } catch (error) {
+    showNotice(error.message, true);
+    if (currentExchange) renderExchange(currentExchange);
+  }
+}
+
 async function loadSummary() {
   try {
     summary = await requestJson("/api/chips");
@@ -515,6 +728,7 @@ async function loadSummary() {
       summary.ledger,
       summary.achievements,
       summary.loans,
+      summary.exchange,
     );
   } catch (error) {
     showNotice(error.message, true);
@@ -535,7 +749,7 @@ async function runHumanAction(url) {
     if (currentSubject.type === "human") {
       renderSubject(
         currentSubject, payload.wallet, payload.ledger,
-        summary.achievements, summary.loans,
+        summary.achievements, summary.loans, summary.exchange,
       );
     }
     showNotice(payload.message);
@@ -544,7 +758,7 @@ async function runHumanAction(url) {
     if (summary && currentSubject.type === "human") {
       renderSubject(
         currentSubject, summary.wallet, summary.ledger,
-        summary.achievements, summary.loans,
+        summary.achievements, summary.loans, summary.exchange,
       );
     }
   }
@@ -559,6 +773,7 @@ async function selectSubject(value) {
       summary.ledger,
       summary.achievements,
       summary.loans,
+      summary.exchange,
     );
     return;
   }
@@ -578,7 +793,7 @@ async function selectSubject(value) {
     bankruptcy_badge: null,
     bankruptcy_count: "--",
     can_declare_bankruptcy: false,
-  }, [], null, []);
+  }, [], null, [], null);
   $("checkInState").textContent = "读取中";
   $("myBankruptcyState").textContent = "读取中";
   try {
@@ -586,7 +801,7 @@ async function selectSubject(value) {
     if (requestSequence !== subjectRequestSequence) return;
     renderSubject(
       subject, payload.wallet, payload.ledger,
-      payload.achievements, payload.loans,
+      payload.achievements, payload.loans, payload.exchange,
     );
   } catch (error) {
     if (requestSequence !== subjectRequestSequence) return;
@@ -599,6 +814,48 @@ async function selectSubject(value) {
 $("checkInButton").addEventListener("click", () => runHumanAction("/api/chips/check-in"));
 $("bankruptcyButton").addEventListener("click", () => runHumanAction("/api/chips/bankruptcy"));
 $("subjectSelect").addEventListener("change", (event) => selectSubject(event.target.value));
+
+$("exchangeCancelButton").addEventListener("click", () => {
+  $("exchangeCreateForm").classList.add("hidden");
+});
+$("exchangeCreateForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = $("exchangeCreateButton");
+  button.disabled = true;
+  try {
+    const customTitle = $("exchangeItemKey").value === "custom"
+      ? $("exchangeCustomTitle").value.trim() : null;
+    const payload = await requestJson("/api/chips/exchanges", {
+      method: "POST",
+      body: JSON.stringify({
+        machine_id: $("exchangeMachineSelect").value,
+        item_key: $("exchangeItemKey").value,
+        request_note: $("exchangeRequestNote").value.trim(),
+        chip_amount: positiveSafeIntegerInput($("exchangeAmount").value, "筹码数"),
+        custom_title: customTitle,
+        idempotency_key: newIdempotencyKey("web:exchange:create"),
+      }),
+    });
+    summary.wallet = payload.wallet;
+    summary.ledger = payload.ledger;
+    summary.exchange = payload.exchange;
+    $("exchangeCreateForm").reset();
+    $("exchangeCreateForm").classList.add("hidden");
+    if (currentSubject.type === "human") {
+      renderSubject(
+        currentSubject, summary.wallet, summary.ledger,
+        summary.achievements, summary.loans, summary.exchange,
+      );
+    } else {
+      await selectSubject(`ai:${currentSubject.id}`);
+    }
+    showNotice(payload.message);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 const loanDueDate = $("loanDueDate");
 loanDueDate.min = shanghaiDateOffset(1);
@@ -629,7 +886,7 @@ $("loanCreateForm").addEventListener("submit", async (event) => {
     summary.achievements = payload.achievements;
     renderSubject(
       currentSubject, payload.wallet, payload.ledger,
-      payload.achievements, payload.loans,
+      payload.achievements, payload.loans, summary.exchange,
     );
     $("loanPrincipal").value = "";
     showNotice(payload.message);
@@ -641,4 +898,5 @@ $("loanCreateForm").addEventListener("submit", async (event) => {
 });
 
 initModuleTabs();
+initExchangeTabs();
 loadSummary();

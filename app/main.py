@@ -50,6 +50,14 @@ from .loans import (
     list_loans,
     repay_loan,
 )
+from .exchanges import (
+    close_exchange_request,
+    compact_exchange_lists,
+    confirm_exchange_request,
+    create_exchange_request,
+    list_catalog,
+    list_exchange_requests,
+)
 from .games import game_catalog, get_game
 from .models import (
     CreateRoomBody,
@@ -415,6 +423,8 @@ def _mcp_chips(body: McpPlayBody) -> dict:
     op = body.op or "status"
     if op == "loans":
         return _mcp_loans(body)
+    if op == "exchange":
+        return _mcp_exchange(body)
     human_player_id = require(
         body.opponent_id,
         "chips 动作需要由可信上游注入绑定人类身份",
@@ -479,6 +489,86 @@ def _mcp_chips(body: McpPlayBody) -> dict:
             for item in list_ledger("ai", body.player_id, limit=limit)
         ]
     return payload
+
+
+def _mcp_exchange(body: McpPlayBody) -> dict:
+    """AI-owned exchange operations; the trusted opponent is always human."""
+    action = body.exchange_action or "list"
+    human_id = require(
+        body.opponent_id,
+        "chips/exchange 需要由可信上游注入绑定人类身份",
+    )
+    if human_id == body.player_id:
+        raise DuelError("小机与绑定人类不能使用同一个身份 ID", 403)
+    if action == "catalog":
+        return {
+            "ok": True,
+            "status": "ok",
+            "op": "exchange",
+            "exchange_action": "catalog",
+            "catalog": list_catalog("ai"),
+        }
+    if action == "list":
+        limit = body.limit if body.limit is not None else 50
+        if limit > 100:
+            raise DuelError("chips/exchange limit 最大为 100")
+        listed = list_exchange_requests(
+            "ai",
+            body.player_id,
+            counterparty_id=human_id,
+            bound_counterparty_ids={human_id},
+            limit=limit,
+        )
+        return {
+            "ok": True,
+            "status": "ok",
+            "op": "exchange",
+            "exchange_action": "list",
+            **compact_exchange_lists(listed),
+        }
+    key = require(body.idempotency_key, "兑换写操作需要 idempotency_key")
+    if action == "create":
+        exchange_request = create_exchange_request(
+            "ai",
+            body.player_id,
+            human_id,
+            item_key=require(body.item_key, "create 需要 item_key"),
+            request_note=require(body.request_note, "create 需要 request_note"),
+            chip_amount=require(body.chip_amount, "create 需要 chip_amount"),
+            custom_title=body.custom_title,
+            idempotency_key=key,
+            pair_is_bound=True,
+        )
+    else:
+        request_id = require(body.request_id, f"{action} 需要 request_id")
+        if action == "confirm":
+            exchange_request = confirm_exchange_request(
+                request_id,
+                "ai",
+                body.player_id,
+                idempotency_key=key,
+                bound_counterparty_id=human_id,
+            )
+        elif action in {"reject", "withdraw"}:
+            exchange_request = close_exchange_request(
+                request_id,
+                "ai",
+                body.player_id,
+                action=action,
+                idempotency_key=key,
+                bound_counterparty_id=human_id,
+            )
+        else:
+            raise DuelError("未知 chips/exchange 操作")
+    return {
+        "ok": True,
+        "status": "ok",
+        "op": "exchange",
+        "exchange_action": action,
+        "request": exchange_request,
+        "wallet": _compact_wallet(get_wallet("ai", body.player_id)),
+        "bound_human_balance": get_wallet("human", human_id)["balance"],
+    }
 
 
 def _mcp_loans(body: McpPlayBody) -> dict:

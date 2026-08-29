@@ -408,6 +408,10 @@ def init_db() -> None:
         from .loans import init_loans_schema
 
         init_loans_schema(conn)
+        # Interaction exchanges are additive and store request terms only.
+        from .exchanges import init_exchanges_schema
+
+        init_exchanges_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         try:
             backfill_authoritative_matches(conn)

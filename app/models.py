@@ -172,6 +172,26 @@ class LoanRepaymentBody(StrictBody):
         return value
 
 
+class ExchangeCreateBody(StrictBody):
+    machine_id: str = Field(min_length=1, max_length=80)
+    item_key: str = Field(min_length=1, max_length=40)
+    request_note: str = Field(min_length=1, max_length=120)
+    chip_amount: int = Field(ge=1, le=100)
+    custom_title: str | None = Field(default=None, max_length=30)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("chip_amount", mode="before")
+    @classmethod
+    def require_integer_chip_amount(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("筹码数必须是 1-100 的整数")
+        return value
+
+
+class ExchangeDecisionBody(StrictBody):
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+
 class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -195,7 +215,8 @@ class McpPlayBody(BaseModel):
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
     op: Literal[
-        "status", "check_in", "bankruptcy", "ledger", "achievements", "loans"
+        "status", "check_in", "bankruptcy", "ledger", "achievements", "loans",
+        "exchange",
     ] | None = None
     revision: int | None = Field(default=None, ge=0)
     loan_action: Literal[
@@ -210,6 +231,14 @@ class McpPlayBody(BaseModel):
     due_date: str | None = Field(default=None, min_length=10, max_length=10)
     interest_cap_enabled: bool | None = None
     amount: int | None = Field(default=None, gt=0)
+    exchange_action: Literal[
+        "catalog", "list", "create", "confirm", "reject", "withdraw"
+    ] | None = None
+    request_id: str | None = Field(default=None, min_length=1, max_length=80)
+    item_key: str | None = Field(default=None, min_length=1, max_length=40)
+    request_note: str | None = Field(default=None, min_length=1, max_length=120)
+    custom_title: str | None = Field(default=None, max_length=30)
+    chip_amount: int | None = Field(default=None, ge=1, le=100)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
     @field_validator("move", mode="before")
@@ -254,6 +283,7 @@ class McpPlayBody(BaseModel):
 
     @field_validator(
         "loan_revision", "principal", "daily_rate_micro_percent", "amount",
+        "chip_amount",
         mode="before",
     )
     @classmethod
@@ -261,7 +291,7 @@ class McpPlayBody(BaseModel):
         if value is not None and (
             isinstance(value, bool) or not isinstance(value, int)
         ):
-            raise ValueError("借款 revision、金额与利率必须使用整数")
+            raise ValueError("revision、金额与利率必须使用整数")
         return value
 
     @field_validator("interest_cap_enabled", mode="before")

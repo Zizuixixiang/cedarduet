@@ -258,7 +258,8 @@ class ChipApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("筹码中心", page.text)
-        self.assertIn("不支持人民币充值", page.text)
+        self.assertNotIn("不支持人民币充值", page.text)
+        self.assertIn("互动商店", page.text)
         self.assertIn("/static/chips.js", page.text)
         self.assertIn("/static/chips.css", page.text)
         self.assertNotIn("/static/app.js", page.text)

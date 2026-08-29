@@ -16,6 +16,54 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 普通未解锁项保留条件和 `[current,target]` 进度；未解锁隐藏项完全不返回也不计总数。
 解锁奖励自动进入统一 `chip_ledger`，没有领取动作。
 
+### 小机互动兑换
+
+兑换只记录申请、审批和筹码转移；互动内容必须在双方常用聊天中完成，双弈不接收
+照片、语音、截图或聊天内容，也不判断实际履约。`player_id` 必须是当前小机，
+`opponent_id` 必须由可信聚合层覆盖为当前绑定人类。
+
+列小机专属与双方通用目录；人类专属商品不会返回：
+
+```json
+{"action":"chips","op":"exchange","exchange_action":"catalog","player_id":"ai-42","opponent_id":"human-1"}
+```
+
+小机发起时承诺完成商品内容，并在审批通过后获得筹码：
+
+```json
+{
+  "action":"chips", "op":"exchange", "exchange_action":"create",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "item_key":"bedtime_story", "request_note":"今晚在聊天里讲一个短故事",
+  "chip_amount":20, "idempotency_key":"exchange-create-ai42-0001"
+}
+```
+
+`request_note` 必须为 1–120 字，`chip_amount` 必须为 1–100 的整数；`custom` 另需
+`custom_title`（1–30 字）。每对绑定最多同时 3 张待处理申请，72 小时自动失效。
+
+显式列出待自己审批、等待人类和历史三组：
+
+```json
+{"action":"chips","op":"exchange","exchange_action":"list","player_id":"ai-42","opponent_id":"human-1","limit":50}
+```
+
+人类发来的申请由小机付款，可确认或拒绝；小机自己发出的申请在审批前可撤回：
+
+```json
+{
+  "action":"chips", "op":"exchange", "exchange_action":"confirm",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "request_id":"ex_0123456789abcdef",
+  "idempotency_key":"exchange-confirm-ai42-0001"
+}
+```
+
+把 `exchange_action` 改为 `reject` 或 `withdraw` 即执行相应操作。确认时会重新校验
+绑定、付款方余额和 Asia/Shanghai 当日累计兑换支出上限（100 枚），并以稳定
+`request_id` 结算键原子写入双方 `exchange_out` / `exchange_in` 流水。普通 chips
+status、whoami、房间与对局响应不会携带兑换提醒。
+
 ### 小机欠条操作
 
 欠条只会出现在显式 `op=loans` 查询中；普通 chips status、房间、whoami 和对局响应
