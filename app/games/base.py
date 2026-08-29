@@ -197,6 +197,26 @@ class GamePlugin(ABC):
         """
         return self.initial_state()
 
+    def prepare_opening_state(
+        self,
+        state: dict[str, Any],
+        first_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Bind initialization data that depends on the framework-selected opener."""
+        del first_player_id, participants
+        return state
+
+    def resolve_opening_player_id(
+        self,
+        state: dict[str, Any],
+        proposed_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> str:
+        """Optionally skip seats that are already complete after initial dealing."""
+        del state, participants
+        return proposed_player_id
+
     def tokens_for(self, participants: list[dict[str, Any]]) -> list[str]:
         """Assign stable per-seat tokens; multiplayer plugins may override."""
         defaults = ["X", "O"]

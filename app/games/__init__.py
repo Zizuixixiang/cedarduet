@@ -1,5 +1,6 @@
 from .aeroplane_chess import AeroplaneChess
 from .banqi import Banqi
+from .blackjack import Blackjack
 from .connect4 import Connect4
 from .checkers import Checkers
 from .chess import Chess
@@ -18,6 +19,7 @@ GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 GAMES = {
     AeroplaneChess.game_type: AeroplaneChess(),
     Banqi.game_type: Banqi(),
+    Blackjack.game_type: Blackjack(),
     TicTacToe.game_type: TicTacToe(),
     Gomoku.game_type: Gomoku(),
     Othello.game_type: Othello(),

@@ -15,6 +15,7 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `checkers`：8×8 西洋跳棋（English draughts / American checkers）
 - `dots_boxes`：2–4 人点格棋，支持系统 NPC
 - `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
+- `blackjack`：2–6 人共同对虚拟庄家的 21 点，支持系统 NPC，仅娱乐局
 - `jungle`：7×9 斗兽棋
 - `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
 - `aeroplane_chess`：2–4 人标准中国飞行棋，支持系统 NPC 与多人筹码
@@ -22,6 +23,24 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 井字棋、五子棋、黑白棋、四子连珠、西洋跳棋、斗兽棋和象棋继续严格双人。点格棋权威声明
 `allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
 多人/NPC 框架验收游戏。
+
+### 21点固定规则与状态接口
+
+21点使用固定 4 副标准牌 shoe，一房一局，2–6 名参与者按座位共同对抗不属于
+`participants`、也没有钱包的虚拟庄家。每人两张明牌；庄家两张牌中的第二张在
+庄家阶段前只投影为统一 `{hidden:true}`，公共状态、私有状态和事件都不会包含其
+牌值、花色或 `card_id`。A 自动按 1/11 取不爆牌的最优值。参与者只能从自己的
+`private_state.legal_actions` 选择 `hit` / `stand`；爆牌立即结束该手，自然
+Blackjack 席位自动跳过行动。所有人结束后庄家翻暗牌并按 S17 自动补牌，即软 17
+也停牌。
+
+首两张 A + 10 值牌是自然 Blackjack，胜过庄家以三张或更多牌组成的普通 21；双方
+同为自然时推和。第一版没有 split、double、insurance、surrender。终局由
+`game_result.outcomes_by_player` 分别记录每名参与者相对庄家的 `win/loss/push` 与
+中文结果；通用单赢家字段以 `draw=true` 兼容收口。由于庄家没有钱包且全局筹码
+只支持参与者间零和结算，插件固定 `supports_stakes=false`，不会 mint/burn 筹码。
+洗牌与每次抽牌都写入 `board_state`，刷新或重启不重新随机；若下一局初始发牌前
+余牌不足 `2 * (参与者数 + 1)`，权威牌堆逻辑才合并余牌与弃牌重洗。
 
 ### 飞行棋固定规则与状态接口
 
@@ -120,6 +139,7 @@ app/
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
   games/checkers.py    8×8 English draughts 权威规则与 NPC 合法动作
+  games/blackjack.py   4 副 shoe、庄家 S17、逐席独立结算与安全状态投影
   games/aeroplane_chess.py  飞行棋权威规则、持久骰子与多人结算
   games/xiangqi.py     象棋 GamePlugin 与房间状态适配
   games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
@@ -150,7 +170,7 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
   `system_npc`，旧 `role=human/ai` 字段继续供旧游戏与客户端兼容。生产开房
   强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多四个，
-  不会接管中途离开的席位。点格棋、吹牛骰子与西洋跳棋规则引擎声明
+  不会接管中途离开的席位。点格棋、吹牛骰子、西洋跳棋与 21点规则引擎声明
   `supports_npcs`；严格双人生产入口仍要求人类与真实绑定小机各一席。
 - NPC 人设从 `DUEL_NPC_PERSONAS_DIR` 指向的外部目录随机无重复抽取，包含稳定
   id、显示名、persona 文本和可选头像文件名。头像只从
@@ -489,6 +509,11 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 
 快艇骰子支持 2–6 人与系统 NPC，使用独立 `yahtzee.js` renderer 展示五枚骰子与计分卡；
 每回合最多三掷并可保留骰子，第一版不开放筹码局，也不实现重复快艇 bonus/Joker。
+
+21点使用独立 `blackjack.js` + `blackjack.css` renderer。目录加载走通用
+`DuelGameUI` registry，renderer 自己幂等加载样式，首页不写死资源；绿色木边牌桌、
+统一牌背、当前行动者、soft/hard 点数和逐席结果均来自服务端投影，操作区只提交
+当前 viewer 的权威 `hit/stand`。
 
 ## 筹码中心
 

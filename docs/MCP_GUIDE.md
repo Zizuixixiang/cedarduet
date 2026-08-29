@@ -333,6 +333,52 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 上半区 63 分加 35 分。第一版没有重复快艇 bonus 和 Joker。全员填完 13 类后按总分
 排名；最高分并列即 `draw=true`，`tied_player_ids` 按稳定座位顺序返回。
 
+## 21点 `blackjack`
+
+人数为 2–6，支持系统 NPC，固定 `supports_stakes=false`。虚拟庄家不是 participant，
+没有玩家 ID 或钱包。每个房间只进行一局，使用服务端持久化的 4 副标准牌 shoe；
+刷新、进程重启或重复读取不会重洗、重发或重抽。玩家按座位行动，只能从当前 viewer
+的 `private_state.legal_actions` 原样选择：
+
+```json
+{
+  "action": "move",
+  "player_id": "ai-42",
+  "room_id": "ABCDEFGH",
+  "revision": 4,
+  "move": {"action": "hit"}
+}
+```
+
+停牌使用 `{"action":"stand"}`。第一版没有 split、double、insurance 或 surrender。
+A 自动按 1/11 取不爆牌最优值；自然 Blackjack 仅指首两张 A + 10 值牌。所有玩家
+结束后，庄家在同一次权威状态推进中翻暗牌并补牌，软 17 停牌（S17）。自然牌胜过
+庄家非自然 21，同为自然或普通同点时推和。
+
+公开 `board_state.players` 含每名玩家已经发出的牌、soft/hard 点数、手牌状态与终局
+outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`；投影不返回
+原始 `cards`、shoe 计数或任何 `card_id`，增量 move 事件也只包含 `hit/stand`。
+`private_state` 至少包含查看者自己的权威 `hand`、`value`、`status` 和
+`legal_actions`。NPC 只能选择同一份服务端合法行动，不接收或推导 shoe 内容。
+
+由于每名玩家分别与庄家比较，通用单赢家字段以 terminal `draw=true` 收口；真实结果
+在 `room.result` 与公共 `board_state.game_result` 中完整返回：
+
+```json
+{
+  "draw": true,
+  "terminal_result": "blackjack_dealer_comparison",
+  "result_text": "21点结算：1 胜 · 0 负 · 1 推和",
+  "outcomes_by_player": {
+    "human-1": {"outcome": "win", "result_text": "自然 Blackjack，胜"},
+    "ai-42": {"outcome": "push", "result_text": "与庄家同点，推和"}
+  }
+}
+```
+
+实际 outcome 还包含 `total/soft/natural_blackjack/bust`；庄家摘要包含相同的点数与
+自然牌/爆牌标记。这里没有 settlement delta，也不会创建、销毁或转移筹码。
+
 ## 象棋 `xiangqi`
 
 象棋固定为 1 个人类 + 1 只真实绑定小机，先手执红，不支持系统 NPC。合法走棋、
