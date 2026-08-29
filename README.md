@@ -85,6 +85,8 @@ app/
   config/npc_avatars/  外部头像目录格式说明；仓库不含生产头像
   config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
+  static/game_ui_registry.js  无构建依赖的浏览器游戏 UI 注册表
+  static/games/        按 game_type 拆分的可选游戏 renderer
 tests/                  单元测试与前端行为测试
 third_party/xiangqi_js/ BSD-2-Clause 象棋规则引擎、许可与桥接脚本
 data/                   本地运行数据目录；真实数据库不会提交到 Git
@@ -406,6 +408,18 @@ tab 后，才调用 `POST /api/notifications/read`；请求体只允许 `categor
 使用 `board_state.board/marks/legal_moves/turn_color/in_check/last_move`，落子仍提交
 `{move:{from_row,from_col,to_row,to_col},revision}`。因此前端无需、也不应自行推导
 马腿、象眼、炮架、九宫、过河或将帅安全规则。
+
+### 浏览器游戏 UI 扩展口
+
+新增游戏不必再把棋盘和专属控件塞进 `app/static/app.js`。独立浏览器脚本通过稳定的
+`window.DuelGameUI.register(gameType, renderer)` 注册，renderer 至少实现
+`renderBoard(context)`；宿主优先调用注册 renderer，没有注册时继续走现有 8 个游戏的
+legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约定自动加载，
+也可在 `index.html` 中放在 registry 与 `app.js` 之间显式加载固定版本脚本。
+
+完整 context、helper、可选 `renderControls`、通用确认条和加载顺序契约见
+[app/static/games/README.md](app/static/games/README.md)。仅新增 renderer 文件不会修改
+服务端 game catalog，也不会让未完成游戏出现在“棋/牌/骰”选择器中。
 
 ## 筹码中心
 

@@ -14,9 +14,15 @@ let lastMoveMarkerKey = null;
 const selectedMachineIds = new Set();
 const selectedMachineWallets = new Map();
 let machineWalletRequest = 0;
+let registeredGameUIStateKey = null;
+let registeredGameUIState = Object.create(null);
 
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
 const WAIT_HINT_FOREVER = "forever";
+const LEGACY_GAME_UI_TYPES = new Set([
+  "tictactoe", "gomoku", "othello", "connect4",
+  "dots_boxes", "liars_dice", "jungle", "xiangqi",
+]);
 
 const GAME_GLYPHS = {
   tictactoe: "井",
@@ -65,6 +71,27 @@ async function request(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || data.error || "请求失败");
   return data;
+}
+
+async function loadCatalogGameRenderers(games) {
+  const registry = window.DuelGameUI;
+  if (
+    !registry
+    || typeof registry.get !== "function"
+    || typeof registry.load !== "function"
+  ) return;
+  const gameTypes = [...new Set(
+    (Array.isArray(games) ? games : [])
+      .map((game) => game && game.game_type)
+      .filter((gameType) => (
+        typeof gameType === "string"
+        && !LEGACY_GAME_UI_TYPES.has(gameType)
+        && !registry.get(gameType)
+      ))
+  )];
+  await Promise.allSettled(gameTypes.map(
+    (gameType) => Promise.resolve().then(() => registry.load(gameType))
+  ));
 }
 
 function unreadCount(summary, category) {
@@ -1118,6 +1145,7 @@ async function loadIdentity({quiet = false} = {}) {
       return;
     }
     identity = data;
+    await loadCatalogGameRenderers(data.games || []);
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
     renderHumanChipBalance(data.wallet.balance);
@@ -2037,14 +2065,159 @@ function renderLastMoveMarker(board, timeline = []) {
   );
 }
 
+function registeredGameUIRenderer(gameType) {
+  const registry = window.DuelGameUI;
+  if (!registry || typeof registry.get !== "function") return null;
+  return registry.get(gameType);
+}
+
+function registeredGameUIStateFor(targetRoom) {
+  const stateKey = [
+    targetRoom.game_type,
+    targetRoom.room_id,
+    targetRoom.revision,
+  ].join(":");
+  if (stateKey !== registeredGameUIStateKey) {
+    registeredGameUIStateKey = stateKey;
+    registeredGameUIState = Object.create(null);
+  }
+  return registeredGameUIState;
+}
+
+function createGameUIContext(board, controls, timeline = currentTimeline) {
+  const targetRoom = room;
+  const state = targetRoom.board_state || {};
+  const privateState = targetRoom.private_state || null;
+  const uiState = registeredGameUIStateFor(targetRoom);
+  const contextIsCurrent = () => Boolean(
+    room
+    && room.game_type === targetRoom.game_type
+    && room.room_id === targetRoom.room_id
+    && room.revision === targetRoom.revision
+  );
+  const rerender = () => {
+    if (!contextIsCurrent()) return false;
+    renderBoard(currentTimeline);
+    return true;
+  };
+  const helpers = Object.freeze({
+    setBoardLayout({
+      rows,
+      cols,
+      visualRows = rows,
+      visualCols = cols,
+      large = Math.max(Number(rows) || 0, Number(cols) || 0) > 3,
+      ariaLabel = `${targetRoom.game_name || targetRoom.game_type}游戏区域`,
+    } = {}) {
+      if (Number.isFinite(Number(visualCols)) && Number(visualCols) > 0) {
+        board.style.setProperty("--cols", Number(visualCols));
+      }
+      if (Number.isFinite(Number(visualRows)) && Number(visualRows) > 0) {
+        board.style.setProperty("--rows", Number(visualRows));
+      }
+      if (
+        Number.isFinite(Number(visualCols)) && Number(visualCols) > 0
+        && Number.isFinite(Number(visualRows)) && Number(visualRows) > 0
+      ) {
+        board.style.setProperty(
+          "--board-ratio", `${Number(visualCols)} / ${Number(visualRows)}`
+        );
+      }
+      board.classList.toggle("large", Boolean(large));
+      board.setAttribute("aria-label", ariaLabel);
+    },
+    selectMove: (movePayload) => {
+      if (!contextIsCurrent() || !canHumanMove() || !movePayload) return false;
+      selectMove(movePayload);
+      return true;
+    },
+    clearSelection: ({render = true} = {}) => {
+      if (!contextIsCurrent()) return false;
+      pendingMove = null;
+      Object.keys(uiState).forEach((key) => delete uiState[key]);
+      if (render) rerender();
+      else updateMoveConfirmation();
+      return true;
+    },
+    submitMove: (movePayload) => (
+      contextIsCurrent() ? submitMove(movePayload) : Promise.resolve(false)
+    ),
+    rerender,
+    isMoveSelected: (movePayload) => movesEqual(pendingMove, movePayload),
+    canMove: () => contextIsCurrent() && canHumanMove(),
+    participantByPlayerId,
+    participantForOwner,
+    pieceClass,
+    ownerDescription,
+    announce: (message, {error = false, emphasize = false} = {}) => {
+      if (contextIsCurrent()) showNotice(message, error, emphasize);
+    },
+  });
+  const stateLegalActions = Array.isArray(state.legal_actions)
+    ? state.legal_actions
+    : [];
+  const hasPrivateLegalActions = Boolean(
+    privateState && Array.isArray(privateState.legal_actions)
+  );
+  const privateLegalActions = hasPrivateLegalActions
+    ? privateState.legal_actions
+    : [];
+  return Object.freeze({
+    board,
+    controls,
+    room: targetRoom,
+    state,
+    privateState,
+    timeline,
+    identity,
+    participants: Array.isArray(targetRoom.participants)
+      ? targetRoom.participants
+      : [],
+    viewer: targetRoom.viewer || viewerParticipantFor(targetRoom),
+    canMove: canHumanMove(),
+    isTerminal: isTerminal(targetRoom),
+    pendingMove: pendingMove ? {...pendingMove} : null,
+    legalMoves: Array.isArray(state.legal_moves) ? state.legal_moves : [],
+    legalActions: hasPrivateLegalActions
+      ? privateLegalActions
+      : stateLegalActions,
+    uiState,
+    helpers,
+  });
+}
+
+function renderRegisteredGameUI(renderer, board, timeline = currentTimeline) {
+  const controls = $("gameControls");
+  board.classList.add(room.game_type);
+  board.setAttribute("aria-label", `${room.game_name || room.game_type}游戏区域`);
+  const context = createGameUIContext(board, controls, timeline);
+  renderer.renderBoard(context);
+  const hasCustomControls = typeof renderer.renderControls === "function";
+  controls.classList.toggle("hidden", !hasCustomControls);
+  if (hasCustomControls) renderer.renderControls(context);
+  $("moveConfirm").classList.toggle(
+    "hidden", renderer.usesStandardMoveConfirmation === false
+  );
+  updateMoveConfirmation();
+}
+
 function renderBoard(timeline = currentTimeline) {
   const state = room.board_state;
   const board = $("board");
+  const controls = $("gameControls");
   board.replaceChildren();
   board.className = "board";
+  board.removeAttribute("style");
+  controls.replaceChildren();
+  controls.classList.add("hidden");
+  $("moveConfirm").classList.toggle("hidden", room.game_type === "liars_dice");
+  const renderer = registeredGameUIRenderer(room.game_type);
+  if (renderer) {
+    renderRegisteredGameUI(renderer, board, timeline);
+    return;
+  }
   if (room.game_type === "liars_dice") {
     board.classList.add("liars_dice");
-    board.removeAttribute("style");
     board.setAttribute("aria-label", "吹牛骰子公共桌面与叫点操作");
     renderLiarsDice(board, state);
     updateMoveConfirmation();

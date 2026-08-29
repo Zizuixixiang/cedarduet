@@ -91,6 +91,10 @@ ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 STYLES_CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+GAME_UI_REGISTRY_JS = (
+    ROOT / "static" / "game_ui_registry.js"
+).read_text(encoding="utf-8")
+GAME_UI_RENDERER_DIR = ROOT / "static" / "games"
 
 
 def _parse_max_concurrent_waits(raw: str) -> int:
@@ -867,6 +871,37 @@ async def styles():
 async def javascript():
     return Response(
         APP_JS,
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/static/game_ui_registry.js", include_in_schema=False)
+async def game_ui_registry_javascript():
+    return Response(
+        GAME_UI_REGISTRY_JS,
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/static/games/{game_type}.js", include_in_schema=False)
+async def game_ui_renderer_javascript(game_type: str):
+    valid = (
+        1 <= len(game_type) <= 64
+        and game_type[0].isalnum()
+        and all(character.isascii() and (character.isalnum() or character in "_-")
+                for character in game_type)
+        and game_type == game_type.lower()
+    )
+    if not valid:
+        raise DuelError("游戏界面脚本不存在。", 404)
+    renderer_root = GAME_UI_RENDERER_DIR.resolve()
+    renderer_path = (renderer_root / f"{game_type}.js").resolve()
+    if renderer_path.parent != renderer_root or not renderer_path.is_file():
+        raise DuelError("游戏界面脚本不存在。", 404)
+    return Response(
+        renderer_path.read_text(encoding="utf-8"),
         media_type="text/javascript",
         headers={"Cache-Control": "no-store"},
     )
