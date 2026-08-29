@@ -179,7 +179,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("authoritativeRoundText(room)", render_game)
         self.assertIn('revision: room.revision', SCRIPT)
 
-    def test_room_number_is_plain_text_with_subtle_accessible_copy_control(self):
+    def test_room_number_has_compact_pink_accessible_copy_control(self):
         primary = HTML[
             HTML.index('class="game-meta-line game-meta-primary"'):
             HTML.index('class="game-meta-line game-meta-secondary"')
@@ -196,12 +196,16 @@ class FrontendBoardVisualTests(unittest.TestCase):
             STYLES.index(".room-copy-button {"):
             STYLES.index(".result-banner {")
         ]
-        self.assertIn("background: transparent;", copy_styles)
-        self.assertIn("border: 1px solid transparent;", copy_styles)
+        self.assertIn(".room-number-item { gap: 1px; }", STYLES)
+        self.assertIn("justify-content: flex-start;", copy_styles)
+        self.assertIn("color: var(--pink-dark);", copy_styles)
+        self.assertIn("background: rgba(230, 168, 177, .1);", copy_styles)
+        self.assertIn("border: 1px solid rgba(230, 168, 177, .58);", copy_styles)
         self.assertNotIn("background: #fff;", copy_styles)
         self.assertIn(".room-copy-button:hover", copy_styles)
         self.assertIn(".room-copy-button:focus-visible", copy_styles)
-        self.assertIn("outline: 2px solid var(--purple-dark);", copy_styles)
+        self.assertIn("border-color: var(--pink);", copy_styles)
+        self.assertIn("outline: 2px solid var(--pink);", copy_styles)
         self.assertIn(
             '$("copyRoomButton").setAttribute("aria-label", '
             "`复制房间号 ${room.room_id}`);",
@@ -1258,7 +1262,12 @@ assert.ok(elements.humanRow.classList.contains("hidden"));
         self.assertIn("max-width: 44%;", viewer_slot)
         self.assertIn("flex-basis: 190px;", viewer_slot)
         self.assertIn(".viewer-speech { max-width: 100%; flex: 1 1 0; }", mobile)
-        self.assertIn(".room-copy-button { min-width: 40px; min-height: 40px;", mobile)
+        self.assertIn(".room-number-item { flex: 0 1 auto; gap: 0; }", mobile)
+        self.assertIn(
+            ".room-copy-button { min-width: 40px; min-height: 40px; "
+            "padding: 3px 4px 3px 2px; }",
+            mobile,
+        )
         self.assertIn(".shared-speech {\n    width: min(430px, 100%);", mobile)
 
     def test_speech_bubbles_grow_before_scrolling_without_fixed_height(self):

@@ -966,6 +966,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1.45;
   text-align: center;
 }
+.room-number-item { gap: 1px; }
 .room-number-value {
   max-width: 148px;
   font-variant-numeric: tabular-nums;
@@ -974,13 +975,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-copy-button {
   min-width: 32px;
   min-height: 30px;
-  padding: 3px 4px;
+  padding: 3px 5px 3px 3px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
+  justify-content: flex-start;
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .1);
+  border: 1px solid rgba(230, 168, 177, .58);
   border-radius: 2px;
   line-height: 1;
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
@@ -990,15 +991,16 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-weight: 600;
 }
 .room-copy-button:hover {
-  color: var(--purple-darker);
-  background: rgba(230, 223, 240, .52);
-  border-color: rgba(190, 177, 209, .72);
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .2);
+  border-color: var(--pink);
 }
 .room-copy-button:focus-visible {
-  outline: 2px solid var(--purple-dark);
+  outline: 2px solid var(--pink);
   outline-offset: 1px;
-  color: var(--purple-darker);
-  background: rgba(230, 223, 240, .52);
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .2);
+  border-color: var(--pink-dark);
 }
 .result-banner {
   width: min(920px, 100%);
@@ -2474,9 +2476,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-meta strong { font-size: 12px; }
   #turn.my-turn { padding: 3px 7px; font-size: 14px; }
   #gameMessage.my-turn { padding: 6px 9px; font-size: 13px; }
-  .room-number-item { flex: 0 1 auto; }
+  .room-number-item { flex: 0 1 auto; gap: 0; }
   .room-number-value { max-width: 86px; }
-  .room-copy-button { min-width: 40px; min-height: 40px; padding: 3px 4px; }
+  .room-copy-button { min-width: 40px; min-height: 40px; padding: 3px 4px 3px 2px; }
   .room-copy-label { font-size: 8px; }
   .result-banner {
     padding: 10px;
