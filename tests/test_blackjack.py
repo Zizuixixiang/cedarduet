@@ -179,6 +179,36 @@ class BlackjackFrameworkTests(unittest.TestCase):
         self.assertEqual(reloaded["board_state"]["cards"]["deck"], raw_deck)
         self.assertEqual(rng.shuffle_calls, 1)
 
+    def test_waiting_join_and_leave_keep_natural_skip_and_state_turn_aligned(self):
+        room, _game, rng = self.create(["A", "5", "6", "K", "K", "9", "7", "8"])
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(room["board_state"]["turn_player_id"], "ai-1")
+
+        with database.write_transaction() as conn:
+            conn.execute(
+                "UPDATE rooms SET status = 'waiting' WHERE room_id = ?",
+                (room["room_id"],),
+            )
+        room = framework.join_room(room["room_id"], "ai", "ai-2")
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(room["board_state"]["turn_player_id"], "ai-1")
+        self.assertEqual(
+            room["board_state"]["player_status_by_player"]["human-1"],
+            "blackjack",
+        )
+
+        with database.write_transaction() as conn:
+            conn.execute(
+                "UPDATE rooms SET status = 'waiting' WHERE room_id = ?",
+                (room["room_id"],),
+            )
+        room = framework.leave_room(room["room_id"], "ai", "ai-2")
+        self.assertEqual(room["status"], "waiting")
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(room["board_state"]["turn_player_id"], "ai-1")
+        self.assertEqual(rng.shuffle_calls, 3)
+
     def test_dealer_hole_card_is_a_uniform_placeholder_in_every_view(self):
         script = deal_script(["A", "9"], "10", ["K", "7"], "6")
         room, _game, _rng = self.create(script)

@@ -1134,10 +1134,13 @@ def _attach_multiplayer_settlement(
     state: dict,
     game_result: dict,
 ) -> dict:
-    """Require and validate an opted-in plugin's exact multiplayer payout."""
-    if room.get("stake", 0) <= 0 or len(room.get("participants", [])) <= 2:
+    """Require and validate an opted-in plugin's exact custom payout."""
+    participant_count = len(room.get("participants", []))
+    if room.get("stake", 0) <= 0:
         return game_result
-    if not game.supports_multiplayer_stakes:
+    if participant_count <= 2 and not game.uses_custom_stake_settlement:
+        return game_result
+    if participant_count > 2 and not game.supports_multiplayer_stakes:
         raise DuelError("多人房间尚未定义筹码结算规则")
     result = dict(game_result)
     deltas = result.get("settlement_deltas")
@@ -1442,6 +1445,39 @@ def _room_can_start(room: dict, game) -> bool:
     return True
 
 
+def _initialize_opening_state(
+    game,
+    participants: list[dict],
+    proposed_first_player_id: str,
+) -> tuple[dict, str]:
+    """Run the shared opener-aware initialization pipeline for every room shape."""
+    # A room-local hint lets hidden-information plugins align their first
+    # private legal-action projection even when callers nominate an explicit
+    # opener and therefore bypass ``game.first_player_id``.
+    for participant in participants:
+        participant["_opening_player"] = (
+            participant["player_id"] == proposed_first_player_id
+        )
+    state = game.initialize_for_first_player(
+        participants, proposed_first_player_id
+    )
+    if not isinstance(state, dict):
+        raise TypeError("游戏插件初始化必须返回 state 对象")
+    first_player_id = game.resolve_opening_player_id(
+        state, proposed_first_player_id, participants
+    )
+    if not isinstance(first_player_id, str) or not any(
+        participant["player_id"] == first_player_id
+        and participant.get("active", True)
+        for participant in participants
+    ):
+        raise ValueError("游戏插件选择的开局行动者不属于可行动参与者")
+    state = game.prepare_opening_state(state, first_player_id, participants)
+    if not isinstance(state, dict):
+        raise TypeError("游戏插件开局准备必须返回 state 对象")
+    return state, first_player_id
+
+
 def create_room(
     game_type: str,
     mode: str,
@@ -1550,28 +1586,11 @@ def create_room(
     try:
         if first_player_id is None:
             first_player_id = game.first_player_id(participants, mode)
-        # A room-local hint lets hidden-information plugins align their first
-        # private legal-action projection even when callers nominate an
-        # explicit opener and therefore bypass ``game.first_player_id``.
-        for participant in participants:
-            participant["_opening_player"] = (
-                participant["player_id"] == first_player_id
-            )
-        state = game.initialize(participants)
-        first_player_id = game.resolve_opening_player_id(
-            state, first_player_id, participants
+        state, first_player_id = _initialize_opening_state(
+            game, participants, first_player_id
         )
-        if not isinstance(first_player_id, str) or not any(
-            participant["player_id"] == first_player_id
-            and participant.get("active", True)
-            for participant in participants
-        ):
-            raise ValueError("游戏插件选择的开局行动者不属于可行动参与者")
-        state = game.prepare_opening_state(state, first_player_id, participants)
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc
-    if not isinstance(state, dict):
-        raise DuelError("游戏插件初始化必须返回 state 对象")
     state["marks_by_player"] = {
         item["player_id"]: item["token"] for item in participants
     }
@@ -2003,8 +2022,12 @@ def join_room(
             (room_id, player_id, latest_event_id, _now()),
         )
         try:
-            first_player_id = game.first_player_id(prospective, room["mode"])
-            state = game.initialize(prospective)
+            proposed_first_player_id = game.first_player_id(
+                prospective, room["mode"]
+            )
+            state, first_player_id = _initialize_opening_state(
+                game, prospective, proposed_first_player_id
+            )
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
         state["marks_by_player"] = token_by_player
@@ -2600,8 +2623,12 @@ def leave_room(
                 conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
                 return {"room_id": room_id, "status": "cancelled", "stake": 0}
             try:
-                first_player_id = game.first_player_id(remaining, room["mode"])
-                state = game.initialize(remaining)
+                proposed_first_player_id = game.first_player_id(
+                    remaining, room["mode"]
+                )
+                state, first_player_id = _initialize_opening_state(
+                    game, remaining, proposed_first_player_id
+                )
             except (KeyError, TypeError, ValueError) as exc:
                 raise DuelError(f"游戏插件初始化失败：{exc}") from exc
             state["marks_by_player"] = {

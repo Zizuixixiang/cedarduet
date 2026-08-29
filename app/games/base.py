@@ -44,6 +44,10 @@ class GamePlugin(ABC):
     # Future multiplayer games must opt in separately and return explicit
     # ``MoveResult.settlement_deltas``; the framework never invents a payout.
     supports_multiplayer_stakes: bool = False
+    # Most two-player games retain the framework's fixed +/- stake payout.
+    # Games whose rules scale liabilities (for example by cards remaining)
+    # explicitly opt into their settlement hook for two-player tables too.
+    uses_custom_stake_settlement: bool = False
 
     def resolved_allowed_player_counts(self) -> tuple[int, ...]:
         raw = self.allowed_player_counts
@@ -196,6 +200,20 @@ class GamePlugin(ABC):
         adapted here without any game-specific changes.
         """
         return self.initial_state()
+
+    def initialize_for_first_player(
+        self,
+        participants: list[dict[str, Any]],
+        first_player_id: str,
+    ) -> dict[str, Any]:
+        """Initialize with the proposed opener when rules need it.
+
+        Existing games inherit the participant-only initialization path. Card
+        games that deal an extra dealer card can override this hook without
+        making the room framework reorder stable seats.
+        """
+        del first_player_id
+        return self.initialize(participants)
 
     def prepare_opening_state(
         self,
