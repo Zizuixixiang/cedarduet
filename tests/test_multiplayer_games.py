@@ -742,6 +742,13 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("last_round_summary", state.json())
 
         current = framework.get_room(room["room_id"])
+        self.assertEqual(
+            current["board_state"]["flow"]["phase"],
+            "awaiting_round_acknowledgement",
+        )
+        current = framework.acknowledge_liars_dice_round(
+            room["room_id"], "human-1", current["revision"]
+        )
         next_bid = {"action": "bid", "quantity": 1, "face": 1}
         framework.play_move(
             room["room_id"], "human", "human-1", next_bid,

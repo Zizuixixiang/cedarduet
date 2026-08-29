@@ -1660,8 +1660,11 @@ function renderLiarsDice(board, state) {
   const awaitingRoundAcknowledgement = (
     flow.phase === "awaiting_round_acknowledgement"
   );
+  const showRoundResult = (
+    awaitingRoundAcknowledgement || liarsRoundResultIsVisible(state)
+  );
   let result = null;
-  if (outcome) {
+  if (outcome && showRoundResult) {
     result = document.createElement("section");
     result.className = isHistoricalResult
       ? "liars-round-result liars-previous-round"
@@ -1675,22 +1678,13 @@ function renderLiarsDice(board, state) {
     const title = document.createElement("strong");
     title.className = "liars-result-title";
     title.textContent = `第 ${outcome.round} 轮结算`;
-    const loser = participantByPlayerId(outcome.loser_player_id);
-    const loserName = (loser && loser.display_name) || outcome.loser_player_id;
-    const eliminated = outcome.eliminated_player_id === outcome.loser_player_id
-      || outcome.loser_remaining_dice === 0;
+    const resultLines = liarsRoundResultLines(outcome);
     const outcomeLine = document.createElement("p");
     outcomeLine.className = "liars-result-line liars-result-outcome";
-    outcomeLine.textContent = (
-      `实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点`
-      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}`
-    );
+    outcomeLine.textContent = resultLines.outcome;
     const lossLine = document.createElement("p");
     lossLine.className = "liars-result-line liars-result-loss";
-    lossLine.textContent = (
-      `${loserName} -1 骰`
-      + ` · ${eliminated ? "已淘汰" : `剩余 ${outcome.loser_remaining_dice}`}`
-    );
+    lossLine.textContent = resultLines.loss;
     result.append(title, outcomeLine, lossLine);
 
     if (awaitingRoundAcknowledgement) {

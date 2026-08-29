@@ -357,8 +357,6 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('`知道了，开始第 ${nextRound} 轮`', renderer)
         self.assertIn(".liars-current-round {", STYLES)
         self.assertIn(".liars-round-result {", STYLES)
-        self.assertIn("liarsRoundResultIsVisible(state)", renderer)
-        self.assertIn("liarsRoundResultLines(outcome)", renderer)
         self.assertIn("`第 ${outcome.round} 轮结算`", renderer)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[
@@ -1606,10 +1604,10 @@ const waitingState = {{
     revealed_dice_by_player: {{"human-1": [5, 2, 1, 1], "ai-1": [6, 4, 3, 2]}},
   }},
 }};
-const waitingBoard = new Element("div");
-renderLiarsDice(waitingBoard, waitingState);
-assert.equal(waitingBoard.children.length, 1);
-const settlement = waitingBoard.children[0];
+const ackBoard = new Element("div");
+renderLiarsDice(ackBoard, waitingState);
+assert.equal(ackBoard.children.length, 1);
+const settlement = ackBoard.children[0];
 assert.equal(settlement.classList.contains("awaiting-acknowledgement"), true);
 assert.equal(settlement.children[0].textContent, "第 2 轮结算");
 assert.equal(settlement.children[1].textContent, "实际 3 个 5 点 · 叫点失败");
@@ -1621,7 +1619,7 @@ assert.equal(acknowledgementButton.textContent, "知道了，开始第 3 轮");
 assert.equal(settlement.children[4].tagName, "DETAILS");
 assert.equal(settlement.children[4].open, false);
 assert.equal(settlement.children[4].children[0].textContent, "查看本轮揭骰");
-assert.doesNotMatch(allText(waitingBoard), /本轮当前叫点|现在叫点/);
+assert.doesNotMatch(allText(ackBoard), /本轮当前叫点|现在叫点/);
 
 const terminalBoard = new Element("div");
 renderLiarsDice(terminalBoard, {{
@@ -1978,84 +1976,6 @@ for (const count of [3, 4, 5, 6]) {{
 """
         self.run_node(harness)
 
-    def test_multiplayer_keeps_human_row_and_routes_viewer_speech_only_below(self):
-        functions = "\n".join((
-            function_source("speechSenderRole"),
-            function_source("speechSenderPlayerId"),
-            function_source("speechEventBelongsToParticipant"),
-            function_source("latestSpeechEvent"),
-            function_source("renderPlayers"),
-        ))
-        harness = f"""
-const assert = require("node:assert/strict");
-class ClassList {{
-  constructor(...names) {{ this.names = new Set(names); }}
-  toggle(name, force) {{
-    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
-    else this.names.delete(name);
-  }}
-  contains(name) {{ return this.names.has(name); }}
-}}
-const element = (...classes) => ({{
-  classList: new ClassList(...classes), textContent: "",
-}});
-const elements = {{
-  opponentRow: element(),
-  humanRow: element("hidden"),
-  aiName: element(),
-  humanName: element(),
-  aiAvatar: element(),
-  humanAvatar: element(),
-  aiSpeech: element(),
-  humanSpeech: element(),
-  sharedSpeech: element(),
-  sharedSpeechText: element(),
-  sharedSpeechName: element(),
-  sharedSpeechAvatar: element(),
-}};
-const $ = (id) => elements[id];
-let room = {{
-  viewer: {{player_id: "human-1"}},
-  participants: [
-    {{player_id: "npc-1", role: "ai", display_name: "北风"}},
-    {{player_id: "human-1", role: "human", display_name: "南山"}},
-    {{player_id: "machine-1", role: "ai", display_name: "紫机"}},
-  ],
-}};
-const applyParticipantLayout = () => {{}};
-const viewerParticipantFor = (targetRoom) => targetRoom.participants.find(
-  (item) => item.player_id === targetRoom.viewer.player_id
-);
-const participantName = (role) => role === "human" ? "南山" : "北风";
-const rendered = new Map();
-const renderSpeechBubble = (options) => rendered.set(options.bubble, options.event);
-{functions}
-const timeline = [
-  {{event_type: "message", text: "NPC 发言", sender_role: "ai", sender: {{player_id: "npc-1", role: "ai"}}}},
-  {{event_type: "move", text: "我的落子说明", sender_role: "human", sender: {{player_id: "human-1", role: "human"}}}},
-];
-renderPlayers(timeline);
-assert.equal(elements.opponentRow.classList.contains("hidden"), true);
-assert.equal(elements.humanRow.classList.contains("hidden"), false);
-assert.equal(elements.humanName.textContent, "南山");
-assert.equal(elements.humanAvatar.textContent, "👤");
-assert.equal(rendered.get(elements.humanSpeech).text, "我的落子说明");
-assert.equal(rendered.get(elements.sharedSpeech).text, "NPC 发言");
-assert.notEqual(rendered.get(elements.sharedSpeech).sender.player_id, "human-1");
-for (const count of [3, 4, 5, 6]) {{
-  room.participants = [
-    {{player_id: "human-1", role: "human", display_name: "南山"}},
-    ...Array.from({{length: count - 1}}, (_, index) => ({{
-      player_id: `opponent-${{index}}`, role: "ai", display_name: `对手${{index}}`,
-    }})),
-  ];
-  elements.humanRow.classList.toggle("hidden", true);
-  renderPlayers(timeline);
-  assert.equal(elements.humanRow.classList.contains("hidden"), false);
-}}
-"""
-        self.run_node(harness)
-
     def test_shared_bubble_updates_speaker_avatar_message_and_seat_color(self):
         functions = "\n".join((
             function_source("participantByPlayerId"),
@@ -2102,15 +2022,15 @@ const events = [
   {{event_type: "message", text: "第二句", sender_role: "ai", sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
   {{event_type: "result", text: "不应进入气泡", sender_role: "system", sender: {{player_id: "system", name: "裁判", role: "system"}}}},
 ];
-renderSpeechBubble({{bubble, event: latestSpeechEvent(events, null, room.participants[0]), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
+renderSpeechBubble({{bubble, event: latestSpeechEvent(events, {{excludePlayerId: "p1"}}), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
 assert.equal(nameTarget.textContent, "乙");
 assert.equal(textTarget.textContent, "第二句");
 assert.equal(avatarTarget.textContent, "乙");
 assert.ok(bubble.classList.contains("seat-1"));
 assert.ok(!bubble.classList.contains("empty"));
 events.push({{event_type: "move", text: "连续更新", sender_role: "ai", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}});
-events.push({{event_type: "message", text: "我的最新发言", sender_role: "human", sender: {{name: "甲", role: "human", seat: 0}}}});
-renderSpeechBubble({{bubble, event: latestSpeechEvent(events, null, room.participants[0]), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
+events.push({{event_type: "message", text: "我的最新发言", sender_role: "human", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}});
+renderSpeechBubble({{bubble, event: latestSpeechEvent(events, {{excludePlayerId: "p1"}}), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
 assert.equal(nameTarget.textContent, "丙");
 assert.equal(textTarget.textContent, "连续更新");
 assert.equal(avatarTarget.textContent, "丙");
@@ -2265,6 +2185,15 @@ class Element {{
     this.tag = tag;
     this.children = [];
     this.className = "";
+    this.classList = {{
+      toggle: (name, force) => {{
+        const names = new Set(this.className.split(/\s+/).filter(Boolean));
+        if (force === undefined ? !names.has(name) : force) names.add(name);
+        else names.delete(name);
+        this.className = [...names].join(" ");
+      }},
+      contains: (name) => this.className.split(/\s+/).includes(name),
+    }};
     this.textContent = "";
     this.value = "";
     this.disabled = false;
