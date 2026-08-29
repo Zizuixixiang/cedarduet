@@ -200,6 +200,11 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".exchange-request-summary", styles)
         self.assertIn(".exchange-request-detail", styles)
         self.assertIn(".exchange-request-time", styles)
+        self.assertIn(".exchange-request-art", styles)
+        self.assertIn(".exchange-request-content", styles)
+        request_renderer = function_source("renderExchangeRequest")
+        self.assertIn('art.className = "exchange-art exchange-request-art"', request_renderer)
+        self.assertIn("renderExchangeArt(art, item.item)", request_renderer)
         form_actions = styles[
             styles.index(".exchange-form-actions {"):
             styles.index(".exchange-request-group +")
@@ -265,6 +270,17 @@ loaded.children[1].listeners.load();
 assert.equal(loaded.children[1].hidden, false);
 assert.equal(loaded.classList.contains("has-image"), true);
 
+window.location.pathname = "/duel/chips";
+const prefixed = new Element("span");
+renderExchangeArt(prefixed, {{
+  symbol: "☀",
+  image_key: "/static/assets/exchange-shop/items/good_life.png?v=20260829",
+}});
+assert.equal(
+  prefixed.children[1].src,
+  "/duel/static/assets/exchange-shop/items/good_life.png?v=20260829",
+);
+
 const failed = new Element("span");
 renderExchangeArt(failed, {{symbol: "♡", image_key: "/missing.png"}});
 failed.children[1].listeners.error();
@@ -276,6 +292,92 @@ const placeholderOnly = new Element("span");
 renderExchangeArt(placeholderOnly, {{symbol: "#"}});
 assert.equal(placeholderOnly.children.length, 1);
 assert.equal(placeholderOnly.children[0].textContent, "#");
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_exchange_request_renderer_reuses_exchange_art(self):
+        functions = "\n".join(
+            (
+                function_source("apiPath"),
+                function_source("renderExchangeArt"),
+                function_source("renderExchangeRequest"),
+            )
+        )
+        harness = f"""
+const assert = require("node:assert/strict");
+const window = {{location: {{pathname: "/duel/chips"}}}};
+class ClassList {{
+  constructor() {{ this.values = new Set(); }}
+  add(name) {{ this.values.add(name); }}
+  remove(name) {{ this.values.delete(name); }}
+  contains(name) {{ return this.values.has(name); }}
+}}
+class Element {{
+  constructor(tag) {{
+    this.tag = tag;
+    this.children = [];
+    this.listeners = {{}};
+    this.classList = new ClassList();
+    this.parent = null;
+  }}
+  append(...children) {{
+    for (const child of children) {{
+      if (child && typeof child === "object") child.parent = this;
+      this.children.push(child);
+    }}
+  }}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  setAttribute(name, value) {{ this[name] = value; }}
+  remove() {{
+    if (this.parent) this.parent.children = this.parent.children.filter((child) => child !== this);
+  }}
+}}
+const document = {{
+  createElement(tag) {{ return new Element(tag); }},
+  createTextNode(text) {{ return {{textContent: text}}; }},
+}};
+const exchangeStatusLabels = {{pending: "待确认"}};
+const machineName = () => "Sirius";
+const formatLedgerCreatedAt = (value) => value;
+const runExchangeAction = async () => {{}};
+{functions}
+
+const card = renderExchangeRequest({{
+  status: "pending", ai_id: "ai-1", machine_name: "Sirius",
+  chip_amount: 12, display_title: "亲亲赎回",
+  initiator: {{type: "human", id: "human-1"}},
+  item: {{
+    description: "先完成一个亲亲约定。", symbol: "♥",
+    image_key: "/static/assets/exchange-shop/items/kiss.png?v=20260829",
+  }},
+  request_note: "今晚在聊天里完成",
+  expires_at: "2026-09-01T02:00:00+00:00",
+  allowed_actions: [],
+}});
+assert.equal(card.children.length, 2);
+const art = card.children[0];
+assert.equal(art.className, "exchange-art exchange-request-art");
+assert.equal(art["aria-hidden"], "true");
+assert.equal(art.children[0].textContent, "♥");
+assert.equal(
+  art.children[1].src,
+  "/duel/static/assets/exchange-shop/items/kiss.png?v=20260829",
+);
+assert.equal(card.children[1].className, "exchange-request-content");
+art.children[1].listeners.error();
+assert.equal(art.children.length, 1);
+assert.equal(art.children[0].textContent, "♥");
 """
         completed = subprocess.run(
             [NODE, "-e", harness],
@@ -640,15 +742,32 @@ async function main() {{
     catalog,
     pending_for_me: [{{
       ...requestBase, request_id: "ex-machine", display_title: "赛博小礼物",
-      item: {{key: "cyber_gift", description: "送上一份赛博小礼物。"}},
+      item: {{
+        key: "cyber_gift", description: "送上一份赛博小礼物。",
+        image_key: "/static/assets/exchange-shop/items/cyber_gift.png?v=20260829",
+        symbol: "✦",
+      }},
       initiator: {{type: "ai", id: "ai-1"}}, allowed_actions: ["confirm", "reject"],
     }}],
     waiting_for_other: [{{
       ...requestBase, request_id: "ex-human", display_title: "亲亲赎回",
-      item: {{key: "kiss", description: "先完成一个亲亲约定。"}},
+      item: {{
+        key: "kiss", description: "先完成一个亲亲约定。",
+        image_key: "/static/assets/exchange-shop/items/kiss.png?v=20260829",
+        symbol: "♥",
+      }},
       initiator: {{type: "human", id: "human-1"}}, allowed_actions: ["withdraw"],
     }}],
-    history: [],
+    history: [{{
+      ...requestBase, request_id: "ex-completed", status: "completed",
+      display_title: "今天有好好生活",
+      item: {{
+        key: "good_life", description: "分享一件今天认真生活的小事。",
+        image_key: "/static/assets/exchange-shop/items/good_life.png?v=20260829",
+        symbol: "☀",
+      }},
+      initiator: {{type: "human", id: "human-1"}}, allowed_actions: [],
+    }}],
   }};
   const basePayload = {{
     ok: true, human_name: "测试人类", wallet,
@@ -770,6 +889,27 @@ main().catch((error) => {{
     machineCard.querySelector(".exchange-actions .primary").textContent,
     "确认并支付筹码",
   );
+""")
+
+    def test_exchange_request_cards_render_shared_art_for_every_list(self):
+        self.run_dom(r"""
+  const cards = [
+    document.querySelector("#exchangePendingList .exchange-request"),
+    document.querySelector("#exchangeWaitingList .exchange-request"),
+    document.querySelector("#exchangeHistoryList .exchange-request"),
+  ];
+  assert.ok(cards.every((card) => card.querySelector(".exchange-request-art img")));
+  assert.ok(cards.every((card) => card.querySelector(".exchange-art-fallback")));
+
+  const loadedArt = cards[0].querySelector(".exchange-request-art");
+  loadedArt.querySelector("img").dispatchEvent(new window.Event("load"));
+  assert.equal(loadedArt.classList.contains("has-image"), true);
+
+  const failedArt = cards[1].querySelector(".exchange-request-art");
+  failedArt.querySelector("img").dispatchEvent(new window.Event("error"));
+  assert.equal(failedArt.querySelector("img"), null);
+  assert.equal(failedArt.querySelector(".exchange-art-fallback").textContent, "♥");
+  assert.equal(failedArt.classList.contains("has-image"), false);
 """)
 
     def test_valid_loan_form_requests_existing_post_endpoint(self):
@@ -931,15 +1071,25 @@ main().catch((error) => {{
 """)
 
     def test_exchange_images_support_root_and_duel_prefixes(self):
-        for pathname, expected in (
-            ("/chips", "/static/assets/exchange-shop/items/good_life.png?v=20260829"),
-            ("/duel/chips", "/duel/static/assets/exchange-shop/items/good_life.png?v=20260829"),
+        for pathname, catalog_expected, request_expected in (
+            (
+                "/chips",
+                "/static/assets/exchange-shop/items/good_life.png?v=20260829",
+                "/static/assets/exchange-shop/items/kiss.png?v=20260829",
+            ),
+            (
+                "/duel/chips",
+                "/duel/static/assets/exchange-shop/items/good_life.png?v=20260829",
+                "/duel/static/assets/exchange-shop/items/kiss.png?v=20260829",
+            ),
         ):
             with self.subTest(pathname=pathname):
                 self.run_dom(
                     f"""
-  const image = document.querySelector('[data-item-key="good_life"] img');
-  assert.equal(image.getAttribute("src"), {json.dumps(expected)});
+  const catalogImage = document.querySelector('[data-item-key="good_life"] img');
+  assert.equal(catalogImage.getAttribute("src"), {json.dumps(catalog_expected)});
+  const requestImage = document.querySelector('#exchangeWaitingList .exchange-request-art img');
+  assert.equal(requestImage.getAttribute("src"), {json.dumps(request_expected)});
 """,
                     pathname=pathname,
                 )

@@ -456,11 +456,23 @@ footer {
 .exchange-list { display: grid; gap: 8px; margin-top: 7px; }
 .exchange-empty { margin: 0; padding: 11px; border: 1px dashed var(--line); color: var(--muted); font-size: 0.72rem; }
 .exchange-request {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 9px;
   padding: 9px;
   border: 2px solid var(--ink);
   background: #fff;
   box-shadow: 2px 2px 0 rgba(64, 43, 76, 0.1);
 }
+.exchange-request-art {
+  width: 52px;
+  height: 52px;
+  min-height: 52px;
+  align-self: start;
+  border: 1px dashed var(--line);
+  font-size: 1.3rem;
+}
+.exchange-request-content { min-width: 0; }
 .exchange-request.completed { border-color: #548565; background: #f3fff7; }
 .exchange-request.rejected, .exchange-request.withdrawn, .exchange-request.expired { color: #6f6672; background: #f1edf0; }
 .exchange-request-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
@@ -699,6 +711,8 @@ footer p { margin: 3px 0 0; font-size: 0.75rem; line-height: 1.45; }
 @media (max-width: 350px) {
   .loan-form-grid, .loan-proposal-details, .loan-compact-terms { grid-template-columns: minmax(0, 1fr); }
   .loan-proposal-details div:last-child { grid-column: auto; }
+  .exchange-request { grid-template-columns: 44px minmax(0, 1fr); gap: 7px; }
+  .exchange-request-art { width: 44px; height: 44px; min-height: 44px; font-size: 1.1rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

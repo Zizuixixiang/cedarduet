@@ -954,6 +954,12 @@ function renderExchangeCatalog(items) {
 function renderExchangeRequest(item) {
   const card = document.createElement("article");
   card.className = `exchange-request ${item.status}`;
+  const art = document.createElement("div");
+  art.className = "exchange-art exchange-request-art";
+  art.setAttribute("aria-hidden", "true");
+  renderExchangeArt(art, item.item);
+  const content = document.createElement("div");
+  content.className = "exchange-request-content";
   const titleRow = document.createElement("div");
   titleRow.className = "exchange-request-title";
   const sentence = document.createElement("p");
@@ -1003,7 +1009,7 @@ function renderExchangeRequest(item) {
   time.textContent = item.status === "pending"
     ? `有效期至 ${formatLedgerCreatedAt(item.expires_at)}`
     : `创建于 ${formatLedgerCreatedAt(item.created_at)}`;
-  card.append(titleRow, agreement, note, time);
+  content.append(titleRow, agreement, note, time);
   if (item.allowed_actions?.length) {
     const actions = document.createElement("div");
     actions.className = "exchange-actions";
@@ -1019,8 +1025,9 @@ function renderExchangeRequest(item) {
       });
       actions.append(button);
     }
-    card.append(actions);
+    content.append(actions);
   }
+  card.append(art, content);
   return card;
 }
 
