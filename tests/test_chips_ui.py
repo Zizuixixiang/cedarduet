@@ -165,8 +165,8 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".exchange-art img", styles)
         self.assertIn("object-fit: contain", styles)
         self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
-        self.assertIn("/static/chips.css?v=1.2.0", HTML)
-        self.assertIn("/static/chips.js?v=1.2.0", HTML)
+        self.assertIn("/static/chips.css?v=1.2.1", HTML)
+        self.assertIn("/static/chips.js?v=1.2.1", HTML)
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
