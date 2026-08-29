@@ -105,7 +105,142 @@ class StakeLobbyUiTests(unittest.TestCase):
         self.assertIn('event.key === "Home"', SCRIPT)
         self.assertIn('event.key === "Escape"', SCRIPT)
         self.assertIn('document.addEventListener("click"', SCRIPT)
+        self.assertIn("eventStartedInsideMachinePicker(event)", SCRIPT)
+        self.assertIn("event.composedPath()", SCRIPT)
         self.assertIn('closeMachineMultiPicker({restoreFocus: true})', SCRIPT)
+
+    @unittest.skipUnless(NODE, "node is required for multiplayer picker tests")
+    def test_two_consecutive_option_clicks_keep_picker_open_and_update_state(self):
+        functions = "\n".join((
+            function_source("machinePickerSummary"),
+            function_source("closeMachineMultiPicker"),
+            function_source("toggleMachineSelection"),
+            function_source("renderMachineMultiPicker"),
+            function_source("eventStartedInsideMachinePicker"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+let focused = null;
+class ClassList {{
+  constructor(names = []) {{ this.names = new Set(names); }}
+  add(name) {{ this.names.add(name); }}
+  remove(name) {{ this.names.delete(name); }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor() {{
+    this.children = [];
+    this.parent = null;
+    this.className = "";
+    this.classList = new ClassList();
+    this.dataset = {{}};
+    this.attributes = {{}};
+    this.listeners = {{}};
+    this.textContent = "";
+    this.title = "";
+    this.disabled = false;
+  }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+  getAttribute(name) {{ return this.attributes[name]; }}
+  addEventListener(name, listener) {{ this.listeners[name] = listener; }}
+  append(...children) {{ children.forEach((child) => this.appendChild(child)); }}
+  appendChild(child) {{ child.parent = this; this.children.push(child); }}
+  replaceChildren(...children) {{
+    this.children.forEach((child) => {{ child.parent = null; }});
+    this.children = [];
+    this.append(...children);
+  }}
+  querySelectorAll(selector) {{
+    if (selector === '[role="option"]') {{
+      return this.children.filter((child) => child.attributes.role === "option");
+    }}
+    return [];
+  }}
+  querySelector(selector) {{
+    if (selector === '[aria-selected="true"]') {{
+      return this.children.find(
+        (child) => child.attributes["aria-selected"] === "true"
+      ) || null;
+    }}
+    if (selector === '[role="option"]') return this.querySelectorAll(selector)[0] || null;
+    return null;
+  }}
+  contains(node) {{
+    for (let current = node; current; current = current.parent) {{
+      if (current === this) return true;
+    }}
+    return false;
+  }}
+  focus() {{ focused = this; }}
+}}
+const document = {{createElement: () => new Element()}};
+const field = new Element();
+const trigger = new Element();
+const summary = new Element();
+const menu = new Element();
+field.classList.add("open");
+trigger.setAttribute("aria-expanded", "true");
+field.append(trigger, menu);
+const elements = {{
+  aiMultiField: field,
+  aiMultiTrigger: trigger,
+  aiMultiSummary: summary,
+  aiMultiMenu: menu,
+}};
+const $ = (id) => elements[id];
+const identity = {{machines: [
+  {{id: "ai-1", name: "甲"}},
+  {{id: "ai-2", name: "乙"}},
+  {{id: "ai-3", name: "丙"}},
+]}};
+const selectedMachineIds = new Set();
+const selectedTargetPlayerCount = () => 4;
+const showNotice = () => {{ throw new Error("unexpected selection limit"); }};
+let selectionChanges = 0;
+const machineSelectionChanged = () => {{ selectionChanges += 1; }};
+{functions}
+const documentClick = (event) => {{
+  if (!eventStartedInsideMachinePicker(event)) closeMachineMultiPicker();
+}};
+renderMachineMultiPicker();
+const first = menu.children[0];
+const firstPath = [first, menu, field, document];
+first.listeners.click();
+assert.equal(field.contains(first), false);
+documentClick({{target: first, composedPath: () => firstPath}});
+assert.equal(trigger.getAttribute("aria-expanded"), "true");
+assert.ok(!menu.classList.contains("hidden"));
+
+const second = menu.children[1];
+const secondPath = [second, menu, field, document];
+second.listeners.click();
+documentClick({{target: second, composedPath: () => secondPath}});
+assert.deepEqual([...selectedMachineIds], ["ai-1", "ai-2"]);
+assert.equal(summary.textContent, "已选 2 位：甲、乙");
+assert.equal(menu.children[0].getAttribute("aria-selected"), "true");
+assert.equal(menu.children[1].getAttribute("aria-selected"), "true");
+assert.equal(trigger.getAttribute("aria-expanded"), "true");
+assert.ok(!menu.classList.contains("hidden"));
+assert.equal(focused.dataset.playerId, "ai-2");
+assert.equal(selectionChanges, 2);
+
+const outside = new Element();
+documentClick({{target: outside, composedPath: () => [outside, document]}});
+assert.equal(trigger.getAttribute("aria-expanded"), "false");
+assert.ok(menu.classList.contains("hidden"));
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
 
     def test_opening_modes_and_compact_mobile_form_contract(self):
         mode = HTML[

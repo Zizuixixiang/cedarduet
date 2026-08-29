@@ -627,6 +627,14 @@ function toggleMachineMultiPicker() {
   }
 }
 
+function eventStartedInsideMachinePicker(event) {
+  const field = $("aiMultiField");
+  const path = typeof event.composedPath === "function"
+    ? event.composedPath()
+    : [];
+  return path.includes(field) || field.contains(event.target);
+}
+
 function allowedPlayerCountsForGame(declared) {
   const minimum = Number.isInteger(declared && declared.min_players)
     ? declared.min_players
@@ -2092,7 +2100,7 @@ $("waitModeModal").addEventListener("click", (event) => {
   if (event.target === $("waitModeModal")) hideWaitModeModal();
 });
 document.addEventListener("click", (event) => {
-  if (!$("aiMultiField").contains(event.target)) closeMachineMultiPicker();
+  if (!eventStartedInsideMachinePicker(event)) closeMachineMultiPicker();
 });
 $("historyDrawer").addEventListener("click", (event) => {
   if (event.target === $("historyDrawer")) closeHistory();
