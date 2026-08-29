@@ -65,12 +65,49 @@ class FrontendBoardVisualTests(unittest.TestCase):
     def test_dots_boxes_ownership_is_visual_and_accessible(self):
         renderer = function_source("renderDotsBoard")
         self.assertIn('box.setAttribute("role", "img")', renderer)
-        self.assertIn("格归${ownerDescription(owner)}所有", renderer)
-        self.assertIn(".box.owned.human-piece", STYLES)
-        self.assertIn(".box.owned.ai-piece", STYLES)
+        self.assertIn('ownerLabel.className = "box-owner-label"', renderer)
+        self.assertIn("participant.seat_index + 1", renderer)
+        self.assertIn("（座位 ${seatNumber}）所有", renderer)
         self.assertIn("--rows: 9", STYLES)
-        self.assertIn('content: "●"', STYLES)
-        self.assertIn('content: "◆"', STYLES)
+        self.assertIn(".box.owned.participant-piece { background: var(--seat-soft); }", STYLES)
+        self.assertNotIn('content: "●"', STYLES)
+        self.assertNotIn('content: "◆"', STYLES)
+        self.assertNotIn(".box.owned.human-piece", STYLES)
+        self.assertNotIn(".box.owned.ai-piece", STYLES)
+
+    def test_dots_boxes_edges_have_quiet_targets_distinct_preview_and_drawn_states(self):
+        renderer = function_source("renderDotsBoard")
+        self.assertIn("dotsPreviewSeatClass()", renderer)
+        self.assertIn('edge.ariaLabel += "，待确认"', renderer)
+        self.assertIn(".edge::before {", STYLES)
+        self.assertIn("background: rgba(92, 84, 99, .16);", STYLES)
+        self.assertIn(".edge.drawn.participant-piece::before", STYLES)
+        self.assertIn("background: var(--seat-color);", STYLES)
+        self.assertIn(".edge.selected.horizontal::before", STYLES)
+        self.assertIn("repeating-linear-gradient(", STYLES)
+        self.assertIn(".edge .last-move-marker", STYLES)
+
+    def test_dots_boxes_mobile_tracks_fit_320_and_375_pixel_viewports(self):
+        dots_styles = STYLES[
+            STYLES.index(".board.dots_boxes {"):
+            STYLES.index(".board.liars_dice {")
+        ]
+        self.assertIn("--dot-track: clamp(22px, 6.4vw, 28px);", dots_styles)
+        self.assertIn("width: min(94vw, 460px);", dots_styles)
+        self.assertIn("max-width: 100%;", dots_styles)
+        self.assertIn(
+            "repeat(4, var(--dot-track) minmax(0, 1fr)) var(--dot-track)",
+            dots_styles,
+        )
+        self.assertIn("width: 10px;", dots_styles)
+        self.assertIn("height: 10px;", dots_styles)
+        for viewport in (320, 375):
+            board_width = min(viewport * 0.94, 460)
+            dot_track = min(max(22, viewport * 0.064), 28)
+            box_track = (board_width - 6 - 5 * dot_track) / 4
+            self.assertLessEqual(board_width, viewport)
+            self.assertGreaterEqual(dot_track, 22)
+            self.assertGreaterEqual(box_track, 46)
 
     def test_jungle_uses_tokens_terrain_layers_and_mobile_safe_sizing(self):
         renderer = function_source("renderJungleBoard")
@@ -179,11 +216,11 @@ class FrontendBoardVisualTests(unittest.TestCase):
         for seat in range(6):
             self.assertIn(f".seat-{seat} {{ --seat-color:", STYLES)
         self.assertIn(
-            ".edge.drawn.participant-piece { background: var(--seat-color); }",
+            ".edge.drawn.participant-piece::before",
             STYLES,
         )
         self.assertIn(
-            ".box.owned.participant-piece { background-color: var(--seat-color); }",
+            ".box.owned.participant-piece { background: var(--seat-soft); }",
             STYLES,
         )
         badge = function_source("createParticipantBadge")
@@ -545,6 +582,159 @@ class MultiplayerTableRenderingTests(unittest.TestCase):
             0,
             f"JavaScript assertion failed:\n{completed.stderr}",
         )
+
+    def test_dots_boxes_two_to_four_players_share_numbered_seat_visuals(self):
+        functions = "\n".join((
+            function_source("participantFor"),
+            function_source("participantByPlayerId"),
+            function_source("participantForOwner"),
+            function_source("canHumanMove"),
+            function_source("pieceClass"),
+            function_source("ownerDescription"),
+            function_source("movesEqual"),
+            function_source("selectMove"),
+            function_source("dotsPreviewSeatClass"),
+            function_source("renderDotsBoard"),
+            function_source("latestMoveEvent"),
+            function_source("authoritativeLastMove"),
+            function_source("renderLastMoveMarker"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor(owner) {{ this.owner = owner; this.names = new Set(); }}
+  reset(value) {{ this.names = new Set(value.split(/\\s+/).filter(Boolean)); }}
+  sync() {{ this.owner._className = [...this.names].join(" "); }}
+  add(...names) {{ names.forEach((name) => this.names.add(name)); this.sync(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+    this.sync();
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor(tag = "div") {{
+    this.tag = tag;
+    this.children = [];
+    this.dataset = {{}};
+    this.attributes = {{}};
+    this.listeners = {{}};
+    this.disabled = false;
+    this.textContent = "";
+    this.ariaLabel = "";
+    this._className = "";
+    this.classList = new ClassList(this);
+  }}
+  set className(value) {{ this._className = value; this.classList.reset(value); }}
+  get className() {{ return this._className; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  click() {{ if (!this.disabled && this.listeners.click) this.listeners.click(); }}
+  querySelector(selector) {{
+    const orientation = selector.match(/data-move-orientation="([hv])"/);
+    const row = selector.match(/data-move-row="(\\d+)"/);
+    const col = selector.match(/data-move-col="(\\d+)"/);
+    if (!row || !col) return null;
+    return this.children.find((child) => (
+      (!orientation || child.dataset.moveOrientation === orientation[1])
+      && child.dataset.moveRow === row[1]
+      && child.dataset.moveCol === col[1]
+    )) || null;
+  }}
+}}
+const document = {{createElement: (tag) => new Element(tag)}};
+let room = null;
+let pendingMove = null;
+let renderCount = 0;
+let lastMoveMarkerKey = null;
+const renderBoard = () => {{ renderCount += 1; }};
+{functions}
+const edgeAt = (board, orientation, row, col) => board.children.find((item) => (
+  item.classList.contains("edge")
+  && item.dataset.moveOrientation === orientation
+  && item.dataset.moveRow === String(row)
+  && item.dataset.moveCol === String(col)
+));
+const boxAt = (board, row, col) => board.children.find((item) => (
+  item.classList.contains("box")
+  && item.dataset.boxRow === String(row)
+  && item.dataset.boxCol === String(col)
+));
+const tokens = ["X", "O", "P3", "P4"];
+for (const playerCount of [2, 3, 4]) {{
+  const participants = Array.from({{length: playerCount}}, (_, seatIndex) => ({{
+    player_id: `player-${{seatIndex + 1}}`,
+    token: tokens[seatIndex],
+    role: seatIndex === 0 ? "human" : "ai",
+    display_name: `玩家 ${{seatIndex + 1}}`,
+    seat_index: seatIndex,
+  }}));
+  const owners = playerCount === 2
+    ? participants.map((item) => item.token)
+    : participants.map((item) => item.player_id);
+  const state = {{
+    marks: {{human: "X", ai: "O"}},
+    horizontal_edges: Array.from({{length: 5}}, () => Array(4).fill(null)),
+    vertical_edges: Array.from({{length: 4}}, () => Array(5).fill(null)),
+    boxes: Array.from({{length: 4}}, () => Array(4).fill(null)),
+    last_move: {{orientation: "h", row: 0, col: playerCount - 1}},
+  }};
+  owners.forEach((owner, seatIndex) => {{
+    state.horizontal_edges[0][seatIndex] = owner;
+    state.boxes[0][seatIndex] = owner;
+  }});
+  room = {{
+    room_id: `DOTS-${{playerCount}}`,
+    revision: playerCount,
+    game_type: "dots_boxes",
+    status: "playing",
+    current_player_id: "player-1",
+    viewer: {{player_id: "player-1"}},
+    participants,
+    board_state: state,
+  }};
+  pendingMove = null;
+  lastMoveMarkerKey = null;
+  let board = new Element("board");
+  renderDotsBoard(board, state);
+  assert.equal(board.children.length, 81);
+  owners.forEach((_owner, seatIndex) => {{
+    const edge = edgeAt(board, "h", 0, seatIndex);
+    const box = boxAt(board, 0, seatIndex);
+    assert.equal(edge.classList.contains("drawn"), true);
+    assert.equal(edge.classList.contains("participant-piece"), true);
+    assert.equal(edge.classList.contains(`seat-${{seatIndex}}`), true);
+    assert.equal(box.classList.contains("owned"), true);
+    assert.equal(box.classList.contains("participant-piece"), true);
+    assert.equal(box.classList.contains(`seat-${{seatIndex}}`), true);
+    assert.equal(box.children[0].className, "box-owner-label");
+    assert.equal(box.children[0].textContent, String(seatIndex + 1));
+    assert.match(box.ariaLabel, new RegExp(`座位 ${{seatIndex + 1}}`));
+    assert.equal(/[●◆]/.test(box.children[0].textContent), false);
+  }});
+
+  renderLastMoveMarker(board, []);
+  const lastEdge = edgeAt(board, "h", 0, playerCount - 1);
+  assert.equal(lastEdge.classList.contains("last-move-target"), true);
+  assert.equal(lastEdge.children.at(-1).className, "last-move-marker");
+  assert.match(lastEdge.ariaLabel, /上一手/);
+
+  edgeAt(board, "v", 3, 4).click();
+  assert.deepEqual(pendingMove, {{orientation: "v", row: 3, col: 4}});
+  assert.ok(renderCount > 0);
+  board = new Element("board");
+  renderDotsBoard(board, state);
+  const preview = edgeAt(board, "v", 3, 4);
+  assert.equal(preview.classList.contains("selected"), true);
+  assert.equal(preview.classList.contains("seat-0"), true);
+  assert.equal(preview.classList.contains("drawn"), false);
+  assert.equal(preview.attributes["aria-pressed"], "true");
+  assert.match(preview.ariaLabel, /未画，待确认/);
+}}
+"""
+        self.run_node(harness)
 
     def test_jungle_dom_tokens_terrain_rotation_and_true_coordinates(self):
         functions = "\n".join((

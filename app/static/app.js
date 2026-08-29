@@ -1256,6 +1256,14 @@ function renderConnect4Board(board, state) {
   });
 }
 
+function dotsPreviewSeatClass() {
+  const viewerId = room && room.viewer && room.viewer.player_id;
+  const participant = participantByPlayerId(viewerId) || participantFor("human");
+  return participant && Number.isInteger(participant.seat_index)
+    ? `seat-${participant.seat_index}`
+    : "";
+}
+
 function renderDotsBoard(board, state) {
   for (let gridRow = 0; gridRow < 9; gridRow += 1) {
     for (let gridCol = 0; gridCol < 9; gridCol += 1) {
@@ -1280,6 +1288,9 @@ function renderDotsBoard(board, state) {
         const payload = {orientation: "h", row: rowIndex, col: colIndex};
         const selected = movesEqual(pendingMove, payload);
         edge.classList.toggle("selected", selected);
+        const previewSeatClass = selected ? dotsPreviewSeatClass() : "";
+        if (previewSeatClass) edge.classList.add(previewSeatClass);
+        if (selected) edge.ariaLabel += "，待确认";
         edge.setAttribute("aria-pressed", String(selected));
         edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
@@ -1300,6 +1311,9 @@ function renderDotsBoard(board, state) {
         const payload = {orientation: "v", row: rowIndex, col: colIndex};
         const selected = movesEqual(pendingMove, payload);
         edge.classList.toggle("selected", selected);
+        const previewSeatClass = selected ? dotsPreviewSeatClass() : "";
+        if (previewSeatClass) edge.classList.add(previewSeatClass);
+        if (selected) edge.ariaLabel += "，待确认";
         edge.setAttribute("aria-pressed", String(selected));
         edge.addEventListener("click", () => selectMove(payload));
         board.appendChild(edge);
@@ -1307,11 +1321,25 @@ function renderDotsBoard(board, state) {
         const box = document.createElement("span");
         const owner = state.boxes[(gridRow - 1) / 2][(gridCol - 1) / 2];
         box.className = `box${owner ? " owned" : ""}${pieceClass(owner)}`;
+        const boxRow = (gridRow - 1) / 2;
+        const boxCol = (gridCol - 1) / 2;
+        box.dataset.boxRow = String(boxRow);
+        box.dataset.boxCol = String(boxCol);
         if (owner) {
-          const boxRow = (gridRow - 1) / 2;
-          const boxCol = (gridCol - 1) / 2;
+          const participant = participantForOwner(owner);
+          const seatNumber = participant && Number.isInteger(participant.seat_index)
+            ? participant.seat_index + 1
+            : "?";
+          const ownerLabel = document.createElement("span");
+          ownerLabel.className = "box-owner-label";
+          ownerLabel.textContent = String(seatNumber);
+          ownerLabel.setAttribute("aria-hidden", "true");
+          box.appendChild(ownerLabel);
           box.setAttribute("role", "img");
-          box.ariaLabel = `第 ${boxRow + 1} 行第 ${boxCol + 1} 格归${ownerDescription(owner)}所有`;
+          box.ariaLabel = (
+            `第 ${boxRow + 1} 行第 ${boxCol + 1} 格归`
+            + `${ownerDescription(owner)}（座位 ${seatNumber}）所有`
+          );
         } else {
           box.setAttribute("aria-hidden", "true");
         }
