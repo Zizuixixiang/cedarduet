@@ -6,6 +6,7 @@ let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
 let selectedJungleCell = null;
+let selectedXiangqiCell = null;
 let pendingMove = null;
 let liarsBidDraft = null;
 let currentTimeline = [];
@@ -25,6 +26,7 @@ const GAME_GLYPHS = {
   dots_boxes: "点",
   liars_dice: "骰",
   jungle: "兽",
+  xiangqi: "象",
 };
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",
@@ -37,6 +39,18 @@ const JUNGLE_WATER = new Set(
 );
 const JUNGLE_TRAPS = new Set(["0,2", "0,4", "1,3", "8,2", "8,4", "7,3"]);
 const JUNGLE_DENS = new Set(["0,3", "8,3"]);
+const XIANGQI_SYMBOLS = {
+  r: {r: "车", n: "马", b: "相", a: "仕", k: "帅", c: "炮", p: "兵"},
+  b: {r: "车", n: "马", b: "象", a: "士", k: "将", c: "炮", p: "卒"},
+};
+// These keys are display coordinates. Keeping them visual makes the palace
+// geometry stay correct when a black-side viewer receives the rotated order.
+const XIANGQI_PALACE_LINES = new Map([
+  ["0,3", ["down-right"]], ["0,5", ["down-left"]],
+  ["1,4", ["down-left", "down-right"]],
+  ["7,3", ["down-right"]], ["7,5", ["down-left"]],
+  ["8,4", ["down-left", "down-right"]],
+]);
 
 function apiPath(path) {
   return window.location.pathname.startsWith("/duel") ? `/duel${path}` : path;
@@ -1062,6 +1076,7 @@ async function openRoom(roomId) {
 function backToLobby() {
   room = null;
   selectedJungleCell = null;
+  selectedXiangqiCell = null;
   pendingMove = null;
   liarsBidDraft = null;
   stopPolling();
@@ -1443,6 +1458,134 @@ function rememberLiarsBidSelection(quantity, face) {
   };
 }
 
+function renderXiangqiBoard(board, state) {
+  const humanColor = state.marks && state.marks.human === "O" ? "b" : "r";
+  const rotated = humanColor === "b";
+  const rowOrder = Array.from(
+    {length: 10}, (_, index) => rotated ? 9 - index : index
+  );
+  const colOrder = Array.from(
+    {length: 9}, (_, index) => rotated ? 8 - index : index
+  );
+  const legalMoves = Array.isArray(state.legal_moves) ? state.legal_moves : [];
+  const selectedMoves = selectedXiangqiCell
+    ? legalMoves.filter((candidate) => (
+      candidate.from_row === selectedXiangqiCell.row
+      && candidate.from_col === selectedXiangqiCell.col
+    ))
+    : [];
+
+  board.classList.toggle("rotated-view", rotated);
+  board.dataset.viewColor = humanColor;
+  rowOrder.forEach((rowIndex, displayRow) => {
+    colOrder.forEach((colIndex, displayCol) => {
+      const piece = state.board[rowIndex][colIndex];
+      const [pieceColor, pieceType] = piece ? piece.split(":") : [null, null];
+      const ownerMark = pieceColor === "r" ? "X" : (pieceColor === "b" ? "O" : null);
+      const legalTarget = selectedMoves.some((candidate) => (
+        candidate.to_row === rowIndex && candidate.to_col === colIndex
+      ));
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = `cell${piece ? " occupied" : ""}${pieceClass(ownerMark)}`;
+      // The DOM is reordered for perspective, while these remain authoritative
+      // backend coordinates used by last_move lookup and move submission.
+      cell.dataset.moveRow = String(rowIndex);
+      cell.dataset.moveCol = String(colIndex);
+      cell.dataset.displayRow = String(displayRow);
+      cell.dataset.displayCol = String(displayCol);
+      if (displayRow === 0) cell.classList.add("edge-top");
+      if (displayRow === 9) cell.classList.add("edge-bottom");
+      if (displayCol === 0) cell.classList.add("edge-left");
+      if (displayCol === 8) cell.classList.add("edge-right");
+      if (displayRow === 4) cell.classList.add("river-top");
+      if (displayRow === 5) cell.classList.add("river-bottom");
+      if (
+        selectedXiangqiCell
+        && selectedXiangqiCell.row === rowIndex
+        && selectedXiangqiCell.col === colIndex
+      ) cell.classList.add("selected-origin");
+      if (
+        pendingMove
+        && pendingMove.to_row === rowIndex
+        && pendingMove.to_col === colIndex
+      ) cell.classList.add("selected");
+      if (legalTarget) {
+        cell.classList.add(piece ? "legal-capture" : "legal-target");
+        const targetDot = document.createElement("span");
+        targetDot.className = "legal-target-dot";
+        targetDot.setAttribute("aria-hidden", "true");
+        cell.appendChild(targetDot);
+      }
+      for (
+        const direction of XIANGQI_PALACE_LINES.get(
+          `${displayRow},${displayCol}`
+        ) || []
+      ) {
+        const diagonal = document.createElement("span");
+        diagonal.className = `palace-diagonal ${direction}`;
+        diagonal.setAttribute("aria-hidden", "true");
+        cell.appendChild(diagonal);
+      }
+      if (piece) {
+        const token = document.createElement("span");
+        token.className = `xiangqi-piece color-${pieceColor}`;
+        token.textContent = XIANGQI_SYMBOLS[pieceColor][pieceType];
+        token.setAttribute("aria-hidden", "true");
+        cell.appendChild(token);
+        if (pieceType === "k" && pieceColor === state.turn_color && state.in_check) {
+          cell.classList.add("in-check");
+        }
+      }
+      const pieceLabel = piece
+        ? `${pieceColor === "r" ? "红" : "黑"}${XIANGQI_SYMBOLS[pieceColor][pieceType]}`
+        : "空位";
+      cell.ariaLabel = (
+        `从己方视角第 ${displayRow + 1} 行第 ${displayCol + 1} 路，${pieceLabel}`
+        + `${legalTarget ? "，合法落点" : ""}`
+      );
+      cell.disabled = !canHumanMove();
+      cell.addEventListener("click", () => {
+        if (!canHumanMove()) return;
+        if (pieceColor === humanColor) {
+          if (
+            selectedXiangqiCell
+            && selectedXiangqiCell.row === rowIndex
+            && selectedXiangqiCell.col === colIndex
+          ) {
+            selectedXiangqiCell = null;
+          } else {
+            selectedXiangqiCell = {row: rowIndex, col: colIndex};
+          }
+          pendingMove = null;
+          renderBoard();
+          return;
+        }
+        if (!selectedXiangqiCell || !legalTarget) return;
+        pendingMove = {
+          from_row: selectedXiangqiCell.row,
+          from_col: selectedXiangqiCell.col,
+          to_row: rowIndex,
+          to_col: colIndex,
+        };
+        renderBoard();
+      });
+      board.appendChild(cell);
+    });
+  });
+
+  board.classList.toggle("in-check-state", Boolean(state.in_check));
+  if (state.in_check) {
+    const notice = document.createElement("span");
+    notice.className = "xiangqi-check-notice";
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+    notice.textContent = `${state.turn_color === "r" ? "红方" : "黑方"} · 将军`;
+    board.appendChild(notice);
+  }
+
+}
+
 function renderLiarsDice(board, state) {
   const flow = state.flow || {};
   const roundNumber = flow.round_number;
@@ -1627,17 +1770,23 @@ function authoritativeLastMove(targetRoom, timeline = []) {
 
   let row = move.row;
   let col = move.col;
+  let fromRow = null;
+  let fromCol = null;
   let orientation = null;
-  if (targetRoom.game_type === "jungle") {
+  if (["jungle", "xiangqi"].includes(targetRoom.game_type)) {
     row = move.to_row;
     col = move.to_col;
+    if (targetRoom.game_type === "xiangqi") {
+      fromRow = move.from_row;
+      fromCol = move.from_col;
+    }
   } else if (targetRoom.game_type === "dots_boxes") {
     orientation = move.orientation;
     if (!["h", "v"].includes(orientation)) return null;
   }
   if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
 
-  return {
+  const normalized = {
     row,
     col,
     orientation,
@@ -1645,6 +1794,11 @@ function authoritativeLastMove(targetRoom, timeline = []) {
       ? event.revision_at_send
       : targetRoom.revision,
   };
+  if (targetRoom.game_type === "xiangqi") {
+    normalized.fromRow = fromRow;
+    normalized.fromCol = fromCol;
+  }
+  return normalized;
 }
 
 function renderLastMoveMarker(board, timeline = []) {
@@ -1655,6 +1809,19 @@ function renderLastMoveMarker(board, timeline = []) {
     : `.cell[data-move-row="${move.row}"][data-move-col="${move.col}"]`;
   const target = board.querySelector(selector);
   if (!target) return;
+  if (
+    room.game_type === "xiangqi"
+    && Number.isInteger(move.fromRow)
+    && Number.isInteger(move.fromCol)
+  ) {
+    const origin = board.querySelector(
+      `.cell[data-move-row="${move.fromRow}"][data-move-col="${move.fromCol}"]`
+    );
+    if (origin) {
+      origin.classList.add("last-move-origin");
+      origin.ariaLabel = `${origin.ariaLabel || "棋盘位置"}，上一手起点`;
+    }
+  }
 
   const markerKey = [
     room.room_id,
@@ -1671,7 +1838,10 @@ function renderLastMoveMarker(board, timeline = []) {
   marker.className = "last-move-marker";
   marker.setAttribute("aria-hidden", "true");
   target.appendChild(marker);
-  target.ariaLabel = `${target.ariaLabel || "棋盘位置"}，上一手`;
+  target.ariaLabel = (
+    `${target.ariaLabel || "棋盘位置"}`
+    + `${room.game_type === "xiangqi" ? "，上一手终点" : "，上一手"}`
+  );
 }
 
 function renderBoard(timeline = currentTimeline) {
@@ -1701,6 +1871,8 @@ function renderBoard(timeline = currentTimeline) {
     renderDotsBoard(board, state);
   } else if (room.game_type === "jungle") {
     renderJungleBoard(board, state);
+  } else if (room.game_type === "xiangqi") {
+    renderXiangqiBoard(board, state);
   } else if (room.game_type === "gomoku") {
     renderGomokuBoard(board, state);
   } else if (room.game_type === "connect4") {
@@ -2133,6 +2305,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   );
   if (selectionIsStale) {
     selectedJungleCell = null;
+    selectedXiangqiCell = null;
     pendingMove = null;
   }
   room = nextRoom;
@@ -2201,6 +2374,7 @@ async function confirmMove() {
     if (["bid", "challenge"].includes(movePayload.action)) liarsBidDraft = null;
     pendingMove = null;
     selectedJungleCell = null;
+    selectedXiangqiCell = null;
     renderGame(data.room, data.message, data.timeline);
   } catch (error) {
     showNotice(error.message, true);

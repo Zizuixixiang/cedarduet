@@ -1337,6 +1337,174 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-color: var(--purple-darker);
   box-shadow: inset 0 0 0 3px rgba(190, 177, 209, .45);
 }
+.board.xiangqi {
+  width: min(60vw, 540px);
+  max-width: 100%;
+  padding: clamp(15px, 2.3vw, 24px);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  gap: 0;
+  background: #f1ddb1;
+  border-color: #5d3d2c;
+  box-shadow:
+    inset 0 0 0 3px rgba(126, 76, 42, .22),
+    inset 0 0 34px rgba(126, 76, 42, .14);
+}
+.board.xiangqi::before {
+  content: "楚 河　　　　　汉 界";
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+  color: #6c4631;
+  font-family: "Noto Serif SC", "Songti SC", SimSun, serif;
+  font-size: clamp(12px, 2vw, 22px);
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.board.xiangqi .cell {
+  isolation: isolate;
+  overflow: visible;
+  z-index: 2;
+  background: transparent;
+  touch-action: manipulation;
+}
+.board.xiangqi .cell::before,
+.board.xiangqi .cell::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  background: #7c5138;
+  pointer-events: none;
+}
+.board.xiangqi .cell::before {
+  left: 0;
+  right: 0;
+  top: calc(50% - .5px);
+  height: 1px;
+}
+.board.xiangqi .cell::after {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - .5px);
+  width: 1px;
+}
+.board.xiangqi .cell.edge-left::before { left: 50%; }
+.board.xiangqi .cell.edge-right::before { right: 50%; }
+.board.xiangqi .cell.edge-top::after { top: 50%; }
+.board.xiangqi .cell.edge-bottom::after { bottom: 50%; }
+.board.xiangqi .cell.river-top:not(.edge-left):not(.edge-right)::after { bottom: 50%; }
+.board.xiangqi .cell.river-bottom:not(.edge-left):not(.edge-right)::after { top: 50%; }
+.board.xiangqi .palace-diagonal {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - .5px);
+  z-index: 0;
+  width: 143%;
+  height: 1px;
+  transform-origin: left center;
+  background: #7c5138;
+  pointer-events: none;
+}
+.board.xiangqi .palace-diagonal.down-right { transform: rotate(45deg); }
+.board.xiangqi .palace-diagonal.down-left { transform: rotate(135deg); }
+.board.xiangqi .xiangqi-piece {
+  width: 78%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: #f8e8c5;
+  font-family: "Noto Serif SC", "Songti SC", SimSun, serif;
+  font-size: clamp(15px, 3vw, 29px);
+  font-weight: 800;
+  line-height: 1;
+  box-shadow:
+    inset 0 0 0 2px rgba(104, 65, 39, .18),
+    1px 2px 3px rgba(67, 42, 28, .28);
+  pointer-events: none;
+}
+.board.xiangqi .xiangqi-piece.color-r { color: #ad342e; }
+.board.xiangqi .xiangqi-piece.color-b { color: #302d32; }
+.board.xiangqi .cell:hover:not(:disabled) { background: rgba(230, 168, 177, .18); }
+.board.xiangqi .cell.selected-origin { outline: 0; }
+.board.xiangqi .cell.selected-origin .xiangqi-piece {
+  box-shadow:
+    0 0 0 3px var(--purple),
+    0 0 0 5px rgba(255, 255, 255, .72),
+    1px 2px 3px rgba(67, 42, 28, .28);
+}
+.board.xiangqi .cell.selected {
+  outline: 0;
+  background: rgba(230, 168, 177, .34);
+}
+.board.xiangqi .legal-target-dot {
+  width: 12px;
+  height: 12px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(126, 90, 151, .7);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .58);
+  pointer-events: none;
+}
+.board.xiangqi .cell.legal-capture .legal-target-dot {
+  width: 84%;
+  height: 84%;
+  border: 3px solid var(--pink-dark);
+  background: transparent;
+  box-shadow: none;
+}
+.board.xiangqi .cell.in-check .xiangqi-piece {
+  box-shadow: 0 0 0 3px var(--pink-dark), 0 0 12px rgba(174, 48, 62, .5);
+}
+.board.xiangqi .xiangqi-check-notice {
+  padding: 3px 8px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  color: #8e2f32;
+  background: rgba(255, 249, 233, .94);
+  border: 1px solid rgba(142, 47, 50, .58);
+  box-shadow: 1px 1px 0 rgba(92, 84, 99, .14);
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.board.xiangqi .cell.last-move-origin {
+  background: rgba(190, 177, 209, .28);
+  box-shadow: inset 0 0 0 2px rgba(134, 120, 160, .68);
+}
+.board.xiangqi .cell.last-move-target { background: rgba(230, 168, 177, .26); }
+.board.xiangqi .last-move-marker {
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  border-width: 1px;
+}
+.board.xiangqi .cell:focus-visible {
+  z-index: 5;
+  outline: 3px solid var(--pink-dark);
+  outline-offset: -3px;
+}
 .board.gomoku .cell {
   isolation: isolate;
   overflow: visible;
@@ -2317,6 +2485,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .layout-corners .board { width: min(82vw, 560px); }
   .board { width: min(82vw, 560px); border-width: 3px; gap: 1px; }
   .board.gomoku { width: min(88vw, 560px); padding: 4px; gap: 0; }
+  .board.xiangqi { width: min(86vw, 480px); max-width: 100%; padding: 10px; gap: 0; }
+  .board.xiangqi .xiangqi-piece { border-width: 1.5px; font-size: clamp(14px, 5.1vw, 25px); }
+  .board.xiangqi .legal-target-dot { width: 9px; height: 9px; }
+  .board.xiangqi .xiangqi-check-notice { padding: 2px 6px; font-size: 10px; }
   .board.gomoku .cell.selected .piece { box-shadow: 0 0 0 2px var(--pink), 0 0 0 3px #fff; }
   .board.othello { padding: 4px; gap: 2px; }
   .board.connect4 { padding: 5px; gap: 2px; }

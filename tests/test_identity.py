@@ -189,7 +189,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "dots_boxes", "liars_dice", "jungle",
+            "connect4", "dots_boxes", "liars_dice", "jungle", "xiangqi",
         ):
             self.assertIn(f'value="{game_type}"', html)
         self.assertNotIn('id="playerId"', html)

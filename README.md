@@ -15,8 +15,9 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `dots_boxes`：2–4 人点格棋，支持系统 NPC
 - `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
 - `jungle`：7×9 斗兽棋
+- `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
 
-井字棋、五子棋、黑白棋、四子连珠和斗兽棋继续严格双人。点格棋权威声明
+井字棋、五子棋、黑白棋、四子连珠、斗兽棋和象棋继续严格双人。点格棋权威声明
 `allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
 多人/NPC 框架验收游戏。
 
@@ -36,6 +37,30 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 当前叫点、淘汰状态和已公开的上一轮结果。完整 MCP 示例见
 [docs/MCP_GUIDE.md](docs/MCP_GUIDE.md)。
 
+### 象棋规则与状态接口
+
+象棋固定需要 1 个人类和 1 只真实绑定小机，`supports_npcs=False`，不允许 NPC
+补位。先手一方执红。合法走棋、将军、将死、困毙和胜负由仓库内 vendored
+`xiangqi.js` 规则引擎判定；该引擎采用 BSD-2-Clause 许可证，Python 插件通过
+单次短生命周期 Node 调用适配，服务端不保留常驻 JS 子进程。
+
+`board_state.board` 是 10×9 数组，棋子使用 `r:r`、`b:k` 这类“颜色:棋种”值；
+`row=0` 是黑方底线，`row=9` 是红方底线，`col=0..8`。客户端提交四个真实坐标和
+房间 revision：
+
+```json
+{
+  "revision": 3,
+  "move": {"from_row": 9, "from_col": 0, "to_row": 8, "to_col": 0}
+}
+```
+
+`board_state.marks` 把 `human/ai` 映射到席位 token，其中 X 执红、O 执黑。网页只从
+`board_state.legal_moves` 标注当前所选棋子的合法目标，不在浏览器重算规则；
+`turn_color` 与 `in_check` 驱动回合和将军提示，`last_move` 提供上一手起终点。
+人类执黑时网页仅重排显示坐标，使己方位于下方，提交仍使用上述真实坐标。时间线
+直接展示服务端 `move_label`，不在客户端重复实现象棋记谱。
+
 ## 项目结构
 
 ```text
@@ -50,6 +75,8 @@ app/
   achievements.py      成就目录、可靠事实、进度与自动奖励
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
+  games/xiangqi.py     象棋 GamePlugin 与房间状态适配
+  games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
   npc_personas.py      NPC 人设目录加载与严格校验
   npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
   npc_providers.py     disabled / OpenAI-compatible / CedarToy bridge provider
@@ -59,6 +86,7 @@ app/
   config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
 tests/                  单元测试与前端行为测试
+third_party/xiangqi_js/ BSD-2-Clause 象棋规则引擎、许可与桥接脚本
 data/                   本地运行数据目录；真实数据库不会提交到 Git
 ```
 
@@ -84,7 +112,7 @@ data/                   本地运行数据目录；真实数据库不会提交�
   规则并争取获胜；人设只影响合理行动间的选择、风险偏好和交流方式，不得为了
   维持性格故意走明显坏棋。合法行动始终由插件规则引擎列出。
 - 每次 NPC 请求只含全局玩家规则、当前 persona、精简游戏规则、公开参与者目录、
-  公共状态、最近 20 条房间公开事件、游戏专用公开行动、当前 NPC 私有状态和权威
+  公共状态、按 sequence 取末尾 20 条房间公开事件、游戏专用公开行动、当前 NPC 私有状态和权威
   合法行动；事件读取不消费玩家游标。私聊和其他玩家隐藏状态不会进入请求，也不
   请求或保存思维链。NPC 可以依据公开信息正常推理和估计，但不得把对手隐藏状态
   当作已知事实；不得以真实披露为目的直接报出自己的具体隐藏牌、骰子等私有状态，
@@ -342,6 +370,11 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 紧凑座位卡，5–6 人桌面端三列、窄屏两列；棋盘/公共桌面保持居中，双人房间保留
 原有双方对弈视觉。`private_state` 非空时才显示一个只属于
 当前 viewer 的手牌/骰子/合法行动容器。
+
+象棋网页同样消费这套通用房间 API：创建区从目录得知固定 2 人且不支持 NPC；棋盘
+使用 `board_state.board/marks/legal_moves/turn_color/in_check/last_move`，落子仍提交
+`{move:{from_row,from_col,to_row,to_col},revision}`。因此前端无需、也不应自行推导
+马腿、象眼、炮架、九宫、过河或将帅安全规则。
 
 ## 筹码中心
 

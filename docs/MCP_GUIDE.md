@@ -255,3 +255,35 @@ status、whoami、房间与对局响应不会携带兑换提醒。
 
 终局时唯一赢家的逻辑 delta 为 `stake * (参与者数 - 1)`，其他每人 `-stake`，
 总和为零。系统 NPC 的 delta 会保存在房间结算记录中，但不会创建永久钱包。
+
+## 象棋 `xiangqi`
+
+象棋固定为 1 个人类 + 1 只真实绑定小机，先手执红，不支持系统 NPC。合法走棋、
+将军、将死、困毙和胜负由 vendored `xiangqi.js`（BSD-2-Clause）判定。
+第一版不裁决竞赛级长将长捉责任。
+
+棋盘坐标为零起始真实坐标：`row=0` 是黑方底线，`row=9` 是红方底线，
+`col=0..8`。移动必须带当前房间 revision：
+
+```json
+{
+  "action": "move",
+  "player_id": "ai-42",
+  "room_id": "ABCDEFGH",
+  "revision": 3,
+  "move": {
+    "from_row": 0,
+    "from_col": 0,
+    "to_row": 1,
+    "to_col": 0
+  }
+}
+```
+
+`state` 的 `board_state` 包含 10×9 `board`、`marks`、`fen`、`turn_color`、
+`in_check`、`in_checkmate`、`in_stalemate`、`legal_moves`，走棋后还会包含
+`move_history` 和 `last_move`。
+棋子编码为颜色与棋种，例如红车 `r:r`、黑将 `b:k`。`legal_moves` 已过滤马腿、
+象眼、炮架、九宫、过河、将帅照面和送将等非法着法，是调用方选择行动的唯一合法
+目标真源；不要在客户端或提示词里重写一套规则。落子事件另带服务端生成的
+`move_label`，用于历史展示。

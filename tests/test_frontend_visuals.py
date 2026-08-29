@@ -36,6 +36,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("renderConnect4Board(board, state)", renderer)
         self.assertIn("renderDotsBoard(board, state)", renderer)
         self.assertIn("renderJungleBoard(board, state)", renderer)
+        self.assertIn("renderXiangqiBoard(board, state)", renderer)
 
     def test_gomoku_uses_intersections_stones_and_mobile_hit_cells(self):
         renderer = function_source("renderGomokuBoard")
@@ -76,6 +77,49 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("JUNGLE_SYMBOLS[beast]", renderer)
         self.assertIn('pieceOwner === humanMark ? "●" : "○"', renderer)
         self.assertNotIn("cell.textContent = piece", renderer)
+
+    def test_xiangqi_uses_server_targets_intersections_and_mobile_safe_board(self):
+        renderer = function_source("renderXiangqiBoard")
+        self.assertIn("state.legal_moves", renderer)
+        self.assertIn('cell.classList.add(piece ? "legal-capture" : "legal-target")', renderer)
+        self.assertIn("selectedXiangqiCell", renderer)
+        self.assertIn("rowOrder.forEach((rowIndex, displayRow)", renderer)
+        self.assertIn("colOrder.forEach((colIndex, displayCol)", renderer)
+        self.assertIn('cell.dataset.moveRow = String(rowIndex)', renderer)
+        self.assertIn('cell.dataset.displayRow = String(displayRow)', renderer)
+        self.assertIn("XIANGQI_SYMBOLS[pieceColor][pieceType]", renderer)
+        self.assertIn("XIANGQI_PALACE_LINES", renderer)
+        self.assertIn("xiangqi-check-notice", renderer)
+        self.assertIn("state.turn_color", renderer)
+        self.assertIn(".board.xiangqi::before", STYLES)
+        self.assertIn('content: "楚 河　　　　　汉 界"', STYLES)
+        self.assertIn(".cell.river-top", STYLES)
+        self.assertIn(".board.xiangqi .palace-diagonal.down-right", STYLES)
+        self.assertIn(".board.xiangqi .xiangqi-piece.color-r", STYLES)
+        self.assertIn(".board.xiangqi .xiangqi-piece.color-b", STYLES)
+        xiangqi_styles = STYLES[
+            STYLES.index(".board.xiangqi {"):
+            STYLES.index(".board.gomoku .cell {")
+        ]
+        self.assertNotIn("rotate(180deg)", xiangqi_styles)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(
+            ".board.xiangqi { width: min(86vw, 480px); max-width: 100%;",
+            mobile,
+        )
+        self.assertIn('value="xiangqi"', HTML)
+
+    def test_xiangqi_last_move_and_history_use_authoritative_payloads(self):
+        last_move = function_source("authoritativeLastMove")
+        marker = function_source("renderLastMoveMarker")
+        timeline = function_source("renderTimeline")
+        self.assertIn('["jungle", "xiangqi"]', last_move)
+        self.assertIn("fromRow = move.from_row", last_move)
+        self.assertIn('origin.classList.add("last-move-origin")', marker)
+        self.assertIn('target.classList.add("last-move-target")', marker)
+        self.assertIn("event.move_label", timeline)
+        self.assertNotIn("XIANGQI_SYMBOLS", timeline)
+        self.assertIn(".board.xiangqi .cell.last-move-origin", STYLES)
 
     def test_multiplayer_roster_is_compact_and_seat_colored(self):
         self.assertIn(".room-participant {", STYLES)
@@ -298,6 +342,205 @@ for (const [count, layout] of expected) {{
   assert.equal(elements.battleStage.dataset.playerCount, String(count));
   assert.equal(elements.sharedSpeechSlot.classList.contains("hidden"), count === 2);
 }}
+"""
+        self.run_node(harness)
+
+    def test_xiangqi_interaction_rotation_disabling_and_true_coordinates(self):
+        functions = "\n".join((
+            function_source("canHumanMove"),
+            function_source("renderXiangqiBoard"),
+            function_source("latestMoveEvent"),
+            function_source("authoritativeLastMove"),
+            function_source("renderLastMoveMarker"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor(owner) {{ this.owner = owner; this.names = new Set(); }}
+  reset(value) {{ this.names = new Set(value.split(/\\s+/).filter(Boolean)); }}
+  sync() {{ this.owner._className = [...this.names].join(" "); }}
+  add(...names) {{ names.forEach((name) => this.names.add(name)); this.sync(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+    this.sync();
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor(tag = "div") {{
+    this.tag = tag;
+    this.children = [];
+    this.dataset = {{}};
+    this.attributes = {{}};
+    this.listeners = {{}};
+    this.disabled = false;
+    this.textContent = "";
+    this.ariaLabel = "";
+    this._className = "";
+    this.classList = new ClassList(this);
+  }}
+  set className(value) {{ this._className = value; this.classList.reset(value); }}
+  get className() {{ return this._className; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  click() {{ if (!this.disabled && this.listeners.click) this.listeners.click(); }}
+  querySelector(selector) {{
+    const row = selector.match(/data-move-row="(\\d+)"/);
+    const col = selector.match(/data-move-col="(\\d+)"/);
+    if (!row || !col) return null;
+    return this.children.find((child) => (
+      child.dataset.moveRow === row[1] && child.dataset.moveCol === col[1]
+    )) || null;
+  }}
+}}
+const document = {{createElement: (tag) => new Element(tag)}};
+const XIANGQI_SYMBOLS = {{
+  r: {{r: "车", n: "马", b: "相", a: "仕", k: "帅", c: "炮", p: "兵"}},
+  b: {{r: "车", n: "马", b: "象", a: "士", k: "将", c: "炮", p: "卒"}},
+}};
+const XIANGQI_PALACE_LINES = new Map([
+  ["0,3", ["down-right"]], ["0,5", ["down-left"]],
+  ["1,4", ["down-left", "down-right"]],
+  ["7,3", ["down-right"]], ["7,5", ["down-left"]],
+  ["8,4", ["down-left", "down-right"]],
+]);
+const participantFor = () => ({{player_id: "human-1"}});
+const pieceClass = () => "";
+let selectedXiangqiCell = null;
+let pendingMove = null;
+let renders = 0;
+let lastMoveMarkerKey = null;
+const renderBoard = () => {{ renders += 1; }};
+let room = {{
+  room_id: "ROOM-XQ",
+  revision: 3,
+  game_type: "xiangqi",
+  status: "playing",
+  current_player_id: "human-1",
+  viewer: {{player_id: "human-1"}},
+  board_state: {{}},
+}};
+{functions}
+const cellAt = (board, row, col) => board.children.find((cell) => (
+  cell.dataset.moveRow === String(row) && cell.dataset.moveCol === String(col)
+));
+const position = (humanMark, color, originRow, targetRow) => {{
+  const state = {{
+    marks: {{human: humanMark, ai: humanMark === "X" ? "O" : "X"}},
+    turn_color: color,
+    in_check: false,
+    board: Array.from({{length: 10}}, () => Array(9).fill(null)),
+    legal_moves: [{{
+      from_row: originRow, from_col: 0, to_row: targetRow, to_col: 0,
+    }}],
+  }};
+  state.board[originRow][0] = `${{color}}:r`;
+  state.board[originRow][1] = `${{color}}:n`;
+  state.board[originRow][4] = `${{color}}:k`;
+  state.board[targetRow][0] = `${{color === "r" ? "b" : "r"}}:r`;
+  return state;
+}};
+
+const redState = position("X", "r", 9, 8);
+let redBoard = new Element("board");
+renderXiangqiBoard(redBoard, redState);
+assert.equal(redBoard.children.length, 90);
+assert.equal(redBoard.dataset.viewColor, "r");
+assert.equal(redBoard.classList.contains("rotated-view"), false);
+assert.deepEqual(
+  [redBoard.children[0].dataset.moveRow, redBoard.children[0].dataset.moveCol],
+  ["0", "0"]
+);
+cellAt(redBoard, 9, 0).click();
+assert.deepEqual(selectedXiangqiCell, {{row: 9, col: 0}});
+assert.equal(pendingMove, null);
+
+redBoard = new Element("board");
+renderXiangqiBoard(redBoard, redState);
+assert.equal(cellAt(redBoard, 9, 0).classList.contains("selected-origin"), true);
+assert.equal(cellAt(redBoard, 8, 0).classList.contains("legal-capture"), true);
+cellAt(redBoard, 9, 1).click();
+assert.deepEqual(selectedXiangqiCell, {{row: 9, col: 1}});
+assert.equal(pendingMove, null);
+redBoard = new Element("board");
+renderXiangqiBoard(redBoard, redState);
+cellAt(redBoard, 9, 0).click();
+redBoard = new Element("board");
+renderXiangqiBoard(redBoard, redState);
+cellAt(redBoard, 8, 1).click();
+assert.equal(pendingMove, null);
+cellAt(redBoard, 8, 0).click();
+assert.deepEqual(pendingMove, {{
+  from_row: 9, from_col: 0, to_row: 8, to_col: 0,
+}});
+
+selectedXiangqiCell = null;
+pendingMove = null;
+const blackState = position("O", "b", 0, 1);
+let blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+assert.equal(blackBoard.children.length, 90);
+assert.equal(blackBoard.dataset.viewColor, "b");
+assert.equal(blackBoard.classList.contains("rotated-view"), true);
+assert.deepEqual(
+  [blackBoard.children[0].dataset.moveRow, blackBoard.children[0].dataset.moveCol],
+  ["9", "8"]
+);
+assert.deepEqual(
+  [blackBoard.children[89].dataset.moveRow, blackBoard.children[89].dataset.moveCol],
+  ["0", "0"]
+);
+assert.deepEqual(
+  [cellAt(blackBoard, 0, 0).dataset.displayRow, cellAt(blackBoard, 0, 0).dataset.displayCol],
+  ["9", "8"]
+);
+assert.equal(cellAt(blackBoard, 0, 0).children.at(-1).textContent, "车");
+cellAt(blackBoard, 0, 0).click();
+blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+assert.equal(cellAt(blackBoard, 1, 0).classList.contains("legal-capture"), true);
+cellAt(blackBoard, 1, 0).click();
+assert.deepEqual(pendingMove, {{
+  from_row: 0, from_col: 0, to_row: 1, to_col: 0,
+}});
+
+selectedXiangqiCell = null;
+pendingMove = null;
+room.board_state.last_move = {{
+  from_row: 0, from_col: 0, to_row: 1, to_col: 0,
+}};
+blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+renderLastMoveMarker(blackBoard, []);
+assert.equal(cellAt(blackBoard, 0, 0).classList.contains("last-move-origin"), true);
+assert.equal(cellAt(blackBoard, 1, 0).classList.contains("last-move-target"), true);
+assert.match(cellAt(blackBoard, 0, 0).ariaLabel, /上一手起点/);
+assert.match(cellAt(blackBoard, 1, 0).ariaLabel, /上一手终点/);
+
+blackState.in_check = true;
+blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+const notice = blackBoard.children.find((child) => (
+  child.classList.contains("xiangqi-check-notice")
+));
+assert.equal(notice.textContent, "黑方 · 将军");
+assert.equal(cellAt(blackBoard, 0, 4).classList.contains("in-check"), true);
+
+room.current_player_id = "ai-1";
+blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+assert.equal(blackBoard.children.filter((child) => child.tag === "button").every(
+  (cell) => cell.disabled
+), true);
+room.current_player_id = "human-1";
+room.status = "finished";
+blackBoard = new Element("board");
+renderXiangqiBoard(blackBoard, blackState);
+assert.equal(blackBoard.children.filter((child) => child.tag === "button").every(
+  (cell) => cell.disabled
+), true);
 """
         self.run_node(harness)
 
