@@ -631,10 +631,30 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(challenged.status_code, 200, challenged.text)
         payload = challenged.json()
         self.assertNotIn("room", payload)
-        self.assertEqual(payload["events"][0], {
+        self.assertNotIn("events", payload)
+
+        state = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
+        )
+        self.assertEqual(state.status_code, 200, state.text)
+        self.assertNotIn("events", state.json())
+        self.assertNotIn("last_round_summary", state.json())
+
+        current = framework.get_room(room["room_id"])
+        next_bid = {"action": "bid", "quantity": 1, "face": 1}
+        framework.play_move(
+            room["room_id"], "human", "human-1", next_bid,
+            expected_revision=current["revision"],
+        )
+        next_round_state = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
+        )
+        self.assertEqual(next_round_state.json()["events"][0], {
             "name": "人类一号", "move": bid,
         })
-        settlement_event = payload["events"][1]
+        settlement_event = next_round_state.json()["events"][1]
         self.assertEqual(settlement_event["name"], "双弈裁判")
         summary = settlement_event["round_result"]
         self.assertEqual(summary["round"], 1)
@@ -654,34 +674,19 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("第 2 轮 · 由 人类一号 开叫", summary["summary"])
         self.assertNotIn("revealed_dice_by_player", summary)
         self.assertNotIn("dice_by_player", json.dumps(summary, ensure_ascii=False))
-
-        state = await self.client.post(
-            "/mcp/play",
-            json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
-        )
-        self.assertEqual(state.status_code, 200, state.text)
-        self.assertNotIn("events", state.json())
-        self.assertNotIn("last_round_summary", state.json())
-
-        current = framework.get_room(room["room_id"])
-        framework.play_move(
-            room["room_id"], "human", "human-1",
-            {"action": "bid", "quantity": 1, "face": 1},
-            expected_revision=current["revision"],
-        )
-        next_round_state = await self.client.post(
-            "/mcp/play",
-            json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
-        )
-        self.assertEqual(next_round_state.json()["events"], [{
-            "name": "人类一号",
-            "move": {"action": "bid", "quantity": 1, "face": 1},
-        }])
+        self.assertEqual(next_round_state.json()["events"][2], {
+            "name": "人类一号", "move": next_bid,
+        })
         self.assertNotIn("last_round_summary", next_round_state.json())
         self.assertNotIn(
             "dice_by_player",
             json.dumps(settlement_event, ensure_ascii=False),
         )
+        repeated = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
+        )
+        self.assertNotIn("events", repeated.json())
 
 
 if __name__ == "__main__":

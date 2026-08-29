@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import mimetypes
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -80,8 +81,22 @@ ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 STYLES_CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-MAX_WAIT_SECONDS = 50.0
 MAX_CONCURRENT_WAITS = 20
+
+
+def _parse_mcp_wait_seconds(raw: str) -> float:
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("DUEL_MCP_WAIT_SECONDS 必须是 1–45 的秒数") from exc
+    if not 1 <= seconds <= 45:
+        raise ValueError("DUEL_MCP_WAIT_SECONDS 必须是 1–45 的秒数")
+    return seconds
+
+
+MCP_WAIT_SECONDS = _parse_mcp_wait_seconds(
+    os.getenv("DUEL_MCP_WAIT_SECONDS", "30")
+)
 
 
 class RevisionEvents:
@@ -335,6 +350,13 @@ def _move_delta_response(
     room: dict,
     player_id: str,
 ) -> dict:
+    if room.get("status") == "cancelled":
+        return {
+            "ok": True,
+            "status": "cancelled",
+            "room_id": room["room_id"],
+            "revision": room.get("revision", 0),
+        }
     participant = next(
         (
             item for item in room.get("participants", [])
@@ -342,12 +364,23 @@ def _move_delta_response(
         ),
         None,
     )
-    if participant is not None and participant.get("join_status") == "left":
-        return {
+    if participant is None or participant.get("join_status") == "left":
+        payload = {
             "ok": True,
             "status": "left",
             "room_id": room["room_id"],
+            "revision": room["revision"],
         }
+        if participant is not None:
+            events = _compact_events(
+                read_new_room_events(room["room_id"], player_id)
+            )
+            if events:
+                payload["events"] = events
+        if room["status"] in {"finished", "archived"}:
+            payload["room_status"] = room["status"]
+            payload.update(_terminal_fields(room))
+        return payload
     projected_room = project_room_for_viewer(room, player_id)
     payload = {
         "ok": True,
@@ -365,9 +398,17 @@ def _move_delta_response(
         private_state = projected_room.get("private_state")
         if payload["your_turn"] and private_state:
             payload["private_state"] = private_state
-    events = _compact_events(read_new_room_events(room["room_id"], player_id))
-    if events:
-        payload["events"] = events
+    activity_state = participant.get("activity_state", "active")
+    if not participant.get("active", True) or activity_state != "active":
+        payload["participant_status"] = (
+            activity_state if activity_state != "active" else "inactive"
+        )
+    if _participant_response_due(room, player_id):
+        events = _compact_events(
+            read_new_room_events(room["room_id"], player_id)
+        )
+        if events:
+            payload["events"] = events
     if room["status"] in {"finished", "archived"}:
         payload.update(_terminal_fields(projected_room))
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
@@ -682,27 +723,76 @@ def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
 app.include_router(create_chips_router(trusted_human_player, _trusted_bound_ais))
 
 
+def _participant_response_due(room: dict, player_id: str) -> bool:
+    participant = next(
+        (
+            item for item in room.get("participants", [])
+            if item["player_id"] == player_id
+        ),
+        None,
+    )
+    return bool(
+        room.get("status") in {"finished", "archived", "cancelled"}
+        or participant is None
+        or participant.get("join_status") == "left"
+        or not participant.get("active", True)
+        or participant.get("activity_state", "active") != "active"
+        or room.get("current_player_id") == player_id
+    )
+
+
+def _heartbeat_or_delta(
+    room_id: str,
+    player_id: str,
+    baseline_revision: int,
+) -> dict:
+    try:
+        latest = get_room(room_id, "ai", player_id)
+    except DuelError as exc:
+        if exc.status_code != 404:
+            raise
+        latest = {
+            "room_id": room_id,
+            "status": "cancelled",
+            "revision": baseline_revision,
+        }
+    if _participant_response_due(latest, player_id):
+        return _move_delta_response(latest, player_id)
+    return {
+        "ok": True,
+        "status": "still_waiting",
+        "room_id": latest["room_id"],
+        "revision": latest["revision"],
+    }
+
+
 async def wait_for_revision(
-    room_id: str, player_id: str, _baseline_revision: int
+    room_id: str,
+    player_id: str,
+    baseline_revision: int,
+    *,
+    wake_on_visible_events: bool = False,
 ) -> dict | None:
     """Wait without holding a SQLite connection, transaction, or application lock."""
-    deadline = time.monotonic() + MAX_WAIT_SECONDS
+    deadline = time.monotonic() + MCP_WAIT_SECONDS
     while True:
         event = revision_events.current(room_id)
-        room = get_room(room_id)
-        participant = next(
-            (
-                item for item in room.get("participants", [])
-                if item["player_id"] == player_id
-            ),
-            None,
-        )
+        try:
+            room = get_room(room_id)
+        except DuelError as exc:
+            if exc.status_code == 404:
+                return {
+                    "room_id": room_id,
+                    "status": "cancelled",
+                    "revision": baseline_revision,
+                }
+            raise
         if (
-            room["status"] in {"finished", "archived"}
-            or participant is None
-            or participant.get("join_status") == "left"
-            or room.get("current_player_id") == player_id
-            or has_new_room_events(room_id, player_id)
+            _participant_response_due(room, player_id)
+            or (
+                wake_on_visible_events
+                and has_new_room_events(room_id, player_id)
+            )
         ):
             return room
         remaining = deadline - time.monotonic()
@@ -990,7 +1080,10 @@ async def human_state(
             return payload
         try:
             changed = await wait_for_revision(
-                room_id, player_id, room["revision"]
+                room_id,
+                player_id,
+                room["revision"],
+                wake_on_visible_events=True,
             )
         finally:
             await revision_events.release_wait_slot()
@@ -1342,8 +1435,19 @@ async def mcp_play(body: McpPlayBody):
             revision_events.notify(room_id)
         room = get_room(room_id, "ai", body.player_id)
         await _schedule_current_system_npc(room)
+        participant = next(
+            (
+                item for item in room.get("participants", [])
+                if item["player_id"] == body.player_id
+            ),
+            None,
+        )
         if (
             room["status"] == "playing"
+            and participant is not None
+            and participant.get("join_status") == "joined"
+            and participant.get("active", True)
+            and participant.get("activity_state", "active") == "active"
             and claim_mcp_bootstrap(room_id, body.player_id)
         ):
             return _bootstrap_ai_response(
@@ -1352,9 +1456,7 @@ async def mcp_play(body: McpPlayBody):
                 "对局现已开始；这是本房间唯一一次完整上下文。",
                 claimed=True,
             )
-        if body.wait and room.get("current_player_id") != body.player_id:
-            if has_new_room_events(room_id, body.player_id):
-                return _move_delta_response(room, body.player_id)
+        if body.wait and not _participant_response_due(room, body.player_id):
             if not await revision_events.try_acquire_wait_slot():
                 payload = _move_delta_response(room, body.player_id)
                 payload["wait_downgraded"] = True
@@ -1365,13 +1467,9 @@ async def mcp_play(body: McpPlayBody):
             finally:
                 await revision_events.release_wait_slot()
             if changed is None:
-                latest = get_room(room_id, "ai", body.player_id)
-                return {
-                    "ok": True,
-                    "status": "still_waiting",
-                    "room_id": latest["room_id"],
-                    "revision": latest["revision"],
-                }
+                return _heartbeat_or_delta(
+                    room_id, body.player_id, baseline
+                )
             return _move_delta_response(changed, body.player_id)
         return _move_delta_response(room, body.player_id)
 
@@ -1421,8 +1519,7 @@ async def mcp_play(body: McpPlayBody):
     await _schedule_current_system_npc(room)
     if (
         not body.wait
-        or room["status"] == "finished"
-        or room.get("current_player_id") == body.player_id
+        or _participant_response_due(room, body.player_id)
     ):
         return _move_delta_response(room, body.player_id)
 
@@ -1437,11 +1534,7 @@ async def mcp_play(body: McpPlayBody):
     finally:
         await revision_events.release_wait_slot()
     if changed is None:
-        latest = get_room(room["room_id"], "ai", body.player_id)
-        return {
-            "ok": True,
-            "status": "still_waiting",
-            "room_id": latest["room_id"],
-            "revision": latest["revision"],
-        }
+        return _heartbeat_or_delta(
+            room["room_id"], body.player_id, baseline
+        )
     return _move_delta_response(changed, body.player_id)

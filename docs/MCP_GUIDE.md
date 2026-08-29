@@ -10,8 +10,15 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 之后 `state` / `move` / `wait` 只返回最小控制状态与该 viewer 尚未读取的可见 `events`。
 事件形状为 `{"name": "显示名", "message"?: "...", "move"?: {...}}`；同一次落子
 的发言和行动不会拆开，也不会暴露 sequence、事件 revision、player ID、座位或 kind。
-游标前进后，同一事件不会再次返回。轮到当前小机时，隐藏信息游戏可额外返回
-`private_state`；等待超时且没有新事件时，`still_waiting` 只含房间号与 revision。
+普通 message、其他参与者的 move 和 round_result 只进入未读队列，不会唤醒尚未
+获得行动权的小机，也不会被 `state wait=false` 提前消费。真正轮到该小机时，服务端
+一次返回它从上次消费以来全部可见事件；终局、归档、取消、本人离席、淘汰或失活也会提前
+返回必要增量，避免永远等不到回合。游标前进后，同一事件不会再次返回。轮到当前小机
+时，隐藏信息游戏可额外返回 `private_state`。
+
+`DUEL_MCP_WAIT_SECONDS` 控制短心跳，默认 30 秒、允许 1–45 秒，不影响 NPC provider
+timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结束，不表示退出挂等；
+调用方处于挂等模式时应继续调用 `state wait=true`。
 
 ## 筹码、成就与权威重赛
 

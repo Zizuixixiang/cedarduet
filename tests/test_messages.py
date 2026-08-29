@@ -229,7 +229,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event["move"] for event in consumed.json()["events"]],
-            [{"row": 0, "col": 1}],
+            [{"row": 0, "col": 0}, {"row": 0, "col": 1}],
         )
         waiter = asyncio.create_task(
             self.client.post(
@@ -374,9 +374,9 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(beta_events[1]["sender"]["name"], "Clio")
 
-    async def test_visible_standalone_message_wakes_wait_and_is_delivered(self):
+    async def test_visible_standalone_message_waits_until_turn_and_is_delivered(self):
         room_id = await self.new_room()
-        with patch.object(main_module, "MAX_WAIT_SECONDS", 0.08):
+        with patch.object(main_module, "MCP_WAIT_SECONDS", 0.5):
             waiter = asyncio.create_task(
                 self.client.post(
                     "/mcp/play",
@@ -395,13 +395,26 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
                 json={"player_id": "human-one", "message": "我还在想。"},
             )
             self.assertEqual(sent.status_code, 200, sent.text)
+            await asyncio.sleep(0.05)
+            self.assertFalse(waiter.done())
+            moved = await self.client.post(
+                f"/api/rooms/{room_id}/move",
+                json={
+                    "player_id": "human-one",
+                    "move": {"row": 1, "col": 1},
+                },
+            )
+            self.assertEqual(moved.status_code, 200, moved.text)
             result = await asyncio.wait_for(waiter, timeout=1)
         payload = result.json()
         self.assertEqual(payload["status"], "playing")
         self.assertNotIn("room", payload)
         self.assertEqual(
-            [message["message"] for message in payload["events"]],
-            ["我还在想。"],
+            payload["events"],
+            [
+                {"name": "human-one", "message": "我还在想。"},
+                {"name": "human-one", "move": {"row": 1, "col": 1}},
+            ],
         )
         repeated = await self.client.post(
             "/mcp/play",

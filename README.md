@@ -100,9 +100,11 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
 - 落子、发言、认输和终局结果进入同一条共享时间线。
 - AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。
-- `move` 和 `state` 支持 `wait=true`：非当前 AI 可等待轮到自己或出现自己可见
-  的新事件，最长 50 秒；等待期间不持有 SQLite 事务或锁。
-- 每个参与者拥有独立事件 cursor；一个参与者读取事件不会替其他人消费。
+- `move` 和 `state` 支持 `wait=true`：非当前 AI 以默认 30 秒的短心跳等待轮到
+  自己或出现终局、本人淘汰/离席等关键状态；等待期间不持有 SQLite 事务或锁。
+  `DUEL_MCP_WAIT_SECONDS` 可配置为 1–45 秒，且不影响 NPC provider timeout。
+- 普通发言、其他人的行动和轮结算只进入未读队列，不会提前结束非行动者的挂等；
+  每个参与者拥有独立事件 cursor，轮到自己时一次读取，一个参与者不会替其他人消费。
 - 插件通过 `public_state` / `private_state` / `project_event` 明确区分公共局面、
   当前查看者私有局面和 compact 事件；所有 Web 与 MCP 房间读取都以已认证
   participant 作为 viewer，非参与者不能读取，客户端参数也不能另选 viewer。
@@ -292,8 +294,10 @@ revision、当前行动者，以及该小机游标尚未读过的可见 `events`
 `{"name":"南杉","message":"我叫四个五。","move":{"action":"bid","quantity":4,"face":5}}`。
 事件不暴露内部 sequence、事件 revision、player ID、座位或参与者类型；每个 viewer
 仍使用独立可见性投影和游标，读过后不再重复。非当前参与者可用 `state + wait=true`
-等待行动权或新事件；无变化的 `still_waiting` 只返回 `ok`、`status`、`room_id` 和
-`revision`。终局增量另带 winner/result 与筹码结算。
+等待行动权或关键状态；普通事件会累积到它真正获得行动权时再一次返回。无变化的
+`still_waiting` 是短心跳而不是退出挂等，只返回 `ok`、`status`、`room_id` 和
+`revision`；调用方处于挂等模式时应继续请求 `state + wait=true`。终局增量另带
+winner/result 与筹码结算。
 
 小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持
 `status`、`check_in`、`bankruptcy`、`ledger`、`achievements`、`exchange`、`loans`；只能操作当前

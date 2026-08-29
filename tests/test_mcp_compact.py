@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,6 +64,21 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         for required in ("room_id", "revision"):
             self.assertIn(required, payload)
 
+    @staticmethod
+    def event_cursor(room_id, player_id):
+        conn = database.connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT last_event_id FROM room_event_cursors
+                WHERE room_id = ? AND player_id = ?
+                """,
+                (room_id, player_id),
+            ).fetchone()
+            return row["last_event_id"]
+        finally:
+            conn.close()
+
     async def test_new_and_accept_return_full_bootstrap_while_pending_is_compact(self):
         started = await self.new_room()
         self.assert_full_room(started)
@@ -125,12 +141,26 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def test_still_waiting_is_minimal(self):
         started = await self.new_room()
         room_id = started["room"]["room_id"]
-        with patch.object(main_module, "MAX_WAIT_SECONDS", 0.03):
+        moved = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-1", "room_id": room_id,
+                "move": {"row": 0, "col": 0},
+            },
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        sent = await self.client.post(
+            f"/api/rooms/{room_id}/messages",
+            json={"player_id": "human-1", "message": "仍在思考。"},
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        cursor_before = self.event_cursor(room_id, "ai-1")
+        with patch.object(main_module, "MCP_WAIT_SECONDS", 0.03):
             response = await self.client.post(
                 "/mcp/play",
                 json={
-                    "action": "move", "player_id": "ai-1", "room_id": room_id,
-                    "move": {"row": 0, "col": 0}, "wait": True,
+                    "action": "state", "player_id": "ai-1", "room_id": room_id,
+                    "wait": True,
                 },
             )
         payload = response.json()
@@ -140,6 +170,51 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         self.assertEqual(payload["status"], "still_waiting")
+        self.assertEqual(self.event_cursor(room_id, "ai-1"), cursor_before)
+
+        human = await self.client.post(
+            f"/api/rooms/{room_id}/move",
+            json={
+                "player_id": "human-1",
+                "move": {"row": 1, "col": 1},
+            },
+        )
+        self.assertEqual(human.status_code, 200, human.text)
+        delivered = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room_id},
+        )
+        self.assertEqual(delivered.json()["events"], [
+            {"name": "human-1", "message": "仍在思考。"},
+            {"name": "human-1", "move": {"row": 1, "col": 1}},
+        ])
+
+    def test_mcp_wait_heartbeat_config_defaults_and_validates(self):
+        configured = os.getenv("DUEL_MCP_WAIT_SECONDS", "30")
+        self.assertEqual(
+            main_module.MCP_WAIT_SECONDS,
+            main_module._parse_mcp_wait_seconds(configured),
+        )
+        if "DUEL_MCP_WAIT_SECONDS" not in os.environ:
+            self.assertEqual(main_module.MCP_WAIT_SECONDS, 30.0)
+        for value in ("1", "12.5", "30", "45"):
+            self.assertEqual(
+                main_module._parse_mcp_wait_seconds(value), float(value)
+            )
+        for value in (None, "", "0", "45.1", "nan", "invalid"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    main_module._parse_mcp_wait_seconds(value)
+
+        root = Path(__file__).resolve().parents[1]
+        self.assertIn(
+            "DUEL_MCP_WAIT_SECONDS=30",
+            (root / ".env.example").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "`still_waiting` 只含房间号",
+            (root / "docs" / "MCP_GUIDE.md").read_text(encoding="utf-8"),
+        )
 
     async def test_all_six_games_return_generic_minimal_move_ack(self):
         cases = {
@@ -329,6 +404,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             visible_to_player_ids={"ai-blue"},
         )
 
+        cursor_before = self.event_cursor(room["room_id"], "ai-reader")
+
         state = await self.client.post(
             "/mcp/play",
             json={
@@ -336,9 +413,24 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "room_id": room["room_id"],
             },
         )
-        self.assertEqual(state.json()["events"], [
+        self.assertNotIn("events", state.json())
+        self.assertEqual(
+            self.event_cursor(room["room_id"], "ai-reader"), cursor_before
+        )
+
+        bid = {"action": "bid", "quantity": 1, "face": 1}
+        framework.play_move(room["room_id"], "human", "human-names", bid)
+        delivered = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-reader",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertEqual(delivered.json()["events"], [
             {"name": "南杉", "message": "甲"},
             {"name": "Blue", "message": "乙"},
+            {"name": "南杉", "move": bid},
         ])
         repeated = await self.client.post(
             "/mcp/play",
