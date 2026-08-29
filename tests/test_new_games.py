@@ -195,13 +195,18 @@ class JungleTests(unittest.TestCase):
 
 class RegistryErrorTests(unittest.TestCase):
     def test_every_plugin_has_shared_rules_and_move_format(self):
-        self.assertEqual(len(GAMES), 18)
+        self.assertEqual(len(GAMES), 20)
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
             self.assertTrue(plugin.move_format)
-            self.assertGreaterEqual(plugin.min_players, 2)
             self.assertLessEqual(plugin.max_players, 6)
-            self.assertIn(plugin.min_players, plugin.resolved_allowed_player_counts())
+            if plugin.game_type == "guandan":
+                self.assertEqual(plugin.min_players, 4)
+                self.assertEqual(plugin.resolved_allowed_player_counts(), (4,))
+            else:
+                self.assertGreaterEqual(plugin.min_players, 2)
+                self.assertIn(plugin.min_players, plugin.resolved_allowed_player_counts())
+
 
     def test_player_rules_use_the_light_structure_without_move_schema_terms(self):
         heading_pattern = re.compile(r"^【[^【】]+】$", re.MULTILINE)
@@ -253,7 +258,9 @@ class RegistryErrorTests(unittest.TestCase):
             "connect4", "banqi", "checkers", "chess", "dots_boxes",
             "liars_dice", "yahtzee", "jungle", "xiangqi",
             "aeroplane_chess", "chinese_checkers", "uno", "blackjack",
-            "gandengyan", "doudizhu",
+
+            "gandengyan", "train_cards", "doudizhu", "guandan",
+
         ):
             self.assertIn(game_type, caught.exception.message)
 

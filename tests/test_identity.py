@@ -158,9 +158,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "blackjack": "card",
                 "gandengyan": "card",
 
+
                 "train_cards": "card",
 
                 "doudizhu": "card",
+
+
+                "guandan": "card",
 
             },
         )
@@ -185,9 +189,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "blackjack": "21点",
                 "gandengyan": "干瞪眼",
 
+
                 "train_cards": "开火车",
 
                 "doudizhu": "斗地主",
+
+
+                "guandan": "掼蛋",
 
             },
         )
@@ -210,6 +218,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["gandengyan"]["allowed_player_counts"], [2, 3, 4])
         self.assertTrue(games["gandengyan"]["supports_npcs"])
         self.assertTrue(games["gandengyan"]["supports_multiplayer_stakes"])
+
         self.assertEqual(games["doudizhu"]["allowed_player_counts"], [3])
         self.assertTrue(games["doudizhu"]["supports_npcs"])
         self.assertFalse(games["doudizhu"]["supports_stakes"])
@@ -219,6 +228,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(games["train_cards"]["supports_npcs"])
         self.assertTrue(games["train_cards"]["uses_local_npc_strategy"])
         self.assertFalse(games["train_cards"]["supports_stakes"])
+
+        self.assertEqual(games["guandan"]["allowed_player_counts"], [4])
+        self.assertTrue(games["guandan"]["supports_npcs"])
+        self.assertFalse(games["guandan"]["supports_stakes"])
+
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],
