@@ -447,6 +447,11 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 翻开后才公开身份。网页 renderer 位于 `app/static/games/banqi.js`，只消费服务端
 `legal_actions` 与公开棋盘，不在客户端推导暗子或合法性。
 
+
+国际象棋固定 2 人，规则由仓库内 vendored `chess.js` 权威判定，覆盖易位、吃过路、
+升变、将军/将死与和棋；网页 renderer 位于 `app/static/games/chess.js`，使用内联 SVG
+棋子并只提交服务端 `legal_moves`。
+
 ## 筹码中心
 
 独立页面：

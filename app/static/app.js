@@ -49,6 +49,7 @@ const GAME_GLYPHS = {
   jungle: "兽",
   xiangqi: "象",
   banqi: "暗",
+  chess: "♞",
 };
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",

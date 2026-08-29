@@ -1,6 +1,7 @@
 from .banqi import Banqi
 from .connect4 import Connect4
 from .checkers import Checkers
+from .chess import Chess
 from .dots_boxes import DotsBoxes
 from .gomoku import Gomoku
 from .jungle import Jungle
@@ -18,6 +19,7 @@ GAMES = {
     Othello.game_type: Othello(),
     Connect4.game_type: Connect4(),
     Checkers.game_type: Checkers(),
+    Chess.game_type: Chess(),
     DotsBoxes.game_type: DotsBoxes(),
     LiarsDice.game_type: LiarsDice(),
     Jungle.game_type: Jungle(),
