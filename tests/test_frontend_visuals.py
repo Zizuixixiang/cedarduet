@@ -170,6 +170,29 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('bubble: $("sharedSpeech")', players)
         self.assertIn("{excludePlayerId: viewerPlayerId}", players)
 
+    def test_ended_room_cards_have_a_prominent_non_hover_status(self):
+        renderer = function_source("renderRooms")
+        self.assertIn('card.className = `room-card${terminal ? " ended" : ""}`', renderer)
+        self.assertIn('statusBadge.className = "room-status-badge pale"', renderer)
+        self.assertIn("statusLabel(summary.status)", renderer)
+        ended_style = STYLES[
+            STYLES.index(".room-card.ended {"):
+            STYLES.index(".room-card.ended::after")
+        ]
+        badge_style = STYLES[
+            STYLES.index(".room-status-badge {"):
+            STYLES.index(".room-status-badge.pale {")
+        ]
+        pale_start = STYLES.index(".room-status-badge.pale {")
+        pale_style = STYLES[pale_start:STYLES.index("\n}", pale_start) + 2]
+        self.assertIn("background:", ended_style)
+        self.assertIn("border-color:", ended_style)
+        self.assertIn("border: 2px solid var(--pink-dark);", badge_style)
+        self.assertIn("font-weight: 800;", badge_style)
+        self.assertIn("rgba(230, 168, 177, .22)", pale_style)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(".room-status-badge {", mobile)
+
     def test_private_state_stays_below_the_table_and_legacy_rows(self):
         stage = HTML[HTML.index('<section class="battle-stage'):HTML.index("historyDrawerTab")]
         self.assertLess(stage.index('id="opponentRow"'), stage.index('id="tableLayout"'))
@@ -184,6 +207,9 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('challenge.textContent = "质疑本轮上一手"', renderer)
         self.assertIn('chooseBid.textContent = "提交本轮叫点"', renderer)
         self.assertIn('bidLabel.textContent = "本轮当前叫点"', renderer)
+        self.assertIn('bidValue.textContent = "轮到你叫点"', renderer)
+        self.assertIn('`等待 ${starterName} 首叫`', renderer)
+        self.assertIn('"本轮尚无叫点可质疑"', renderer)
         self.assertIn('outcome.round < roundNumber', renderer)
         self.assertIn('document.createElement("details")', renderer)
         self.assertIn('"查看上一轮揭骰"', renderer)
@@ -191,8 +217,26 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn(".liars-current-round {", STYLES)
         self.assertIn(".liars-round-result {", STYLES)
         self.assertIn("liarsRoundResultIsVisible(state)", renderer)
+        self.assertIn("liarsRoundResultLines(outcome)", renderer)
         self.assertIn("`第 ${outcome.round} 轮结算`", renderer)
         self.assertNotIn("上一轮：", renderer)
+        board_style = STYLES[
+            STYLES.index(".board.liars_dice {"):
+            STYLES.index(".liars-current-round {")
+        ]
+        result_style = STYLES[
+            STYLES.index(".liars-round-result {"):
+            STYLES.index(".liars-previous-round {")
+        ]
+        previous_style = STYLES[
+            STYLES.index(".liars-previous-round {"):
+            STYLES.index(".liars-result-title {")
+        ]
+        for style in (board_style, result_style, previous_style):
+            self.assertNotRegex(style, r"(?m)^\s*(?:min-)?height\s*:")
+        self.assertNotIn("dashed", result_style)
+        self.assertIn("border: 1px solid var(--purple-light);", result_style)
+        self.assertIn("align-self: start;", previous_style)
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
@@ -284,11 +328,81 @@ assert.equal(authoritativeRoundText({{
 """
         self.run_node(harness)
 
+    def test_room_list_marks_finished_cards_with_an_always_visible_badge(self):
+        renderer = function_source("renderRooms")
+        harness = f"""
+const assert = require("node:assert/strict");
+class Element {{
+  constructor(tagName) {{
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.className = "";
+    this.textContent = "";
+    this.attributes = {{}};
+  }}
+  replaceChildren(...children) {{ this.children = children; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  append(...children) {{ this.children.push(...children); }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener() {{}}
+}}
+const list = new Element("div");
+const $ = (id) => id === "roomList" ? list : null;
+const document = {{createElement: (tagName) => new Element(tagName)}};
+const GAME_GLYPHS = {{gomoku: "五"}};
+const statusLabel = (status) => ({{
+  pending: "待确认", waiting: "等待加入", playing: "对局中",
+  finished: "已结束", archived: "已归档",
+}})[status] || status;
+const relativeTime = () => "刚刚";
+const turnLabel = () => "轮到你";
+const isTerminal = (room) => ["finished", "archived"].includes(room.status);
+const retentionTextFor = () => "7 天后自动删除";
+const retentionDeadlineTitle = () => "";
+const updateRoomPreservation = () => {{}};
+const deleteRoom = () => {{}};
+const openRoom = () => {{}};
+{renderer}
+const base = {{
+  game_type: "gomoku", game_name: "五子棋", ai_name: "小机一号",
+  stake: 0, stake_label: "娱乐局", updated_at: "2026-08-29T00:00:00Z",
+  preserved: false,
+}};
+renderRooms([
+  {{...base, room_id: "END-1", status: "finished", winner: "draw"}},
+  {{...base, room_id: "PLAY-1", status: "playing", winner: null}},
+  {{...base, room_id: "WAIT-1", status: "waiting", winner: null}},
+]);
+assert.equal(list.children.length, 3);
+const [endedCard, playingCard, waitingCard] = list.children;
+assert.equal(endedCard.className, "room-card ended");
+assert.equal(playingCard.className, "room-card");
+assert.equal(waitingCard.className, "room-card");
+
+const endedOpen = endedCard.children[0];
+assert.match(endedOpen.attributes["aria-label"], /进入已结束的五子棋房间 END-1/);
+const endedState = endedOpen.children[2];
+assert.equal(endedState.children[0].className, "room-status-badge pale");
+assert.equal(endedState.children[0].textContent, "已结束 · 和棋");
+assert.equal(endedState.children[1].textContent, "进入 →");
+assert.ok(!endedState.children.some((child) => child.className === "turn"));
+
+const playingState = playingCard.children[0].children[2];
+assert.equal(playingState.children[0].className, "turn");
+assert.equal(playingState.children[0].textContent, "轮到你");
+assert.ok(!playingState.children.some(
+  (child) => child.className === "room-status-badge pale"
+));
+const waitingState = waitingCard.children[0].children[2];
+assert.equal(waitingState.children[0].textContent, "等待加入");
+"""
+        self.run_node(harness)
+
     def test_liars_dice_separates_new_round_from_collapsed_previous_reveal(self):
         renderer = "\n".join((
             function_source("liarsParticipantName"),
             function_source("liarsRoundResultIsVisible"),
-            function_source("liarsRoundResultText"),
+            function_source("liarsRoundResultLines"),
             function_source("liarsBidSelectionIsLegal"),
             function_source("defaultLiarsBidSelection"),
             function_source("liarsBidSelectionFor"),
@@ -317,18 +431,20 @@ const participants = new Map([
 ]);
 const participantByPlayerId = (playerId) => participants.get(playerId) || null;
 let liarsBidDraft = null;
+let humanTurn = true;
+const canHumanMove = () => humanTurn;
 let room = {{
-  room_id: "ROOM-1", revision: 2, status: "playing", current_player_id: "ai-1",
+  room_id: "ROOM-1", revision: 2, status: "playing",
+  current_player_id: "human-1",
+  current_actor: {{player_id: "human-1", display_name: "人类一号"}},
 }};
-const canHumanMove = () => true;
 const selectMove = () => {{}};
 const allText = (node) => [
   node.textContent,
   ...node.children.map(allText),
 ].filter(Boolean).join(" ");
 {renderer}
-const board = new Element("div");
-renderLiarsDice(board, {{
+const postChallengeState = {{
   flow: {{phase: "bidding", round_number: 2}},
   max_bid_quantity: 9,
   current_bid: null,
@@ -347,28 +463,63 @@ renderLiarsDice(board, {{
     next_starter_player_id: "ai-1",
     revealed_dice_by_player: {{"human-1": [1, 1, 2], "ai-1": [3, 4, 5, 6, 6]}},
   }},
-}});
+}};
+const board = new Element("div");
+renderLiarsDice(board, postChallengeState);
 assert.equal(board.children.length, 2);
 const [currentRound, previousRound] = board.children;
 assert.equal(currentRound.className, "liars-current-round");
 assert.match(allText(currentRound), /第 2 轮 · 当前轮/);
 assert.match(allText(currentRound), /本轮骰子已按剩余数量重新掷出并隐藏/);
 assert.match(allText(currentRound), /本轮当前叫点/);
-assert.match(allText(currentRound), /第 2 轮 · 由 小机一号 开叫/);
-assert.match(allText(currentRound), /提交本轮叫点/);
-assert.match(allText(currentRound), /质疑本轮上一手/);
+assert.match(allText(currentRound), /轮到你叫点/);
+assert.match(allText(currentRound), /现在叫点/);
+assert.match(allText(currentRound), /本轮尚无叫点可质疑/);
+assert.doesNotMatch(allText(currentRound), /等待本轮首叫/);
 assert.doesNotMatch(allText(currentRound), /人类一号：1 · 1 · 2/);
+const humanControls = currentRound.children[2];
+assert.equal(humanControls.children[2].disabled, false);
+assert.equal(humanControls.children[3].disabled, true);
+
+humanTurn = false;
+room = {{
+  room_id: "ROOM-1", revision: 2, status: "playing",
+  current_player_id: "ai-1",
+  current_actor: {{player_id: "ai-1", display_name: "小机一号"}},
+}};
+const waitingBoard = new Element("div");
+renderLiarsDice(waitingBoard, postChallengeState);
+const waitingRound = waitingBoard.children[0];
+assert.match(allText(waitingRound), /等待 小机一号 首叫/);
+assert.match(allText(waitingRound), /等待首叫/);
+assert.doesNotMatch(allText(waitingRound), /轮到你叫点/);
+const waitingControls = waitingRound.children[2];
+assert.equal(waitingControls.children[2].disabled, true);
+assert.equal(waitingControls.children[3].disabled, true);
+
+humanTurn = true;
+room.current_player_id = "human-1";
+room.current_actor = {{player_id: "human-1", display_name: "人类一号"}};
+const currentBidBoard = new Element("div");
+renderLiarsDice(currentBidBoard, {{
+  ...postChallengeState,
+  current_bid: {{quantity: 3, face: 4, bidder_player_id: "ai-1"}},
+}});
+const currentBidRound = currentBidBoard.children[0];
+assert.match(allText(currentBidRound), /3 个 4 点 · 小机一号/);
+assert.match(allText(currentBidRound), /质疑本轮上一手/);
+assert.doesNotMatch(allText(currentBidRound), /本轮尚无叫点可质疑/);
+assert.equal(currentBidRound.children[2].children[3].disabled, false);
 
 assert.match(previousRound.className, /liars-round-result/);
-assert.match(previousRound.className, /liars-reveal/);
 assert.match(previousRound.className, /liars-previous-round/);
 assert.equal(previousRound.children[0].textContent, "第 1 轮结算");
-assert.match(previousRound.children[1].textContent, /人类一号 质疑 小机一号/);
-assert.match(previousRound.children[1].textContent, /3 个 6 点/);
-assert.match(previousRound.children[1].textContent, /实际有 2 个 6 点，叫点失败/);
-assert.match(previousRound.children[1].textContent, /小机一号 输掉 1 枚骰/);
-assert.match(previousRound.children[1].textContent, /剩余 4 枚，未淘汰/);
-assert.equal(previousRound.children[2].textContent, "第 2 轮 · 由 小机一号 开叫");
+assert.equal(previousRound.children[1].textContent, "实际 2 个 6 点 · 叫点失败");
+assert.equal(previousRound.children[2].textContent, "小机一号 -1 骰 · 剩余 4");
+assert.equal(previousRound.children.length, 4);
+const compactText = previousRound.children.slice(0, 3)
+  .map((child) => child.textContent).join(" ");
+assert.doesNotMatch(compactText, /上一轮|质疑|由 .* 开叫/);
 const details = previousRound.children.find((child) => child.tagName === "DETAILS");
 assert.equal(details.tagName, "DETAILS");
 assert.equal(details.open, false);
@@ -394,7 +545,7 @@ renderLiarsDice(eliminatedBoard, {{
     revealed_dice_by_player: {{"human-1": [4, 5, 6], "ai-1": [2]}},
   }},
 }});
-assert.match(eliminatedBoard.children[1].children[1].textContent, /剩余 0 枚，已淘汰/);
+assert.equal(eliminatedBoard.children[1].children[2].textContent, "小机一号 -1 骰 · 已淘汰");
 
 const afterOpeningBid = new Element("div");
 renderLiarsDice(afterOpeningBid, {{
@@ -852,7 +1003,7 @@ assert.ok(elements.humanRow.classList.contains("hidden"));
             function_source("participantByPlayerId"),
             function_source("liarsParticipantName"),
             function_source("liarsRoundResultIsVisible"),
-            function_source("liarsRoundResultText"),
+            function_source("liarsRoundResultLines"),
             function_source("liarsBidSelectionIsLegal"),
             function_source("defaultLiarsBidSelection"),
             function_source("liarsBidSelectionFor"),
@@ -920,17 +1071,20 @@ const settledState = {{
 const settledBoard = new Element("div");
 renderLiarsDice(settledBoard, settledState);
 const reveal = settledBoard.children.find(
-  (child) => child.className.includes("liars-reveal")
+  (child) => child.className.includes("liars-round-result")
 );
 assert.ok(reveal);
 assert.equal(reveal.children[0].textContent, "第 2 轮结算");
-assert.match(reveal.children[1].textContent, /Sirius 质疑 Vega/);
-assert.match(reveal.children[1].textContent, /4 个 5 点/);
-assert.match(reveal.children[1].textContent, /实际有 3 个 5 点/);
-assert.match(reveal.children[1].textContent, /叫点失败/);
-assert.match(reveal.children[1].textContent, /Vega 输掉 1 枚骰，剩余 4 枚，未淘汰/);
-assert.equal(reveal.children[2].textContent, "第 3 轮 · 由 Vega 开叫");
-assert.doesNotMatch(reveal.children[1].textContent, /human-1|ai-1/);
+assert.equal(reveal.children[1].textContent, "实际 3 个 5 点 · 叫点失败");
+assert.equal(reveal.children[2].textContent, "Vega -1 骰 · 剩余 4");
+assert.equal(reveal.children.length, 4);
+assert.equal(reveal.children[3].tag, "details");
+assert.equal(reveal.children[3].open, undefined);
+assert.equal(reveal.children[3].children[0].textContent, "查看上一轮揭骰");
+assert.doesNotMatch(
+  reveal.children.slice(0, 3).map((child) => child.textContent).join(" "),
+  /human-1|ai-1|质疑|由 .* 开叫/
+);
 
 const afterOpeningBid = {{
   ...settledState,
@@ -938,7 +1092,9 @@ const afterOpeningBid = {{
 }};
 const biddingBoard = new Element("div");
 renderLiarsDice(biddingBoard, afterOpeningBid);
-assert.ok(!biddingBoard.children.some((child) => child.className.includes("liars-reveal")));
+assert.ok(!biddingBoard.children.some(
+  (child) => child.className.includes("liars-round-result")
+));
 assert.equal(afterOpeningBid.last_round_result, outcome);
 
 liarsBidDraft = null;

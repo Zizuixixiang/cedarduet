@@ -338,13 +338,17 @@ function renderRooms(rooms) {
     return;
   }
   rooms.forEach((summary) => {
+    const terminal = isTerminal(summary);
     const card = document.createElement("article");
-    card.className = "room-card";
+    card.className = `room-card${terminal ? " ended" : ""}`;
 
     const open = document.createElement("button");
     open.className = "room-open";
     open.type = "button";
-    open.setAttribute("aria-label", `进入${summary.game_name}房间 ${summary.room_id}`);
+    open.setAttribute(
+      "aria-label",
+      `进入${terminal ? `${statusLabel(summary.status)}的` : ""}${summary.game_name}房间 ${summary.room_id}`
+    );
 
     const glyph = document.createElement("span");
     glyph.className = "room-glyph";
@@ -367,21 +371,31 @@ function renderRooms(rooms) {
 
     const state = document.createElement("span");
     state.className = "room-state";
-    const turn = document.createElement("span");
-    turn.className = "turn";
-    turn.textContent = summary.status === "playing"
-      ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor)
-      : (summary.winner === "draw" ? "和棋" : statusLabel(summary.status));
+    if (terminal) {
+      const statusBadge = document.createElement("span");
+      statusBadge.className = "room-status-badge pale";
+      statusBadge.textContent = (
+        `${statusLabel(summary.status)}${summary.winner === "draw" ? " · 和棋" : ""}`
+      );
+      state.appendChild(statusBadge);
+    } else {
+      const turn = document.createElement("span");
+      turn.className = "turn";
+      turn.textContent = summary.status === "playing"
+        ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor)
+        : statusLabel(summary.status);
+      state.appendChild(turn);
+    }
     const enter = document.createElement("span");
     enter.className = "room-enter";
     enter.textContent = "进入 →";
-    state.append(turn, enter);
+    state.appendChild(enter);
 
     open.append(glyph, copy, state);
     open.addEventListener("click", () => openRoom(summary.room_id));
     card.appendChild(open);
 
-    if (isTerminal(summary)) {
+    if (terminal) {
       const controls = document.createElement("div");
       controls.className = "room-record-controls";
 
@@ -1358,23 +1372,23 @@ function liarsRoundResultIsVisible(state) {
   return Boolean(state.last_round_result && !state.current_bid);
 }
 
-function liarsRoundResultText(outcome) {
-  if (outcome.result_summary) return outcome.result_summary;
+function liarsRoundResultLines(outcome) {
   const bid = outcome.bid || {};
-  const challenger = outcome.challenger_display_name
-    || liarsParticipantName(outcome.challenger_player_id);
-  const bidderId = outcome.bidder_player_id || bid.bidder_player_id;
-  const bidder = outcome.bidder_display_name || liarsParticipantName(bidderId);
   const loser = outcome.loser_display_name
     || liarsParticipantName(outcome.loser_player_id);
-  const eliminated = outcome.eliminated || Boolean(outcome.eliminated_player_id);
-  return (
-    `${challenger} 质疑 ${bidder} 的叫点“${bid.quantity} 个 ${bid.face} 点”；`
-    + `实际有 ${outcome.actual_count} 个 ${bid.face} 点，`
-    + `叫点${outcome.bid_holds ? "成立" : "失败"}；`
-    + `${loser} 输掉 1 枚骰，剩余 ${outcome.loser_remaining_dice} 枚，`
-    + `${eliminated ? "已淘汰" : "未淘汰"}。`
-  );
+  const eliminated = outcome.eliminated
+    || Boolean(outcome.eliminated_player_id)
+    || outcome.loser_remaining_dice === 0;
+  return {
+    outcome: (
+      `实际 ${outcome.actual_count} 个 ${bid.face} 点`
+      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}`
+    ),
+    loss: (
+      `${loser} -1 骰`
+      + ` · ${eliminated ? "已淘汰" : `剩余 ${outcome.loser_remaining_dice}`}`
+    ),
+  };
 }
 
 function liarsBidSelectionIsLegal(state, selection) {
@@ -1467,12 +1481,19 @@ function renderLiarsDice(board, state) {
   bidLabel.textContent = "本轮当前叫点";
   const bidValue = document.createElement("strong");
   const currentBid = state.current_bid;
+  const humanCanMove = canHumanMove();
   if (currentBid) {
     const bidder = participantByPlayerId(currentBid.bidder_player_id);
     bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点 · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
+  } else if (flow.phase === "finished") {
+    bidValue.textContent = "本轮已结算";
+  } else if (humanCanMove) {
+    bidValue.textContent = "轮到你叫点";
   } else if (room && room.status === "playing") {
-    const roundNumber = state.flow && state.flow.round_number;
-    bidValue.textContent = `第 ${roundNumber} 轮 · 由 ${liarsParticipantName(room.current_player_id)} 开叫`;
+    const starterName = liarsParticipantName(room.current_player_id);
+    bidValue.textContent = starterName
+      ? `等待 ${starterName} 首叫`
+      : "等待本轮首叫";
   } else {
     bidValue.textContent = "本轮已结算";
   }
@@ -1513,12 +1534,17 @@ function renderLiarsDice(board, state) {
   chooseBid.type = "button";
   chooseBid.className = "pixel-btn compact";
   chooseBid.textContent = "提交本轮叫点";
+  if (!currentBid) {
+    chooseBid.textContent = flow.phase === "finished"
+      ? "本轮已结算"
+      : (humanCanMove ? "现在叫点" : "等待首叫");
+  }
   const selectionIsHigher = () => liarsBidSelectionIsLegal(state, {
     quantity: Number(quantity.value),
     face: Number(face.value),
   });
   const updateBidAvailability = () => {
-    chooseBid.disabled = !canHumanMove() || !selectionIsHigher();
+    chooseBid.disabled = !humanCanMove || !selectionIsHigher();
   };
   const bidSelectionChanged = () => {
     rememberLiarsBidSelection(quantity.value, face.value);
@@ -1536,7 +1562,12 @@ function renderLiarsDice(board, state) {
   challenge.type = "button";
   challenge.className = "pixel-btn danger compact";
   challenge.textContent = "质疑本轮上一手";
-  challenge.disabled = !canHumanMove() || !currentBid;
+  if (!currentBid) {
+    challenge.textContent = flow.phase === "finished"
+      ? "本轮已结算"
+      : "本轮尚无叫点可质疑";
+  }
+  challenge.disabled = !humanCanMove || !currentBid;
   challenge.addEventListener("click", () => selectMove({action: "challenge"}));
   controls.append(quantityLabel, faceLabel, chooseBid, challenge);
   currentRound.appendChild(controls);
@@ -1544,34 +1575,21 @@ function renderLiarsDice(board, state) {
 
   if (liarsRoundResultIsVisible(state)) {
     const result = document.createElement("section");
-    result.className = `liars-round-result liars-reveal${
+    result.className = `liars-round-result${
       isHistoricalResult ? " liars-previous-round" : ""
     }`;
     result.ariaLabel = isHistoricalResult ? "上一轮结算" : "本轮结算";
     const title = document.createElement("strong");
-    title.className = "liars-result-title liars-reveal-title";
+    title.className = "liars-result-title";
     title.textContent = `第 ${outcome.round} 轮结算`;
-    const summary = document.createElement("p");
-    summary.className = "liars-result-summary liars-reveal-summary";
-    summary.textContent = liarsRoundResultText(outcome);
-    result.append(title, summary);
-
-    const nextRoundNumber = outcome.next_round
-      || (
-        Number.isInteger(roundNumber)
-        && roundNumber === Number(outcome.round) + 1
-        ? roundNumber
-        : null
-      );
-    const nextStarterId = outcome.next_starter_player_id
-      || (nextRoundNumber && room && room.current_player_id);
-    if (nextRoundNumber && nextStarterId) {
-      const nextRound = document.createElement("p");
-      nextRound.className = "liars-next-round";
-      nextRound.textContent = outcome.next_round_summary
-        || `第 ${nextRoundNumber} 轮 · 由 ${liarsParticipantName(nextStarterId)} 开叫`;
-      result.appendChild(nextRound);
-    }
+    const resultLines = liarsRoundResultLines(outcome);
+    const outcomeLine = document.createElement("p");
+    outcomeLine.className = "liars-result-line liars-result-outcome";
+    outcomeLine.textContent = resultLines.outcome;
+    const lossLine = document.createElement("p");
+    lossLine.className = "liars-result-line liars-result-loss";
+    lossLine.textContent = resultLines.loss;
+    result.append(title, outcomeLine, lossLine);
 
     const reveal = document.createElement("details");
     reveal.className = "liars-reveal-details";
