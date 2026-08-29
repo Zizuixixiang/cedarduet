@@ -499,13 +499,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   align-items: end;
   gap: 8px;
 }
-.selected-participants {
-  margin-top: 6px;
-  color: var(--pink-dark);
-  font-family: system-ui, sans-serif;
-  font-size: 12px;
-  line-height: 1.4;
-}
 .multiplayer-options {
   display: grid;
   grid-template-columns: minmax(104px, .8fr) minmax(140px, 1.2fr);
@@ -619,14 +612,58 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .seat-preview {
   margin-top: 5px;
-  padding: 5px 7px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.seat-preview-item {
+  min-width: 0;
+  min-height: 34px;
+  padding: 3px 5px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "number balance"
+    "name kind";
+  align-items: center;
+  gap: 1px 5px;
   color: var(--purple-darker);
   background: rgba(230, 223, 240, .52);
   border: 1px dashed var(--purple);
   font-family: system-ui, sans-serif;
+  line-height: 1.15;
+}
+.seat-preview-number {
+  grid-area: number;
+  color: var(--muted);
+  font-size: 9px;
+}
+.seat-preview-balance {
+  max-width: 92px;
+  grid-area: balance;
+  justify-self: end;
+  overflow: hidden;
+  color: var(--pink-dark);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.seat-preview-name {
+  min-width: 0;
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+}
+.seat-preview-kind {
+  grid-area: kind;
+  justify-self: end;
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 9px;
 }
 .room-participants {
   font-family: system-ui, sans-serif;

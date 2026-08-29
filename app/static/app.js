@@ -10,7 +10,7 @@ let pendingMove = null;
 let currentTimeline = [];
 let lastMoveMarkerKey = null;
 const selectedMachineIds = new Set();
-let selectedMachineWallet = null;
+const selectedMachineWallets = new Map();
 let machineWalletRequest = 0;
 
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
@@ -755,7 +755,7 @@ function configureParticipantPicker() {
     closeMachineMultiPicker();
     if (selected.length > 1) select.value = selected[0];
   }
-  renderSelectedParticipants();
+  renderCreateSeatPreview();
 }
 
 function updateCreateButtonState() {
@@ -786,6 +786,8 @@ function updateCreateButtonState() {
 function syncMachinePicker(machines) {
   const select = $("aiPlayer");
   selectedMachineIds.clear();
+  selectedMachineWallets.clear();
+  machineWalletRequest += 1;
   select.replaceChildren();
   if (!machines.length) {
     const option = document.createElement("option");
@@ -794,8 +796,7 @@ function syncMachinePicker(machines) {
     select.appendChild(option);
     select.disabled = true;
     renderMachineMultiPicker();
-    $("selectedParticipants").textContent = "请先在主站绑定一只小机";
-    updateCreateButtonState();
+    renderCreateSeatPreview();
     return;
   }
   if (machines.length > 1) {
@@ -818,86 +819,105 @@ function syncMachinePicker(machines) {
   machineSelectionChanged();
 }
 
-function openingPreferenceText() {
-  if ($("mode").value === "human_first") return "先手：你";
-  if ($("mode").value === "random") return "先手：全桌随机";
-  return selectedParticipantIds().length > 1
-    ? "先手：从已选小机中随机"
-    : "先手：所选小机";
-}
-
-function renderSelectedParticipants() {
+function selectedMachinesForCreate() {
   const selectedIds = selectedParticipantIds();
-  const machines = identity
+  return identity
     ? identity.machines.filter((item) => selectedIds.includes(item.id))
     : [];
-  const {allowedPlayerCounts, maxPlayers} = selectedGameRequirement();
-  const requirement = `${allowedPlayerCounts.join("/")} 人局`;
-  const machineBalance = selectedMachineWallet && machines.length === 1
-    ? ` · 对手筹码：🪙${selectedMachineWallet.balance}`
-    : "";
-  if (maxPlayers > 2) {
-    const targetCount = selectedTargetPlayerCount();
-    const npcCount = Math.max(0, targetCount - 1 - machines.length);
-    const confirmedSeats = 1 + machines.length + (selectedFillWithNpcs() ? npcCount : 0);
-    $("selectedParticipants").textContent = [
-      machines.length ? `已选 ${machines.length} 位小机` : "尚未选择对手",
-      `${confirmedSeats}/${targetCount} 席已确定`,
-      openingPreferenceText(),
-    ].join(" · ");
-  } else {
-    $("selectedParticipants").textContent = machines.length
-      ? `本局对手：${machines[0].name}${machineBalance} · ${requirement} · ${openingPreferenceText()}`
-      : `本局尚未选择对手 · ${requirement}`;
-  }
-  renderSeatPreview(machines);
+}
+
+function chipBalanceText(balance) {
+  const numericBalance = Number(balance);
+  return Number.isFinite(numericBalance)
+    ? new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(numericBalance)
+    : String(balance ?? "—");
+}
+
+function renderCreateSeatPreview() {
+  renderSeatPreview(selectedMachinesForCreate());
   updateCreateButtonState();
 }
 
 function renderSeatPreview(machines) {
   const preview = $("seatPreview");
-  const {maxPlayers} = selectedGameRequirement();
   preview.replaceChildren();
-  preview.classList.toggle("hidden", maxPlayers <= 2);
-  if (maxPlayers <= 2) return;
+  preview.classList.toggle("hidden", !identity);
+  if (!identity) return;
   const targetCount = selectedTargetPlayerCount();
   const npcCount = Math.max(0, targetCount - 1 - machines.length);
   const fill = selectedFillWithNpcs();
   const seats = [
-    {label: (identity && identity.human_name) || "你", kind: "人类"},
-    ...machines.map((machine) => ({label: machine.name, kind: "小机"})),
-    ...Array.from({length: npcCount}, (_item, index) => ({
-      label: fill ? `随机 NPC ${index + 1}` : "空位",
+    {
+      label: identity.human_name || "你",
+      kind: "人类",
+      balance: identity.wallet && identity.wallet.balance,
+    },
+    ...machines.map((machine) => ({
+      label: machine.name,
+      kind: "小机",
+      balance: selectedMachineWallets.has(machine.id)
+        ? selectedMachineWallets.get(machine.id)?.balance
+        : "…",
+    })),
+    ...Array.from({length: npcCount}, () => ({
+      label: fill ? "待随机" : "空位",
       kind: fill ? "NPC" : "未补齐",
     })),
   ];
-  preview.textContent = `座位：${seats.slice(0, targetCount).map(
-    (seat, index) => `${index + 1} ${seat.label}${seat.kind === "NPC" ? "[NPC]" : ""}`
-  ).join(" · ")}`;
+  seats.slice(0, targetCount).forEach((seat, index) => {
+    const item = document.createElement("article");
+    item.className = "seat-preview-item";
+    const number = document.createElement("span");
+    number.className = "seat-preview-number";
+    number.textContent = `席位 ${index + 1}`;
+    const name = document.createElement("strong");
+    name.className = "seat-preview-name";
+    name.textContent = seat.label;
+    name.title = seat.label;
+    const kind = document.createElement("span");
+    kind.className = "seat-preview-kind";
+    kind.textContent = seat.kind;
+    item.append(number, name, kind);
+    if (Object.prototype.hasOwnProperty.call(seat, "balance")) {
+      const balance = document.createElement("span");
+      balance.className = "seat-preview-balance";
+      balance.textContent = `🪙${chipBalanceText(seat.balance)}`;
+      balance.title = `当前筹码：${chipBalanceText(seat.balance)}`;
+      item.appendChild(balance);
+    }
+    preview.appendChild(item);
+  });
 }
 
 async function machineSelectionChanged() {
-  const selectedId = selectedParticipantIds()[0];
-  selectedMachineWallet = null;
+  const selectedIds = selectedParticipantIds();
   const requestNumber = ++machineWalletRequest;
-  renderSelectedParticipants();
-  if (!selectedId || selectedParticipantIds().length !== 1) return;
-  try {
-    const data = await request(`/api/chips/machines/${encodeURIComponent(selectedId)}`);
-    if (requestNumber !== machineWalletRequest) return;
-    selectedMachineWallet = data.wallet;
-    renderSelectedParticipants();
-  } catch (_error) {
-    if (requestNumber === machineWalletRequest) renderSelectedParticipants();
-  }
+  renderCreateSeatPreview();
+  const missingIds = selectedIds.filter(
+    (playerId) => !selectedMachineWallets.has(playerId)
+  );
+  if (!missingIds.length) return;
+  const results = await Promise.all(missingIds.map(async (playerId) => {
+    try {
+      const data = await request(
+        `/api/chips/machines/${encodeURIComponent(playerId)}`
+      );
+      return [playerId, data.wallet || null];
+    } catch (_error) {
+      return [playerId, null];
+    }
+  }));
+  if (requestNumber !== machineWalletRequest) return;
+  results.forEach(([playerId, wallet]) => {
+    selectedMachineWallets.set(playerId, wallet);
+  });
+  renderCreateSeatPreview();
 }
 
 function renderHumanChipBalance(balance) {
   const numericBalance = Number(balance);
   const isNumeric = Number.isFinite(numericBalance);
-  const balanceText = isNumeric
-    ? new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(numericBalance)
-    : String(balance ?? "—");
+  const balanceText = chipBalanceText(balance);
   const negative = isNumeric && numericBalance < 0;
   const longBalance = balanceText.length > 10;
   const balanceTarget = $("humanChipBalance");
@@ -2047,9 +2067,9 @@ $("targetPlayerCount").addEventListener("change", () => {
   renderMachineMultiPicker();
   machineSelectionChanged();
 });
-$("fillWithNpcs").addEventListener("change", renderSelectedParticipants);
+$("fillWithNpcs").addEventListener("change", renderCreateSeatPreview);
 $("gameType").addEventListener("change", configureParticipantPicker);
-$("mode").addEventListener("change", renderSelectedParticipants);
+$("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);

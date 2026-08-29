@@ -398,6 +398,12 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn('selectedMachineCount >= 1', script)
         self.assertIn("renderParticipantAvatar(avatarWrap, participant)", script)
         self.assertIn("participant.avatar_url", script)
+        roster_start = script.index("function renderParticipantRoster(")
+        roster_end = script.index("function renderPrivateState(", roster_start)
+        roster = script[roster_start:roster_end]
+        self.assertIn('system_npc: "NPC"', roster)
+        self.assertIn("name.textContent = participant.display_name", roster)
+        self.assertNotIn("wallet_label", roster)
         self.assertIn('targetRoom.private_state', script)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
         self.assertIn(".table-layout.layout-top-row", styles)

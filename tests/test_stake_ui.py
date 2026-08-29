@@ -118,8 +118,6 @@ class StakeLobbyUiTests(unittest.TestCase):
             ("random", "随机"),
         ):
             self.assertIn(f'<option value="{value}">{label}</option>', mode)
-        self.assertIn('return "先手：全桌随机"', SCRIPT)
-        self.assertIn('"先手：从已选小机中随机"', SCRIPT)
         self.assertIn("mode: $(\"mode\").value", SCRIPT)
         self.assertIn("min-height: 44px", STYLES)
         self.assertIn("#aiMultiSummary", STYLES)
@@ -132,17 +130,19 @@ class StakeLobbyUiTests(unittest.TestCase):
             "grid-template-columns: minmax(96px, .75fr) minmax(0, 1.25fr)",
             mobile,
         )
-        self.assertNotIn(".seat-preview-item", STYLES)
+        self.assertIn(".seat-preview-item", STYLES)
+        self.assertIn("min-height: 34px", STYLES)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", STYLES)
+        self.assertNotIn(".seat-preview { grid-template-columns: 1fr", mobile)
         seat_preview = function_source("renderSeatPreview")
-        self.assertIn('preview.textContent = `座位：', seat_preview)
-        self.assertNotIn("document.createElement", seat_preview)
+        self.assertIn('document.createElement("article")', seat_preview)
+        self.assertIn('number.textContent = `席位 ${index + 1}`', seat_preview)
 
     @unittest.skipUnless(NODE, "node is required for multiplayer picker tests")
-    def test_multiplayer_summary_and_selection_order_follow_identity_catalog(self):
+    def test_multiplayer_selection_order_follows_identity_catalog(self):
         functions = "\n".join((
             function_source("selectedParticipantIds"),
             function_source("machinePickerSummary"),
-            function_source("openingPreferenceText"),
         ))
         harness = f"""
 const assert = require("node:assert/strict");
@@ -150,7 +150,6 @@ const selectedMachineIds = new Set(["ai-2", "ai-1"]);
 const picker = {{dataset: {{selectionMode: "multiple"}}}};
 const elements = {{
   aiPlayer: {{value: "ai-3", closest: () => picker}},
-  mode: {{value: "ai_first"}},
 }};
 const identity = {{machines: [
   {{id: "ai-1", name: "甲"}},
@@ -164,9 +163,6 @@ assert.equal(
   machinePickerSummary(identity.machines.slice(0, 2)),
   "已选 2 位：甲、乙",
 );
-assert.equal(openingPreferenceText(), "先手：从已选小机中随机");
-elements.mode.value = "random";
-assert.equal(openingPreferenceText(), "先手：全桌随机");
 picker.dataset.selectionMode = "single";
 assert.deepEqual(selectedParticipantIds(), ["ai-3"]);
 elements.aiPlayer.value = "";
@@ -197,16 +193,142 @@ assert.equal(machinePickerSummary([]), "请选择对手");
         for copy in ("发起方", "棋种", "stake_label", "接受", "拒绝"):
             self.assertIn(copy, pending)
 
-    def test_only_selected_machine_wallet_is_loaded_and_shown(self):
-        selected = function_source("renderSelectedParticipants")
+    def test_redundant_summary_is_removed_and_every_selected_wallet_is_loaded(self):
         loader = SCRIPT[
             SCRIPT.index("async function machineSelectionChanged("):
             SCRIPT.index("async function loadIdentity(")
         ]
-        self.assertIn("对手筹码", selected)
-        self.assertIn("selectedParticipantIds()[0]", loader)
+        self.assertNotIn('id="selectedParticipants"', HTML)
+        self.assertNotIn("本局参与小机", SCRIPT)
+        self.assertNotIn("对手筹码", SCRIPT)
+        self.assertNotIn("人局", function_source("renderSeatPreview"))
+        self.assertIn("const selectedIds = selectedParticipantIds()", loader)
+        self.assertIn("missingIds.map(async (playerId)", loader)
         self.assertIn("/api/chips/machines/", loader)
-        self.assertNotIn("Promise.all", loader)
+        self.assertIn("Promise.all", loader)
+        self.assertIn("selectedMachineWallets.set(playerId, wallet)", loader)
+
+    @unittest.skipUnless(NODE, "node is required for wallet loading tests")
+    def test_machine_selection_loads_every_selected_wallet(self):
+        loader = SCRIPT[
+            SCRIPT.index("async function machineSelectionChanged("):
+            SCRIPT.index("async function loadIdentity(")
+        ]
+        harness = f"""
+const assert = require("node:assert/strict");
+const selectedMachineWallets = new Map();
+let machineWalletRequest = 0;
+let renderCount = 0;
+const selectedParticipantIds = () => ["ai-1", "ai-2", "ai-3"];
+const renderCreateSeatPreview = () => {{ renderCount += 1; }};
+const requested = [];
+const request = async (url) => {{
+  requested.push(url);
+  const playerId = decodeURIComponent(url.split("/").pop());
+  return {{wallet: {{balance: {{"ai-1": 210, "ai-2": -8, "ai-3": 999}}[playerId]}}}};
+}};
+{loader}
+(async () => {{
+  await machineSelectionChanged();
+  assert.deepEqual(requested, [
+    "/api/chips/machines/ai-1",
+    "/api/chips/machines/ai-2",
+    "/api/chips/machines/ai-3",
+  ]);
+  assert.equal(selectedMachineWallets.get("ai-1").balance, 210);
+  assert.equal(selectedMachineWallets.get("ai-2").balance, -8);
+  assert.equal(selectedMachineWallets.get("ai-3").balance, 999);
+  assert.equal(renderCount, 2);
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    @unittest.skipUnless(NODE, "node is required for seat preview tests")
+    def test_seat_preview_shows_all_balances_but_no_random_npc_wallet(self):
+        functions = "\n".join((
+            function_source("chipBalanceText"),
+            function_source("renderSeatPreview"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(["hidden"]); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor() {{
+    this.children = [];
+    this.className = "";
+    this.classList = new ClassList();
+    this.textContent = "";
+    this.title = "";
+  }}
+  append(...children) {{ this.children.push(...children); }}
+  appendChild(child) {{ this.children.push(child); }}
+  replaceChildren(...children) {{ this.children = [...children]; }}
+}}
+const preview = new Element();
+const document = {{createElement: () => new Element()}};
+const $ = (id) => {{ assert.equal(id, "seatPreview"); return preview; }};
+const identity = {{human_name: "南山", wallet: {{balance: 240}}}};
+const selectedMachineWallets = new Map([
+  ["ai-1", {{balance: -15}}],
+  ["ai-2", {{balance: 1234567890123}}],
+]);
+const selectedTargetPlayerCount = () => 4;
+const selectedFillWithNpcs = () => true;
+{functions}
+renderSeatPreview([
+  {{id: "ai-1", name: "甲"}},
+  {{id: "ai-2", name: "名字很长的乙"}},
+]);
+const byClass = (item, className) => item.children.find(
+  (child) => child.className === className
+);
+assert.equal(preview.children.length, 4);
+assert.ok(!preview.classList.contains("hidden"));
+assert.equal(byClass(preview.children[0], "seat-preview-number").textContent, "席位 1");
+assert.equal(byClass(preview.children[0], "seat-preview-name").textContent, "南山");
+assert.equal(byClass(preview.children[0], "seat-preview-kind").textContent, "人类");
+assert.equal(byClass(preview.children[0], "seat-preview-balance").textContent, "🪙240");
+assert.equal(byClass(preview.children[1], "seat-preview-name").textContent, "甲");
+assert.equal(byClass(preview.children[1], "seat-preview-kind").textContent, "小机");
+assert.equal(byClass(preview.children[1], "seat-preview-balance").textContent, "🪙-15");
+assert.equal(
+  byClass(preview.children[2], "seat-preview-balance").textContent,
+  "🪙1,234,567,890,123",
+);
+assert.equal(byClass(preview.children[3], "seat-preview-name").textContent, "待随机");
+assert.equal(byClass(preview.children[3], "seat-preview-kind").textContent, "NPC");
+assert.equal(byClass(preview.children[3], "seat-preview-balance"), undefined);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
 
     def test_room_cards_show_stake_and_terminal_controls_share_one_row(self):
         rooms = function_source("renderRooms")
@@ -240,7 +362,10 @@ assert.equal(machinePickerSummary([]), "请选择对手");
 @unittest.skipUnless(NODE, "node is required for chip balance rendering tests")
 class ChipWalletRenderingTests(unittest.TestCase):
     def test_balance_renderer_formats_and_marks_negative_and_long_values(self):
-        renderer = function_source("renderHumanChipBalance")
+        renderer = "\n".join((
+            function_source("chipBalanceText"),
+            function_source("renderHumanChipBalance"),
+        ))
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
