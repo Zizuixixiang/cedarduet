@@ -5,6 +5,7 @@ from .jungle import Jungle
 from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
+from .xiangqi import Xiangqi
 
 GAMES = {
     TicTacToe.game_type: TicTacToe(),
@@ -14,6 +15,7 @@ GAMES = {
     DotsBoxes.game_type: DotsBoxes(),
     LiarsDice.game_type: LiarsDice(),
     Jungle.game_type: Jungle(),
+    Xiangqi.game_type: Xiangqi(),
 }
 
 

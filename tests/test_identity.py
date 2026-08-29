@@ -98,7 +98,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 7)
+        self.assertEqual(len(payload["games"]), 8)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])

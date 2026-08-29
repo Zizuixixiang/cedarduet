@@ -216,7 +216,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             (root / "docs" / "MCP_GUIDE.md").read_text(encoding="utf-8"),
         )
 
-    async def test_all_six_games_return_generic_minimal_move_ack(self):
+    async def test_all_public_board_games_return_generic_minimal_move_ack(self):
         cases = {
             "tictactoe": {"row": 0, "col": 0},
             "gomoku": {"row": 7, "col": 7},
@@ -224,6 +224,9 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "connect4": {"col": 3},
             "dots_boxes": {"orientation": "h", "row": 0, "col": 0},
             "jungle": {"from_row": 6, "from_col": 0, "to_row": 5, "to_col": 0},
+            "xiangqi": {
+                "from_row": 9, "from_col": 0, "to_row": 8, "to_col": 0
+            },
         }
         for index, (game_type, move) in enumerate(cases.items()):
             with self.subTest(game_type=game_type):

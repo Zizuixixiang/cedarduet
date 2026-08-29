@@ -256,8 +256,10 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 7)
-        for game_type in ("tictactoe", "gomoku", "othello", "connect4", "jungle"):
+        self.assertEqual(len(production), 8)
+        for game_type in (
+            "tictactoe", "gomoku", "othello", "connect4", "jungle", "xiangqi"
+        ):
             self.assertEqual(production[game_type]["allowed_player_counts"], [2])
         self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(
