@@ -1,0 +1,409 @@
+.board.chinese_checkers {
+  --cc-ink: #2f3240;
+  --cc-paper: #eee5d0;
+  width: min(94vw, 680px);
+  max-width: 100%;
+  aspect-ratio: 0.88 / 1;
+  min-width: 0;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  isolation: isolate;
+  box-sizing: border-box;
+  border: clamp(5px, 1vw, 9px) solid #4a4352;
+  border-radius: clamp(18px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .95), transparent 47%),
+    linear-gradient(145deg, #f6efdf 0%, #ddd0b9 62%, #cbbda7 100%);
+  box-shadow:
+    0 0 0 2px #bba982,
+    0 0 0 6px rgba(58, 52, 67, .16),
+    0 22px 46px rgba(43, 38, 51, .24),
+    inset 0 2px 0 rgba(255, 255, 255, .84);
+  touch-action: manipulation;
+}
+
+.board.chinese_checkers .cc-star-surface {
+  position: absolute;
+  inset: 3.2% 4.5%;
+  z-index: -2;
+  clip-path: polygon(
+    50% 0%, 60.5% 25%, 88% 22%, 72% 43%, 100% 50%, 72% 57%,
+    88% 78%, 60.5% 75%, 50% 100%, 39.5% 75%, 12% 78%, 28% 57%,
+    0% 50%, 28% 43%, 12% 22%, 39.5% 25%
+  );
+  background:
+    repeating-linear-gradient(
+      30deg,
+      rgba(75, 67, 80, .035) 0 1px,
+      transparent 1px 8px
+    ),
+    linear-gradient(145deg, rgba(255, 255, 255, .54), rgba(184, 168, 145, .33));
+  filter: drop-shadow(0 8px 10px rgba(63, 54, 66, .12));
+}
+
+.board.chinese_checkers .cc-hole {
+  --camp-fill: #d5c9b6;
+  width: clamp(17px, 5.05%, 31px);
+  aspect-ratio: 1;
+  padding: 0;
+  position: absolute;
+  left: var(--node-left);
+  top: var(--node-top);
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  border: clamp(1px, .28vw, 2px) solid rgba(62, 56, 68, .46);
+  border-radius: 50%;
+  outline: none;
+  background:
+    radial-gradient(circle at 42% 38%, #7b7180 0 14%, #554f5b 38%, #312e37 72%);
+  box-shadow:
+    inset 1px 2px 3px rgba(22, 20, 26, .55),
+    0 1px 0 rgba(255, 255, 255, .82),
+    0 0 0 3px color-mix(in srgb, var(--camp-fill) 45%, transparent);
+  cursor: default;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.board.chinese_checkers .cc-hole.camp-0 { --camp-fill: #c8919d; }
+.board.chinese_checkers .cc-hole.camp-1 { --camp-fill: #d4ad68; }
+.board.chinese_checkers .cc-hole.camp-2 { --camp-fill: #83b5a5; }
+.board.chinese_checkers .cc-hole.camp-3 { --camp-fill: #8e9fc8; }
+.board.chinese_checkers .cc-hole.camp-4 { --camp-fill: #9b88bd; }
+.board.chinese_checkers .cc-hole.camp-5 { --camp-fill: #79a8bd; }
+
+.board.chinese_checkers .cc-hole.viewer-start-camp {
+  box-shadow:
+    inset 1px 2px 3px rgba(22, 20, 26, .55),
+    0 1px 0 rgba(255, 255, 255, .82),
+    0 0 0 3px color-mix(in srgb, var(--camp-fill) 62%, transparent);
+}
+
+.board.chinese_checkers .cc-hole.viewer-target-camp {
+  box-shadow:
+    inset 1px 2px 3px rgba(22, 20, 26, .55),
+    0 1px 0 rgba(255, 255, 255, .82),
+    0 0 0 3px rgba(65, 112, 101, .38),
+    0 0 0 5px rgba(244, 239, 218, .56);
+}
+
+.board.chinese_checkers .cc-hole:not(:disabled) {
+  cursor: pointer;
+}
+
+.board.chinese_checkers .cc-hole:not(:disabled):hover,
+.board.chinese_checkers .cc-hole:not(:disabled):focus-visible {
+  z-index: 8;
+  filter: brightness(1.14);
+  outline: 3px solid rgba(50, 54, 68, .72);
+  outline-offset: 3px;
+}
+
+.board.chinese_checkers .cc-marble {
+  --marble-light: #f39bab;
+  --marble-mid: #be4963;
+  --marble-dark: #6b2539;
+  width: 118%;
+  aspect-ratio: 1;
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--marble-dark) 78%, #16141a);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 31% 25%, rgba(255, 255, 255, .96) 0 5%, transparent 7%),
+    radial-gradient(circle at 37% 31%, var(--marble-light) 0 13%, transparent 31%),
+    radial-gradient(circle at 44% 38%, var(--marble-mid) 0 42%, var(--marble-dark) 78%, #241d29 100%);
+  box-shadow:
+    inset -3px -4px 6px rgba(28, 22, 32, .42),
+    inset 2px 2px 4px rgba(255, 255, 255, .46),
+    0 3px 4px rgba(35, 30, 42, .4),
+    0 7px 9px rgba(35, 30, 42, .17);
+  pointer-events: none;
+}
+
+.board.chinese_checkers .cc-marble.seat-1 {
+  --marble-light: #8de2d3;
+  --marble-mid: #269c90;
+  --marble-dark: #175a5a;
+}
+.board.chinese_checkers .cc-marble.seat-2 {
+  --marble-light: #ffe28b;
+  --marble-mid: #d99724;
+  --marble-dark: #7d4a16;
+}
+.board.chinese_checkers .cc-marble.seat-3 {
+  --marble-light: #c7a7f0;
+  --marble-mid: #7858b1;
+  --marble-dark: #3f2d72;
+}
+.board.chinese_checkers .cc-marble.seat-4 {
+  --marble-light: #94c9ef;
+  --marble-mid: #397db4;
+  --marble-dark: #244a75;
+}
+.board.chinese_checkers .cc-marble.seat-5 {
+  --marble-light: #b3dc83;
+  --marble-mid: #659c39;
+  --marble-dark: #365b2b;
+}
+
+.board.chinese_checkers .cc-marble-gleam {
+  width: 28%;
+  height: 13%;
+  position: absolute;
+  left: 23%;
+  top: 18%;
+  transform: rotate(-28deg);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .66);
+  filter: blur(.3px);
+}
+
+.board.chinese_checkers .cc-hole.selected-origin {
+  z-index: 9;
+  outline: clamp(3px, .6vw, 5px) solid #3f354d;
+  outline-offset: 4px;
+}
+
+.board.chinese_checkers .cc-hole.selected-origin .cc-marble {
+  transform: translate(-50%, -57%) scale(1.08);
+  box-shadow:
+    inset -3px -4px 6px rgba(28, 22, 32, .42),
+    inset 2px 2px 4px rgba(255, 255, 255, .48),
+    0 7px 6px rgba(35, 30, 42, .38),
+    0 0 0 3px rgba(255, 249, 224, .88);
+}
+
+.board.chinese_checkers .cc-legal-marker {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.board.chinese_checkers .cc-legal-marker.step-marker {
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #e9c75e;
+  box-shadow: 0 0 0 3px rgba(255, 249, 222, .78);
+}
+
+.board.chinese_checkers .cc-legal-marker.jump-marker {
+  width: 92%;
+  aspect-ratio: 1;
+  border: 3px solid #53c2b1;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px rgba(247, 255, 244, .82),
+    0 0 12px rgba(44, 154, 142, .65);
+}
+
+.board.chinese_checkers .cc-hole.selected-target {
+  z-index: 7;
+  outline: 4px solid #df8a3d;
+  outline-offset: 3px;
+}
+
+.board.chinese_checkers .cc-hole.last-move-from::before,
+.board.chinese_checkers .cc-hole.last-move-to::before {
+  content: "";
+  width: 145%;
+  aspect-ratio: 1;
+  position: absolute;
+  border: 2px solid rgba(153, 100, 38, .78);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.board.chinese_checkers .cc-hole.last-move-to::before {
+  border-width: 3px;
+  border-color: rgba(125, 67, 41, .94);
+}
+
+.board.chinese_checkers .cc-last-move-marker {
+  width: 25%;
+  aspect-ratio: 1;
+  position: absolute;
+  right: -16%;
+  bottom: -13%;
+  z-index: 8;
+  border: 2px solid #63372e;
+  border-radius: 50%;
+  background: #fff4d4;
+  pointer-events: none;
+}
+
+.board.chinese_checkers .cc-hole.target-arrived .cc-marble {
+  box-shadow:
+    inset -3px -4px 6px rgba(28, 22, 32, .4),
+    inset 2px 2px 4px rgba(255, 255, 255, .48),
+    0 3px 4px rgba(35, 30, 42, .35),
+    0 0 0 3px rgba(222, 239, 187, .88),
+    0 0 12px rgba(106, 153, 76, .55);
+}
+
+.board.chinese_checkers .cc-path-preview {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.board.chinese_checkers .cc-path-preview polyline {
+  fill: none;
+  stroke: rgba(38, 122, 117, .76);
+  stroke-width: .46;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1.3 1;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .8));
+}
+
+.board.chinese_checkers .cc-path-preview circle {
+  fill: #f8f0c9;
+  stroke: #287d76;
+  stroke-width: .24;
+  vector-effect: non-scaling-stroke;
+}
+
+.board.chinese_checkers .cc-progress-badge {
+  padding: 6px 10px;
+  position: absolute;
+  left: 50%;
+  bottom: 1.2%;
+  z-index: 12;
+  transform: translateX(-50%);
+  border: 1px solid rgba(57, 54, 66, .34);
+  border-radius: 999px;
+  color: var(--cc-ink);
+  background: rgba(255, 250, 236, .9);
+  box-shadow: 0 3px 8px rgba(48, 43, 54, .12);
+  font: 750 clamp(10px, 1.8vw, 13px)/1 system-ui, sans-serif;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cc-legend {
+  width: min(94vw, 680px);
+  max-width: 100%;
+  margin: 8px auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 12px;
+  color: #4a4653;
+  font: 650 11px/1.35 system-ui, sans-serif;
+}
+
+.cc-legend-item::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  display: inline-block;
+  border-radius: 50%;
+  vertical-align: 0;
+  background: #e9c75e;
+  box-shadow: 0 0 0 2px rgba(89, 75, 49, .15);
+}
+
+.cc-legend-item.jump::before {
+  background: transparent;
+  border: 2px solid #53a99d;
+  box-sizing: border-box;
+}
+
+.cc-legend-item.path::before {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed #397f79;
+  border-radius: 0;
+  background: transparent;
+}
+
+@media (max-width: 599px) {
+  .board.chinese_checkers {
+    width: min(96vw, 520px);
+    border-width: 4px;
+    border-radius: 18px;
+    box-shadow:
+      0 0 0 2px #bba982,
+      0 10px 24px rgba(43, 38, 51, .2),
+      inset 0 2px 0 rgba(255, 255, 255, .78);
+  }
+
+  .board.chinese_checkers .cc-hole {
+    width: clamp(17px, 5.2%, 25px);
+    border-width: 1px;
+  }
+
+  .board.chinese_checkers .cc-legal-marker.jump-marker {
+    border-width: 2px;
+  }
+
+  .board.chinese_checkers .cc-progress-badge {
+    padding: 5px 8px;
+    bottom: .8%;
+  }
+
+  .cc-legend {
+    width: min(96vw, 520px);
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 375px) {
+  .board.chinese_checkers {
+    width: min(97vw, 365px);
+  }
+
+  .board.chinese_checkers .cc-hole {
+    width: 17px;
+  }
+
+  .board.chinese_checkers .cc-progress-badge {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 320px) {
+  .board.chinese_checkers {
+    width: min(98vw, 314px);
+    border-width: 3px;
+  }
+
+  .board.chinese_checkers .cc-hole {
+    width: 16px;
+  }
+
+  .cc-legend-item.path {
+    flex-basis: 100%;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .board.chinese_checkers .cc-marble {
+    transition: transform 140ms ease, box-shadow 140ms ease;
+  }
+
+  .board.chinese_checkers .cc-hole.jump-target .cc-legal-marker {
+    animation: cc-jump-breathe 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes cc-jump-breathe {
+  50% { opacity: .55; transform: scale(.88); }
+}

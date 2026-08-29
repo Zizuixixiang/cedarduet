@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 13)
+        self.assertEqual(len(payload["games"]), 14)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -153,6 +153,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "jungle": "board",
                 "xiangqi": "board",
                 "aeroplane_chess": "board",
+                "chinese_checkers": "board",
             },
         )
         self.assertEqual(
@@ -171,6 +172,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "jungle": "斗兽棋",
                 "xiangqi": "象棋",
                 "aeroplane_chess": "飞行棋",
+                "chinese_checkers": "中国跳棋",
             },
         )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
@@ -184,6 +186,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["aeroplane_chess"]["recommended_players"], 4)
         self.assertTrue(games["aeroplane_chess"]["supports_npcs"])
         self.assertTrue(games["aeroplane_chess"]["supports_stakes"])
+        self.assertEqual(games["chinese_checkers"]["allowed_player_counts"], [2, 3, 4, 6])
+        self.assertTrue(games["chinese_checkers"]["supports_multiplayer_stakes"])
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],
