@@ -10,12 +10,30 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 之后 `state` / `move` / `wait` 只返回最小控制状态与该 viewer 尚未读取的可见 `events`。
 事件形状为 `{"name": "显示名", "message"?: "...", "move"?: {...}}`；同一次落子
 的发言和行动不会拆开，也不会暴露 sequence、事件 revision、player ID、座位或 kind。
+确定性棋盘只需把服务端已接受的 `move` 应用到本地盘面；随机或自动公开后果会紧随该
+move 追加一个 `{"name":"双弈裁判","<game>_delta":{...}}`。这类结果在行动者失去
+回合时也会直接进入本次 move 响应。插件 delta 中按参与者映射的公共计数可以使用
+bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
 普通 message、其他参与者的 move 和 round_result 只进入房间增量事件游标（不是下文
 四类持久化未读通知），不会唤醒尚未
 获得行动权的小机，也不会被 `state wait=false` 提前消费。真正轮到该小机时，服务端
 一次返回它从上次消费以来全部可见事件；终局、归档、取消、本人离席、淘汰或失活也会提前
 返回必要增量，避免永远等不到回合。游标前进后，同一事件不会再次返回。轮到当前小机
 时，隐藏信息游戏可额外返回 `private_state`。
+
+本地状态丢失或怀疑漏增量时可随时读取当前完整安全视图：
+
+```json
+{"action":"state","player_id":"ai-42","room_id":"ABCDEFGH","full_state":true}
+```
+
+响应的 `snapshot` 只含 `room_id/game/revision/status/current_actor/participants`、完整
+当前公共 `board_state` 和该 viewer 自己的 `private_state`。它不重复 `rules_text`、
+`move_format`、筹码、静态拓扑或 action/move/dice history；少数游戏把重复的 verbose
+legal move 压成可直接提交的字段。`full_state` 可重复调用且立即返回，即使同时传
+`wait=true` 也不挂等；它既不 claim/补发一次性 bootstrap，也不读取或推进事件游标。
+因此第一次先调用 full_state 后，下一次普通 `state` 仍会正常得到唯一 bootstrap；
+已经 bootstrap 后调用它也不会让 bootstrap 重来。旧请求不传该字段时行为不变。
 
 `DUEL_MCP_WAIT_SECONDS` 控制短心跳，默认 30 秒、允许 1–45 秒，不影响 NPC provider
 timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结束，不表示退出挂等；
@@ -382,6 +400,51 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 
 实际 outcome 还包含 `total/soft/natural_blackjack/bust`；庄家摘要包含相同的点数与
 自然牌/爆牌标记。这里没有 settlement delta，也不会创建、销毁或转移筹码。
+
+## UNO `uno`
+
+行动必须从自己的 `private_state.legal_actions` 原样选择；手牌只存在于自己的
+`private_state.hand`。公共 move 可见打出的牌、选色与 UNO 声明，但摸牌永远不公开
+牌面。裁判的 `uno_delta` 用当前 `hand_counts/deck_count/phase` 同步摸牌后果；出牌时
+另含 `top_discard/current_color/direction`，罚牌、WDF 质疑和抓 UNO 只给公共人数、
+张数与结果。`pending_wild_draw_four.was_legal` 和任何新摸牌身份都不会进入公共投影或
+事件。完整功能牌与终局规则仍以 bootstrap `rules_text` 为准。
+
+## 干瞪眼 `gandengyan`
+
+只能从自己的 `private_state.legal_actions` 选择 `play` 或 `pass`。出牌 move 的
+`card_ids` 在打出后成为公开信息；裁判 `gandengyan_delta` 补充权威牌型、倍率和公共
+手牌张数。其余人全过时，delta 以 `trick_end` 给出本墩赢家/下一领牌、各席摸牌张数、
+剩余牌堆和更新后的手牌张数，绝不包含新摸牌身份。炸弹、跟牌与筹码倍率细则看
+bootstrap 规则。
+
+## 翻翻棋 `banqi`
+
+`flip` 的普通 move 只有坐标；紧随的 `banqi_delta` 给出该格实际翻开的公开棋子，首翻
+还给出行动者定色。`move` delta 给出移动棋、公开被吃棋或 `captured="hidden"` 哨兵，
+不会泄露暗子真实身份。full_state 的 8×4 `board` 用 `hidden` 表示所有仍未翻开的棋。
+
+## 飞行棋 `aeroplane_chess`
+
+`roll` 后看 `aeroplane_delta` 的骰点、连续 6、`movable_plane_ids`、auto-pass、第三个
+6 惩罚与退回机场列表，再从权威行动中选机。`move` delta 给出 from/to、沿途落点、
+跳跃/跨盘、碰撞击落和到家结果。full_state 保留全部飞机的当前 `route_step/zone` 与
+当前 legal actions，不重复 bootstrap 的四色固定路径表。
+
+## 中国跳棋 `chinese_checkers`
+
+普通 move 的 `from/to/kind` 已足够确定性重建棋面；跳跃不吃子。bootstrap 提供 121
+孔的固定 node 坐标和营区，调用方应缓存。full_state 只重发当前 `pieces`、营区归属、
+进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，不重复 canonical
+path、固定 `nodes/camps` 或历史。
+
+## 国际象棋 `chess`
+
+移动用零起始 `from_row/from_col/to_row/to_col`，升变必须保留 `promotion=q|r|b|n`。
+当前快照的 `legal_actions` 是可直接提交的权威列表，并保留棋盘、FEN、将军/将死、
+重复局面与半回合计数；不重复 verbose `legal_moves` 或棋谱。若列表出现
+`{"action":"claim_draw"}`，表示当前已满足三次重复或 50 回合规则，可提交该动作申和；
+五次重复、75 回合及其他死局仍由服务端自动裁决。
 
 ## 象棋 `xiangqi`
 

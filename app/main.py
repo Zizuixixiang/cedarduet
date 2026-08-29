@@ -30,6 +30,7 @@ from .framework import (
     list_timeline,
     play_move,
     post_message,
+    project_mcp_snapshot_for_viewer,
     project_room_for_viewer,
     read_new_room_events,
     resign,
@@ -379,6 +380,8 @@ def _terminal_fields(room: dict) -> dict:
 def _move_delta_response(
     room: dict,
     player_id: str,
+    *,
+    consume_events: bool = False,
 ) -> dict:
     if room.get("status") == "cancelled":
         return {
@@ -433,7 +436,7 @@ def _move_delta_response(
         payload["participant_status"] = (
             activity_state if activity_state != "active" else "inactive"
         )
-    if _participant_response_due(room, player_id):
+    if consume_events or _participant_response_due(room, player_id):
         events = _compact_events(
             read_new_room_events(room["room_id"], player_id)
         )
@@ -1394,6 +1397,8 @@ async def _mcp_play_impl(body: McpPlayBody):
     """MCP-friendly JSON action endpoint for the bound AI."""
     if body.player_id.startswith("npc:"):
         raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
+    if body.full_state and body.action != "state":
+        raise DuelError("full_state 只适用于 state 动作")
     if body.action == "rooms":
         room_limit = body.limit if body.limit is not None else 50
         rooms = list_ai_rooms(
@@ -1609,6 +1614,15 @@ async def _mcp_play_impl(body: McpPlayBody):
             revision_events.notify(room_id)
         room = get_room(room_id, "ai", body.player_id)
         await _schedule_current_system_npc(room)
+        if body.full_state:
+            return {
+                "ok": True,
+                "status": room["status"],
+                "full_state": True,
+                "snapshot": project_mcp_snapshot_for_viewer(
+                    room, body.player_id
+                ),
+            }
         participant = next(
             (
                 item for item in room.get("participants", [])
@@ -1691,14 +1705,23 @@ async def _mcp_play_impl(body: McpPlayBody):
     )
     revision_events.notify(room["room_id"])
     await _schedule_current_system_npc(room)
+    immediate_events = bool(
+        get_game(room["game_type"]).mcp_immediate_public_events
+        and has_new_room_events(room["room_id"], body.player_id)
+    )
     if (
         not body.wait
         or _participant_response_due(room, body.player_id)
+        or immediate_events
     ):
-        return _move_delta_response(room, body.player_id)
+        return _move_delta_response(
+            room, body.player_id, consume_events=immediate_events
+        )
 
     if not await revision_events.try_acquire_wait_slot():
-        downgraded = _move_delta_response(room, body.player_id)
+        downgraded = _move_delta_response(
+            room, body.player_id, consume_events=immediate_events
+        )
         downgraded["wait_downgraded"] = True
         return downgraded
 

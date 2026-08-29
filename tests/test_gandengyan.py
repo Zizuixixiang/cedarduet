@@ -266,6 +266,9 @@ class GandengyanRuleTests(unittest.TestCase):
         self.game.apply_action(state, {"action": "play", "card_ids": ["S3"]}, table[0])
         self.game.apply_action(state, {"action": "pass"}, table[1])
         result = self.game.apply_action(state, {"action": "pass"}, table[2])
+        result = self.game.progress_after_action(
+            state, {"action": "pass"}, table[2], table, result
+        )
         self.assertEqual(result.next_player_id, "human-1")
         self.assertEqual(state["flow"], {"phase": "leading", "round_number": 2, "turn_number": 0})
         self.assertIsNone(state["trick"]["last_play"])
@@ -274,6 +277,13 @@ class GandengyanRuleTests(unittest.TestCase):
         self.assertIn("D6", [card["id"] for card in state["cards"]["hands"]["ai-1"]])
         self.assertIn("C6", [card["id"] for card in state["cards"]["hands"]["ai-2"]])
         self.assertEqual(state["cards"]["deck"], [])
+        delta = result.public_event["gandengyan_delta"]
+        self.assertEqual(delta["action"], "trick_end")
+        self.assertEqual(delta["draw_counts"], {
+            "human-1": 1, "ai-1": 1, "ai-2": 1,
+        })
+        self.assertEqual(delta["next_leader_player_id"], "human-1")
+        self.assertNotIn("H6", json.dumps(delta, ensure_ascii=False))
 
     def test_emptying_deck_stops_later_seats_from_drawing(self):
         table, state = self.custom_state(

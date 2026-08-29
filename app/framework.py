@@ -299,6 +299,72 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     return projected
 
 
+def project_mcp_snapshot_for_viewer(
+    room: dict, viewer_player_id: str
+) -> dict:
+    """Return a compact, repeatable MCP resync without touching cursors.
+
+    The plugin snapshot hook sees only its public projection, never persisted
+    raw state. Viewer-private data is copied from the same canonical projection
+    used by Web/bootstrap responses.
+    """
+    projected = project_room_for_viewer(room, viewer_player_id)
+    game = get_game(room["game_type"])
+    viewer = _participant_by_id(projected, viewer_player_id)
+    if viewer is None:
+        raise DuelError("viewer 不是该房间参与者", 403)
+    try:
+        board_state = game.mcp_snapshot_state(
+            deepcopy(projected["board_state"]),
+            deepcopy(viewer),
+            deepcopy(projected["participants"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"游戏插件 MCP 快照投影无效：{exc}") from exc
+    if not isinstance(board_state, dict):
+        raise DuelError("游戏插件 mcp_snapshot_state 必须返回对象")
+
+    participants = []
+    for item in projected["participants"]:
+        activity_state = item.get("activity_state", "active")
+        join_status = item.get("join_status", "joined")
+        participant = {
+            "player_id": item["player_id"],
+            "name": item["display_name"],
+            "role": item["role"],
+            "kind": item.get("participant_kind"),
+            "seat": item["seat_index"],
+            "token": item.get("token"),
+            "status": (
+                join_status if join_status != "joined" else activity_state
+            ),
+        }
+        metadata = item.get("game_metadata")
+        if metadata:
+            participant["game"] = deepcopy(metadata)
+        participants.append(participant)
+
+    current = projected.get("current_actor")
+    current_actor = None
+    if isinstance(current, dict):
+        current_actor = {
+            "player_id": current["player_id"],
+            "name": current["display_name"],
+            "seat": current["seat"],
+            "token": current.get("token"),
+        }
+    return {
+        "room_id": projected["room_id"],
+        "game": projected["game_type"],
+        "revision": projected["revision"],
+        "status": projected["status"],
+        "current_actor": current_actor,
+        "participants": participants,
+        "board_state": board_state,
+        "private_state": deepcopy(projected["private_state"]),
+    }
+
+
 def _project_event_for_viewer(
     room: dict, event: dict, viewer_player_id: str
 ) -> dict | None:

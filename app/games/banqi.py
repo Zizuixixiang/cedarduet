@@ -19,6 +19,7 @@ class Banqi(GamePlugin):
     recommended_players = 2
     supports_npcs = True
     supports_stakes = True
+    mcp_immediate_public_events = True
 
     rows = 8
     cols = 4
@@ -473,6 +474,44 @@ class Banqi(GamePlugin):
         if terminal_note:
             note += terminal_note
         return MoveResult(state=state, note=note, result=result)
+
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        del state, move, participants
+        if not isinstance(applied, MoveResult):
+            return applied
+        action = applied.state.get("last_action")
+        if not isinstance(action, dict):
+            return applied
+        if action.get("action") == "flip":
+            delta = {
+                key: deepcopy(action[key])
+                for key in ("action", "row", "col", "piece")
+            }
+            first = applied.state.get("first_reveal")
+            if isinstance(first, dict) and all(
+                first.get(key) == action.get(key) for key in ("row", "col")
+            ):
+                delta["first_assignment"] = True
+                delta["actor_color"] = applied.state.get(
+                    "color_by_player", {}
+                ).get(str(actor["player_id"]))
+        else:
+            delta = {
+                key: deepcopy(action[key])
+                for key in (
+                    "action", "from_row", "from_col", "to_row", "to_col",
+                    "piece", "captured",
+                )
+            }
+        applied.public_event = {"banqi_delta": delta}
+        return applied
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         winner = state.get("winner_token")

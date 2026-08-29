@@ -473,6 +473,14 @@ class ChessFrameworkTests(unittest.TestCase):
         self.assertIn(
             {"action": "claim_draw"}, projected["board_state"]["legal_actions"]
         )
+        snapshot = self.game.mcp_snapshot_state(
+            projected["board_state"], projected["viewer"],
+            projected["participants"],
+        )
+        self.assertIn({"action": "claim_draw"}, snapshot["legal_actions"])
+        self.assertNotIn("legal_moves", snapshot)
+        self.assertNotIn("move_history", snapshot)
+        self.assertNotIn("action_history", snapshot)
 
         finished = framework.play_move(
             restored["room_id"],

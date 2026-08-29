@@ -48,6 +48,10 @@ class GamePlugin(ABC):
     # Games whose rules scale liabilities (for example by cards remaining)
     # explicitly opt into their settlement hook for two-player tables too.
     uses_custom_stake_settlement: bool = False
+    # Games whose accepted action has an unpredictable or automatic public
+    # consequence need that system delta in the moving MCP caller's immediate
+    # response even when the action ends its turn.
+    mcp_immediate_public_events: bool = False
 
     def resolved_allowed_player_counts(self) -> tuple[int, ...]:
         raw = self.allowed_player_counts
@@ -106,6 +110,26 @@ class GamePlugin(ABC):
     ) -> dict[str, Any]:
         """Return only the authenticated viewer's private state."""
         return {}
+
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return current public state for an on-demand MCP resync.
+
+        The hook receives only the already-safe public projection. Historical
+        logs are not needed to choose the next action and can grow without
+        bound, so the default snapshot omits their conventional keys. Plugins
+        may additionally remove static bootstrap-only data or compact duplicate
+        representations, but must preserve the complete current public layout.
+        """
+        del viewer, participants
+        snapshot = deepcopy(public_state)
+        for key in ("action_history", "move_history", "dice_rolls"):
+            snapshot.pop(key, None)
+        return snapshot
 
     def participant_summary(
         self,

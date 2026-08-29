@@ -563,6 +563,30 @@ class ChineseCheckers(GamePlugin):
             for player_id in player_ids
         }
 
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_snapshot_state(
+            public_state, viewer, participants
+        )
+        # Node coordinates and camp membership are immutable and arrive in the
+        # one-time bootstrap. Current pieces/camp ownership/progress are kept.
+        snapshot.pop("nodes", None)
+        snapshot.pop("camps", None)
+        snapshot.pop("legal_moves_by_player", None)
+        snapshot["legal_moves"] = [
+            {
+                key: move[key]
+                for key in ("from", "to", "kind")
+                if key in move
+            }
+            for move in snapshot.get("legal_moves", [])
+        ]
+        return snapshot
+
     def participant_summary(
         self,
         state: dict[str, Any],

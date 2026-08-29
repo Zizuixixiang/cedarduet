@@ -46,6 +46,7 @@ class AeroplaneChess(GamePlugin):
     supports_npcs = True
     supports_stakes = True
     supports_multiplayer_stakes = True
+    mcp_immediate_public_events = True
     rules_text = (
         "【目标】\n"
         "抢先把己方 4 架飞机全部送到中心。标准中国飞行棋支持 2–4 人：2 人使用相对的红、蓝两色，3 人使用红、黄、蓝，4 人使用红、黄、蓝、绿。\n\n"
@@ -659,6 +660,39 @@ class AeroplaneChess(GamePlugin):
             return self._apply_roll(state, actor)
         return self._apply_plane_move(state, move, actor)
 
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        del state, move, actor, participants
+        if not isinstance(applied, MoveResult):
+            return applied
+        action = applied.state.get("last_action")
+        if not isinstance(action, dict):
+            return applied
+        if action.get("action") == "roll":
+            keys = (
+                "action", "color", "value", "consecutive_sixes",
+                "auto_pass", "movable_plane_ids", "penalty",
+                "returned_plane_ids",
+            )
+        else:
+            keys = (
+                "action", "color", "plane_id", "plane_index", "die",
+                "from", "to", "landings", "capture_events",
+                "captured_plane_ids", "returned_plane_ids", "reached_home",
+            )
+        applied.public_event = {
+            "aeroplane_delta": {
+                key: deepcopy(action[key]) for key in keys if key in action
+            }
+        }
+        return applied
+
     def check_winner(self, state: dict[str, Any]) -> str | None:
         winner = self._winner(state)
         return state.get("color_by_player", {}).get(winner) if winner else None
@@ -710,6 +744,24 @@ class AeroplaneChess(GamePlugin):
                 for plane in planes
             ),
         }
+
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_snapshot_state(
+            public_state, viewer, participants
+        )
+        # Route geometry is immutable bootstrap data; plane route_step and the
+        # current authoritative actions fully describe the live position.
+        for key in (
+            "path_mappings", "ring_length", "home_lane_length",
+            "finish_route_step",
+        ):
+            snapshot.pop(key, None)
+        return snapshot
 
     def npc_compact_rules(
         self,

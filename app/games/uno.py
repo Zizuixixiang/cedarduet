@@ -83,6 +83,7 @@ class Uno(GamePlugin):
     supports_npcs = True
     supports_stakes = True
     supports_multiplayer_stakes = True
+    mcp_immediate_public_events = True
     rules_text = (
         "【牌局】\n"
         "经典 108 张 UNO，支持 2–6 人，每人 7 张；开局翻出的第一张牌固定为数字牌，"
@@ -649,6 +650,42 @@ class Uno(GamePlugin):
         if action == "play":
             return self._apply_play(state, move, actor_id)
         return self._apply_wdf_response(state, action, actor_id)
+
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        if not isinstance(applied, MoveResult):
+            return applied
+        action = str(move.get("action"))
+        if action == "pass":
+            return applied
+        del state
+        public = self.public_state(applied.state, participants)
+        delta: dict[str, Any] = {
+            "action": action,
+            "phase": public["flow"]["phase"],
+            "hand_counts": public["hand_counts"],
+            "deck_count": public["deck_count"],
+        }
+        if action == "play":
+            delta.update({
+                "top_discard": public["top_discard"],
+                "current_color": public["current_color"],
+                "direction": public["direction"],
+            })
+        if action in {
+            "play", "challenge_wild_draw_four", "accept_draw_four",
+        }:
+            delta["penalty_state"] = public["penalty_state"]
+        if action in {"play", "draw", "catch_uno"}:
+            delta["uno_state"] = public["uno_state"]
+        applied.public_event = {"uno_delta": delta}
+        return applied
 
     def result_for(
         self,

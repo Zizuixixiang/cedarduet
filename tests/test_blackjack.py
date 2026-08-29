@@ -338,6 +338,18 @@ class BlackjackFrameworkTests(unittest.TestCase):
             if item["event_type"] == "result"
         ]
         self.assertTrue(any("21点结算" in item["text"] for item in result_events))
+        terminal_delta = next(
+            item["move"]["blackjack_delta"]
+            for item in result_events
+            if isinstance(item.get("move"), dict)
+            and "blackjack_delta" in item["move"]
+            and "dealer" in item["move"]["blackjack_delta"]
+        )
+        self.assertFalse(terminal_delta["dealer"]["hole_hidden"])
+        self.assertGreaterEqual(len(terminal_delta["dealer"]["hand"]), 2)
+        self.assertEqual(
+            set(terminal_delta["outcomes_by_player"]), set(room["turn_order"])
+        )
 
     def test_npc_receives_only_authoritative_legal_hit_stand_choices(self):
         script = deal_script(["5", "10"], "10", ["6", "8"], "7")
@@ -354,7 +366,7 @@ class BlackjackFrameworkTests(unittest.TestCase):
             game.validate_action(deepcopy(state), action, actor)
         self.assertNotIn("deck", json.dumps(actions))
 
-    def test_move_events_never_contain_drawn_or_hole_card_identity(self):
+    def test_hit_event_reveals_new_public_card_but_never_dealer_hole(self):
         script = deal_script(["5", "9"], "10", ["6", "8"], "6", "2")
         room, _game, _rng = self.create(script)
         hole_id = room["board_state"]["cards"]["hands"][DEALER_ID][1]["card_id"]
@@ -365,7 +377,12 @@ class BlackjackFrameworkTests(unittest.TestCase):
         encoded = json.dumps(events, ensure_ascii=False)
         self.assertNotIn("card_id", encoded)
         self.assertNotIn(hole_id, encoded)
-        self.assertEqual(events[-1]["move"], {"action": "hit"})
+        move_event = next(item for item in events if item["event_type"] == "move")
+        result_event = next(item for item in events if item["event_type"] == "result")
+        self.assertEqual(move_event["move"], {"action": "hit"})
+        delta = result_event["move"]["blackjack_delta"]
+        self.assertEqual(delta["new_card"], {"rank": "2", "suit": "spades"})
+        self.assertNotIn("dealer", delta)
 
 
 if __name__ == "__main__":

@@ -259,6 +259,7 @@ class Gandengyan(GamePlugin):
     supports_stakes = True
     supports_multiplayer_stakes = True
     uses_custom_stake_settlement = True
+    mcp_immediate_public_events = True
     rules_text = (
         "【牌局】\n"
         "本项目固定的四川常见 54 张版本：支持 2–4 人，使用一副含大小王的 54 张牌；"
@@ -624,6 +625,45 @@ class Gandengyan(GamePlugin):
         if move["action"] == "play":
             return self._apply_play(state, move, actor)
         return self._apply_pass(state, actor)
+
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        del state, actor, participants
+        if not isinstance(applied, MoveResult):
+            return applied
+        action = applied.state.get("last_action")
+        if not isinstance(action, dict):
+            return applied
+        card_state = public_card_state(applied.state)
+        if action.get("action") == "play":
+            delta = {
+                key: deepcopy(action[key])
+                for key in (
+                    "action", "trick", "cards", "pattern", "multiplier",
+                )
+            }
+            delta["hand_counts"] = card_state["hand_counts"]
+        elif action.get("action") == "trick_end":
+            delta = {
+                key: deepcopy(action[key])
+                for key in (
+                    "action", "trick", "winner_player_id", "pass_player_ids",
+                    "draw_counts", "deck_count",
+                )
+            }
+            delta["next_leader_player_id"] = action["winner_player_id"]
+            delta["hand_counts"] = card_state["hand_counts"]
+            delta["multiplier"] = int(applied.state["multiplier"])
+        else:
+            return applied
+        applied.public_event = {"gandengyan_delta": delta}
+        return applied
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         del state

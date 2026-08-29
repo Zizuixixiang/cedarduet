@@ -256,20 +256,36 @@ class UnoRulesTests(unittest.TestCase):
         }, "red-number-5-1", deck=[
             "yellow-number-1-1", "yellow-number-2-1", "yellow-number-3-1", "yellow-number-4-1",
         ])
-        self.game.apply_action(
-            state,
-            {"action": "play", "card_id": "wild-draw-four-1", "color": "blue"},
-            self.actor(0),
+        play = {"action": "play", "card_id": "wild-draw-four-1", "color": "blue"}
+        before = deepcopy(state)
+        played = self.game.apply_action(state, play, self.actor(0))
+        played = self.game.progress_after_action(
+            before, play, self.actor(0), self.players, played
         )
         self.assertFalse(state["pending_wild_draw_four"]["was_legal"])
         public = self.game.public_state(state, self.players)
         self.assertNotIn("was_legal", public["penalty_state"]["pending_wild_draw_four"])
-        result = self.game.apply_action(
-            state, {"action": "challenge_wild_draw_four"}, self.actor(1)
+        self.assertNotIn(
+            "was_legal", json.dumps(played.public_event, ensure_ascii=False)
+        )
+        challenge = {"action": "challenge_wild_draw_four"}
+        before = deepcopy(state)
+        result = self.game.apply_action(state, challenge, self.actor(1))
+        result = self.game.progress_after_action(
+            before, challenge, self.actor(1), self.players, result
         )
         self.assertTrue(result.retain_turn)
         self.assertEqual(len(state["cards"]["hands"]["player-1"]), 6)
         self.assertTrue(state["last_challenge"]["challenge_succeeded"])
+        delta = result.public_event["uno_delta"]
+        self.assertTrue(
+            delta["penalty_state"]["last_challenge"]["challenge_succeeded"]
+        )
+        for private_id in (
+            "yellow-number-1-1", "yellow-number-2-1",
+            "yellow-number-3-1", "yellow-number-4-1",
+        ):
+            self.assertNotIn(private_id, json.dumps(delta, ensure_ascii=False))
 
     def test_wdf_legal_challenge_fails_with_six_and_accept_draws_four(self):
         for action, expected in (("challenge_wild_draw_four", 6), ("accept_draw_four", 4)):
@@ -330,6 +346,47 @@ class UnoRulesTests(unittest.TestCase):
         )
         self.assertIsNone(state["uno_window"])
         self.assertEqual(state["last_uno"]["status"], "declared")
+
+    def test_public_deltas_cover_penalty_and_catch_without_drawn_cards(self):
+        state = self.scenario(
+            {
+                "player-1": ["red-draw_two-1", "red-number-5-1"],
+                "player-2": ["yellow-number-7-1"],
+                "player-3": ["green-number-8-1"],
+            },
+            "red-number-3-1",
+            deck=[
+                "blue-number-1-1", "blue-number-2-1",
+                "blue-number-3-1", "blue-number-4-1",
+            ],
+        )
+        move = {"action": "play", "card_id": "red-draw_two-1"}
+        before = deepcopy(state)
+        result = self.game.apply_action(state, move, self.actor(0))
+        result = self.game.progress_after_action(
+            before, move, self.actor(0), self.players, result
+        )
+        delta = result.public_event["uno_delta"]
+        self.assertEqual(delta["top_discard"]["id"], "red-draw_two-1")
+        self.assertEqual(delta["current_color"], "red")
+        self.assertEqual(delta["penalty_state"]["last_penalty"]["draw_count"], 2)
+        self.assertEqual(delta["uno_state"]["last"]["status"], "catchable")
+        self.assertEqual(delta["hand_counts"]["player-2"], 3)
+        for private_id in ("blue-number-3-1", "blue-number-4-1"):
+            self.assertNotIn(private_id, json.dumps(delta, ensure_ascii=False))
+
+        before = deepcopy(state)
+        catch = {"action": "catch_uno"}
+        result = self.game.apply_action(state, catch, self.actor(2))
+        result = self.game.progress_after_action(
+            before, catch, self.actor(2), self.players, result
+        )
+        catch_delta = result.public_event["uno_delta"]
+        self.assertEqual(catch_delta["uno_state"]["last"]["status"], "caught")
+        self.assertEqual(catch_delta["uno_state"]["last"]["draw_count"], 2)
+        self.assertEqual(catch_delta["hand_counts"]["player-1"], 3)
+        for private_id in ("blue-number-1-1", "blue-number-2-1"):
+            self.assertNotIn(private_id, json.dumps(catch_delta, ensure_ascii=False))
 
     def test_drawn_playable_card_may_be_played_or_passed_only(self):
         state = self.scenario({

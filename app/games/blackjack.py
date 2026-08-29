@@ -88,6 +88,7 @@ class Blackjack(GamePlugin):
     # virtual dealer deliberately has no participant record or wallet.
     supports_stakes = False
     supports_multiplayer_stakes = False
+    mcp_immediate_public_events = True
     rules_text = (
         "【牌局】\n"
         "2–6 名参与者共同对抗虚拟庄家；庄家不是参与者，也没有钱包。本房间只进行一局。"
@@ -489,7 +490,28 @@ class Blackjack(GamePlugin):
         participants: list[dict[str, Any]],
         applied: dict[str, Any] | MoveResult,
     ) -> dict[str, Any] | MoveResult:
-        del state, move, actor, participants
+        del state
+        if not isinstance(applied, MoveResult):
+            return applied
+        player_id = str(actor["player_id"])
+        value = self._value_for(applied.state, player_id)
+        delta: dict[str, Any] = {
+            "action": move["action"],
+            "value": deepcopy(value),
+            "status": applied.state["player_status_by_player"][player_id],
+        }
+        if move["action"] == "hit":
+            delta["new_card"] = self._public_card(
+                self._hand_for(applied.state, player_id)[-1]
+            )
+        if applied.state.get("flow", {}).get("phase") == "finished":
+            public = self.public_state(applied.state, participants)
+            delta["dealer"] = public["dealer"]
+            delta["outcomes_by_player"] = deepcopy(
+                applied.state["outcomes_by_player"]
+            )
+            delta["result_text"] = applied.state["result_text"]
+        applied.public_event = {"blackjack_delta": delta}
         return applied
 
     def result_for(
