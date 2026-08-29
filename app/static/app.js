@@ -1694,9 +1694,14 @@ function renderTimeline(timeline = []) {
 
 function renderPlayers(timeline = []) {
   const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
+  const viewerPlayerId = viewerPlayerIdFor(room);
+  const viewerSpeechEvent = viewerPlayerId
+    ? latestSpeechEvent(timeline, {playerId: viewerPlayerId})
+    : null;
   applyParticipantLayout(room);
   $("opponentRow").classList.toggle("hidden", multiplayer);
   $("humanRow").classList.toggle("hidden", multiplayer);
+  $("viewerParticipantSlot").classList.toggle("hidden", !multiplayer);
   const aiName = participantName("ai");
   const humanName = participantName("human");
   $("aiName").textContent = aiName;
@@ -1704,15 +1709,27 @@ function renderPlayers(timeline = []) {
   $("aiAvatar").textContent = "🤖";
   $("humanAvatar").textContent = "👤";
 
-  [["ai", "aiSpeech"], ["human", "humanSpeech"]].forEach(([role, targetId]) => {
-    renderSpeechBubble({
-      bubble: $(targetId),
-      event: latestSpeechEvent(timeline, role),
-    });
+  renderSpeechBubble({
+    bubble: $("aiSpeech"),
+    event: latestSpeechEvent(timeline, "ai"),
+  });
+  renderSpeechBubble({
+    bubble: $("humanSpeech"),
+    event: viewerPlayerId
+      ? viewerSpeechEvent
+      : latestSpeechEvent(timeline, "human"),
+    textTarget: $("humanSpeechText"),
+  });
+  renderSpeechBubble({
+    bubble: $("viewerSpeech"),
+    event: multiplayer ? viewerSpeechEvent : null,
+    textTarget: $("viewerSpeechText"),
   });
   renderSpeechBubble({
     bubble: $("sharedSpeech"),
-    event: latestSpeechEvent(timeline),
+    event: multiplayer && viewerPlayerId
+      ? latestSpeechEvent(timeline, {excludePlayerId: viewerPlayerId})
+      : null,
     textTarget: $("sharedSpeechText"),
     nameTarget: $("sharedSpeechName"),
     avatarTarget: $("sharedSpeechAvatar"),
@@ -1746,11 +1763,26 @@ function speechSenderRole(event) {
     || "";
 }
 
-function latestSpeechEvent(timeline = [], role = null) {
+function speechSenderPlayerId(event) {
+  if (!event) return "";
+  if (event.sender_player_id) return event.sender_player_id;
+  return typeof event.sender === "object" && event.sender
+    ? (event.sender.player_id || "")
+    : "";
+}
+
+function latestSpeechEvent(timeline = [], filter = null) {
+  const options = typeof filter === "string" ? {role: filter} : (filter || {});
   return [...timeline].reverse().find((event) => (
     ["message", "move", "resign", "leave"].includes(event.event_type)
     && Boolean(event.text)
-    && (!role || speechSenderRole(event) === role)
+    && event.is_public !== false
+    && (!options.role || speechSenderRole(event) === options.role)
+    && (!options.playerId || speechSenderPlayerId(event) === options.playerId)
+    && (
+      !options.excludePlayerId
+      || speechSenderPlayerId(event) !== options.excludePlayerId
+    )
   )) || null;
 }
 
@@ -1775,7 +1807,9 @@ function renderSpeechBubble({
   const sender = visible && typeof event.sender === "object" && event.sender
     ? event.sender
     : {};
-  const participant = visible ? participantByPlayerId(sender.player_id) : null;
+  const participant = visible
+    ? participantByPlayerId(speechSenderPlayerId(event))
+    : null;
   const speakerName = visible
     ? (sender.name || event.sender_name || (participant && participant.display_name) || "玩家")
     : "";
@@ -1788,6 +1822,13 @@ function renderSpeechBubble({
   }
   const seatIndex = participant ? participant.seat_index : sender.seat;
   if (Number.isInteger(seatIndex)) bubble.classList.add(`seat-${seatIndex}`);
+}
+
+function viewerPlayerIdFor(targetRoom) {
+  if (!targetRoom) return "";
+  return (targetRoom.viewer && targetRoom.viewer.player_id)
+    || targetRoom.human_player_id
+    || "";
 }
 
 function viewerParticipantFor(targetRoom) {

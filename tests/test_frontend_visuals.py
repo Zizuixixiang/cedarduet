@@ -156,12 +156,19 @@ class FrontendBoardVisualTests(unittest.TestCase):
     def test_two_player_rows_remain_and_multiplayer_uses_compact_roster(self):
         self.assertIn('id="opponentRow" class="player-row opponent-row"', HTML)
         self.assertIn('id="humanRow" class="player-row human-row"', HTML)
+        self.assertIn('id="viewerParticipantSlot"', HTML)
+        self.assertIn(
+            'id="viewerSpeech" class="speech-bubble human-speech viewer-speech hidden"',
+            HTML,
+        )
         players = function_source("renderPlayers")
         self.assertIn('participants.length > 2', players)
         self.assertIn('classList.toggle("hidden", multiplayer)', players)
-        self.assertEqual(players.count("renderSpeechBubble"), 2)
-        self.assertIn('[["ai", "aiSpeech"], ["human", "humanSpeech"]]', players)
+        self.assertEqual(players.count("renderSpeechBubble"), 4)
+        self.assertIn("const viewerPlayerId = viewerPlayerIdFor(room)", players)
+        self.assertIn('bubble: $("viewerSpeech")', players)
         self.assertIn('bubble: $("sharedSpeech")', players)
+        self.assertIn("{excludePlayerId: viewerPlayerId}", players)
 
     def test_private_state_stays_below_the_table_and_legacy_rows(self):
         stage = HTML[HTML.index('<section class="battle-stage'):HTML.index("historyDrawerTab")]
@@ -624,6 +631,7 @@ for (const count of [5, 6]) {{
             function_source("participantAvatarFallback"),
             function_source("renderParticipantAvatar"),
             function_source("speechSenderRole"),
+            function_source("speechSenderPlayerId"),
             function_source("latestSpeechEvent"),
             function_source("renderSpeechBubble"),
         ))
@@ -678,6 +686,75 @@ assert.ok(!bubble.classList.contains("seat-1"));
 """
         self.run_node(harness)
 
+    def test_multiplayer_speech_routes_by_viewer_player_id(self):
+        functions = "\n".join((
+            function_source("renderPlayers"),
+            function_source("speechSenderRole"),
+            function_source("speechSenderPlayerId"),
+            function_source("latestSpeechEvent"),
+            function_source("viewerPlayerIdFor"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(["hidden"]); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+const elementIds = [
+  "opponentRow", "humanRow", "viewerParticipantSlot", "aiName", "humanName",
+  "aiAvatar", "humanAvatar", "aiSpeech", "humanSpeech", "humanSpeechText",
+  "viewerSpeech", "viewerSpeechText", "sharedSpeech", "sharedSpeechText",
+  "sharedSpeechName", "sharedSpeechAvatar",
+];
+const elements = Object.fromEntries(elementIds.map((id) => [
+  id, {{id, classList: new ClassList(), textContent: ""}},
+]));
+const $ = (id) => elements[id];
+const calls = [];
+const renderSpeechBubble = (options) => calls.push(options);
+const applyParticipantLayout = () => {{}};
+const participantName = (role) => role;
+let room = {{
+  viewer: {{player_id: "viewer-1"}},
+  participants: [
+    {{player_id: "viewer-1", role: "human"}},
+    {{player_id: "npc-1", role: "ai"}},
+    {{player_id: "npc-2", role: "ai"}},
+    {{player_id: "npc-3", role: "ai"}},
+  ],
+}};
+{functions}
+const timeline = [
+  {{
+    event_type: "message", text: "其他人的公开发言", sender_role: "human",
+    sender: {{player_id: "npc-2", role: "human"}}, is_public: true,
+  }},
+  {{
+    event_type: "message", text: "我的公开发言", sender_role: "ai",
+    sender_player_id: "viewer-1", sender: "ai", is_public: true,
+  }},
+  {{
+    event_type: "message", text: "不应显示的私密发言", sender_role: "ai",
+    sender: {{player_id: "npc-3", role: "ai"}}, is_public: false,
+  }},
+];
+renderPlayers(timeline);
+const shared = calls.find((call) => call.bubble.id === "sharedSpeech");
+const viewer = calls.find((call) => call.bubble.id === "viewerSpeech");
+const legacyHuman = calls.find((call) => call.bubble.id === "humanSpeech");
+assert.equal(shared.event.text, "其他人的公开发言");
+assert.notEqual(speechSenderPlayerId(shared.event), "viewer-1");
+assert.equal(viewer.event.text, "我的公开发言");
+assert.equal(legacyHuman.event.text, "我的公开发言");
+assert.ok(!elements.viewerParticipantSlot.classList.contains("hidden"));
+assert.ok(elements.humanRow.classList.contains("hidden"));
+"""
+        self.run_node(harness)
+
     def test_table_dom_and_narrow_screen_contracts_keep_board_usable(self):
         table = HTML[HTML.index('id="tableLayout"'):HTML.index('id="humanRow"')]
         self.assertIn('id="roomParticipants"', table)
@@ -685,6 +762,8 @@ assert.ok(!bubble.classList.contains("seat-1"));
         self.assertIn('id="sharedSpeechName"', table)
         self.assertIn('id="sharedSpeechAvatar"', table)
         self.assertIn('id="board"', table)
+        self.assertIn('id="viewerParticipantSlot"', HTML)
+        self.assertIn('id="viewerSpeechText"', HTML)
         self.assertIn('id="viewerParticipant"', HTML)
         self.assertIn(".layout-triangle .board-zone", STYLES)
         self.assertIn(".layout-corners .board-zone", STYLES)
@@ -695,9 +774,39 @@ assert.ok(!bubble.classList.contains("seat-1"));
         mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
         self.assertIn("grid-column: 1 / -1", mobile)
         self.assertIn(".layout-top-row .room-participants { justify-content: flex-start; }", mobile)
-        self.assertIn(".viewer-participant-slot { padding: 0 2px; }", mobile)
+        self.assertIn(".viewer-participant-row { padding: 0 2px; gap: 8px; }", mobile)
+        viewer_slot = mobile[
+            mobile.index(".viewer-participant-slot {"):
+            mobile.index(".viewer-participant-slot .room-participant")
+        ]
+        self.assertIn("width: min(190px, 44%);", viewer_slot)
+        self.assertIn("max-width: 44%;", viewer_slot)
+        self.assertIn("flex-basis: 190px;", viewer_slot)
+        self.assertIn(".viewer-speech { max-width: 100%; flex: 1 1 0; }", mobile)
         self.assertIn(".room-copy-button { min-width: 40px; min-height: 40px;", mobile)
         self.assertIn(".shared-speech {\n    width: min(430px, 100%);", mobile)
+
+    def test_speech_bubbles_grow_before_scrolling_without_fixed_height(self):
+        shared = STYLES[
+            STYLES.index(".shared-speech-slot {\n  min-width"):
+            STYLES.index(".board-zone { min-width")
+        ]
+        text = STYLES[
+            STYLES.index(".speech-bubble-text {"):
+            STYLES.index(".ai-speech::before")
+        ]
+        self.assertIn("min-height: 68px;", shared)
+        self.assertIn("min-height: 58px;", shared)
+        self.assertNotRegex(shared, r"(?m)^  height: (?:58|68)px;$")
+        self.assertNotIn("-webkit-line-clamp", shared)
+        self.assertIn("max-height: min(180px, 30vh);", shared)
+        self.assertIn("overflow-y: auto;", shared)
+        self.assertIn("white-space: pre-wrap;", shared)
+        self.assertIn("max-height: min(180px, 30vh);", text)
+        self.assertIn("overflow-y: auto;", text)
+        self.assertIn("white-space: pre-wrap;", text)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertNotRegex(mobile, r"(?m)^  height: (?:54|62)px;$")
 
 
 if __name__ == "__main__":

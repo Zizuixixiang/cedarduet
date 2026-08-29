@@ -729,16 +729,24 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   box-shadow: 0 0 0 3px var(--seat-ink), 4px 4px 0 rgba(92, 84, 99, .24);
 }
 .room-participant.inactive { opacity: .58; }
-.viewer-participant-slot {
+.viewer-participant-row {
   width: min(700px, 100%);
   margin: 0 auto;
   padding-top: 2px;
   display: flex;
+  min-width: 0;
+  align-items: center;
   justify-content: flex-end;
+  gap: 14px;
   font-family: system-ui, sans-serif;
   font-size: 12px;
 }
-.viewer-participant-slot .room-participant { width: min(220px, 100%); }
+.viewer-participant-slot {
+  width: min(220px, 100%);
+  min-width: 0;
+  flex: 0 1 220px;
+}
+.viewer-participant-slot .room-participant { width: 100%; }
 .private-state-panel { width: min(700px, 100%); margin: 0 auto; padding: 10px 12px; }
 .private-state-panel .tag { margin-bottom: 7px; }
 #privateStateContent { display: grid; gap: 6px; }
@@ -1107,6 +1115,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 13px;
   line-height: 1.45;
 }
+.speech-bubble-text {
+  display: block;
+  max-height: min(180px, 30vh);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .ai-speech::before {
   content: "";
   width: 9px;
@@ -1124,6 +1139,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-color: var(--pink);
   box-shadow: 3px 3px 0 rgba(230, 168, 177, .28);
 }
+.viewer-speech {
+  min-width: 0;
+  max-width: min(430px, 100%);
+  flex: 0 1 430px;
+}
 .human-speech::after {
   content: "";
   width: 9px;
@@ -1138,13 +1158,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .shared-speech-slot {
   min-width: 0;
-  height: 68px;
+  min-height: 68px;
+  padding-block: 5px;
   display: grid;
   place-items: center;
 }
 .shared-speech {
   width: min(430px, 100%);
-  height: 58px;
+  min-height: 58px;
   max-width: 100%;
   padding: 7px 10px;
   display: grid;
@@ -1178,11 +1199,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 11px;
 }
 .shared-speech-copy span {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
+  max-height: min(180px, 30vh);
+  overflow-y: auto;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: pre-wrap;
 }
 .board-zone { min-width: 0; }
 .board-frame {
@@ -2200,16 +2221,22 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   .result-banner-copy { text-align: center; }
   .battle-stage { padding: 10px 7px 12px; gap: 8px; }
-  .viewer-participant-slot { padding: 0 2px; }
-  .viewer-participant-slot .room-participant { width: min(190px, 100%); }
+  .viewer-participant-row { padding: 0 2px; gap: 8px; }
+  .viewer-participant-slot {
+    width: min(190px, 44%);
+    max-width: 44%;
+    flex-basis: 190px;
+  }
+  .viewer-participant-slot .room-participant { width: 100%; }
   .player-row { min-height: 52px; gap: 8px; }
   .player-avatar { width: 48px; height: 48px; border-width: 3px; font-size: 25px; }
   .player-name { max-width: 132px; padding: 6px 8px; font-size: 12px; }
   .speech-bubble { max-width: calc(100% - 145px); padding: 7px 9px; font-size: 12px; }
-  .shared-speech-slot { height: 62px; }
+  .viewer-speech { max-width: 100%; flex: 1 1 0; }
+  .shared-speech-slot { min-height: 62px; }
   .shared-speech {
     width: min(430px, 100%);
-    height: 54px;
+    min-height: 54px;
     max-width: 100%;
     padding: 6px 8px;
   }

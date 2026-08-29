@@ -123,6 +123,27 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(repeated.json()["new_messages"], [])
 
+    async def test_timeline_marks_sender_identity_and_public_visibility(self):
+        room_id = await self.new_room()
+        framework.post_message(room_id, "human", "human-one", "公开消息")
+        framework.post_message(
+            room_id,
+            "human",
+            "human-one",
+            "只给 Clio",
+            visible_to_player_ids={"Clio"},
+        )
+
+        timeline = framework.list_timeline(
+            room_id, viewer_player_id="Clio"
+        )
+        public, private = timeline[-2:]
+        self.assertEqual(public["sender_player_id"], "human-one")
+        self.assertEqual(public["sender"]["player_id"], "human-one")
+        self.assertTrue(public["is_public"])
+        self.assertEqual(private["sender_player_id"], "human-one")
+        self.assertFalse(private["is_public"])
+
     async def test_move_without_speech_is_a_shared_timeline_event(self):
         room_id = await self.new_room()
         ai_move = await self.client.post(

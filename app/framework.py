@@ -424,8 +424,13 @@ def _timeline_entry(row, room: dict) -> dict:
         "id": row["id"],
         "sequence": row["id"],
         "sender": sender,
+        "sender_player_id": row["sender_player_id"],
         "sender_role": sender_role,
         "sender_name": sender_name,
+        "is_public": (
+            "visible_to_json" not in row.keys()
+            or row["visible_to_json"] is None
+        ),
         "text": row["text"],
         "event_type": row["event_type"],
         "move_label": row["move_label"],
@@ -829,7 +834,8 @@ def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT id, sender, sender_player_id, text, revision_at_send,
-                   created_at, event_type, move_label, move_payload
+                   created_at, event_type, move_label, move_payload,
+                   visible_to_json
             FROM room_messages
             WHERE room_id = ? AND id > ? AND sender_player_id <> ?
               AND (
@@ -894,7 +900,8 @@ def has_new_room_events(room_id: str, player_id: str) -> bool:
         rows = conn.execute(
             """
             SELECT id, sender, sender_player_id, text, revision_at_send,
-                   created_at, event_type, move_label, move_payload
+                   created_at, event_type, move_label, move_payload,
+                   visible_to_json
             FROM room_messages
             WHERE room_id = ? AND id > ? AND sender_player_id <> ?
               AND (

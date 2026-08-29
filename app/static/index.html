@@ -246,15 +246,23 @@
             </div>
           </div>
 
-          <div id="viewerParticipant" class="viewer-participant-slot hidden"
-               aria-label="我的席位"></div>
+          <div id="viewerParticipantSlot" class="viewer-participant-row hidden">
+            <p id="viewerSpeech" class="speech-bubble human-speech viewer-speech hidden"
+               aria-hidden="true" aria-live="polite">
+              <span id="viewerSpeechText" class="speech-bubble-text"></span>
+            </p>
+            <div id="viewerParticipant" class="viewer-participant-slot hidden"
+                 aria-label="我的席位"></div>
+          </div>
 
           <div id="humanRow" class="player-row human-row">
             <div class="player-identity">
               <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true">👤</span>
               <strong id="humanName" class="player-name human-name">你</strong>
             </div>
-            <p id="humanSpeech" class="speech-bubble human-speech hidden"></p>
+            <p id="humanSpeech" class="speech-bubble human-speech hidden">
+              <span id="humanSpeechText" class="speech-bubble-text"></span>
+            </p>
           </div>
 
           <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
