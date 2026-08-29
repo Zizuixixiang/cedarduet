@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS room_event_cursors (
     room_id TEXT NOT NULL,
     player_id TEXT NOT NULL,
     last_event_id INTEGER NOT NULL DEFAULT 0 CHECK (last_event_id >= 0),
+    mcp_bootstrapped INTEGER NOT NULL DEFAULT 0
+        CHECK (mcp_bootstrapped IN (0, 1)),
     updated_at TEXT NOT NULL,
     PRIMARY KEY (room_id, player_id),
     FOREIGN KEY (room_id, player_id)
@@ -354,6 +356,18 @@ def init_db() -> None:
         conn.execute(ROOM_CONFIRMATIONS_SCHEMA)
         conn.execute(NPC_DECISIONS_SCHEMA)
         _repair_participant_child_foreign_keys(conn)
+        cursor_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(room_event_cursors)")
+        }
+        if "mcp_bootstrapped" not in cursor_columns:
+            conn.execute(
+                """
+                ALTER TABLE room_event_cursors
+                ADD COLUMN mcp_bootstrapped INTEGER NOT NULL DEFAULT 0
+                CHECK (mcp_bootstrapped IN (0, 1))
+                """
+            )
         # Compatibility for legacy direct inserts that only know role. New
         # framework writes participant_kind explicitly; this trigger prevents
         # a human row from inheriting the bound-machine column default.
@@ -833,6 +847,7 @@ def _backfill_terminal_result_events(conn: sqlite3.Connection) -> None:
               FROM room_messages AS existing
               WHERE existing.room_id = room.room_id
                 AND existing.event_type = 'result'
+                AND existing.move_payload IS NULL
           )
         """
     )

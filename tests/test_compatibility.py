@@ -58,7 +58,8 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["your_move"], {"row": 0, "col": 0})
+        self.assertEqual(response.json()["status"], "playing")
+        self.assertNotIn("your_move", response.json())
         self.assertNotIn("room", response.json())
 
     async def test_human_web_move_accepts_string_object(self):
@@ -106,7 +107,7 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             human.json()["room"]["revision"],
         )
         self.assertEqual(
-            resumed.json()["new_messages"][0]["move"],
+            resumed.json()["events"][0]["move"],
             {"row": 1, "col": 0},
         )
 

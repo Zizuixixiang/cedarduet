@@ -18,6 +18,10 @@ class MoveResult:
     result: dict[str, Any] | None = None
     settlement_deltas: dict[str, int] | None = None
     event_visible_to_player_ids: list[str] | None = None
+    # Optional system-authored, room-public delta emitted once alongside this
+    # action. Plugins must include only information already revealed to every
+    # participant; private state belongs in ``private_state`` projections.
+    public_event: dict[str, Any] | None = None
 
 
 class GamePlugin(ABC):

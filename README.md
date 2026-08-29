@@ -281,11 +281,19 @@ Content-Type: application/json
 }
 ```
 
-第一次进入 `playing` 时返回完整 bootstrap（`room`、棋盘、规则、落子格式、先手、stake 和双方余额）。之后 `move` / `wait=true` 只返回 `room_id`、`revision`、`turn`、`status`、本手确认及按 sequence 排列的对方事件；落子事件保留原始 `move` payload，不再重复整盘。终局增量另带 winner/result、筹码结算 delta 与双方新余额。
+每名小机第一次进入 `playing` 时只会收到一次完整 bootstrap（`room`、棋盘、规则、
+落子格式、参与者和 stake）。创建/加入/接受时尚未开局的小机，会在开局后的第一次
+`state` 收到这份上下文。之后 `state`、`move` 和 `wait=true` 都只返回房间号、
+revision、当前行动者，以及该小机游标尚未读过的可见 `events`；不会再重复完整房间、
+规则、参与者目录或历史。轮到当前小机且游戏存在隐藏信息时，响应另带本次决策所需的
+`private_state`。
 
-`state` 是显式全量恢复接口，仅在上下文丢失、复盘或怀疑不同步时使用，不要每轮调用。
-非当前参与者也可用 `state + wait=true` 等待自己的行动权或可见事件。
-`still_waiting` 只返回房间号、revision 和必要的当前行动者信息。
+增量事件直接带显示名，并把同一次行动和附言合在一起，例如
+`{"name":"南杉","message":"我叫四个五。","move":{"action":"bid","quantity":4,"face":5}}`。
+事件不暴露内部 sequence、事件 revision、player ID、座位或参与者类型；每个 viewer
+仍使用独立可见性投影和游标，读过后不再重复。非当前参与者可用 `state + wait=true`
+等待行动权或新事件；无变化的 `still_waiting` 只返回 `ok`、`status`、`room_id` 和
+`revision`。终局增量另带 winner/result 与筹码结算。
 
 小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持
 `status`、`check_in`、`bankruptcy`、`ledger`、`achievements`、`exchange`、`loans`；只能操作当前

@@ -53,12 +53,14 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(field, payload["room"])
         self.assertEqual(payload["chip_balances"], {"ai": ai_balance, "human": 200})
 
-    def assert_compact_delta(self, payload, move):
-        self.assertEqual(payload["your_move"], move)
-        for forbidden in ("room", "board_state", "rules_text", "move_format", "chip_balances"):
+    def assert_compact_delta(self, payload):
+        for forbidden in (
+            "room", "board_state", "rules_text", "move_format",
+            "chip_balances", "your_move", "your_action", "message",
+        ):
             self.assertNotIn(forbidden, payload)
         self.assertIn(payload["status"], {"playing", "finished"})
-        for required in ("room_id", "revision", "turn"):
+        for required in ("room_id", "revision"):
             self.assertIn(required, payload)
 
     async def test_new_and_accept_return_full_bootstrap_while_pending_is_compact(self):
@@ -86,7 +88,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assert_full_room(accepted.json(), ai_balance=200)
         self.assertEqual(accepted.json()["room"]["stake"], 4)
 
-    async def test_state_is_full_but_move_and_wait_wakeup_are_compact_raw_deltas(self):
+    async def test_bootstrap_is_once_then_state_move_and_wait_are_incremental(self):
         started = await self.new_room()
         room_id = started["room"]["room_id"]
         waiter = asyncio.create_task(
@@ -106,19 +108,19 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(human.status_code, 200, human.text)
         resumed = (await asyncio.wait_for(waiter, timeout=1)).json()
-        self.assert_compact_delta(resumed, {"row": 0, "col": 0})
-        self.assertEqual(resumed["new_messages"][0]["move"], human_move)
-        self.assertEqual(resumed["new_messages"][0]["message"], "守中。")
+        self.assert_compact_delta(resumed)
+        self.assertEqual(resumed["events"], [{
+            "name": "human-1", "move": human_move, "message": "守中。",
+        }])
 
         state = await self.client.post(
             "/mcp/play",
             json={"action": "state", "player_id": "ai-1", "room_id": room_id},
         )
-        full = state.json()
-        self.assertIn("room", full)
-        for field in ("board_state", "rules_text", "move_format", "turn", "status", "stake"):
-            self.assertIn(field, full["room"])
-        self.assertNotIn("chip_balances", full)
+        delta = state.json()
+        self.assert_compact_delta(delta)
+        self.assertNotIn("bootstrap", delta)
+        self.assertNotIn("events", delta)
 
     async def test_still_waiting_is_minimal(self):
         started = await self.new_room()
@@ -134,13 +136,12 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         payload = response.json()
         self.assertEqual(
             set(payload), {
-                "ok", "status", "room_id", "revision", "turn",
-                "current_actor_id", "current_actor_seat",
+                "ok", "status", "room_id", "revision",
             }
         )
         self.assertEqual(payload["status"], "still_waiting")
 
-    async def test_all_six_games_return_their_raw_move_delta(self):
+    async def test_all_six_games_return_generic_minimal_move_ack(self):
         cases = {
             "tictactoe": {"row": 0, "col": 0},
             "gomoku": {"row": 7, "col": 7},
@@ -161,7 +162,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 self.assertEqual(response.status_code, 200, response.text)
-                self.assert_compact_delta(response.json(), move)
+                self.assert_compact_delta(response.json())
 
     async def test_terminal_move_and_resign_include_settlement_and_balances(self):
         invited = framework.create_room(
@@ -187,7 +188,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
         payload = terminal.json()
-        self.assert_compact_delta(payload, {"row": 0, "col": 2})
+        self.assert_compact_delta(payload)
         self.assertEqual(payload["winner"], "ai")
         self.assertEqual(payload["result"], "win")
         self.assertEqual(payload["settlement"]["delta"], {"ai": 7, "human": -7})
@@ -198,7 +199,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "/mcp/play",
             json={"action": "resign", "player_id": "ai-r", "room_id": resign_room},
         )
-        self.assertEqual(resigned.json()["your_action"], "resign")
+        self.assertNotIn("your_action", resigned.json())
         self.assertIn("settlement", resigned.json())
         self.assertNotIn("room", resigned.json())
 
@@ -264,13 +265,89 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "move": {"row": 7, "col": 7},
             },
         )
+        compact_size = len(json.dumps(moved.json(), ensure_ascii=False))
+        full_size = len(json.dumps(started, ensure_ascii=False))
+        self.assertLess(compact_size, full_size * 0.35)
+
+    async def test_first_state_after_another_participant_starts_room_bootstraps_once(self):
+        room = framework.create_room(
+            "tictactoe", "human_first", "human", "human-bootstrap", "ai-bootstrap"
+        )
+        first = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-bootstrap",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertTrue(first.json()["bootstrap"])
+        second = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-bootstrap",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertNotIn("bootstrap", second.json())
+        self.assertNotIn("room", second.json())
+
+    async def test_events_use_distinct_names_and_preserve_viewer_visibility(self):
+        participants = [
+            {
+                "player_id": "human-names", "display_name": "南杉",
+                "role": "human",
+            },
+            {
+                "player_id": "ai-reader", "display_name": "Sirius",
+                "role": "ai",
+            },
+            {
+                "player_id": "ai-blue", "display_name": "Blue",
+                "role": "ai",
+            },
+            {
+                "player_id": "ai-hidden", "display_name": "Hidden",
+                "role": "ai",
+            },
+        ]
+        room = framework.create_room(
+            "liars_dice", "human_first", "human", "human-names",
+            ordered_participants=participants,
+        )
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-reader",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertTrue(bootstrap.json()["bootstrap"])
+        framework.post_message(room["room_id"], "human", "human-names", "甲")
+        framework.post_message(room["room_id"], "ai", "ai-blue", "乙")
+        framework.post_message(
+            room["room_id"], "ai", "ai-hidden", "不可见",
+            visible_to_player_ids={"ai-blue"},
+        )
+
         state = await self.client.post(
             "/mcp/play",
-            json={"action": "state", "player_id": "ai-size", "room_id": room_id},
+            json={
+                "action": "state", "player_id": "ai-reader",
+                "room_id": room["room_id"],
+            },
         )
-        compact_size = len(json.dumps(moved.json(), ensure_ascii=False))
-        full_size = len(json.dumps(state.json(), ensure_ascii=False))
-        self.assertLess(compact_size, full_size * 0.35)
+        self.assertEqual(state.json()["events"], [
+            {"name": "南杉", "message": "甲"},
+            {"name": "Blue", "message": "乙"},
+        ])
+        repeated = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-reader",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertNotIn("events", repeated.json())
 
 
 if __name__ == "__main__":

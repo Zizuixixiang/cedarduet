@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from .database import init_db
 from .framework import (
     DuelError,
+    claim_mcp_bootstrap,
     create_room,
     delete_terminal_room,
     get_room,
@@ -176,22 +177,6 @@ async def validation_error_handler(_request: Request, exc: RequestValidationErro
     )
 
 
-def response(
-    room: dict,
-    message: str,
-    status: str = "ok",
-    *,
-    timeline: bool = False,
-    new_messages: list[dict] | None = None,
-) -> dict:
-    payload = {"ok": True, "status": status, "message": message, "room": room}
-    if timeline:
-        payload["timeline"] = list_timeline(room["room_id"])
-    if new_messages is not None:
-        payload["new_messages"] = new_messages
-    return payload
-
-
 def human_response(
     room: dict, message: str, viewer_player_id: str, status: str = "ok"
 ) -> dict:
@@ -227,140 +212,6 @@ def human_response(
     return payload
 
 
-def _liars_last_round_summary(projected_room: dict) -> dict | None:
-    if projected_room.get("game_type") != "liars_dice":
-        return None
-    state = projected_room.get("board_state")
-    outcome = state.get("last_round_result") if isinstance(state, dict) else None
-    if not isinstance(outcome, dict):
-        return None
-    bid = outcome.get("bid")
-    if not isinstance(bid, dict):
-        return None
-    participants = {
-        str(item["player_id"]): item
-        for item in projected_room.get("participants", [])
-    }
-
-    def player_name(player_id: str) -> str:
-        participant = participants.get(player_id)
-        return str(
-            (participant and participant.get("display_name")) or player_id
-        )
-
-    challenger = str(outcome["challenger_player_id"])
-    bidder = str(outcome.get("bidder_player_id") or bid["bidder_player_id"])
-    loser = str(outcome["loser_player_id"])
-    starter = outcome.get("next_starter_player_id")
-    next_round = outcome.get("next_round")
-    flow_round = state.get("flow", {}).get("round_number")
-    if (
-        next_round is None
-        and projected_room.get("status") == "playing"
-        and state.get("current_bid") is None
-        and flow_round == int(outcome["round"]) + 1
-    ):
-        next_round = flow_round
-        starter = projected_room.get("current_player_id")
-    challenger_name = str(
-        outcome.get("challenger_display_name") or player_name(challenger)
-    )
-    bidder_name = str(
-        outcome.get("bidder_display_name") or player_name(bidder)
-    )
-    loser_name = str(
-        outcome.get("loser_display_name") or player_name(loser)
-    )
-    eliminated = bool(
-        outcome.get("eliminated")
-        or outcome.get("eliminated_player_id") == loser
-    )
-    summary_text = str(outcome.get("summary") or "")
-    if not summary_text:
-        summary_text = (
-            f"第 {outcome['round']} 轮：{challenger_name} 质疑 {bidder_name} 的叫点"
-            f"“{bid['quantity']} 个 {bid['face']} 点”；实际有 "
-            f"{outcome['actual_count']} 个 {bid['face']} 点，"
-            f"叫点{'成立' if outcome['bid_holds'] else '失败'}；"
-            f"{loser_name} 输掉 1 枚骰，剩余 {outcome['loser_remaining_dice']} 枚，"
-            f"{'已淘汰' if eliminated else '未淘汰'}。"
-        )
-        if next_round is not None and starter is not None:
-            summary_text += (
-                f"第 {next_round} 轮 · 由 {player_name(str(starter))} 开叫。"
-            )
-        else:
-            summary_text += "对局结束。"
-    summary = {
-        "round": int(outcome["round"]),
-        "challenger": challenger,
-        "challenger_name": challenger_name,
-        "bidder": bidder,
-        "bidder_name": bidder_name,
-        "bid": {
-            "quantity": int(bid["quantity"]),
-            "face": int(bid["face"]),
-        },
-        "actual_count": int(outcome["actual_count"]),
-        "bid_holds": bool(outcome["bid_holds"]),
-        "loser": loser,
-        "loser_name": loser_name,
-        "loser_remaining_dice": int(outcome["loser_remaining_dice"]),
-        "eliminated": eliminated,
-        "summary": summary_text,
-        "next_round": next_round,
-        "next_starter": str(starter) if starter is not None else None,
-        "next_starter_name": (
-            str(
-                outcome.get("next_starter_display_name")
-                or player_name(str(starter))
-            )
-            if starter is not None else None
-        ),
-        "awaiting_next_round_bid": bool(
-            projected_room.get("status") == "playing"
-            and state.get("current_bid") is None
-            and next_round == flow_round
-        ),
-    }
-    return summary
-
-
-def _attach_last_round_summary(payload: dict, projected_room: dict) -> None:
-    summary = _liars_last_round_summary(projected_room)
-    if summary is not None:
-        payload["last_round_summary"] = summary
-
-
-def ai_response(
-    room: dict, message: str, player_id: str, status: str = "ok"
-) -> dict:
-    participant = next(
-        (
-            item for item in room.get("participants", [])
-            if item["player_id"] == player_id
-        ),
-        None,
-    )
-    if participant is not None and participant.get("join_status") == "left":
-        return {
-            "ok": True,
-            "status": "left",
-            "message": "当前参与者已离开房间。",
-            "room_id": room["room_id"],
-        }
-    projected_room = project_room_for_viewer(room, player_id)
-    payload = response(
-        projected_room, message, status,
-        new_messages=read_new_room_events(room["room_id"], player_id),
-    )
-    _attach_last_round_summary(payload, projected_room)
-    unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
-    if unlocks:
-        payload["unlocks"] = unlocks
-    return payload
-
-
 def _chip_balances(room: dict) -> dict[str, int] | None:
     participants = room.get("participants", [])
     humans = [
@@ -386,20 +237,18 @@ def _chip_balances(room: dict) -> dict[str, int] | None:
 def _compact_events(events: list[dict]) -> list[dict]:
     compact: list[dict] = []
     for event in events:
-        item = {
-            "sequence": event["sequence"],
-            "event_type": event["event_type"],
-            "actor": event["sender_role"],
-            "actor_id": event["sender"]["player_id"],
-            "revision": event["revision_at_send"],
-        }
-        if event["sender"].get("seat") is not None:
-            item["actor_seat"] = event["sender"]["seat"]
-        if event["sender"].get("participant_kind") is not None:
-            item["actor_kind"] = event["sender"]["participant_kind"]
-        if event.get("move") is not None:
-            item["move"] = event["move"]
-        if event.get("text"):
+        item = {"name": event["sender"]["name"]}
+        event_type = event["event_type"]
+        move = event.get("move")
+        if event_type == "result" and isinstance(move, dict):
+            item.update(move)
+        elif isinstance(move, dict):
+            item["move"] = move
+        elif event_type in {"resign", "leave"}:
+            item["move"] = {"action": event_type}
+        if event.get("text") and not (
+            event_type == "result" and isinstance(move, dict)
+        ):
             item["message"] = event["text"]
         compact.append(item)
     return compact
@@ -433,7 +282,11 @@ def _pending_ai_response(room: dict, player_id: str, message: str) -> dict:
     return payload
 
 
-def _bootstrap_ai_response(room: dict, player_id: str, message: str) -> dict:
+def _bootstrap_ai_response(
+    room: dict, player_id: str, message: str, *, claimed: bool = False
+) -> dict:
+    if not claimed and not claim_mcp_bootstrap(room["room_id"], player_id):
+        return _move_delta_response(room, player_id)
     projected_room = project_room_for_viewer(room, player_id)
     payload = {
         "ok": True,
@@ -442,13 +295,12 @@ def _bootstrap_ai_response(room: dict, player_id: str, message: str) -> dict:
         "message": message,
         "room": projected_room,
     }
-    _attach_last_round_summary(payload, projected_room)
     balances = _chip_balances(room)
     if balances is not None:
         payload["chip_balances"] = balances
     events = _compact_events(read_new_room_events(room["room_id"], player_id))
     if events:
-        payload["new_messages"] = events
+        payload["events"] = events
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
     if unlocks:
         payload["unlocks"] = unlocks
@@ -482,33 +334,40 @@ def _terminal_fields(room: dict) -> dict:
 def _move_delta_response(
     room: dict,
     player_id: str,
-    *,
-    your_move: dict | None = None,
-    your_action: str | None = None,
-    message: str | None = None,
 ) -> dict:
+    participant = next(
+        (
+            item for item in room.get("participants", [])
+            if item["player_id"] == player_id
+        ),
+        None,
+    )
+    if participant is not None and participant.get("join_status") == "left":
+        return {
+            "ok": True,
+            "status": "left",
+            "room_id": room["room_id"],
+        }
     projected_room = project_room_for_viewer(room, player_id)
     payload = {
         "ok": True,
         "status": room["status"],
         "room_id": room["room_id"],
         "revision": room["revision"],
-        "turn": projected_room["turn"],
-        "current_actor_id": projected_room.get("current_player_id"),
-        "current_actor_seat": projected_room.get("current_actor_seat"),
     }
-    _attach_last_round_summary(payload, projected_room)
-    if message:
-        payload["message"] = message
-    if your_move is not None:
-        payload["your_move"] = your_move
-    if your_action is not None:
-        payload["your_action"] = your_action
-    if projected_room.get("action_note"):
-        payload["action_note"] = projected_room["action_note"]
+    current = projected_room.get("current_actor")
+    if isinstance(current, dict):
+        payload["current_actor"] = {
+            "player_id": current["player_id"],
+            "name": current["display_name"],
+        }
+        payload["your_turn"] = current["player_id"] == player_id
+        private_state = projected_room.get("private_state")
+        if payload["your_turn"] and private_state:
+            payload["private_state"] = private_state
     events = _compact_events(read_new_room_events(room["room_id"], player_id))
     if events:
-        payload["new_messages"] = events
+        payload["events"] = events
     if room["status"] in {"finished", "archived"}:
         payload.update(_terminal_fields(projected_room))
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
@@ -1483,17 +1342,21 @@ async def mcp_play(body: McpPlayBody):
             revision_events.notify(room_id)
         room = get_room(room_id, "ai", body.player_id)
         await _schedule_current_system_npc(room)
+        if (
+            room["status"] == "playing"
+            and claim_mcp_bootstrap(room_id, body.player_id)
+        ):
+            return _bootstrap_ai_response(
+                room,
+                body.player_id,
+                "对局现已开始；这是本房间唯一一次完整上下文。",
+                claimed=True,
+            )
         if body.wait and room.get("current_player_id") != body.player_id:
             if has_new_room_events(room_id, body.player_id):
-                return ai_response(
-                    room, "发现了对当前参与者可见的新事件。", body.player_id
-                )
+                return _move_delta_response(room, body.player_id)
             if not await revision_events.try_acquire_wait_slot():
-                payload = ai_response(
-                    room,
-                    "当前已有 20 个挂起等待，请求已按 wait=false 返回。",
-                    body.player_id,
-                )
+                payload = _move_delta_response(room, body.player_id)
                 payload["wait_downgraded"] = True
                 return payload
             baseline = room["revision"]
@@ -1508,20 +1371,9 @@ async def mcp_play(body: McpPlayBody):
                     "status": "still_waiting",
                     "room_id": latest["room_id"],
                     "revision": latest["revision"],
-                    "turn": latest["turn"],
-                    "current_actor_id": latest.get("current_player_id"),
-                    "current_actor_seat": latest.get("current_actor_seat"),
                 }
-            return ai_response(
-                changed,
-                "轮到当前参与者，或出现了对其可见的新事件。",
-                body.player_id,
-            )
-        return ai_response(
-            room,
-            f"当前 revision={room['revision']}，轮到 {room['turn']}。",
-            body.player_id,
-        )
+            return _move_delta_response(changed, body.player_id)
+        return _move_delta_response(room, body.player_id)
 
     if body.action == "leave":
         room = leave_room(
@@ -1558,12 +1410,7 @@ async def mcp_play(body: McpPlayBody):
         )
         revision_events.notify(room["room_id"])
         await _schedule_current_system_npc(room)
-        return _move_delta_response(
-            room,
-            body.player_id,
-            your_action="resign",
-            message="AI 已认输，对局结束。",
-        )
+        return _move_delta_response(room, body.player_id)
 
     move = require(body.move, "move 动作需要 move 对象")
     room = play_move(
@@ -1577,30 +1424,10 @@ async def mcp_play(body: McpPlayBody):
         or room["status"] == "finished"
         or room.get("current_player_id") == body.player_id
     ):
-        immediate_message = (
-            "AI 落子成功；已返回本手增量。"
-            if room["status"] != "finished"
-            else "AI 落子成功，对局已经结束。"
-        )
-        if (
-            room.get("current_player_id") == body.player_id
-            and room["status"] == "playing"
-        ):
-            immediate_message = "AI 落子成功且行动权保留，请继续落子。"
-        return _move_delta_response(
-            room,
-            body.player_id,
-            your_move=move,
-            message=immediate_message,
-        )
+        return _move_delta_response(room, body.player_id)
 
     if not await revision_events.try_acquire_wait_slot():
-        downgraded = _move_delta_response(
-            room,
-            body.player_id,
-            your_move=move,
-            message="AI 落子成功；当前已有 20 个挂起等待，请求已按 wait=false 立即返回。",
-        )
+        downgraded = _move_delta_response(room, body.player_id)
         downgraded["wait_downgraded"] = True
         return downgraded
 
@@ -1616,15 +1443,5 @@ async def mcp_play(body: McpPlayBody):
             "status": "still_waiting",
             "room_id": latest["room_id"],
             "revision": latest["revision"],
-            "turn": latest["turn"],
-            "current_actor_id": latest.get("current_player_id"),
-            "current_actor_seat": latest.get("current_actor_seat"),
         }
-    return _move_delta_response(
-        changed,
-        body.player_id,
-        your_move=move,
-        message=(
-            f"房间内其他参与者已行动，revision {baseline}->{changed['revision']}。"
-        ),
-    )
+    return _move_delta_response(changed, body.player_id)

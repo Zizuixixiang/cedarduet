@@ -915,6 +915,15 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_waiters_wake_only_for_their_turn_or_visible_event(self):
         room = await self.create_web_room()
         room_id = room["room_id"]
+        for player_id in ("ai-1", "ai-2", "ai-3"):
+            bootstrap = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "state", "player_id": player_id,
+                    "room_id": room_id,
+                },
+            )
+            self.assertTrue(bootstrap.json()["bootstrap"])
         with patch.object(main_module, "MAX_WAIT_SECONDS", 0.5):
             public_waiters = [
                 asyncio.create_task(self.client.post(
@@ -935,7 +944,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             public_results = await asyncio.gather(*public_waiters)
             self.assertTrue(all(result.status_code == 200 for result in public_results))
             self.assertTrue(all(
-                [item["text"] for item in result.json()["new_messages"]]
+                [item["message"] for item in result.json()["events"]]
                 == ["大家可见"]
                 for result in public_results
             ))
@@ -962,7 +971,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
                 )
             main_module.revision_events.notify(room_id)
             actor_result = await asyncio.wait_for(turn_waiters["ai-1"], timeout=1)
-            self.assertEqual(actor_result.json()["room"]["current_player_id"], "ai-1")
+            self.assertEqual(actor_result.json()["current_actor"]["player_id"], "ai-1")
             self.assertFalse(turn_waiters["ai-2"].done())
             other_result = await asyncio.wait_for(turn_waiters["ai-2"], timeout=1)
             self.assertEqual(other_result.json()["status"], "still_waiting")
@@ -1002,7 +1011,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             main_module.revision_events.notify(room_id)
             visible_result = await asyncio.wait_for(private_waiters["ai-2"], timeout=1)
             self.assertEqual(
-                [item["text"] for item in visible_result.json()["new_messages"]],
+                [item["message"] for item in visible_result.json()["events"]],
                 ["只给二号"],
             )
             self.assertFalse(private_waiters["ai-3"].done())
@@ -1011,6 +1020,14 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_leave_wakes_waiters_with_one_visible_membership_event(self):
         room = await self.create_web_room()
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-2",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertTrue(bootstrap.json()["bootstrap"])
         waiter = asyncio.create_task(self.client.post(
             "/mcp/play",
             json={
@@ -1028,10 +1045,9 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(left.json()["status"], "left")
         resumed = await asyncio.wait_for(waiter, timeout=1)
         self.assertEqual(resumed.status_code, 200, resumed.text)
-        self.assertEqual(
-            [item["event_type"] for item in resumed.json()["new_messages"]],
-            ["leave"],
-        )
+        self.assertEqual(resumed.json()["events"], [{
+            "name": "南山", "move": {"action": "leave"},
+        }])
 
     async def test_private_four_player_full_flow_and_explicit_settlement(self):
         room = framework.create_room(
@@ -1059,8 +1075,8 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(accepted.status_code, 200, accepted.text)
         self.assertEqual(accepted.json()["status"], "playing")
 
-        views = {}
-        for player_id in ("ai-1", "ai-2", "ai-3"):
+        views = {"ai-3": accepted.json()["room"]}
+        for player_id in ("ai-1", "ai-2"):
             response = await self.client.post(
                 "/mcp/play",
                 json={
@@ -1069,6 +1085,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
             self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["bootstrap"])
             views[player_id] = response.json()["room"]
         self.assertEqual(len({
             tuple(view["private_state"]["hand"])
@@ -1126,7 +1143,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             json={"action": "state", "player_id": "ai-3", "room_id": room_id},
         )
         self.assertNotIn(
-            "secret", hidden_delta.json()["new_messages"][0]["move"]
+            "secret", hidden_delta.json()["events"][0]["move"]
         )
         ai_one = await self.client.post(
             "/mcp/play",
@@ -1140,7 +1157,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ai_one.status_code, 200, ai_one.text)
         self.assertNotIn(
-            "secret", ai_one.json()["new_messages"][0]["move"]
+            "secret", ai_one.json()["events"][0]["move"]
         )
         retained = await self.client.post(
             "/mcp/play",
@@ -1149,9 +1166,9 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
                 "move": {"action": "step", "retain": True},
             },
         )
-        self.assertEqual(retained.json()["current_actor_id"], "ai-2")
+        self.assertEqual(retained.json()["current_actor"]["player_id"], "ai-2")
         self.assertEqual(
-            retained.json()["new_messages"][0]["move"]["secret"],
+            retained.json()["events"][0]["move"]["secret"],
             "only-ai-2",
         )
         terminal = await self.client.post(

@@ -876,6 +876,29 @@ def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
         return [event for event in projected if event is not None]
 
 
+def claim_mcp_bootstrap(room_id: str, player_id: str) -> bool:
+    """Atomically reserve the one full MCP context for one room participant."""
+    room_id = _room_id(room_id)
+    player_id = _player_id(player_id)
+    with write_transaction() as conn:
+        room_row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if room_row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(room_row, conn)
+        _assert_participant(room, player_id)
+        changed = conn.execute(
+            """
+            UPDATE room_event_cursors
+            SET mcp_bootstrapped = 1, updated_at = ?
+            WHERE room_id = ? AND player_id = ? AND mcp_bootstrapped = 0
+            """,
+            (_now(), room_id, player_id),
+        )
+        return changed.rowcount == 1
+
+
 def has_new_room_events(room_id: str, player_id: str) -> bool:
     """Check one participant's unread visible events without consuming them."""
     room_id = _room_id(room_id)
@@ -975,7 +998,7 @@ def _record_result_event(
     exists = conn.execute(
         """
         SELECT 1 FROM room_messages
-        WHERE room_id = ? AND event_type = 'result'
+        WHERE room_id = ? AND event_type = 'result' AND move_payload IS NULL
         """,
         (room["room_id"],),
     ).fetchone()
@@ -2080,6 +2103,7 @@ def play_move(
                 if applied.event_visible_to_player_ids is not None
                 else None
             )
+            public_event = deepcopy(applied.public_event)
         else:
             state = applied
             retain_turn = False
@@ -2090,6 +2114,7 @@ def play_move(
             explicit_next_player_id = None
             game_result = None
             event_visible_to_player_ids = None
+            public_event = None
         if not isinstance(state, dict):
             raise DuelError("游戏插件返回的 state 必须是对象")
         state["last_action_note"] = action_note
@@ -2110,6 +2135,17 @@ def play_move(
             and event_visible_to_player_ids - participant_ids
         ):
             raise DuelError("插件事件可见范围包含不属于房间的参与者")
+        if public_event is not None and (
+            not isinstance(public_event, dict)
+            or not public_event
+            or set(public_event) & {
+                "name", "message", "move", "sequence", "revision",
+                "revision_at_send", "event_type", "actor", "actor_id",
+                "actor_seat", "actor_kind", "seat", "kind", "sender",
+                "sender_player_id",
+            }
+        ):
+            raise DuelError("插件公开增量事件必须是非空对象且不能覆盖保留字段")
         allowed_activity = {"active", "inactive", "eliminated", "skipped"}
         if set(participant_activity.values()) - allowed_activity:
             raise DuelError("插件返回了无效的参与者活动状态")
@@ -2222,6 +2258,17 @@ def play_move(
             move_payload=move,
             visible_to_player_ids=event_visible_to_player_ids,
         )
+        if public_event is not None:
+            _record_event(
+                conn,
+                room_id,
+                "system",
+                "system",
+                updated["revision"],
+                event_type="result",
+                text=action_note,
+                move_payload=public_event,
+            )
         result = decode_room(updated, conn)
         achievement_unlocks: list[dict] = []
         if result["status"] == "finished":

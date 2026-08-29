@@ -329,6 +329,25 @@ class LiarsDice(GamePlugin):
             summary += "对局结束。"
         outcome["summary"] = summary
         applied.note = summary
+        applied.public_event = {
+            "round_result": {
+                "round": int(outcome["round"]),
+                "challenger": challenger_name,
+                "bidder": bidder_name,
+                "bid": {
+                    "quantity": int(bid["quantity"]),
+                    "face": int(bid["face"]),
+                },
+                "actual_count": int(outcome["actual_count"]),
+                "bid_holds": bool(outcome["bid_holds"]),
+                "loser": loser_name,
+                "loser_remaining_dice": int(outcome["loser_remaining_dice"]),
+                "eliminated": bool(outcome["eliminated"]),
+                "next_round": outcome.get("next_round"),
+                "next_starter": outcome.get("next_starter_display_name"),
+                "summary": summary,
+            }
+        }
         return applied
 
     def result_for(

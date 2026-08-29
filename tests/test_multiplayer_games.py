@@ -593,12 +593,20 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale.status_code, 409, stale.text)
         self.assertIn("revision 已变化", stale.json()["message"])
 
-    async def test_challenge_exposes_named_compact_last_round_summary(self):
+    async def test_challenge_emits_named_round_result_once(self):
         room = framework.create_room(
             "liars_dice", "human_first", "human", "human-1",
             opponent_id="ai-1", ordered_participants=participants(4),
         )
         dice = room["board_state"]["dice_by_player"]
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-1",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertTrue(bootstrap.json()["bootstrap"])
         face_counts = {
             face: sum(value == face for values in dice.values() for value in values)
             for face in range(1, 7)
@@ -623,25 +631,25 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(challenged.status_code, 200, challenged.text)
         payload = challenged.json()
         self.assertNotIn("room", payload)
-        summary = payload["last_round_summary"]
+        self.assertEqual(payload["events"][0], {
+            "name": "人类一号", "move": bid,
+        })
+        settlement_event = payload["events"][1]
+        self.assertEqual(settlement_event["name"], "双弈裁判")
+        summary = settlement_event["round_result"]
         self.assertEqual(summary["round"], 1)
-        self.assertEqual(summary["challenger"], "ai-1")
-        self.assertEqual(summary["challenger_name"], "小机 1")
-        self.assertEqual(summary["bidder"], "human-1")
-        self.assertEqual(summary["bidder_name"], "人类一号")
+        self.assertEqual(summary["challenger"], "小机 1")
+        self.assertEqual(summary["bidder"], "人类一号")
         self.assertEqual(summary["bid"], {
             "quantity": actual_count + 1, "face": face,
         })
         self.assertEqual(summary["actual_count"], actual_count)
         self.assertFalse(summary["bid_holds"])
-        self.assertEqual(summary["loser"], "human-1")
-        self.assertEqual(summary["loser_name"], "人类一号")
+        self.assertEqual(summary["loser"], "人类一号")
         self.assertEqual(summary["loser_remaining_dice"], 4)
         self.assertFalse(summary["eliminated"])
         self.assertEqual(summary["next_round"], 2)
-        self.assertEqual(summary["next_starter"], "human-1")
-        self.assertEqual(summary["next_starter_name"], "人类一号")
-        self.assertTrue(summary["awaiting_next_round_bid"])
+        self.assertEqual(summary["next_starter"], "人类一号")
         self.assertIn("小机 1 质疑 人类一号", summary["summary"])
         self.assertIn("第 2 轮 · 由 人类一号 开叫", summary["summary"])
         self.assertNotIn("revealed_dice_by_player", summary)
@@ -652,8 +660,8 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
             json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
         )
         self.assertEqual(state.status_code, 200, state.text)
-        self.assertEqual(state.json()["last_round_summary"], summary)
-        self.assertNotIn("dice_by_player", state.json()["room"]["board_state"])
+        self.assertNotIn("events", state.json())
+        self.assertNotIn("last_round_summary", state.json())
 
         current = framework.get_room(room["room_id"])
         framework.play_move(
@@ -665,10 +673,15 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
             "/mcp/play",
             json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
         )
-        retained = next_round_state.json()["last_round_summary"]
-        self.assertEqual(retained["round"], 1)
-        self.assertFalse(retained["awaiting_next_round_bid"])
-        self.assertNotIn("current_round_result", next_round_state.json())
+        self.assertEqual(next_round_state.json()["events"], [{
+            "name": "人类一号",
+            "move": {"action": "bid", "quantity": 1, "face": 1},
+        }])
+        self.assertNotIn("last_round_summary", next_round_state.json())
+        self.assertNotIn(
+            "dice_by_player",
+            json.dumps(settlement_event, ensure_ascii=False),
+        )
 
 
 if __name__ == "__main__":
