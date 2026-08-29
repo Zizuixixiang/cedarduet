@@ -41,6 +41,7 @@ const GAME_GLYPHS = {
   connect4: "四",
   checkers: "跳",
   dots_boxes: "点",
+  doudizhu: "斗",
   liars_dice: "骰",
   yahtzee: "艇",
   jungle: "兽",

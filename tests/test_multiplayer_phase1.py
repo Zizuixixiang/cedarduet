@@ -277,6 +277,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         )
         self.assertTrue(production["gandengyan"]["supports_npcs"])
         self.assertTrue(production["gandengyan"]["supports_multiplayer_stakes"])
+
         self.assertEqual(production["train_cards"]["category"], "card")
         self.assertEqual(
             production["train_cards"]["allowed_player_counts"], [2, 3, 4, 5, 6]
@@ -284,6 +285,12 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         self.assertTrue(production["train_cards"]["supports_npcs"])
         self.assertTrue(production["train_cards"]["uses_local_npc_strategy"])
         self.assertFalse(production["train_cards"]["supports_stakes"])
+
+        self.assertEqual(production["doudizhu"]["category"], "card")
+        self.assertEqual(production["doudizhu"]["allowed_player_counts"], [3])
+        self.assertTrue(production["doudizhu"]["supports_npcs"])
+        self.assertFalse(production["doudizhu"]["supports_stakes"])
+
         self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(
             production["chinese_checkers"]["allowed_player_counts"], [2, 3, 4, 6]

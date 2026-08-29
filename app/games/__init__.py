@@ -6,6 +6,7 @@ from .checkers import Checkers
 from .chess import Chess
 from .chinese_checkers import ChineseCheckers
 from .dots_boxes import DotsBoxes
+from .doudizhu import Doudizhu
 from .gomoku import Gomoku
 from .gandengyan import Gandengyan
 from .jungle import Jungle
@@ -33,6 +34,7 @@ GAMES = {
     Chess.game_type: Chess(),
     ChineseCheckers.game_type: ChineseCheckers(),
     DotsBoxes.game_type: DotsBoxes(),
+    Doudizhu.game_type: Doudizhu(),
     LiarsDice.game_type: LiarsDice(),
     Yahtzee.game_type: Yahtzee(),
     Uno.game_type: Uno(),

@@ -157,7 +157,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "uno": "card",
                 "blackjack": "card",
                 "gandengyan": "card",
+
                 "train_cards": "card",
+
+                "doudizhu": "card",
+
             },
         )
         self.assertEqual(
@@ -180,7 +184,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "uno": "UNO",
                 "blackjack": "21点",
                 "gandengyan": "干瞪眼",
+
                 "train_cards": "开火车",
+
+                "doudizhu": "斗地主",
+
             },
         )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
@@ -202,6 +210,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["gandengyan"]["allowed_player_counts"], [2, 3, 4])
         self.assertTrue(games["gandengyan"]["supports_npcs"])
         self.assertTrue(games["gandengyan"]["supports_multiplayer_stakes"])
+        self.assertEqual(games["doudizhu"]["allowed_player_counts"], [3])
+        self.assertTrue(games["doudizhu"]["supports_npcs"])
+        self.assertFalse(games["doudizhu"]["supports_stakes"])
         self.assertEqual(
             games["train_cards"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
