@@ -721,7 +721,39 @@ def trusted_human_player(request: Request) -> str:
     return player_id
 
 
-def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
+def _trusted_account_avatar(value: object) -> dict | None:
+    if not isinstance(value, dict) or value.get("type") != "emoji":
+        return None
+    avatar_value = value.get("value")
+    if not isinstance(avatar_value, str) or not avatar_value:
+        return None
+    return {
+        "type": "emoji",
+        "value": avatar_value,
+        "is_default": value.get("is_default") is True,
+    }
+
+
+def _decode_proxy_json_header(request: Request, name: str) -> object | None:
+    encoded = request.headers.get(name, "").strip()
+    if not encoded:
+        return None
+    try:
+        padded = encoded + "=" * (-len(encoded) % 4)
+        return json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        raise DuelError("账号头像上下文无效，请从主站重新进入", 403)
+
+
+def _trusted_human_avatar(request: Request) -> dict | None:
+    return _trusted_account_avatar(
+        _decode_proxy_json_header(request, "X-Duel-Human-Avatar")
+    )
+
+
+def _trusted_bound_ais(request: Request) -> list[dict[str, object]]:
     """Decode the compact identity context supplied only by the main-site proxy."""
     encoded = request.headers.get("X-Duel-Bound-Ais", "").strip()
     if not encoded:
@@ -736,15 +768,12 @@ def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
         )
         return [{"id": legacy_id, "name": legacy_name}]
     try:
-        padded = encoded + "=" * (-len(encoded) % 4)
-        value = json.loads(
-            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
-        )
-    except (ValueError, UnicodeError, json.JSONDecodeError):
+        value = _decode_proxy_json_header(request, "X-Duel-Bound-Ais")
+    except DuelError:
         raise DuelError("绑定小机身份上下文无效，请从主站重新进入", 403)
     if not isinstance(value, list):
         raise DuelError("绑定小机身份上下文无效，请从主站重新进入", 403)
-    machines: list[dict[str, str]] = []
+    machines: list[dict[str, object]] = []
     seen: set[str] = set()
     for item in value:
         if not isinstance(item, dict):
@@ -755,7 +784,11 @@ def _trusted_bound_ais(request: Request) -> list[dict[str, str]]:
             continue
         if len(machine_id) > 80 or len(machine_name) > 100:
             continue
-        machines.append({"id": machine_id, "name": machine_name or "你的小机"})
+        machine = {"id": machine_id, "name": machine_name or "你的小机"}
+        avatar = _trusted_account_avatar(item.get("avatar"))
+        if avatar is not None:
+            machine["avatar"] = avatar
+        machines.append(machine)
         seen.add(machine_id)
     return machines
 
@@ -925,6 +958,7 @@ async def human_whoami(request: Request):
         "ok": True,
         "bound": True,
         "human_name": human_name,
+        "human_avatar": _trusted_human_avatar(request),
         "machines": machines,
         "identity_label": f"{human_name} · {len(machines)} 只已绑定小机",
         "games": game_catalog(),

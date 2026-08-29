@@ -283,6 +283,25 @@ function participantAvatarFallback(participant) {
   return Number.isInteger(seatIndex) ? String(seatIndex + 1) : "?";
 }
 
+function accountAvatarForParticipant(participant) {
+  const accountIdentity = typeof identity === "object" && identity ? identity : null;
+  if (!participant || !accountIdentity || participant.participant_kind === "system_npc") {
+    return null;
+  }
+  if (participant.participant_kind === "human" || participant.role === "human") {
+    return accountIdentity.human_avatar || null;
+  }
+  const machines = Array.isArray(accountIdentity.machines)
+    ? accountIdentity.machines
+    : [];
+  const playerId = String(participant.player_id || "");
+  const basePlayerId = playerId.split(":", 1)[0];
+  const machine = machines.find((item) =>
+    item.id === playerId || item.id === basePlayerId
+  );
+  return machine ? machine.avatar || null : null;
+}
+
 function renderParticipantAvatar(target, participant) {
   target.replaceChildren();
   const fallback = participantAvatarFallback(participant);
@@ -291,7 +310,15 @@ function renderParticipantAvatar(target, participant) {
     "aria-label",
     participant && participant.display_name ? `${participant.display_name}的头像` : "玩家头像"
   );
-  if (!participant || !participant.avatar_url) return;
+  if (!participant) return;
+  if (participant.participant_kind !== "system_npc") {
+    const avatar = accountAvatarForParticipant(participant);
+    if (avatar && avatar.type === "emoji" && typeof avatar.value === "string" && avatar.value) {
+      target.textContent = avatar.value;
+    }
+    return;
+  }
+  if (!participant.avatar_url) return;
   const avatar = document.createElement("img");
   avatar.src = apiPath(participant.avatar_url);
   avatar.alt = "";
@@ -2181,7 +2208,7 @@ function renderPlayers(timeline = []) {
     || participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
-  $("aiAvatar").textContent = "🤖";
+  renderParticipantAvatar($("aiAvatar"), participantFor("ai"));
   renderParticipantAvatar($("humanAvatar"), viewerParticipant);
 
   renderSpeechBubble({

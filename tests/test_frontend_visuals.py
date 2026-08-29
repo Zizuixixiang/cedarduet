@@ -311,6 +311,10 @@ class FrontendBoardVisualTests(unittest.TestCase):
             players,
         )
         self.assertIn(
+            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"))',
+            players,
+        )
+        self.assertIn(
             'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
             players,
         )
@@ -2041,6 +2045,7 @@ assert.ok(renderCount >= 3);
     def test_roster_marks_current_actor_and_keeps_game_values_compact(self):
         functions = "\n".join((
             function_source("participantAvatarFallback"),
+            function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
             function_source("viewerParticipantFor"),
             function_source("tableParticipantsFor"),
@@ -2119,6 +2124,7 @@ assert.ok(viewerSlot.classList.contains("hidden"));
     def test_three_through_six_player_rosters_never_duplicate_viewer(self):
         functions = "\n".join((
             function_source("participantAvatarFallback"),
+            function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
             function_source("viewerParticipantFor"),
             function_source("tableParticipantsFor"),
@@ -2199,6 +2205,7 @@ for (const count of [3, 4, 5, 6]) {{
         functions = "\n".join((
             function_source("participantByPlayerId"),
             function_source("participantAvatarFallback"),
+            function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
             function_source("speechSenderRole"),
             function_source("speechSenderPlayerId"),
@@ -2229,7 +2236,7 @@ const apiPath = (path) => path;
 let room = {{viewer: {{player_id: "p1"}}, participants: [
   {{player_id: "p1", seat_index: 0, display_name: "甲", role: "human"}},
   {{player_id: "p2", seat_index: 1, display_name: "乙", role: "ai"}},
-  {{player_id: "p3", seat_index: 2, display_name: "丙", role: "ai"}},
+  {{player_id: "p3", seat_index: 2, display_name: "丙", role: "ai", participant_kind: "system_npc", avatar_url: "/api/npc-avatars/p3.webp"}},
 ]}};
 {functions}
 const bubble = new Element();
@@ -2252,7 +2259,8 @@ events.push({{event_type: "message", text: "我的最新发言", sender_role: "h
 renderSpeechBubble({{bubble, event: latestSpeechEvent(events, {{excludePlayerId: "p1"}}), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
 assert.equal(nameTarget.textContent, "丙");
 assert.equal(textTarget.textContent, "连续更新");
-assert.equal(avatarTarget.textContent, "丙");
+assert.equal(avatarTarget.children.length, 1);
+assert.equal(avatarTarget.children[0].src, "/api/npc-avatars/p3.webp");
 assert.ok(bubble.classList.contains("seat-2"));
 assert.ok(!bubble.classList.contains("seat-1"));
 """
@@ -2262,7 +2270,9 @@ assert.ok(!bubble.classList.contains("seat-1"));
     def test_multiplayer_keeps_human_row_avatar_and_speech_by_viewer(self):
         functions = "\n".join((
             function_source("participantAvatarFallback"),
+            function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
+            function_source("participantFor"),
             function_source("renderPlayers"),
             function_source("speechSenderRole"),
             function_source("speechSenderPlayerId"),
@@ -2314,12 +2324,19 @@ const calls = [];
 const renderSpeechBubble = (options) => calls.push(options);
 const applyParticipantLayout = () => {{}};
 const participantName = (role) => role;
+const identity = {{
+  human_avatar: {{type: "emoji", value: "🐼", is_default: false}},
+  machines: [{{
+    id: "machine-1", name: "紫机",
+    avatar: {{type: "emoji", value: "🌌", is_default: false}},
+  }}],
+}};
 let room = {{
   viewer: {{player_id: "viewer-1"}},
   participants: [
     {{
       player_id: "viewer-1", role: "human", display_name: "南山",
-      seat_index: 2, avatar_url: "/avatars/viewer.png",
+      participant_kind: "human", seat_index: 2,
     }},
     {{player_id: "npc-1", role: "ai", display_name: "北风", seat_index: 0}},
     {{player_id: "npc-2", role: "ai", display_name: "流云", seat_index: 1}},
@@ -2353,16 +2370,16 @@ assert.ok(elements.opponentRow.classList.contains("hidden"));
 assert.ok(!elements.humanRow.classList.contains("hidden"));
 assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
 assert.equal(elements.humanName.textContent, "南山");
-assert.equal(elements.humanAvatar.children.length, 1);
-assert.equal(elements.humanAvatar.children[0].src, "asset:/avatars/viewer.png");
+assert.equal(elements.humanAvatar.children.length, 0);
+assert.equal(elements.humanAvatar.textContent, "🐼");
 assert.equal(elements.humanAvatar.attributes["aria-label"], "南山的头像");
 
 calls.length = 0;
 room = {{
   viewer: {{player_id: "viewer-1"}},
   participants: [
-    {{player_id: "viewer-1", role: "human", display_name: "南山", seat_index: 0}},
-    {{player_id: "machine-1", role: "ai", display_name: "紫机", seat_index: 1}},
+    {{player_id: "viewer-1", role: "human", participant_kind: "human", display_name: "南山", seat_index: 0}},
+    {{player_id: "machine-1", role: "ai", participant_kind: "bound_machine", display_name: "紫机", seat_index: 1}},
   ],
 }};
 renderPlayers([]);
@@ -2371,7 +2388,8 @@ assert.ok(!elements.humanRow.classList.contains("hidden"));
 assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
 assert.equal(elements.humanName.textContent, "南山");
 assert.equal(elements.humanAvatar.children.length, 0);
-assert.equal(elements.humanAvatar.textContent, "南");
+assert.equal(elements.humanAvatar.textContent, "🐼");
+assert.equal(elements.aiAvatar.textContent, "🌌");
 """
         self.run_node(harness)
 

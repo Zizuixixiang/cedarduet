@@ -55,17 +55,23 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             response.json()["machines"],
             [{"id": "ai-9", "name": "克莱奥"}],
         )
+        self.assertIsNone(response.json()["human_avatar"])
 
     @staticmethod
-    def trusted_headers(machines):
+    def trusted_headers(machines, human_avatar=None):
         encoded = base64.urlsafe_b64encode(
             json.dumps(machines, ensure_ascii=False).encode("utf-8")
         ).decode("ascii").rstrip("=")
-        return {
+        headers = {
             "X-Duel-Human-Player": "human-7",
             "X-Duel-Human-Name": "%E5%8D%97%E5%B1%B1%E5%90%9B",
             "X-Duel-Bound-Ais": encoded,
         }
+        if human_avatar is not None:
+            headers["X-Duel-Human-Avatar"] = base64.urlsafe_b64encode(
+                json.dumps(human_avatar, ensure_ascii=False).encode("utf-8")
+            ).decode("ascii").rstrip("=")
+        return headers
 
     async def test_trusted_human_sees_all_machine_rooms_active_first(self):
         active = create_room(
@@ -81,20 +87,51 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
         response = await self.client.get(
             "/api/whoami",
-            headers=self.trusted_headers([
-                {"id": "ai-9", "name": "克莱奥"},
-                {"id": "ai-10", "name": "南山小机"},
-            ]),
+            headers=self.trusted_headers(
+                [
+                    {
+                        "id": "ai-9",
+                        "name": "克莱奥",
+                        "avatar": {
+                            "type": "emoji", "value": "🛸", "is_default": False,
+                        },
+                    },
+                    {
+                        "id": "ai-10",
+                        "name": "南山小机",
+                        "avatar": {
+                            "type": "emoji", "value": "🤖", "is_default": True,
+                        },
+                    },
+                ],
+                {"type": "emoji", "value": "🐼", "is_default": False},
+            ),
         )
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertTrue(payload["bound"])
         self.assertEqual(payload["human_name"], "南山君")
         self.assertEqual(
+            payload["human_avatar"],
+            {"type": "emoji", "value": "🐼", "is_default": False},
+        )
+        self.assertEqual(
             payload["machines"],
             [
-                {"id": "ai-9", "name": "克莱奥"},
-                {"id": "ai-10", "name": "南山小机"},
+                {
+                    "id": "ai-9",
+                    "name": "克莱奥",
+                    "avatar": {
+                        "type": "emoji", "value": "🛸", "is_default": False,
+                    },
+                },
+                {
+                    "id": "ai-10",
+                    "name": "南山小机",
+                    "avatar": {
+                        "type": "emoji", "value": "🤖", "is_default": True,
+                    },
+                },
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
@@ -331,7 +368,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("select.disabled = false", script.text)
         self.assertNotIn("PLAYER_EMOJIS", script.text)
         self.assertNotIn("function emojiFor", script.text)
-        self.assertIn('$("aiAvatar").textContent = "🤖"', script.text)
+        self.assertNotIn('$("aiAvatar").textContent = "🤖"', script.text)
+        self.assertIn(
+            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"))',
+            script.text,
+        )
         self.assertNotIn('$("humanAvatar").textContent = "👤"', script.text)
         self.assertIn(
             'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
