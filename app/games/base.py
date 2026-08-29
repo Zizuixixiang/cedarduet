@@ -10,6 +10,7 @@ class MoveResult:
 
     state: dict[str, Any]
     retain_turn: bool = False
+    pause_turn: bool = False
     note: str = ""
     next_player_id: str | None = None
     inactive_player_ids: list[str] = field(default_factory=list)

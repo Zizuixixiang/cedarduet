@@ -2033,6 +2033,86 @@ def delete_terminal_room(room_id: str, human_player_id: str) -> str:
     return room_id
 
 
+def _assert_expected_revision(room: dict, expected_revision: int | None) -> None:
+    if expected_revision is None:
+        return
+    if (
+        isinstance(expected_revision, bool)
+        or not isinstance(expected_revision, int)
+        or expected_revision < 0
+    ):
+        raise DuelError("revision 必须是非负整数")
+    if room["revision"] != expected_revision:
+        raise DuelError(
+            f"局面 revision 已变化（期望 {expected_revision}，当前 {room['revision']}），请刷新后重试",
+            409,
+        )
+
+
+def acknowledge_liars_dice_round(
+    room_id: str,
+    human_player_id: str,
+    expected_revision: int | None,
+) -> dict:
+    room_id = _room_id(room_id)
+    human_player_id = _player_id(human_player_id)
+    if expected_revision is None:
+        raise DuelError("确认下一轮必须携带 revision")
+    with write_transaction() as conn:
+        _maintain_rooms(conn, room_id)
+        row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(row, conn)
+        _assert_expected_revision(room, expected_revision)
+        _assert_player(room, "human", human_player_id)
+        if room["status"] != "playing":
+            raise DuelError("当前房间不在对局中", 409)
+        if room["game_type"] != "liars_dice":
+            raise DuelError("只有吹牛骰子可以确认下一轮", 409)
+        game = get_game(room["game_type"])
+        try:
+            applied = game.acknowledge_round(room["board_state"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DuelError(f"无法开始下一轮：{exc}", 409) from exc
+        if not isinstance(applied, MoveResult) or not applied.next_player_id:
+            raise DuelError("吹牛骰子下一轮推进结果无效")
+        next_player_id = advance_turn(
+            room["participants"],
+            human_player_id,
+            next_player_id=applied.next_player_id,
+        )
+        next_participant = _participant_by_id(room, next_player_id)
+        if next_participant is None:
+            raise DuelError("下一行动者不属于房间")
+        state = applied.state
+        state["last_action_note"] = applied.note
+        timestamp = _now()
+        conn.execute(
+            """
+            UPDATE rooms
+            SET board_state = ?, turn = ?, current_player_id = ?,
+                revision = revision + 1, updated_at = ?, last_move_at = ?
+            WHERE room_id = ?
+            """,
+            (
+                json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+                next_participant["role"],
+                next_player_id,
+                timestamp,
+                timestamp,
+                room_id,
+            ),
+        )
+        updated = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        result = decode_room(updated, conn)
+    return _decorate(result)
+
+
 def play_move(
     room_id: str,
     role: Role,
@@ -2053,18 +2133,7 @@ def play_move(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
-        if expected_revision is not None:
-            if (
-                isinstance(expected_revision, bool)
-                or not isinstance(expected_revision, int)
-                or expected_revision < 0
-            ):
-                raise DuelError("revision 必须是非负整数")
-            if room["revision"] != expected_revision:
-                raise DuelError(
-                    f"局面 revision 已变化（期望 {expected_revision}，当前 {room['revision']}），请刷新后重试",
-                    409,
-                )
+        _assert_expected_revision(room, expected_revision)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] != "playing":
@@ -2089,6 +2158,7 @@ def play_move(
         if isinstance(applied, MoveResult):
             state = applied.state
             retain_turn = applied.retain_turn
+            pause_turn = applied.pause_turn
             action_note = applied.note
             inactive_player_ids = set(applied.inactive_player_ids)
             skipped_player_ids = set(applied.skipped_player_ids)
@@ -2107,6 +2177,7 @@ def play_move(
         else:
             state = applied
             retain_turn = False
+            pause_turn = False
             action_note = ""
             inactive_player_ids = set()
             skipped_player_ids = set()
@@ -2201,17 +2272,20 @@ def play_move(
         next_player_id = None
         next_turn: Role = role
         if status == "playing":
-            next_player_id = advance_turn(
-                room["participants"],
-                player_id,
-                retain_turn=retain_turn,
-                skip_player_ids=skipped_player_ids,
-                next_player_id=explicit_next_player_id,
-            )
-            next_participant = _participant_by_id(room, next_player_id)
-            if next_participant is None:
-                raise DuelError("下一行动者不属于房间")
-            next_turn = next_participant["role"]
+            if pause_turn and (retain_turn or explicit_next_player_id is not None):
+                raise DuelError("暂停行动权时不能同时指定下一行动者")
+            if not pause_turn:
+                next_player_id = advance_turn(
+                    room["participants"],
+                    player_id,
+                    retain_turn=retain_turn,
+                    skip_player_ids=skipped_player_ids,
+                    next_player_id=explicit_next_player_id,
+                )
+                next_participant = _participant_by_id(room, next_player_id)
+                if next_participant is None:
+                    raise DuelError("下一行动者不属于房间")
+                next_turn = next_participant["role"]
         timestamp = _now()
         conn.execute(
             """

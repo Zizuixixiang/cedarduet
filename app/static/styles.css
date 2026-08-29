@@ -1952,6 +1952,27 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .liars-result-outcome { color: var(--purple-darker); }
 .liars-result-loss { color: var(--pink-dark); font-weight: 700; }
+.liars-round-result.awaiting-acknowledgement {
+  padding: 14px;
+  gap: 8px;
+  border: 3px solid var(--pink);
+  border-left-width: 6px;
+  box-shadow: 4px 4px 0 rgba(92, 84, 99, .16);
+}
+.liars-round-acknowledgement {
+  margin-top: 3px;
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+  border-top: 2px solid rgba(230, 168, 177, .65);
+}
+.liars-round-acknowledgement p {
+  margin: 0;
+  color: var(--purple-darker);
+  font-weight: 700;
+  line-height: 1.45;
+}
+.liars-round-acknowledgement .pixel-btn { width: 100%; }
 .liars-reveal-details {
   margin-top: 2px;
   border-top: 1px solid rgba(179, 160, 199, .5);

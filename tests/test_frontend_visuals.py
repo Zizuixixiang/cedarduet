@@ -313,6 +313,9 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('document.createElement("details")', renderer)
         self.assertIn('"查看上一轮揭骰"', renderer)
         self.assertIn("revealed_dice_by_player", renderer)
+        self.assertIn('flow.phase === "awaiting_round_acknowledgement"', renderer)
+        self.assertIn('"本轮已结算。确认后才会重新掷骰并开始下一轮。"', renderer)
+        self.assertIn('`知道了，开始第 ${nextRound} 轮`', renderer)
         self.assertIn(".liars-current-round {", STYLES)
         self.assertIn(".liars-round-result {", STYLES)
         self.assertIn("liarsRoundResultIsVisible(state)", renderer)
@@ -336,6 +339,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertNotIn("dashed", result_style)
         self.assertIn("border: 1px solid var(--purple-light);", result_style)
         self.assertIn("align-self: start;", previous_style)
+        self.assertIn(".liars-round-acknowledgement {", STYLES)
         self.assertIn("grid-template-rows: none;", STYLES)
         self.assertIn("grid-auto-rows: max-content;", STYLES)
         private_renderer = function_source("renderPrivateState")
@@ -349,6 +353,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         ]
         self.assertIn("revision: room.revision", submit)
         self.assertIn('["bid", "challenge"].includes(movePayload.action)', submit)
+        self.assertIn('move: {action: "acknowledge_round"}', submit)
         render_game = function_source("renderGame")
         self.assertIn(
             '$("moveConfirm").classList.toggle('
@@ -357,6 +362,10 @@ class FrontendBoardVisualTests(unittest.TestCase):
         )
         self.assertIn('id="moveConfirm" class="move-confirm"', HTML)
         self.assertIn('value="liars_dice"', HTML)
+        self.assertIn(
+            'return "本轮已结算 · 等待你确认下一轮"',
+            function_source("roomTurnText"),
+        )
 
 
 @unittest.skipUnless(NODE, "node is required for frontend rendering tests")
@@ -1135,6 +1144,15 @@ class Element {{
     this.tagName = tagName.toUpperCase();
     this.children = [];
     this.className = "";
+    this.classList = {{
+      toggle: (name, force) => {{
+        const names = new Set(this.className.split(/\\s+/).filter(Boolean));
+        if (force === undefined ? !names.has(name) : force) names.add(name);
+        else names.delete(name);
+        this.className = [...names].join(" ");
+      }},
+      contains: (name) => this.className.split(/\\s+/).includes(name),
+    }};
     this.textContent = "";
     this.open = false;
     this.value = "";
@@ -1304,6 +1322,47 @@ renderLiarsDice(afterOpeningBid, {{
 }});
 assert.equal(afterOpeningBid.children.length, 1);
 
+const waitingState = {{
+  flow: {{phase: "awaiting_round_acknowledgement", round_number: 2}},
+  max_bid_quantity: 8,
+  current_bid: null,
+  pending_next_round: {{round_number: 3, starter_player_id: "ai-1"}},
+  last_round_result: {{
+    round: 2,
+    bid: {{quantity: 4, face: 5, bidder_player_id: "human-1"}},
+    actual_count: 3,
+    bid_holds: false,
+    loser_player_id: "human-1",
+    loser_remaining_dice: 3,
+    eliminated_player_id: null,
+    revealed_dice_by_player: {{"human-1": [5, 2, 1, 1], "ai-1": [6, 4, 3, 2]}},
+  }},
+}};
+const waitingBoard = new Element("div");
+renderLiarsDice(waitingBoard, waitingState);
+assert.equal(waitingBoard.children.length, 1);
+const settlement = waitingBoard.children[0];
+assert.equal(settlement.classList.contains("awaiting-acknowledgement"), true);
+assert.equal(settlement.children[0].textContent, "第 2 轮结算");
+assert.equal(settlement.children[1].textContent, "实际 3 个 5 点 · 叫点失败");
+assert.equal(settlement.children[2].textContent, "人类一号 -1 骰 · 剩余 3");
+const acknowledgement = settlement.children[3];
+assert.match(allText(acknowledgement), /确认后才会重新掷骰并开始下一轮/);
+const acknowledgementButton = acknowledgement.children[1];
+assert.equal(acknowledgementButton.textContent, "知道了，开始第 3 轮");
+assert.equal(settlement.children[4].tagName, "DETAILS");
+assert.equal(settlement.children[4].open, false);
+assert.equal(settlement.children[4].children[0].textContent, "查看本轮揭骰");
+assert.doesNotMatch(allText(waitingBoard), /本轮当前叫点|现在叫点/);
+
+const terminalBoard = new Element("div");
+renderLiarsDice(terminalBoard, {{
+  ...waitingState,
+  flow: {{phase: "finished", round_number: 2}},
+  pending_next_round: null,
+}});
+assert.doesNotMatch(allText(terminalBoard), /知道了，开始第/);
+
 (async () => {{
   humanTurn = true;
   room = {{
@@ -1344,6 +1403,20 @@ assert.equal(afterOpeningBid.children.length, 1);
     revision: 8,
   }});
   assert.equal(pendingMove, null);
+
+  room = {{
+    ...room,
+    revision: 20,
+    current_player_id: null,
+    current_actor: null,
+    board_state: waitingState,
+  }};
+  await acknowledgementButton.click();
+  assert.equal(requests.length, 3);
+  assert.deepEqual(JSON.parse(requests[2].options.body), {{
+    move: {{action: "acknowledge_round"}},
+    revision: 20,
+  }});
 }})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
 """
         self.run_node(harness)

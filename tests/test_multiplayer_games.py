@@ -13,6 +13,8 @@ from app import main as main_module
 from app.games import GAMES, game_catalog
 from app.games.dots_boxes import DotsBoxes
 from app.games.liars_dice import LiarsDice
+from app.npc_runtime import list_active_npc_turn_room_ids
+from app.npc_scheduler import is_system_npc_turn
 
 
 class RecordingRng:
@@ -351,8 +353,20 @@ class LiarsDiceTests(MultiplayerGameTestCase):
         room = framework.play_move(
             room["room_id"], "ai", "ai-1", {"action": "challenge"}
         )
-        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertIsNone(room["current_player_id"])
         self.assertEqual(room["board_state"]["dice_counts"]["human-1"], 0)
+        self.assertEqual(
+            room["board_state"]["flow"],
+            {
+                "phase": "awaiting_round_acknowledgement",
+                "round_number": 1,
+                "turn_number": 0,
+            },
+        )
+        self.assertEqual(
+            room["board_state"]["pending_next_round"],
+            {"round_number": 2, "starter_player_id": "ai-1"},
+        )
         eliminated = next(
             item for item in room["participants"] if item["player_id"] == "human-1"
         )
@@ -366,6 +380,14 @@ class LiarsDiceTests(MultiplayerGameTestCase):
         self.assertIn("人类一号 输掉 1 枚骰，剩余 0 枚，已淘汰", outcome["summary"])
         self.assertEqual(outcome["next_round_summary"], "第 2 轮 · 由 小机 1 开叫")
         self.assertNotIn("dice_by_player", public)
+
+        room = framework.acknowledge_liars_dice_round(
+            room["room_id"], "human-1", room["revision"]
+        )
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(room["board_state"]["flow"]["phase"], "bidding")
+        self.assertEqual(room["board_state"]["flow"]["round_number"], 2)
+        self.assertIsNone(room["board_state"]["pending_next_round"])
 
     def test_true_bid_costs_challenger_and_challenger_starts_next_round(self):
         room = self.create_liars(4)
@@ -386,17 +408,43 @@ class LiarsDiceTests(MultiplayerGameTestCase):
             room["room_id"], "ai", "ai-1", {"action": "challenge"}
         )
         state = room["board_state"]
-        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertIsNone(room["current_player_id"])
         self.assertEqual(state["dice_counts"]["ai-1"], 4)
         self.assertTrue(state["last_round_result"]["bid_holds"])
         self.assertEqual(state["last_round_result"]["round"], 1)
         self.assertEqual(
             state["last_round_result"]["revealed_dice_by_player"], previous_dice
         )
-        self.assertEqual(state["flow"]["round_number"], 2)
-        self.assertEqual(state["flow"]["phase"], "bidding")
+        self.assertEqual(state["flow"]["round_number"], 1)
+        self.assertEqual(
+            state["flow"]["phase"], "awaiting_round_acknowledgement"
+        )
         self.assertIsNone(state["current_bid"])
         self.assertEqual(state["round_actions"], [])
+        self.assertEqual(
+            state["pending_next_round"],
+            {"round_number": 2, "starter_player_id": "ai-1"},
+        )
+        self.assertEqual(state["dice_by_player"], previous_dice)
+        self.assertEqual(reroller.calls, 0)
+
+        refreshed = framework.get_room(room["room_id"])
+        self.assertIsNone(refreshed["current_player_id"])
+        self.assertEqual(
+            refreshed["board_state"]["flow"]["phase"],
+            "awaiting_round_acknowledgement",
+        )
+        self.assertEqual(refreshed["board_state"]["dice_by_player"], previous_dice)
+
+        acknowledgement_revision = room["revision"]
+        room = framework.acknowledge_liars_dice_round(
+            room["room_id"], "human-1", acknowledgement_revision
+        )
+        state = room["board_state"]
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(state["flow"]["round_number"], 2)
+        self.assertEqual(state["flow"]["phase"], "bidding")
+        self.assertIsNone(state["pending_next_round"])
 
         self.assertEqual(reroller.calls, 19)
         for player_id, count in state["dice_counts"].items():
@@ -414,6 +462,55 @@ class LiarsDiceTests(MultiplayerGameTestCase):
                 view["board_state"]["last_round_result"]["revealed_dice_by_player"],
                 previous_dice,
             )
+        with self.assertRaisesRegex(framework.DuelError, "revision 已变化"):
+            framework.acknowledge_liars_dice_round(
+                room["room_id"], "human-1", acknowledgement_revision
+            )
+
+    def test_system_npc_cannot_act_until_human_acknowledges_settlement(self):
+        room = self.create_liars(3, npc_count=1)
+        room = self.configured_round(
+            room,
+            dice_counts={"human-1": 5, "ai-1": 5, "npc:test-1": 5},
+            dice_by_player={
+                "human-1": [2] * 5,
+                "ai-1": [3] * 5,
+                "npc:test-1": [4] * 5,
+            },
+            current_bid={
+                "quantity": 1,
+                "face": 3,
+                "bidder_player_id": "ai-1",
+            },
+            current_player_id="npc:test-1",
+        )
+        room = framework.play_move(
+            room["room_id"], "ai", "npc:test-1", {"action": "challenge"}
+        )
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(
+            room["board_state"]["pending_next_round"]["starter_player_id"],
+            "npc:test-1",
+        )
+        self.assertFalse(is_system_npc_turn(room))
+        self.assertNotIn(room["room_id"], list_active_npc_turn_room_ids())
+        npc = next(
+            item for item in room["participants"]
+            if item["player_id"] == "npc:test-1"
+        )
+        self.assertEqual(
+            self.game.npc_legal_actions(
+                deepcopy(room["board_state"]), npc, room["participants"]
+            ),
+            [],
+        )
+
+        room = framework.acknowledge_liars_dice_round(
+            room["room_id"], "human-1", room["revision"]
+        )
+        self.assertEqual(room["current_player_id"], "npc:test-1")
+        self.assertTrue(is_system_npc_turn(room))
+        self.assertIn(room["room_id"], list_active_npc_turn_room_ids())
 
     def terminal_six_state(self, room: dict) -> dict:
         state = deepcopy(room["board_state"])
@@ -457,6 +554,8 @@ class LiarsDiceTests(MultiplayerGameTestCase):
             expected_revision=room["revision"],
         )
         self.assertEqual(room["winner_player_id"], "ai-1")
+        self.assertEqual(room["board_state"]["flow"]["phase"], "finished")
+        self.assertIsNone(room["board_state"]["pending_next_round"])
         self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 218)
         self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 232)
 
@@ -480,6 +579,7 @@ class LiarsDiceTests(MultiplayerGameTestCase):
             room["room_id"], "human", "human-1", {"action": "challenge"}
         )
         self.assertEqual(room["winner_player_id"], "human-1")
+        self.assertIsNone(room["board_state"]["pending_next_round"])
         self.assertEqual(room["result"]["settlement_deltas"], {
             "human-1": 9, "ai-1": -3, "ai-2": -3, "ai-3": -3,
         })
@@ -687,6 +787,74 @@ class LiarsDiceMcpTests(unittest.IsolatedAsyncioTestCase):
             json={"action": "state", "player_id": "ai-1", "room_id": room["room_id"]},
         )
         self.assertNotIn("events", repeated.json())
+
+    async def test_only_authenticated_human_can_acknowledge_round_over_http(self):
+        room = framework.create_room(
+            "liars_dice", "human_first", "human", "human-1",
+            opponent_id="ai-1", ordered_participants=participants(3),
+        )
+        room = framework.play_move(
+            room["room_id"], "human", "human-1",
+            {"action": "bid", "quantity": 1, "face": 1},
+        )
+        room = framework.play_move(
+            room["room_id"], "ai", "ai-1",
+            {"action": "bid", "quantity": 1, "face": 2},
+        )
+        room = framework.play_move(
+            room["room_id"], "ai", "ai-2", {"action": "challenge"}
+        )
+        paused_revision = room["revision"]
+        self.assertIsNone(room["current_player_id"])
+
+        ai_attempt = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move",
+                "player_id": "ai-1",
+                "room_id": room["room_id"],
+                "revision": paused_revision,
+                "move": {"action": "acknowledge_round"},
+            },
+        )
+        self.assertEqual(ai_attempt.status_code, 409, ai_attempt.text)
+        self.assertEqual(framework.get_room(room["room_id"])["revision"], paused_revision)
+
+        refresh = await self.client.get(
+            f"/api/rooms/{room['room_id']}",
+            headers={"X-Duel-Human-Player": "human-1"},
+        )
+        self.assertEqual(refresh.status_code, 200, refresh.text)
+        refreshed_state = refresh.json()["room"]["board_state"]
+        self.assertEqual(
+            refreshed_state["flow"]["phase"],
+            "awaiting_round_acknowledgement",
+        )
+        self.assertEqual(refreshed_state["last_round_result"]["round"], 1)
+
+        acknowledgement = {
+            "player_id": "human-1",
+            "revision": paused_revision,
+            "move": {"action": "acknowledge_round"},
+        }
+        response = await self.client.post(
+            f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
+            json=acknowledgement,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        started = response.json()["room"]
+        self.assertEqual(started["revision"], paused_revision + 1)
+        self.assertEqual(started["board_state"]["flow"]["round_number"], 2)
+        self.assertEqual(started["board_state"]["flow"]["phase"], "bidding")
+
+        duplicate = await self.client.post(
+            f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
+            json=acknowledgement,
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertIn("revision 已变化", duplicate.json()["message"])
 
 
 if __name__ == "__main__":

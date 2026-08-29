@@ -24,8 +24,8 @@ class LiarsDice(GamePlugin):
         "叫点数量不得超过场上当前骰子总数。除首叫外可以质疑上一手。质疑后公开本轮"
         "全部骰子：实际数量达到叫点，质疑者失去一枚骰；否则上一位叫点者失去一枚。"
         "失去全部骰子即淘汰；失骰者仍存活则由其开启下一轮，否则由其后下一位存活者"
-        "开启。最后一人获胜。质疑、揭骰、减骰、淘汰与下一轮重掷在一次权威动作中"
-        "原子完成，公开区会保留上一轮结果。"
+        "开启。最后一人获胜。质疑、揭骰、减骰与淘汰会原子结算；非终局时等待人类"
+        "确认结算后才重掷并开始下一轮，公开区会保留上一轮结果。"
     )
     move_format = (
         '叫点：{"move":{"action":"bid","quantity":3,"face":4},"revision":当前版本}；'
@@ -48,6 +48,7 @@ class LiarsDice(GamePlugin):
             "action_history": [],
             "eliminated_player_ids": [],
             "last_round_result": None,
+            "pending_next_round": None,
             "winner_player_id": None,
         }
         ensure_flow(state, phase="bidding")
@@ -239,6 +240,7 @@ class LiarsDice(GamePlugin):
         if len(active_ids) == 1:
             winner = active_ids[0]
             flow["phase"] = "finished"
+            state["pending_next_round"] = None
             state["winner_player_id"] = winner
             return MoveResult(
                 state=state,
@@ -248,20 +250,52 @@ class LiarsDice(GamePlugin):
             )
 
         starter = loser if loser_remaining > 0 else self._next_survivor_after(state, loser)
-        for player_id in state["participant_order"]:
-            count = state["dice_counts"][player_id]
-            state["dice_by_player"][player_id] = self._roll(count) if count else []
-        advance_flow(state, phase="bidding", next_round=True)
-        result["next_round"] = flow["round_number"]
+        next_round = flow["round_number"] + 1
+        result["next_round"] = next_round
         result["next_starter_player_id"] = starter
+        flow["phase"] = "awaiting_round_acknowledgement"
+        state["pending_next_round"] = {
+            "round_number": next_round,
+            "starter_player_id": starter,
+        }
         return MoveResult(
             state=state,
-            next_player_id=starter,
+            pause_turn=True,
             participant_activity=activity,
             note=(
                 f"质疑结算：实际有 {actual_count} 个 {bid['face']} 点；"
-                f"{loser} 失去 1 枚骰，下一轮开始。"
+                f"{loser} 失去 1 枚骰，等待人类确认下一轮。"
             ),
+        )
+
+    def acknowledge_round(self, state: dict[str, Any]) -> MoveResult:
+        flow = state.get("flow")
+        if not isinstance(flow, dict) or flow.get("phase") != "awaiting_round_acknowledgement":
+            raise ValueError("当前没有等待确认的轮次结算")
+        pending = state.get("pending_next_round")
+        if not isinstance(pending, dict):
+            raise ValueError("下一轮信息缺失")
+        next_round = pending.get("round_number")
+        starter = pending.get("starter_player_id")
+        if (
+            isinstance(next_round, bool)
+            or not isinstance(next_round, int)
+            or next_round != int(flow.get("round_number", 0)) + 1
+        ):
+            raise ValueError("下一轮编号无效")
+        if starter not in self._active_ids(state):
+            raise ValueError("下一轮首位行动者无效")
+        for player_id in state["participant_order"]:
+            count = state["dice_counts"][player_id]
+            state["dice_by_player"][player_id] = self._roll(count) if count else []
+        state["current_bid"] = None
+        state["round_actions"] = []
+        state["pending_next_round"] = None
+        advance_flow(state, phase="bidding", next_round=True)
+        return MoveResult(
+            state=state,
+            next_player_id=str(starter),
+            note=f"已确认结算，第 {next_round} 轮开始。",
         )
 
     def apply_action(
@@ -395,6 +429,7 @@ class LiarsDice(GamePlugin):
             "current_bid": deepcopy(state.get("current_bid")),
             "eliminated_player_ids": list(state.get("eliminated_player_ids", [])),
             "last_round_result": deepcopy(state.get("last_round_result")),
+            "pending_next_round": deepcopy(state.get("pending_next_round")),
             "last_action_note": state.get("last_action_note", ""),
         }
 
@@ -445,6 +480,8 @@ class LiarsDice(GamePlugin):
         participants: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         del actor, participants
+        if state.get("flow", {}).get("phase") != "bidding":
+            return []
         current = state.get("current_bid")
         max_quantity = sum(state["dice_counts"].values())
         actions = [

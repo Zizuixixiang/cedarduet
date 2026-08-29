@@ -282,6 +282,12 @@ function roomTurnText(targetRoom) {
     return targetRoom.status === "archived" ? "对局已归档" : "对局已结束";
   }
   if (targetRoom.status === "pending") return "等待对方确认";
+  if (
+    targetRoom.game_type === "liars_dice"
+    && targetRoom.board_state
+    && targetRoom.board_state.flow
+    && targetRoom.board_state.flow.phase === "awaiting_round_acknowledgement"
+  ) return "本轮已结算 · 等待你确认下一轮";
   return turnLabel(
     targetRoom.turn, targetRoom.ai_player_id, targetRoom.current_actor
   );
@@ -1621,6 +1627,86 @@ function renderLiarsDice(board, state) {
     && Number.isInteger(roundNumber)
     && outcome.round < roundNumber
   );
+  const awaitingRoundAcknowledgement = (
+    flow.phase === "awaiting_round_acknowledgement"
+  );
+  let result = null;
+  if (outcome) {
+    result = document.createElement("section");
+    result.className = isHistoricalResult
+      ? "liars-round-result liars-previous-round"
+      : "liars-round-result";
+    result.classList.toggle(
+      "awaiting-acknowledgement", awaitingRoundAcknowledgement
+    );
+    result.ariaLabel = awaitingRoundAcknowledgement
+      ? "本轮结算，等待确认下一轮"
+      : (isHistoricalResult ? "上一轮结算" : "本轮结算");
+    const title = document.createElement("strong");
+    title.className = "liars-result-title";
+    title.textContent = `第 ${outcome.round} 轮结算`;
+    const loser = participantByPlayerId(outcome.loser_player_id);
+    const loserName = (loser && loser.display_name) || outcome.loser_player_id;
+    const eliminated = outcome.eliminated_player_id === outcome.loser_player_id
+      || outcome.loser_remaining_dice === 0;
+    const outcomeLine = document.createElement("p");
+    outcomeLine.className = "liars-result-line liars-result-outcome";
+    outcomeLine.textContent = (
+      `实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点`
+      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}`
+    );
+    const lossLine = document.createElement("p");
+    lossLine.className = "liars-result-line liars-result-loss";
+    lossLine.textContent = (
+      `${loserName} -1 骰`
+      + ` · ${eliminated ? "已淘汰" : `剩余 ${outcome.loser_remaining_dice}`}`
+    );
+    result.append(title, outcomeLine, lossLine);
+
+    if (awaitingRoundAcknowledgement) {
+      const pending = state.pending_next_round || {};
+      const nextRound = Number.isInteger(pending.round_number)
+        ? pending.round_number
+        : Number(roundNumber) + 1;
+      const acknowledgement = document.createElement("div");
+      acknowledgement.className = "liars-round-acknowledgement";
+      const prompt = document.createElement("p");
+      prompt.textContent = "本轮已结算。确认后才会重新掷骰并开始下一轮。";
+      const acknowledgeButton = document.createElement("button");
+      acknowledgeButton.type = "button";
+      acknowledgeButton.className = "pixel-btn";
+      acknowledgeButton.textContent = `知道了，开始第 ${nextRound} 轮`;
+      acknowledgeButton.addEventListener("click", async () => {
+        acknowledgeButton.disabled = true;
+        await acknowledgeLiarsRound(acknowledgeButton);
+      });
+      acknowledgement.append(prompt, acknowledgeButton);
+      result.appendChild(acknowledgement);
+    }
+
+    const reveal = document.createElement("details");
+    reveal.className = "liars-reveal-details";
+    const revealToggle = document.createElement("summary");
+    revealToggle.textContent = isHistoricalResult
+      ? "查看上一轮揭骰"
+      : "查看本轮揭骰";
+    reveal.appendChild(revealToggle);
+    const diceList = document.createElement("div");
+    diceList.className = "liars-revealed-dice";
+    Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
+      const row = document.createElement("span");
+      const participant = participantByPlayerId(playerId);
+      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "无骰"}`;
+      diceList.appendChild(row);
+    });
+    reveal.appendChild(diceList);
+    result.appendChild(reveal);
+  }
+  if (awaitingRoundAcknowledgement) {
+    if (result) board.appendChild(result);
+    return;
+  }
+
   const currentRound = document.createElement("section");
   currentRound.className = "liars-current-round";
   currentRound.ariaLabel = Number.isInteger(roundNumber)
@@ -1748,44 +1834,7 @@ function renderLiarsDice(board, state) {
   controls.append(quantityLabel, faceLabel, chooseBid, challenge);
   currentRound.appendChild(controls);
   board.appendChild(currentRound);
-
-  if (liarsRoundResultIsVisible(state)) {
-    const result = document.createElement("section");
-    result.className = `liars-round-result${
-      isHistoricalResult ? " liars-previous-round" : ""
-    }`;
-    result.ariaLabel = isHistoricalResult ? "上一轮结算" : "本轮结算";
-    const title = document.createElement("strong");
-    title.className = "liars-result-title";
-    title.textContent = `第 ${outcome.round} 轮结算`;
-
-    const resultLines = liarsRoundResultLines(outcome);
-    const outcomeLine = document.createElement("p");
-    outcomeLine.className = "liars-result-line liars-result-outcome";
-    outcomeLine.textContent = resultLines.outcome;
-    const lossLine = document.createElement("p");
-    lossLine.className = "liars-result-line liars-result-loss";
-    lossLine.textContent = resultLines.loss;    result.append(title, outcomeLine, lossLine);
-
-    const reveal = document.createElement("details");
-    reveal.className = "liars-reveal-details";
-    const revealToggle = document.createElement("summary");
-    revealToggle.textContent = isHistoricalResult
-      ? "查看上一轮揭骰"
-      : "查看本轮揭骰";
-    reveal.appendChild(revealToggle);
-    const diceList = document.createElement("div");
-    diceList.className = "liars-revealed-dice";
-    Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
-      const row = document.createElement("span");
-      const participant = participantByPlayerId(playerId);
-      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "无骰"}`;
-      diceList.appendChild(row);
-    });
-    reveal.appendChild(diceList);
-    result.appendChild(reveal);
-    board.appendChild(result);
-  }
+  if (result) board.appendChild(result);
 }
 
 function latestMoveEvent(timeline = []) {
@@ -2392,6 +2441,31 @@ async function submitMove(movePayload) {
   } catch (error) {
     showNotice(error.message, true);
     updateMoveConfirmation();
+    return false;
+  }
+}
+
+async function acknowledgeLiarsRound(button) {
+  if (
+    !room
+    || room.game_type !== "liars_dice"
+    || !room.board_state
+    || !room.board_state.flow
+    || room.board_state.flow.phase !== "awaiting_round_acknowledgement"
+  ) return false;
+  try {
+    const data = await request(`/api/rooms/${room.room_id}/move`, {
+      method: "POST",
+      body: JSON.stringify({
+        move: {action: "acknowledge_round"},
+        revision: room.revision,
+      }),
+    });
+    renderGame(data.room, data.message, data.timeline);
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    if (button) button.disabled = false;
     return false;
   }
 }

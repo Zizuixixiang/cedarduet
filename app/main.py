@@ -17,6 +17,7 @@ from .database import init_db
 from .framework import (
     DuelError,
     claim_mcp_bootstrap,
+    acknowledge_liars_dice_round,
     create_room,
     delete_terminal_room,
     get_room,
@@ -1113,7 +1114,7 @@ async def human_state(
 
 
 @app.post("/api/rooms/{room_id}/move")
-async def human_move(room_id: str, body: MoveBody):
+async def human_move(room_id: str, request: Request, body: MoveBody):
     move = body.move
     if move is None:
         move = {
@@ -1130,20 +1131,34 @@ async def human_move(room_id: str, body: MoveBody):
             if value is not None
         }
     require(move, "move 动作需要 move 对象或对应坐标字段")
-    room = play_move(
-        room_id,
-        "human",
-        body.player_id,
-        move,
-        opponent_id=body.opponent_id,
-        message=body.message,
-        expected_revision=body.revision,
-    )
+    if move == {"action": "acknowledge_round"}:
+        human_player_id = trusted_human_player(request)
+        if body.player_id != human_player_id:
+            raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
+        room = acknowledge_liars_dice_round(
+            room_id,
+            human_player_id,
+            body.revision,
+        )
+        success_message = "已确认本轮结算，下一轮现在开始。"
+        viewer_player_id = human_player_id
+    else:
+        room = play_move(
+            room_id,
+            "human",
+            body.player_id,
+            move,
+            opponent_id=body.opponent_id,
+            message=body.message,
+            expected_revision=body.revision,
+        )
+        success_message = "人类落子成功，已通知等待中的 AI。"
+        viewer_player_id = body.player_id
     revision_events.notify(room["room_id"])
     await _schedule_current_system_npc(room)
     return human_response(
-        room, with_action_note("人类落子成功，已通知等待中的 AI。", room),
-        body.player_id,
+        room, with_action_note(success_message, room),
+        viewer_player_id,
     )
 
 
