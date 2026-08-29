@@ -12,6 +12,7 @@ from .jungle import Jungle
 from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
+from .train_cards import TrainCards
 from .uno import Uno
 from .xiangqi import Xiangqi
 from .yahtzee import Yahtzee
@@ -23,6 +24,7 @@ GAMES = {
     Banqi.game_type: Banqi(),
     Blackjack.game_type: Blackjack(),
     TicTacToe.game_type: TicTacToe(),
+    TrainCards.game_type: TrainCards(),
     Gomoku.game_type: Gomoku(),
     Gandengyan.game_type: Gandengyan(),
     Othello.game_type: Othello(),
@@ -64,6 +66,7 @@ def game_catalog() -> list[dict]:
             "allowed_player_counts": list(counts),
             "recommended_players": plugin.resolved_recommended_players(),
             "supports_npcs": plugin.supports_npcs,
+            "uses_local_npc_strategy": plugin.uses_local_npc_strategy,
             "supports_stakes": plugin.supports_stakes,
             "supports_multiplayer_stakes": plugin.supports_multiplayer_stakes,
         })

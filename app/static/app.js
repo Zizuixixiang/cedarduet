@@ -1001,13 +1001,15 @@ function selectedGameRequirement() {
     : null;
   const allowedPlayerCounts = allowedPlayerCountsForGame(declared);
   const providerAvailable = Boolean(identity && identity.npc_provider && identity.npc_provider.available);
+  const localNpcStrategy = Boolean(declared && declared.uses_local_npc_strategy);
   return {
     minPlayers: allowedPlayerCounts[0] || 2,
     maxPlayers: allowedPlayerCounts[allowedPlayerCounts.length - 1] || 2,
     allowedPlayerCounts,
     recommendedPlayers: declared ? declared.recommended_players : 2,
     supportsNpcs: Boolean(declared && declared.supports_npcs),
-    npcAvailable: providerAvailable,
+    npcAvailable: providerAvailable || localNpcStrategy,
+    localNpcStrategy,
   };
 }
 
@@ -1029,6 +1031,7 @@ function configureParticipantPicker() {
   const select = $("aiPlayer");
   const {
     maxPlayers, allowedPlayerCounts, recommendedPlayers, supportsNpcs, npcAvailable,
+    localNpcStrategy,
   } = selectedGameRequirement();
   const multiplayer = maxPlayers > 2;
   const selected = selectedParticipantIds();
@@ -1061,7 +1064,9 @@ function configureParticipantPicker() {
     if (!supportsNpcs || !npcAvailable) $("fillWithNpcs").checked = false;
     $("npcProviderHint").textContent = !supportsNpcs
       ? "该游戏不提供 NPC 补位"
-      : (!npcAvailable ? "部署者尚未配置 NPC 通道" : "每桌最多补入 4 名 NPC");
+      : (!npcAvailable
+        ? "部署者尚未配置 NPC 通道"
+        : (localNpcStrategy ? "本游戏 NPC 使用本地规则策略" : "每桌最多补入 4 名 NPC"));
   }
   picker.dataset.selectionMode = multiplayer ? "multiple" : "single";
   $("aiSingleField").classList.toggle("hidden", multiplayer);
