@@ -6,7 +6,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import database
-from app.framework import DuelError, create_room, play_move, project_room_for_viewer
+from app.framework import (
+    DuelError,
+    create_room,
+    get_room,
+    list_timeline,
+    play_move,
+    project_room_for_viewer,
+)
 from app.games import GAMES, game_catalog
 from app.games.checkers import Checkers
 
@@ -32,6 +39,7 @@ class CheckersRuleTests(unittest.TestCase):
         state.pop("terminal_reason", None)
         self.game._sync_turn(state, turn)
         self.game._update_counts(state)
+        self.game._reset_draw_tracking(state)
         return state
 
     def test_initial_position_is_8x8_dark_squares_with_twelve_each(self):
@@ -54,6 +62,15 @@ class CheckersRuleTests(unittest.TestCase):
                     self.assertEqual(piece, "O:m")
                 elif row >= 5:
                     self.assertEqual(piece, "X:m")
+
+    def test_player_rules_explain_both_wcfd_automatic_draws(self):
+        rules = self.game.rules_text
+        self.assertIn("【胜负】", rules)
+        self.assertIn("局面第三次出现", rules)
+        self.assertIn("双方各自此前连续 40 手", rules)
+        self.assertIn("王棋的普通移动不会中断", rules)
+        for internal_name in ("draw_tracking", "position_counts", "schema"):
+            self.assertNotIn(internal_name, rules)
 
     def test_men_move_only_forward_and_coordinates_are_strict(self):
         state = self.position({(5, 0): "X:m", (0, 1): "O:m"})
@@ -261,6 +278,154 @@ class CheckersRuleTests(unittest.TestCase):
         for hidden_key in ("private_state", "dice_by_player", "hands_by_player"):
             self.assertNotIn(hidden_key, serialized)
 
+    def test_repetition_draws_on_third_occurrence_not_second(self):
+        state = self.position({(5, 0): "X:k", (2, 7): "O:k"})
+        cycle = (
+            ("X", (5, 0, 4, 1)),
+            ("O", (2, 7, 3, 6)),
+            ("X", (4, 1, 5, 0)),
+            ("O", (3, 6, 2, 7)),
+        )
+
+        for mark, coords in cycle:
+            from_row, from_col, to_row, to_col = coords
+            result = self.game.apply_move(state, {
+                "from_row": from_row,
+                "from_col": from_col,
+                "to_row": to_row,
+                "to_col": to_col,
+            }, mark)
+        initial_key = self.game._position_key(state)
+        self.assertEqual(
+            state["draw_tracking"]["position_counts"][initial_key], 2
+        )
+        self.assertIsNone(self.game.check_winner(state))
+        self.assertNotIn("draw_reason", state)
+
+        for mark, coords in cycle:
+            from_row, from_col, to_row, to_col = coords
+            result = self.game.apply_move(state, {
+                "from_row": from_row,
+                "from_col": from_col,
+                "to_row": to_row,
+                "to_col": to_col,
+            }, mark)
+        self.assertEqual(
+            state["draw_tracking"]["position_counts"][initial_key], 3
+        )
+        self.assertEqual(state["draw_reason"], "threefold_repetition")
+        self.assertEqual(state["terminal_reason"], "threefold_repetition")
+        self.assertEqual(self.game.check_winner(state), "draw")
+        self.assertIn("第三次", result.note)
+
+    def test_position_key_covers_turn_rank_and_forced_jump_state(self):
+        state = self.position({(5, 0): "X:k", (2, 7): "O:k"})
+        base_key = self.game._position_key(state)
+
+        other_turn = deepcopy(state)
+        other_turn["turn_mark"] = "O"
+        self.assertNotEqual(self.game._position_key(other_turn), base_key)
+
+        other_rank = deepcopy(state)
+        other_rank["board"][5][0] = "X:m"
+        self.assertNotEqual(self.game._position_key(other_rank), base_key)
+
+        forced = deepcopy(state)
+        forced["forced_piece"] = {"row": 5, "col": 0}
+        forced["captured_during_turn"] = [
+            {"row": 4, "col": 1, "piece": "O:m"}
+        ]
+        self.assertNotEqual(self.game._position_key(forced), base_key)
+
+    def test_both_players_reaching_forty_quiet_king_moves_draws(self):
+        state = self.position({(5, 0): "X:k", (2, 7): "O:k"})
+        state["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        result = self.game.apply_move(state, {
+            "from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1,
+        }, "X")
+
+        self.assertEqual(
+            state["draw_tracking"]["no_progress_moves"], {"X": 40, "O": 40}
+        )
+        self.assertEqual(state["draw_reason"], "forty_move_rule")
+        self.assertEqual(self.game.check_winner(state), "draw")
+        self.assertIn("40 手", result.note)
+
+    def test_man_advance_and_promotion_reset_only_the_movers_counter(self):
+        ordinary = self.position({(5, 0): "X:m", (2, 7): "O:k"})
+        ordinary["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        self.game.apply_move(ordinary, {
+            "from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1,
+        }, "X")
+        self.assertEqual(
+            ordinary["draw_tracking"]["no_progress_moves"], {"X": 0, "O": 40}
+        )
+        self.assertIsNone(self.game.check_winner(ordinary))
+
+        promotion = self.position({(1, 2): "X:m", (2, 7): "O:k"})
+        promotion["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        self.game.apply_move(promotion, {
+            "from_row": 1, "from_col": 2, "to_row": 0, "to_col": 1,
+        }, "X")
+        self.assertEqual(promotion["board"][0][1], "X:k")
+        self.assertEqual(
+            promotion["draw_tracking"]["no_progress_moves"], {"X": 0, "O": 40}
+        )
+        self.assertIsNone(self.game.check_winner(promotion))
+
+    def test_capture_resets_the_movers_no_progress_counter(self):
+        state = self.position({
+            (5, 0): "X:k", (4, 1): "O:m", (0, 7): "O:k",
+        })
+        state["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        self.game.apply_move(state, {
+            "from_row": 5, "from_col": 0, "to_row": 3, "to_col": 2,
+        }, "X")
+        self.assertEqual(
+            state["draw_tracking"]["no_progress_moves"], {"X": 0, "O": 40}
+        )
+        self.assertIsNone(self.game.check_winner(state))
+
+    def test_multi_jump_settles_draw_tracking_only_after_complete_turn(self):
+        state = self.position({
+            (6, 1): "X:k", (5, 2): "O:m", (3, 4): "O:m",
+            (0, 7): "O:k",
+        })
+        state["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        before = deepcopy(state["draw_tracking"])
+
+        first = self.game.apply_move(state, {
+            "from_row": 6, "from_col": 1, "to_row": 4, "to_col": 3,
+        }, "X")
+        self.assertTrue(first.retain_turn)
+        self.assertEqual(state["draw_tracking"], before)
+        self.assertIsNone(self.game.check_winner(state))
+
+        restored = json.loads(json.dumps(state, ensure_ascii=False))
+        second = self.game.apply_move(restored, {
+            "from_row": 4, "from_col": 3, "to_row": 2, "to_col": 5,
+        }, "X")
+        self.assertFalse(second.retain_turn)
+        self.assertEqual(
+            restored["draw_tracking"]["no_progress_moves"],
+            {"X": 0, "O": 40},
+        )
+        self.assertEqual(
+            sum(restored["draw_tracking"]["position_counts"].values()), 2
+        )
+        self.assertIsNone(self.game.check_winner(restored))
+
+    def test_win_takes_priority_over_forty_move_draw_threshold(self):
+        state = self.position({(5, 0): "X:k", (7, 0): "O:m"})
+        state["draw_tracking"]["no_progress_moves"] = {"X": 39, "O": 40}
+        self.game.apply_move(state, {
+            "from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1,
+        }, "X")
+
+        self.assertEqual(self.game.check_winner(state), "X")
+        self.assertEqual(state["terminal_reason"], "no_legal_moves")
+        self.assertNotIn("draw_reason", state)
+
 
 class CheckersFrameworkTests(unittest.TestCase):
     def setUp(self):
@@ -287,6 +452,7 @@ class CheckersFrameworkTests(unittest.TestCase):
         state["captured_during_turn"] = []
         self.game._sync_turn(state, "X")
         self.game._update_counts(state)
+        self.game._reset_draw_tracking(state)
         conn = database.connect()
         try:
             conn.execute(
@@ -350,6 +516,76 @@ class CheckersFrameworkTests(unittest.TestCase):
         self.assertEqual(human["private_state"], {})
         self.assertEqual(ai["private_state"], {})
         self.assertEqual(len(human["board_state"]["legal_moves"]), 7)
+
+    def test_repetition_survives_database_reload_and_uses_result_event_flow(self):
+        room = create_room(
+            "checkers", "human_first", "human", "human-draw", "ai-draw"
+        )
+        self.install_position(room, {(5, 0): "X:k", (2, 7): "O:k"})
+        cycle = (
+            ("human", "human-draw", (5, 0, 4, 1)),
+            ("ai", "ai-draw", (2, 7, 3, 6)),
+            ("human", "human-draw", (4, 1, 5, 0)),
+            ("ai", "ai-draw", (3, 6, 2, 7)),
+        )
+
+        for revision, (role, player_id, coords) in enumerate(cycle):
+            from_row, from_col, to_row, to_col = coords
+            room = play_move(
+                room["room_id"], role, player_id,
+                {
+                    "from_row": from_row,
+                    "from_col": from_col,
+                    "to_row": to_row,
+                    "to_col": to_col,
+                },
+                expected_revision=revision,
+            )
+        self.assertEqual(room["status"], "playing")
+        restored = get_room(room["room_id"], "human", "human-draw")
+        restored_key = self.game._position_key(restored["board_state"])
+        self.assertEqual(
+            restored["board_state"]["draw_tracking"]["position_counts"][
+                restored_key
+            ],
+            2,
+        )
+        self.assertEqual(
+            restored["board_state"]["draw_tracking"]["no_progress_moves"],
+            {"X": 2, "O": 2},
+        )
+
+        for offset, (role, player_id, coords) in enumerate(cycle, start=4):
+            from_row, from_col, to_row, to_col = coords
+            room = play_move(
+                room["room_id"], role, player_id,
+                {
+                    "from_row": from_row,
+                    "from_col": from_col,
+                    "to_row": to_row,
+                    "to_col": to_col,
+                },
+                expected_revision=offset,
+            )
+            if offset < 7:
+                self.assertEqual(room["status"], "playing")
+
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["winner"], "draw")
+        self.assertEqual(room["result"], {"draw": True})
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(
+            room["board_state"]["terminal_reason"], "threefold_repetition"
+        )
+        result_events = [
+            event
+            for event in list_timeline(
+                room["room_id"], viewer_player_id="human-draw"
+            )
+            if event["event_type"] == "result"
+        ]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0]["text"], "和棋")
 
 
 if __name__ == "__main__":

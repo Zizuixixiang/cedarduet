@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from typing import Any
 
@@ -27,7 +28,9 @@ class Checkers(GamePlugin):
         "- 一次跳吃后同一枚棋若仍可吃，必须继续跳吃。\n"
         "- 普通棋到达对方底线立即升王，并按 English draughts 规则结束该手；新王要到下一回合才能继续行动。\n\n"
         "【胜负】\n"
-        "使对方无棋或无合法行动者获胜。"
+        "使对方无棋或无合法行动者获胜。以下情况自动判和：\n"
+        "- 棋子位置、普通棋/王棋身份与轮到的一方都相同的局面第三次出现。\n"
+        "- 双方各自此前连续 40 手都没有把普通棋向升王线推进，也都没有吃子；王棋的普通移动不会中断这项计数。"
     )
     move_format = (
         '每次移动或多跳中的每一跳都提交真实零起始坐标：{"move":{"from_row":5,'
@@ -64,6 +67,7 @@ class Checkers(GamePlugin):
         }
         self._sync_turn(state, "X")
         self._update_counts(state)
+        self._reset_draw_tracking(state)
         return state
 
     @staticmethod
@@ -257,6 +261,152 @@ class Checkers(GamePlugin):
         state["piece_counts"] = counts
         state["king_counts"] = kings
 
+    def _position_key(self, state: dict[str, Any]) -> str:
+        """Return every rule-relevant component of a checkers position.
+
+        Draw counters and history are deliberately excluded: WCDF repetition
+        compares the position itself.  Forced-capture state is included even
+        though repetitions are recorded only after a complete turn, keeping
+        this canonical key correct for a state restored during a jump sequence.
+        """
+        symbols = {
+            None: ".",
+            "X:m": "x",
+            "X:k": "X",
+            "O:m": "o",
+            "O:k": "O",
+        }
+        board = state.get("board")
+        if (
+            not isinstance(board, list)
+            or len(board) != 8
+            or any(not isinstance(row, list) or len(row) != 8 for row in board)
+        ):
+            raise ValueError("西洋跳棋棋盘必须是 8×8 数组")
+        try:
+            board_key = "".join(symbols[value] for row in board for value in row)
+        except (KeyError, TypeError) as exc:
+            raise ValueError("棋盘包含无效棋子") from exc
+
+        turn_mark = state.get("turn_mark")
+        if turn_mark not in {"X", "O"}:
+            raise ValueError("服务端行棋方必须是 X 或 O")
+        forced = state.get("forced_piece")
+        if forced is None:
+            forced_key = None
+        elif isinstance(forced, dict):
+            row, col = forced.get("row"), forced.get("col")
+            if (
+                isinstance(row, bool)
+                or isinstance(col, bool)
+                or not isinstance(row, int)
+                or not isinstance(col, int)
+                or not (0 <= row < 8 and 0 <= col < 8)
+            ):
+                raise ValueError("连续吃子锁定坐标无效")
+            forced_key = [row, col]
+        else:
+            raise ValueError("连续吃子锁定状态无效")
+
+        captured_key = []
+        for item in state.get("captured_during_turn", []):
+            if not isinstance(item, dict):
+                raise ValueError("连续吃子记录无效")
+            row, col, piece = item.get("row"), item.get("col"), item.get("piece")
+            if (
+                isinstance(row, bool)
+                or isinstance(col, bool)
+                or not isinstance(row, int)
+                or not isinstance(col, int)
+                or not (0 <= row < 8 and 0 <= col < 8)
+            ):
+                raise ValueError("连续吃子记录坐标无效")
+            self._piece(piece)
+            captured_key.append([row, col, piece])
+        captured_key.sort(key=lambda item: (item[0], item[1], item[2]))
+        return json.dumps(
+            [board_key, turn_mark, forced_key, captured_key],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+
+    def _reset_draw_tracking(self, state: dict[str, Any]) -> None:
+        state["draw_tracking"] = {
+            "position_counts": {self._position_key(state): 1},
+            "no_progress_moves": {"X": 0, "O": 0},
+        }
+        state.pop("draw_reason", None)
+
+    def _ensure_draw_tracking(
+        self,
+        state: dict[str, Any],
+        *,
+        register_current: bool = True,
+    ) -> dict[str, Any]:
+        """Normalize persisted counters and safely bootstrap legacy rooms."""
+        raw = state.get("draw_tracking")
+        if not isinstance(raw, dict):
+            raw = {}
+        raw_counts = raw.get("position_counts")
+        raw_no_progress = raw.get("no_progress_moves")
+        valid_counts = isinstance(raw_counts, dict)
+        if valid_counts:
+            valid_counts = all(
+                isinstance(key, str)
+                and not isinstance(count, bool)
+                and isinstance(count, int)
+                and count >= 1
+                for key, count in raw_counts.items()
+            )
+        valid_no_progress = (
+            isinstance(raw_no_progress, dict)
+            and set(raw_no_progress) == {"X", "O"}
+            and all(
+                not isinstance(count, bool)
+                and isinstance(count, int)
+                and count >= 0
+                for count in raw_no_progress.values()
+            )
+        )
+        tracker = {
+            "position_counts": dict(raw_counts) if valid_counts else {},
+            "no_progress_moves": (
+                dict(raw_no_progress)
+                if valid_no_progress
+                else {"X": 0, "O": 0}
+            ),
+        }
+        # Old rooms do not have draw metadata.  Register their current complete
+        # position as the first known occurrence; a partial jump is not a turn
+        # boundary and therefore must never enter the repetition history.
+        if register_current and state.get("forced_piece") is None:
+            tracker["position_counts"].setdefault(self._position_key(state), 1)
+        state["draw_tracking"] = tracker
+        return tracker
+
+    def _complete_turn_draw_reason(
+        self,
+        state: dict[str, Any],
+        mark: str,
+        *,
+        moved_man: bool,
+        captured: bool,
+    ) -> str | None:
+        """Settle WCDF draw counters once, after a complete player turn."""
+        tracker = self._ensure_draw_tracking(state, register_current=False)
+        no_progress = tracker["no_progress_moves"]
+        no_progress[mark] = (
+            0 if moved_man or captured else no_progress[mark] + 1
+        )
+        key = self._position_key(state)
+        occurrences = tracker["position_counts"].get(key, 0) + 1
+        tracker["position_counts"][key] = occurrences
+        if occurrences >= 3:
+            return "threefold_repetition"
+        if all(no_progress[side] >= 40 for side in ("X", "O")):
+            return "forty_move_rule"
+        return None
+
     def _legal_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> tuple[int, int, int, int]:
@@ -290,6 +440,7 @@ class Checkers(GamePlugin):
     def apply_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> MoveResult:
+        self._ensure_draw_tracking(state)
         from_row, from_col, to_row, to_col = self._legal_move(state, move, mark)
         board = state["board"]
         original_piece = board[from_row][from_col]
@@ -361,6 +512,21 @@ class Checkers(GamePlugin):
             elif capture:
                 note = "跳吃完成。"
 
+            draw_reason = self._complete_turn_draw_reason(
+                state,
+                mark,
+                moved_man=original_kind == self._MAN,
+                captured=capture,
+            )
+            if "winner_mark" not in state and draw_reason is not None:
+                state["draw_reason"] = draw_reason
+                state["terminal_reason"] = draw_reason
+                note = (
+                    "同一局面第三次出现，和棋。"
+                    if draw_reason == "threefold_repetition"
+                    else "双方各自连续 40 手未推进普通棋且未吃子，和棋。"
+                )
+
         record: dict[str, Any] = {
             "from_row": from_row,
             "from_col": from_col,
@@ -382,6 +548,10 @@ class Checkers(GamePlugin):
         winner = state.get("winner_mark")
         if winner in {"X", "O"}:
             return winner
+        if state.get("draw_reason") in {
+            "threefold_repetition", "forty_move_rule"
+        }:
+            return "draw"
         turn_mark = state.get("turn_mark")
         if turn_mark not in {"X", "O"}:
             return None
@@ -404,7 +574,8 @@ class Checkers(GamePlugin):
         return (
             "8×8 English draughts，仅深色格。普通棋只向前斜走/跳，王可前后但不是飞王；"
             "有吃必吃，不要求最大吃子数。跳后仍可吃时必须用同一枚继续；跳到王线则升王并"
-            "立即结束该手。使对方无棋或无合法行动即胜。只能选择权威 legal_actions。"
+            "立即结束该手。使对方无棋或无合法行动即胜；同一局面第三次出现，或双方各自"
+            "连续 40 手都未推进普通棋且未吃子时和棋。只能选择权威 legal_actions。"
         )
 
     def npc_public_actions(
