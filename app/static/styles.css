@@ -1764,6 +1764,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   aspect-ratio: auto;
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 12px;
   color: var(--purple-darker);

@@ -296,6 +296,8 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertNotIn("dashed", result_style)
         self.assertIn("border: 1px solid var(--purple-light);", result_style)
         self.assertIn("align-self: start;", previous_style)
+        self.assertIn("grid-template-rows: none;", STYLES)
+        self.assertIn("grid-auto-rows: max-content;", STYLES)
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
