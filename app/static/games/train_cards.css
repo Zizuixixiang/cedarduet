@@ -1,0 +1,386 @@
+.board.train_cards {
+  width: min(100%, 880px);
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+}
+
+.train-cards-game,
+.train-cards-game * {
+  box-sizing: border-box;
+}
+
+.train-cards-game {
+  --rail-red: #9d3038;
+  --rail-dark: #253438;
+  --paper: #fffdf7;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  color: #293436;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.train-cards-header,
+.train-cards-title,
+.train-cards-metrics,
+.train-cards-controls {
+  display: flex;
+  align-items: center;
+}
+
+.train-cards-header {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px;
+}
+
+.train-cards-title {
+  min-width: 0;
+  gap: 8px;
+}
+
+.train-cards-title-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #773039;
+  border-radius: 9px 9px 5px 5px;
+  color: #fff8e8;
+  background: linear-gradient(145deg, #bd4650, #7d2730);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.17), 0 3px 8px rgba(58,35,37,.2);
+  font: 700 20px serif;
+}
+
+.train-cards-title strong {
+  overflow: hidden;
+  font: 700 clamp(18px, 4vw, 25px) serif;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.train-cards-metrics {
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.train-cards-metric {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid #d5cabc;
+  border-radius: 999px;
+  color: #675e53;
+  background: #fffaf1;
+  font-size: clamp(11px, 2.6vw, 14px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.train-cards-metric.active {
+  border-color: #8bb0a7;
+  color: #24594e;
+  background: #e9f5ef;
+}
+
+.train-cards-table {
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: clamp(14px, 3vw, 25px) clamp(9px, 2.4vw, 20px) clamp(22px, 4vw, 34px);
+  overflow: hidden;
+  border: clamp(5px, 1vw, 9px) solid #625149;
+  border-radius: clamp(17px, 4vw, 30px);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 36px, rgba(255,255,255,.04) 36px 39px),
+    radial-gradient(circle at 50% 25%, rgba(85,148,143,.35), transparent 46%),
+    linear-gradient(155deg, #356e69, #174844 52%, #0d302f);
+  box-shadow: inset 0 0 0 2px rgba(238,216,175,.23), inset 0 0 38px rgba(0,0,0,.24), 0 11px 27px rgba(37,50,48,.22);
+}
+
+.train-cards-table::before,
+.train-cards-table::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 13px;
+  left: 0;
+  height: 4px;
+  pointer-events: none;
+  background: #30393a;
+  box-shadow: 0 9px #30393a;
+}
+
+.train-cards-table::after {
+  bottom: 9px;
+  height: 14px;
+  background: repeating-linear-gradient(90deg, transparent 0 18px, #8d7464 18px 23px);
+  box-shadow: none;
+}
+
+.train-cards-status {
+  min-height: 30px;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 10px;
+  color: #f6ead1;
+  background: rgba(5,34,32,.48);
+  font-size: clamp(11px, 2.7vw, 14px);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.train-cards-track {
+  width: 100%;
+  min-width: 0;
+  min-height: 138px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 9px 12px 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scroll-padding-inline: 12px;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.train-cards-wagon {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.train-cards-wagon + .train-cards-wagon {
+  margin-left: clamp(-20px, -2.4vw, -10px);
+}
+
+.train-cards-wagon::after {
+  content: "";
+  width: 7px;
+  height: 3px;
+  position: absolute;
+  right: -4px;
+  bottom: 9px;
+  border-radius: 2px;
+  background: #b7a17e;
+}
+
+.train-card {
+  width: clamp(58px, 9.4vw, 76px);
+  height: clamp(88px, 14.2vw, 112px);
+  min-width: 58px;
+  min-height: 88px;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border: 1px solid #c8bead;
+  border-radius: clamp(7px, 1.4vw, 10px);
+  color: #202827;
+  background: linear-gradient(145deg, var(--paper), #eee8dc);
+  box-shadow: 0 5px 10px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.8);
+  font-family: Georgia, "Times New Roman", serif;
+  transform: rotate(calc((var(--wagon-index, 0) - 3) * .18deg));
+}
+
+.train-card.suit-hearts,
+.train-card.suit-diamonds,
+.train-card.joker {
+  color: #b52f3b;
+}
+
+.train-card-corner {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  display: grid;
+  justify-items: center;
+  line-height: .95;
+}
+
+.train-card-rank {
+  font-size: clamp(15px, 3vw, 21px);
+}
+
+.train-card-suit {
+  font-size: clamp(12px, 2.6vw, 18px);
+}
+
+.train-card-center {
+  position: absolute;
+  inset: 23% 8% 8%;
+  display: grid;
+  place-items: center;
+  font-size: clamp(27px, 5.8vw, 43px);
+  font-weight: 700;
+}
+
+.train-card.joker .train-card-center {
+  writing-mode: vertical-rl;
+  font-size: clamp(17px, 3.8vw, 25px);
+  letter-spacing: .1em;
+}
+
+.train-cards-empty {
+  width: 100%;
+  min-height: 78px;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border: 1px dashed rgba(255,255,255,.35);
+  border-radius: 12px;
+  color: #d8e6df;
+  font-size: 13px;
+}
+
+.train-cards-controls {
+  width: min(100%, 880px);
+  max-width: 100%;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6ccbd;
+  border-radius: 14px;
+  color: #35413f;
+  background: linear-gradient(145deg, #fffdf8, #f1eadf);
+  box-shadow: 0 6px 15px rgba(55,48,39,.12);
+}
+
+.train-cards-control-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.train-cards-control-copy strong,
+.train-cards-control-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.train-cards-control-copy strong {
+  font-size: 14px;
+}
+
+.train-cards-control-copy span {
+  color: #776c60;
+  font-size: 11px;
+}
+
+.train-cards-flip-button {
+  min-width: 112px;
+  min-height: 44px;
+  flex: 0 0 auto;
+  padding: 9px 17px;
+  border: 1px solid #7f2932;
+  border-radius: 11px;
+  color: #fffaf0;
+  background: linear-gradient(145deg, #bf4650, #872b34);
+  box-shadow: 0 3px 7px rgba(83,35,39,.2);
+  font: 700 14px system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.train-cards-flip-button:focus-visible {
+  outline: 3px solid #36766b;
+  outline-offset: 2px;
+}
+
+.train-cards-flip-button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+  box-shadow: none;
+}
+
+@media (max-width: 375px) {
+  .board.train_cards,
+  .train-cards-game,
+  .train-cards-controls {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .train-cards-header {
+    align-items: flex-start;
+  }
+
+  .train-cards-title-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .train-cards-metrics {
+    display: grid;
+    gap: 3px;
+  }
+
+  .train-cards-metric {
+    min-height: 25px;
+    padding: 3px 7px;
+  }
+
+  .train-cards-table {
+    padding-inline: 6px;
+    border-width: 5px;
+    border-radius: 19px;
+  }
+
+  .train-cards-track {
+    min-height: 124px;
+    padding-inline: 7px;
+  }
+
+  .train-cards-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .train-cards-flip-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 320px) {
+  .train-cards-status {
+    padding-inline: 6px;
+    font-size: 10px;
+  }
+
+  .train-cards-control-copy span {
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .train-card {
+    transform: none;
+  }
+}

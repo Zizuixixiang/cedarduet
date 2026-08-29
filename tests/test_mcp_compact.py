@@ -216,6 +216,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "tictactoe": "board",
             "gomoku": "board",
             "gandengyan": "current_trick",
+            "train_cards": "table_cards",
             "othello": "board",
             "connect4": "board",
             "checkers": "board",
@@ -277,6 +278,14 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 elif game_type == "gandengyan":
                     self.assertNotIn("cards", board)
                     self.assertIn("hand", snapshot["private_state"])
+                elif game_type == "train_cards":
+                    self.assertNotIn("cards", board)
+                    self.assertNotIn("participant_order", board)
+                    self.assertNotIn("seen_position_hashes", board)
+                    self.assertEqual(
+                        snapshot["private_state"],
+                        {"legal_actions": [{"action": "flip"}]},
+                    )
                 elif game_type == "liars_dice":
                     self.assertNotIn("dice_by_player", board)
                     self.assertIn("dice", snapshot["private_state"])

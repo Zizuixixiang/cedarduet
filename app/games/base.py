@@ -40,6 +40,9 @@ class GamePlugin(ABC):
     allowed_player_counts: tuple[int, ...] | None = None
     recommended_players: int = 2
     supports_npcs: bool = False
+    # Purely mechanical games can opt into an in-process policy so system NPCs
+    # never spend a model call merely to select an already-forced action.
+    uses_local_npc_strategy: bool = False
     supports_stakes: bool = False
     # Future multiplayer games must opt in separately and return explicit
     # ``MoveResult.settlement_deltas``; the framework never invents a payout.
@@ -201,6 +204,16 @@ class GamePlugin(ABC):
         """Return the authoritative legal moves for the current NPC actor."""
         del state, actor, participants
         return []
+
+    def choose_local_npc_action(
+        self,
+        state: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Choose one authoritative action without calling an NPC provider."""
+        del state, actor, participants
+        return None
 
     def settlement_deltas(
         self,

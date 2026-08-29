@@ -1092,7 +1092,7 @@ async def human_create(request: Request, body: CreateRoomBody):
         raise DuelError("每局最多补入 4 名 NPC")
     if npc_count and not game.supports_npcs:
         raise DuelError(f"{game.display_name}未启用 NPC 补位")
-    if npc_count:
+    if npc_count and not game.uses_local_npc_strategy:
         capability = npc_provider_capabilities()
         if not capability["available"]:
             raise DuelError(
@@ -1469,7 +1469,7 @@ async def _mcp_play_impl(body: McpPlayBody):
             raise DuelError("每局最多补入 4 名 NPC")
         if npc_count and not game.supports_npcs:
             raise DuelError(f"{game.display_name}未启用 NPC 补位")
-        if npc_count:
+        if npc_count and not game.uses_local_npc_strategy:
             capability = npc_provider_capabilities()
             if not capability["available"]:
                 raise DuelError(

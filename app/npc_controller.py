@@ -251,33 +251,58 @@ async def run_current_npc_turn(
     if not ticket.created:
         return NpcTurnResult("in_progress", "existing", None, None, None)
 
-    try:
-        request, action_map = _decision_request(room, npc_player_id)
-    except Exception as exc:
-        fail_npc_decision(ticket, str(exc))
-        raise
+    game = get_game(room["game_type"])
     selected: ProviderDecision | None = None
-    active_provider = provider or get_npc_provider()
-    if not ticket.stale_recovery:
-        for _attempt in range(2):
-            try:
-                candidate = await active_provider.decide(request)
-                if candidate.action_id not in action_map:
-                    raise ValueError("provider 选择了不属于权威列表的 action_id")
-                selected = candidate
-                break
-            except asyncio.CancelledError:
-                fail_npc_decision(ticket, "NPC decision cancelled")
-                raise
-            except Exception:
-                selected = None
-    if selected is None:
-        fallback_id = sorted(action_map)[0]
-        selected = ProviderDecision(fallback_id, None)
-        source = "fallback"
+    if game.uses_local_npc_strategy:
+        try:
+            actor_copy = deepcopy(actor)
+            participants = deepcopy(room["participants"])
+            state = deepcopy(room["board_state"])
+            legal_actions = game.npc_legal_actions(
+                deepcopy(state), deepcopy(actor_copy), deepcopy(participants)
+            )
+            action = game.choose_local_npc_action(
+                state, actor_copy, participants
+            )
+            if (
+                not isinstance(action, dict)
+                or action not in legal_actions
+                or not legal_actions
+            ):
+                raise ValueError("本地 NPC 策略必须选择权威 legal_actions 中的动作")
+            action_map = {_action_id(item): deepcopy(item) for item in legal_actions}
+            selected = ProviderDecision(_action_id(action), None)
+            source = "local"
+        except Exception as exc:
+            fail_npc_decision(ticket, str(exc))
+            raise
     else:
-        source = active_provider.name
-    action = action_map[selected.action_id]
+        try:
+            request, action_map = _decision_request(room, npc_player_id)
+        except Exception as exc:
+            fail_npc_decision(ticket, str(exc))
+            raise
+        active_provider = provider or get_npc_provider()
+        if not ticket.stale_recovery:
+            for _attempt in range(2):
+                try:
+                    candidate = await active_provider.decide(request)
+                    if candidate.action_id not in action_map:
+                        raise ValueError("provider 选择了不属于权威列表的 action_id")
+                    selected = candidate
+                    break
+                except asyncio.CancelledError:
+                    fail_npc_decision(ticket, "NPC decision cancelled")
+                    raise
+                except Exception:
+                    selected = None
+        if selected is None:
+            fallback_id = sorted(action_map)[0]
+            selected = ProviderDecision(fallback_id, None)
+            source = "fallback"
+        else:
+            source = active_provider.name
+        action = action_map[selected.action_id]
     completed = complete_npc_decision(
         ticket,
         action,
