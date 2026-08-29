@@ -2748,6 +2748,61 @@ function renderRetention(targetRoom) {
   syncResultPreservationChoice(targetRoom.preserved, !terminal);
 }
 
+function renderRulesText(value) {
+  const container = $("rulesText");
+  const fragment = document.createDocumentFragment();
+  const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+  let group = null;
+  let list = null;
+
+  const currentGroup = () => {
+    if (!group) {
+      group = document.createElement("div");
+      group.className = "rules-group";
+      fragment.appendChild(group);
+    }
+    return group;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      group = null;
+      list = null;
+      return;
+    }
+
+    const heading = line.match(/^【([^【】]+)】$/);
+    if (heading) {
+      const title = document.createElement("h3");
+      title.className = "rules-section-title";
+      title.textContent = heading[1].trim();
+      currentGroup().appendChild(title);
+      list = null;
+      return;
+    }
+
+    if (line.startsWith("- ")) {
+      if (!list) {
+        list = document.createElement("ul");
+        list.className = "rules-list";
+        currentGroup().appendChild(list);
+      }
+      const item = document.createElement("li");
+      item.textContent = line.slice(2).trim();
+      list.appendChild(item);
+      return;
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.textContent = line;
+    currentGroup().appendChild(paragraph);
+    list = null;
+  });
+
+  container.replaceChildren(fragment);
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
   const becameTerminal = Boolean(
     room
@@ -2790,7 +2845,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("roundMeta").classList.toggle("hidden", !roundText);
   $("roundSeparator").classList.toggle("hidden", !roundText);
   $("rulesTitle").textContent = `${room.game_name}规则`;
-  $("rulesText").textContent = room.rules_text;
+  renderRulesText(room.rules_text);
   $("resignButton").disabled = room.status !== "playing";
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
@@ -2919,11 +2974,17 @@ async function resign() {
 function openRules() {
   $("rulesScrim").classList.add("show");
   $("rulesScrim").setAttribute("aria-hidden", "false");
+  $("rulesButton").setAttribute("aria-expanded", "true");
+  $("rulesText").scrollTop = 0;
+  $("closeRulesButton").focus();
 }
 
 function closeRules() {
+  const wasOpen = $("rulesScrim").classList.contains("show");
   $("rulesScrim").classList.remove("show");
   $("rulesScrim").setAttribute("aria-hidden", "true");
+  $("rulesButton").setAttribute("aria-expanded", "false");
+  if (wasOpen) $("rulesButton").focus();
 }
 
 function openHistory() {

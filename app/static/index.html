@@ -180,7 +180,8 @@
             </div>
             <div class="game-toolbar-actions" aria-label="对局操作">
               <button id="refreshButton" class="pixel-btn secondary compact" type="button" aria-label="刷新局面">刷新</button>
-              <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
+              <button id="rulesButton" class="pixel-btn secondary compact" type="button"
+                      aria-expanded="false" aria-controls="rulesDrawer">规则</button>
               <button id="resignButton" class="pixel-btn danger compact" type="button">认输</button>
             </div>
           </div>
@@ -305,7 +306,8 @@
   </div>
 
   <div id="rulesScrim" class="drawer-scrim" aria-hidden="true">
-    <section class="rules-drawer" aria-labelledby="rulesTitle">
+    <section id="rulesDrawer" class="rules-drawer" role="dialog" aria-modal="true"
+             aria-labelledby="rulesTitle" aria-describedby="rulesGuide">
       <div class="drawer-head">
         <div>
           <span class="tag pink">RULE BOOK</span>
@@ -313,7 +315,8 @@
         </div>
         <button id="closeRulesButton" class="pixel-btn secondary drawer-close" type="button" aria-label="关闭规则">×</button>
       </div>
-      <p id="rulesText" class="rules-text"></p>
+      <p id="rulesGuide" class="rules-guide">建议先看目标，再看行动与特殊规则。</p>
+      <div id="rulesText" class="rules-content" tabindex="0" aria-label="规则正文"></div>
     </section>
   </div>
 

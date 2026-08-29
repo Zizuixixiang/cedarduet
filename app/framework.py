@@ -28,7 +28,8 @@ ABSOLUTE_MAX_PLAYERS = 6
 PARTICIPANT_KINDS = {"human", "bound_machine", "system_npc"}
 MAX_NPCS_PER_ROOM = 4
 GLOBAL_ROOM_CHAT_RULE = (
-    "小机聊天：message 不得主动逐项泄露自己的真实未公开手牌、骰子、暗子等私密状态；"
+    "【聊天说明】\n"
+    "小机聊天时不得主动逐项泄露自己的真实未公开手牌、骰子、暗子等私密状态；"
     "公开以系统结果为准，正常诈唬不受限。"
 )
 
@@ -80,7 +81,7 @@ def _room_rules_text(plugin_rules: str) -> str:
     rules = plugin_rules.rstrip()
     if GLOBAL_ROOM_CHAT_RULE in rules:
         return rules
-    separator = "\n" if rules else ""
+    separator = "\n\n" if rules else ""
     return f"{rules}{separator}{GLOBAL_ROOM_CHAT_RULE}"
 
 
