@@ -14,12 +14,13 @@ NODE = shutil.which("node")
 
 class BanqiFrontendStructureTests(unittest.TestCase):
     def test_banqi_uses_the_independent_renderer_extension(self):
-        self.assertIn("window.DuelGameUI = window.DuelGameUI ||", APP)
-        self.assertIn("extensionRenderer.renderBoard({", APP)
+        self.assertIn("registeredGameUIRenderer(room.game_type)", APP)
+        self.assertIn("loadCatalogGameRenderers(data.games || [])", APP)
         self.assertIn('window.DuelGameUI.register("banqi", {renderBoard});', BANQI)
         self.assertIn('value="banqi"', HTML)
-        self.assertIn('/static/games/banqi.js?v=0.1.0', HTML)
-        self.assertLess(HTML.index("/static/app.js"), HTML.index("/static/games/banqi.js"))
+        self.assertIn('/static/game_ui_registry.js?v=0.9.1', HTML)
+        self.assertNotIn('/static/games/banqi.js', HTML)
+        self.assertLess(HTML.index("/static/game_ui_registry.js"), HTML.index("/static/app.js"))
 
     def test_renderer_consumes_server_actions_and_never_names_a_hidden_piece(self):
         self.assertIn("state.legal_actions", BANQI)

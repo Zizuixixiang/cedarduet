@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 9)
+        self.assertEqual(len(payload["games"]), 12)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -144,7 +144,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "gomoku": "board",
                 "othello": "board",
                 "connect4": "board",
+                "banqi": "board",
                 "checkers": "board",
+                "chess": "board",
                 "dots_boxes": "board",
                 "liars_dice": "dice",
                 "yahtzee": "dice",
@@ -159,7 +161,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "gomoku": "五子棋",
                 "othello": "黑白棋",
                 "connect4": "四子连珠",
+                "banqi": "翻翻棋",
                 "checkers": "西洋跳棋",
+                "chess": "国际象棋",
                 "dots_boxes": "点格棋",
                 "liars_dice": "吹牛骰子",
                 "yahtzee": "快艇骰子",
@@ -259,7 +263,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "checkers", "dots_boxes", "jungle", "xiangqi",
+            "connect4", "banqi", "checkers", "chess", "dots_boxes", "jungle", "xiangqi",
         ):
             self.assertIn(f'value="{game_type}"', html)
         game_select = html[
@@ -280,12 +284,12 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             html,
         )
         self.assertNotIn("← 返回首页", html)
-        self.assertIn("/static/game_ui_registry.js?v=0.9.0", html)
-        self.assertIn("/static/app.js?v=0.9.0", html)
-        self.assertIn("/static/styles.css?v=0.9.0", html)
+        self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
+        self.assertIn("/static/app.js?v=0.9.1", html)
+        self.assertIn("/static/styles.css?v=0.9.1", html)
         self.assertLess(
-            html.index("/static/game_ui_registry.js?v=0.9.0"),
-            html.index("/static/app.js?v=0.9.0"),
+            html.index("/static/game_ui_registry.js?v=0.9.1"),
+            html.index("/static/app.js?v=0.9.1"),
         )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)

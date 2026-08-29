@@ -53,11 +53,10 @@ class CheckersFrontendStructureTests(unittest.TestCase):
             '<link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">',
             HTML,
         )
-        self.assertIn(
-            '<script src="/static/games/checkers.js?v=0.1.0"></script>', HTML
-        )
+        self.assertIn('/static/game_ui_registry.js?v=0.9.1', HTML)
+        self.assertNotIn('/static/games/checkers.js', HTML)
         self.assertIn('<option value="checkers">西洋跳棋 / 2人</option>', HTML)
-        self.assertLess(HTML.index("checkers.js"), HTML.index("app.js"))
+        self.assertLess(HTML.index("/static/game_ui_registry.js"), HTML.index("/static/app.js"))
 
     @unittest.skipUnless(NODE, "node is required for renderer DOM behavior test")
     def test_renderer_builds_64_cells_rotates_coordinates_and_submits_only_legal_action(self):

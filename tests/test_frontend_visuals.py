@@ -25,8 +25,8 @@ def function_source(name: str) -> str:
 
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
-        registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.0"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.0"></script>'
+        registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.1"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
         self.assertNotIn('<script src="/static/games/', HTML)
