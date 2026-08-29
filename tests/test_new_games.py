@@ -195,7 +195,7 @@ class JungleTests(unittest.TestCase):
 
 class RegistryErrorTests(unittest.TestCase):
     def test_every_plugin_has_shared_rules_and_move_format(self):
-        self.assertEqual(len(GAMES), 15)
+        self.assertEqual(len(GAMES), 16)
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
             self.assertTrue(plugin.move_format)
@@ -252,7 +252,7 @@ class RegistryErrorTests(unittest.TestCase):
             "tictactoe", "gomoku", "othello",
             "connect4", "banqi", "checkers", "chess", "dots_boxes",
             "liars_dice", "yahtzee", "jungle", "xiangqi",
-            "aeroplane_chess", "chinese_checkers", "uno",
+            "aeroplane_chess", "chinese_checkers", "uno", "blackjack",
         ):
             self.assertIn(game_type, caught.exception.message)
 

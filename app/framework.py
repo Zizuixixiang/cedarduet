@@ -1080,10 +1080,13 @@ def _record_result_event(
     ).fetchone()
     if exists is not None:
         return
+    explicit_result_text = (room.get("result") or {}).get("result_text")
     if resigned_player_id is not None:
         result_text = (
             f"{_participant_display_name(room, resigned_player_id)} 认输"
         )
+    elif isinstance(explicit_result_text, str) and explicit_result_text.strip():
+        result_text = explicit_result_text.strip()
     elif room.get("winner") == "draw" or (room.get("result") or {}).get("draw"):
         result_text = "和棋"
     elif room.get("winner_player_id") or room.get("winner") in {"human", "ai"}:
@@ -1555,8 +1558,20 @@ def create_room(
                 participant["player_id"] == first_player_id
             )
         state = game.initialize(participants)
+        first_player_id = game.resolve_opening_player_id(
+            state, first_player_id, participants
+        )
+        if not isinstance(first_player_id, str) or not any(
+            participant["player_id"] == first_player_id
+            and participant.get("active", True)
+            for participant in participants
+        ):
+            raise ValueError("游戏插件选择的开局行动者不属于可行动参与者")
+        state = game.prepare_opening_state(state, first_player_id, participants)
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc
+    if not isinstance(state, dict):
+        raise DuelError("游戏插件初始化必须返回 state 对象")
     state["marks_by_player"] = {
         item["player_id"]: item["token"] for item in participants
     }
