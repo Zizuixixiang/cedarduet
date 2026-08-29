@@ -1633,14 +1633,14 @@ function renderLiarsDice(board, state) {
     bidValue.textContent = "本轮已结算";
   } else if (humanCanMove) {
     bidValue.textContent = "轮到你叫点";
+
   } else if (room && room.status === "playing") {
     const starterName = liarsParticipantName(room.current_player_id);
     bidValue.textContent = starterName
       ? `等待 ${starterName} 首叫`
       : "等待本轮首叫";
   } else {
-    bidValue.textContent = "本轮已结算";
-  }
+    bidValue.textContent = "本轮已结算";  }
   heading.append(bidLabel, bidValue);
   currentRound.appendChild(heading);
 
@@ -1683,6 +1683,7 @@ function renderLiarsDice(board, state) {
       ? "本轮已结算"
       : (humanCanMove ? "现在叫点" : "等待首叫");
   }
+
   const selectionIsHigher = () => liarsBidSelectionIsLegal(state, {
     quantity: Number(quantity.value),
     face: Number(face.value),
@@ -1692,8 +1693,7 @@ function renderLiarsDice(board, state) {
   };
   const bidSelectionChanged = () => {
     rememberLiarsBidSelection(quantity.value, face.value);
-    updateBidAvailability();
-  };
+    updateBidAvailability();  };
   updateBidAvailability();
   quantity.addEventListener("change", bidSelectionChanged);
   face.addEventListener("change", bidSelectionChanged);
@@ -1726,14 +1726,14 @@ function renderLiarsDice(board, state) {
     const title = document.createElement("strong");
     title.className = "liars-result-title";
     title.textContent = `第 ${outcome.round} 轮结算`;
+
     const resultLines = liarsRoundResultLines(outcome);
     const outcomeLine = document.createElement("p");
     outcomeLine.className = "liars-result-line liars-result-outcome";
     outcomeLine.textContent = resultLines.outcome;
     const lossLine = document.createElement("p");
     lossLine.className = "liars-result-line liars-result-loss";
-    lossLine.textContent = resultLines.loss;
-    result.append(title, outcomeLine, lossLine);
+    lossLine.textContent = resultLines.loss;    result.append(title, outcomeLine, lossLine);
 
     const reveal = document.createElement("details");
     reveal.className = "liars-reveal-details";

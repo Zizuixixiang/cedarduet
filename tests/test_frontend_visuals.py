@@ -719,12 +719,12 @@ const participants = new Map([
   ["ai-1", {{display_name: "小机一号"}}],
 ]);
 const participantByPlayerId = (playerId) => participants.get(playerId) || null;
+
 let liarsBidDraft = null;
 let humanTurn = true;
 const canHumanMove = () => humanTurn;
 let room = {{
-  room_id: "ROOM-1", revision: 2, status: "playing",
-  current_player_id: "human-1",
+  room_id: "ROOM-1", revision: 2, status: "playing",  current_player_id: "human-1",
   current_actor: {{player_id: "human-1", display_name: "人类一号"}},
 }};
 const selectMove = () => {{}};
@@ -770,6 +770,7 @@ const humanControls = currentRound.children[2];
 assert.equal(humanControls.children[2].disabled, false);
 assert.equal(humanControls.children[3].disabled, true);
 
+
 humanTurn = false;
 room = {{
   room_id: "ROOM-1", revision: 2, status: "playing",
@@ -809,8 +810,7 @@ assert.equal(previousRound.children.length, 4);
 const compactText = previousRound.children.slice(0, 3)
   .map((child) => child.textContent).join(" ");
 assert.doesNotMatch(compactText, /上一轮|质疑|由 .* 开叫/);
-const details = previousRound.children.find((child) => child.tagName === "DETAILS");
-assert.equal(details.tagName, "DETAILS");
+const details = previousRound.children.find((child) => child.tagName === "DETAILS");assert.equal(details.tagName, "DETAILS");
 assert.equal(details.open, false);
 assert.equal(details.children[0].textContent, "查看上一轮揭骰");
 assert.match(allText(details), /人类一号：1 · 1 · 2/);
@@ -836,6 +836,7 @@ renderLiarsDice(eliminatedBoard, {{
 }});
 assert.equal(eliminatedBoard.children[1].children[2].textContent, "小机一号 -1 骰 · 已淘汰");
 
+
 const afterOpeningBid = new Element("div");
 renderLiarsDice(afterOpeningBid, {{
   flow: {{phase: "bidding", round_number: 3}},
@@ -843,8 +844,7 @@ renderLiarsDice(afterOpeningBid, {{
   current_bid: {{quantity: 1, face: 2, bidder_player_id: "ai-1"}},
   last_round_result: {{round: 2, bid: {{quantity: 2, face: 3}}}},
 }});
-assert.equal(afterOpeningBid.children.length, 1);
-"""
+assert.equal(afterOpeningBid.children.length, 1);"""
         self.run_node(harness)
 
     def test_room_number_copy_uses_clipboard_and_reports_result(self):
