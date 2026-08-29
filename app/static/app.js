@@ -1178,20 +1178,12 @@ function selectMove(movePayload) {
 function updateMoveConfirmation() {
   const ready = Boolean(pendingMove && canHumanMove());
   $("confirmMoveButton").disabled = !ready;
-  $("confirmMoveButton").textContent = pendingMove && pendingMove.action === "challenge"
-    ? "确认质疑"
-    : (pendingMove && pendingMove.action === "bid" ? "确认叫点" : "落子");
+  $("confirmMoveButton").textContent = "落子";
   if (isTerminal(room)) {
     $("selectionHint").textContent = roomTurnText(room);
   } else {
-    const readyText = pendingMove && pendingMove.action === "challenge"
-      ? "已选择质疑，确认后将公开并结算本轮骰子"
-      : (pendingMove && pendingMove.action === "bid"
-        ? `已选择叫 ${pendingMove.quantity} 个 ${pendingMove.face} 点`
-        : "已选中落点，确认后提交");
-    const waitingText = room && room.game_type === "liars_dice"
-      ? "请选择叫点，已有叫点时也可质疑"
-      : "请先在棋盘上选择落点";
+    const readyText = "已选中落点，确认后提交";
+    const waitingText = "请先在棋盘上选择落点";
     $("selectionHint").textContent = ready
       ? readyText
       : (canHumanMove() ? waitingText : "等待轮到你");
@@ -1729,11 +1721,15 @@ function renderLiarsDice(board, state) {
   updateBidAvailability();
   quantity.addEventListener("change", bidSelectionChanged);
   face.addEventListener("change", bidSelectionChanged);
-  chooseBid.addEventListener("click", () => selectMove({
-    action: "bid",
-    quantity: Number(quantity.value),
-    face: Number(face.value),
-  }));
+  chooseBid.addEventListener("click", async () => {
+    chooseBid.disabled = true;
+    const submitted = await submitMove({
+      action: "bid",
+      quantity: Number(quantity.value),
+      face: Number(face.value),
+    });
+    if (!submitted) updateBidAvailability();
+  });
   const challenge = document.createElement("button");
   challenge.type = "button";
   challenge.className = "pixel-btn danger compact";
@@ -1744,7 +1740,11 @@ function renderLiarsDice(board, state) {
       : "本轮尚无叫点可质疑";
   }
   challenge.disabled = !humanCanMove || !currentBid;
-  challenge.addEventListener("click", () => selectMove({action: "challenge"}));
+  challenge.addEventListener("click", async () => {
+    challenge.disabled = true;
+    const submitted = await submitMove({action: "challenge"});
+    if (!submitted) challenge.disabled = !canHumanMove() || !currentBid;
+  });
   controls.append(quantityLabel, faceLabel, chooseBid, challenge);
   currentRound.appendChild(controls);
   board.appendChild(currentRound);
@@ -2321,6 +2321,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   currentTimeline = timeline;
   const humanCanMove = canHumanMove();
   showView("gameView");
+  $("moveConfirm").classList.toggle("hidden", room.game_type === "liars_dice");
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
@@ -2375,11 +2376,9 @@ async function refreshRoom({quiet = false} = {}) {
   }
 }
 
-async function confirmMove() {
-  if (!pendingMove || !canHumanMove()) return;
-  const movePayload = {...pendingMove};
+async function submitMove(movePayload) {
+  if (!movePayload || !canHumanMove()) return false;
   try {
-    $("confirmMoveButton").disabled = true;
     const data = await request(`/api/rooms/${room.room_id}/move`, {
       method: "POST",
       body: JSON.stringify({move: movePayload, revision: room.revision}),
@@ -2389,10 +2388,18 @@ async function confirmMove() {
     selectedJungleCell = null;
     selectedXiangqiCell = null;
     renderGame(data.room, data.message, data.timeline);
+    return true;
   } catch (error) {
     showNotice(error.message, true);
     updateMoveConfirmation();
+    return false;
   }
+}
+
+async function confirmMove() {
+  if (!pendingMove || !canHumanMove()) return;
+  $("confirmMoveButton").disabled = true;
+  await submitMove({...pendingMove});
 }
 
 async function sendMessage() {

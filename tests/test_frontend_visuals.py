@@ -341,9 +341,21 @@ class FrontendBoardVisualTests(unittest.TestCase):
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
-        confirm = SCRIPT[SCRIPT.index("async function confirmMove("):]
-        self.assertIn("revision: room.revision", confirm)
-        self.assertIn('["bid", "challenge"].includes(movePayload.action)', confirm)
+        self.assertIn("await submitMove({", renderer)
+        self.assertNotIn("selectMove(", renderer)
+        submit = SCRIPT[
+            SCRIPT.index("async function submitMove("):
+            SCRIPT.index("async function confirmMove(")
+        ]
+        self.assertIn("revision: room.revision", submit)
+        self.assertIn('["bid", "challenge"].includes(movePayload.action)', submit)
+        render_game = function_source("renderGame")
+        self.assertIn(
+            '$("moveConfirm").classList.toggle('
+            '"hidden", room.game_type === "liars_dice")',
+            render_game,
+        )
+        self.assertIn('id="moveConfirm" class="move-confirm"', HTML)
         self.assertIn('value="liars_dice"', HTML)
 
 
@@ -353,10 +365,18 @@ class BoardPollingRenderTests(unittest.TestCase):
         renderer = function_source("renderGame")
         harness = f"""
 const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
 class Element {{
   constructor() {{
     this.children = [];
-    this.classList = {{toggle() {{}}}};
+    this.classList = new ClassList();
     this.textContent = "";
     this.title = "";
     this.disabled = false;
@@ -411,6 +431,7 @@ const firstRoom = {{
 }};
 renderGame(firstRoom, "", [{{text: "第一条"}}]);
 assert.equal(boardRenderCount, 1);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), true);
 const originalBoardNode = elements.board.children[0];
 assert.deepEqual(elements.timeline.children, ["第一条"]);
 assert.equal(selectedJungleCell, null);
@@ -426,6 +447,7 @@ assert.equal(boardRenderCount, 1);
 assert.equal(elements.board.children[0], originalBoardNode);
 assert.deepEqual(elements.timeline.children, ["第一条", "轮询收到的新消息"]);
 assert.equal(participantRenderCount, 2);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), true);
 
 renderGame(
   {{...firstRoom, revision: 8}},
@@ -435,6 +457,55 @@ renderGame(
 assert.equal(boardRenderCount, 2);
 assert.notEqual(elements.board.children[0], originalBoardNode);
 assert.equal(elements.board.children[0].revision, 8);
+
+renderGame(
+  {{...firstRoom, room_id: "BOARD1", game_type: "gomoku", game_name: "五子棋", revision: 8}},
+  "",
+  [],
+);
+assert.equal(boardRenderCount, 3);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), false);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_board_games_still_select_then_confirm_pending_move(self):
+        select_move = function_source("selectMove")
+        confirm_start = SCRIPT.index("async function confirmMove(")
+        confirm_end = SCRIPT.index("\nasync function sendMessage(", confirm_start)
+        confirm_move = SCRIPT[confirm_start:confirm_end]
+        harness = f"""
+const assert = require("node:assert/strict");
+let room = {{game_type: "gomoku", status: "playing"}};
+let pendingMove = null;
+let boardRenderCount = 0;
+const submittedMoves = [];
+const canHumanMove = () => true;
+const renderBoard = () => {{ boardRenderCount += 1; }};
+const submitMove = async (move) => {{ submittedMoves.push(move); return true; }};
+const confirmButton = {{disabled: false}};
+const $ = (id) => {{ assert.equal(id, "confirmMoveButton"); return confirmButton; }};
+{select_move}
+{confirm_move}
+(async () => {{
+  selectMove({{row: 4, col: 5}});
+  assert.deepEqual(pendingMove, {{row: 4, col: 5}});
+  assert.equal(boardRenderCount, 1);
+  assert.deepEqual(submittedMoves, []);
+  await confirmMove();
+  assert.equal(confirmButton.disabled, true);
+  assert.deepEqual(submittedMoves, [{{row: 4, col: 5}}]);
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
 """
         completed = subprocess.run(
             [NODE, "-e", harness],
@@ -1054,6 +1125,9 @@ assert.equal(waitingState.children[0].textContent, "等待加入");
             function_source("rememberLiarsBidSelection"),
             function_source("renderLiarsDice"),
         ))
+        submit_start = SCRIPT.index("async function submitMove(")
+        submit_end = SCRIPT.index("\nasync function confirmMove(", submit_start)
+        submit_move = SCRIPT[submit_start:submit_end]
         harness = f"""
 const assert = require("node:assert/strict");
 class Element {{
@@ -1064,10 +1138,22 @@ class Element {{
     this.textContent = "";
     this.open = false;
     this.value = "";
+    this.disabled = false;
+    this.listeners = {{}};
   }}
-  appendChild(child) {{ this.children.push(child); return child; }}
+  appendChild(child) {{
+    this.children.push(child);
+    if (this.tagName === "SELECT" && child.tagName === "OPTION" && !this.value) {{
+      this.value = child.value;
+    }}
+    return child;
+  }}
   append(...children) {{ this.children.push(...children); }}
-  addEventListener() {{}}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  click() {{
+    if (!this.disabled && this.listeners.click) return this.listeners.click();
+    return undefined;
+  }}
 }}
 const document = {{createElement: (tagName) => new Element(tagName)}};
 const participants = new Map([
@@ -1079,15 +1165,31 @@ const participantByPlayerId = (playerId) => participants.get(playerId) || null;
 let liarsBidDraft = null;
 let humanTurn = true;
 const canHumanMove = () => humanTurn;
+let pendingMove = null;
+let selectedJungleCell = null;
+let selectedXiangqiCell = null;
+const requests = [];
+const notices = [];
 let room = {{
-  room_id: "ROOM-1", revision: 2, status: "playing",  current_player_id: "human-1",
+  room_id: "DICE1",
+  revision: 7,
+  game_type: "liars_dice",
+  status: "playing",
+  current_player_id: "human-1",
   current_actor: {{player_id: "human-1", display_name: "人类一号"}},
 }};
-const selectMove = () => {{}};
+const request = async (path, options) => {{
+  requests.push({{path, options}});
+  return {{room: {{...room, revision: room.revision + 1}}, message: "已提交", timeline: []}};
+}};
+const renderGame = (nextRoom) => {{ room = nextRoom; }};
+const showNotice = (message) => notices.push(message);
+const updateMoveConfirmation = () => {{}};
 const allText = (node) => [
   node.textContent,
   ...node.children.map(allText),
 ].filter(Boolean).join(" ");
+{submit_move}
 {renderer}
 const postChallengeState = {{
   flow: {{phase: "bidding", round_number: 2}},
@@ -1200,7 +1302,50 @@ renderLiarsDice(afterOpeningBid, {{
   current_bid: {{quantity: 1, face: 2, bidder_player_id: "ai-1"}},
   last_round_result: {{round: 2, bid: {{quantity: 2, face: 3}}}},
 }});
-assert.equal(afterOpeningBid.children.length, 1);"""
+assert.equal(afterOpeningBid.children.length, 1);
+
+(async () => {{
+  humanTurn = true;
+  room = {{
+    room_id: "DICE1", revision: 7, game_type: "liars_dice", status: "playing",
+    current_player_id: "human-1",
+    current_actor: {{player_id: "human-1", display_name: "人类一号"}},
+  }};
+  const controls = currentRound.children[2];
+  const chooseBid = controls.children[2];
+  const challengeWithoutBid = controls.children[3];
+  assert.equal(challengeWithoutBid.disabled, true);
+  await challengeWithoutBid.click();
+  assert.equal(requests.length, 0);
+
+  await chooseBid.click();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, "/api/rooms/DICE1/move");
+  assert.deepEqual(JSON.parse(requests[0].options.body), {{
+    move: {{action: "bid", quantity: 1, face: 1}},
+    revision: 7,
+  }});
+  assert.equal(pendingMove, null);
+
+  const activeBidBoard = new Element("div");
+  renderLiarsDice(activeBidBoard, {{
+    flow: {{phase: "bidding", round_number: 2}},
+    max_bid_quantity: 9,
+    current_bid: {{quantity: 2, face: 3, bidder_player_id: "ai-1"}},
+    last_round_result: null,
+  }});
+  const activeControls = activeBidBoard.children[0].children[2];
+  const challenge = activeControls.children[3];
+  assert.equal(challenge.disabled, false);
+  await challenge.click();
+  assert.equal(requests.length, 2);
+  assert.deepEqual(JSON.parse(requests[1].options.body), {{
+    move: {{action: "challenge"}},
+    revision: 8,
+  }});
+  assert.equal(pendingMove, null);
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+"""
         self.run_node(harness)
 
     def test_room_number_copy_uses_clipboard_and_reports_result(self):
