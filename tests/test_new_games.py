@@ -195,7 +195,8 @@ class JungleTests(unittest.TestCase):
 
 class RegistryErrorTests(unittest.TestCase):
     def test_every_plugin_has_shared_rules_and_move_format(self):
-        self.assertEqual(len(GAMES), 20)
+        self.assertEqual(len(GAMES), 21)
+
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
             self.assertTrue(plugin.move_format)

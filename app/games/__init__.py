@@ -18,6 +18,7 @@ from .train_cards import TrainCards
 from .uno import Uno
 from .xiangqi import Xiangqi
 from .yahtzee import Yahtzee
+from .zhajinhua import Zhajinhua
 
 GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 
@@ -42,6 +43,7 @@ GAMES = {
     Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),
     Xiangqi.game_type: Xiangqi(),
+    Zhajinhua.game_type: Zhajinhua(),
 }
 
 

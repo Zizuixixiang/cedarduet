@@ -228,6 +228,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "uno": "hand_counts",
             "jungle": "board",
             "xiangqi": "board",
+            "zhajinhua": "players",
         }
         for index, (game_type, layout_key) in enumerate(layout_keys.items()):
             with self.subTest(game_type=game_type):
@@ -320,6 +321,13 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                         }
                         for move in board["legal_moves"]
                     ))
+                elif game_type == "zhajinhua":
+                    self.assertNotIn("cards", board)
+                    self.assertFalse(board["revealed_hands"])
+                    self.assertEqual(
+                        snapshot["private_state"]["hand"],
+                        [{"hidden": True}] * 3,
+                    )
 
     async def test_full_state_does_not_claim_bootstrap_or_consume_events(self):
         room = framework.create_room(
