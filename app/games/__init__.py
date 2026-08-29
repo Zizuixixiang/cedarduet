@@ -10,6 +10,7 @@ from .jungle import Jungle
 from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
+from .uno import Uno
 from .xiangqi import Xiangqi
 from .yahtzee import Yahtzee
 
@@ -28,6 +29,7 @@ GAMES = {
     DotsBoxes.game_type: DotsBoxes(),
     LiarsDice.game_type: LiarsDice(),
     Yahtzee.game_type: Yahtzee(),
+    Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),
     Xiangqi.game_type: Xiangqi(),
 }
