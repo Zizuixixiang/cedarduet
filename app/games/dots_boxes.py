@@ -10,6 +10,7 @@ class DotsBoxes(GamePlugin):
     supports_npcs = True
     game_type = "dots_boxes"
     display_name = "点格棋"
+    category = "board"
     min_players = 2
     max_players = 4
     allowed_player_counts = (2, 3, 4)

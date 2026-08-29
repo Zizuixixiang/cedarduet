@@ -261,6 +261,9 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             "tictactoe", "gomoku", "othello", "connect4", "jungle", "xiangqi"
         ):
             self.assertEqual(production[game_type]["allowed_player_counts"], [2])
+            self.assertEqual(production[game_type]["category"], "board")
+        self.assertEqual(production["dots_boxes"]["category"], "board")
+        self.assertEqual(production["liars_dice"]["category"], "dice")
         self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(
             production["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6]

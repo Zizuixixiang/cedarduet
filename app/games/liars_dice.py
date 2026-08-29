@@ -11,6 +11,7 @@ from .tools import advance_flow, ensure_flow
 class LiarsDice(GamePlugin):
     game_type = "liars_dice"
     display_name = "吹牛骰子"
+    category = "dice"
     min_players = 2
     max_players = 6
     allowed_player_counts = (2, 3, 4, 5, 6)

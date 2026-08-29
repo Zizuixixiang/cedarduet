@@ -86,7 +86,7 @@ class StakeLobbyUiTests(unittest.TestCase):
     def test_multiplayer_picker_is_collapsed_accessible_and_not_native_multiple(self):
         picker = HTML[
             HTML.index('<div class="participant-picker"'):
-            HTML.index('<label class="pixel-field">\n                <span>棋种</span>')
+            HTML.index('<div class="pixel-field">\n                <span>棋种</span>')
         ]
         self.assertIn('id="aiPlayer"', picker)
         self.assertNotIn(" multiple", picker)

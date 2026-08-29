@@ -7,6 +7,7 @@ class TicTacToe(GamePlugin):
     supports_stakes = True
     game_type = "tictactoe"
     display_name = "井字棋"
+    category = "board"
     rules_text = (
         "井字棋使用 3×3 棋盘。双方轮流在空格落下自己的记号；"
         "最先在横、竖或斜线上连成三个相同记号者获胜。棋盘填满且无人连成三子则和棋。"

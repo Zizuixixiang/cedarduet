@@ -7,6 +7,7 @@ class Gomoku(GamePlugin):
     supports_stakes = True
     game_type = "gomoku"
     display_name = "五子棋"
+    category = "board"
     rules_text = (
         "五子棋使用 15×15 棋盘，双方轮流在交叉点落子。"
         "本规则不设禁手；任一方在横、竖或任一斜线方向形成连续五子或更多即获胜。"

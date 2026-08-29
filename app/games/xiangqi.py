@@ -13,6 +13,7 @@ class Xiangqi(GamePlugin):
     supports_stakes = True
     game_type = "xiangqi"
     display_name = "象棋"
+    category = "board"
     rules_text = (
         "象棋使用 9 路 10 行棋盘，红方先行。车走直线，马走日且受马腿限制，"
         "象走田且受象眼限制并不可过河，士与将帅限于九宫；炮不吃子时同车，"

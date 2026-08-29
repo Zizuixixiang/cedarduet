@@ -7,6 +7,7 @@ class Jungle(GamePlugin):
     supports_stakes = True
     game_type = "jungle"
     display_name = "斗兽棋"
+    category = "board"
     rules_text = (
         "斗兽棋使用 7×9 棋盘，兽力由低到高为鼠、猫、狗、狼、豹、虎、狮、象。"
         "通常高阶可吃同阶或低阶；鼠可吃象，象不可吃鼠。鼠可入河且水中鼠可互吃，"

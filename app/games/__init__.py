@@ -7,6 +7,8 @@ from .othello import Othello
 from .tictactoe import TicTacToe
 from .xiangqi import Xiangqi
 
+GAME_CATEGORIES = frozenset({"board", "card", "dice"})
+
 GAMES = {
     TicTacToe.game_type: TicTacToe(),
     Gomoku.game_type: Gomoku(),
@@ -31,9 +33,14 @@ def game_catalog() -> list[dict]:
     catalog = []
     for plugin in GAMES.values():
         counts = plugin.resolved_allowed_player_counts()
+        if plugin.category not in GAME_CATEGORIES:
+            raise ValueError(
+                f"{plugin.game_type} 的 category 必须是 board/card/dice"
+            )
         catalog.append({
             "game_type": plugin.game_type,
             "display_name": plugin.display_name,
+            "category": plugin.category,
             "min_players": counts[0],
             "max_players": counts[-1],
             "allowed_player_counts": list(counts),

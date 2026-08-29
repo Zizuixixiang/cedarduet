@@ -7,6 +7,7 @@ class Othello(GamePlugin):
     supports_stakes = True
     game_type = "othello"
     display_name = "黑白棋"
+    category = "board"
     rules_text = (
         "黑白棋使用 8×8 棋盘，黑方先行。落子必须在至少一个方向夹住对方棋子，"
         "被夹住的棋子全部翻为己方。若一方无合法步则自动跳过，由另一方继续；"

@@ -852,6 +852,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   color: var(--purple-dark);
   font-size: 12px;
 }
+.game-type-selects {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(68px, .38fr) minmax(0, 1.62fr);
+  gap: 6px;
+}
+.game-type-selects select { min-width: 0; }
 .pixel-field select, .pixel-field textarea, .pixel-field input {
   width: 100%;
   min-height: 44px;

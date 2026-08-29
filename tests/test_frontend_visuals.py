@@ -411,7 +411,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
             render_game,
         )
         self.assertIn('id="moveConfirm" class="move-confirm"', HTML)
-        self.assertIn('value="liars_dice"', HTML)
+        self.assertIn('<option value="dice">骰</option>', HTML)
         self.assertIn(
             'return "本轮已结算 · 等待你确认下一轮"',
             function_source("roomTurnText"),
@@ -1789,48 +1789,254 @@ for (const count of [3, 4, 5, 6]) {{
         functions = "\n".join((
             function_source("allowedPlayerCountsForGame"),
             function_source("gamePlayerCountLabel"),
+            function_source("gameCategoryLabel"),
+            function_source("gameCategoryFor"),
+            function_source("compareGamePlayerCounts"),
+            function_source("compareGameDisplayNames"),
+            function_source("sortedGamesForCategory"),
             function_source("syncGameTypeOptions"),
+            function_source("gameCategoryChanged"),
         ))
         harness = f"""
 const assert = require("node:assert/strict");
-class Option {{ constructor() {{ this.value = ""; this.textContent = ""; }} }}
-class Select {{
-  constructor() {{ this.children = []; this.value = "dots"; }}
-  get options() {{ return this.children; }}
-  replaceChildren() {{ this.children = []; }}
-  appendChild(child) {{ this.children.push(child); }}
+class Option {{
+  constructor() {{
+    this.value = "";
+    this.textContent = "";
+    this.disabled = false;
+    this.selected = false;
+  }}
 }}
-const select = new Select();
+class Select {{
+  constructor(value = "") {{
+    this.children = [];
+    this.value = value;
+    this.disabled = false;
+    this.dispatchedEvents = [];
+  }}
+  get options() {{ return this.children; }}
+  replaceChildren() {{ this.children = []; this.value = ""; }}
+  appendChild(child) {{
+    this.children.push(child);
+    if (child.selected || (!this.value && !child.disabled)) this.value = child.value;
+  }}
+  dispatchEvent(event) {{ this.dispatchedEvents.push(event.type); }}
+}}
+const categorySelect = new Select("board");
+const gameSelect = new Select("othello");
 const document = {{createElement: () => new Option()}};
-const $ = (id) => {{ assert.equal(id, "gameType"); return select; }};
+const elements = {{gameCategory: categorySelect, gameType: gameSelect}};
+const $ = (id) => elements[id];
 {functions}
-syncGameTypeOptions([
-  {{game_type: "duel", display_name: "双人棋", allowed_player_counts: [2]}},
-  {{game_type: "dots", display_name: "点格棋", allowed_player_counts: [2, 3, 4]}},
-  {{game_type: "discrete", display_name: "离散桌", allowed_player_counts: [2, 4]}},
-]);
+const games = [
+  {{game_type: "liars_dice", display_name: "吹牛骰子", category: "dice", allowed_player_counts: [2, 3, 4, 5, 6]}},
+  {{game_type: "dots_boxes", display_name: "点格棋", category: "board", allowed_player_counts: [2, 3, 4]}},
+  {{game_type: "xiangqi", display_name: "象棋", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "gomoku", display_name: "五子棋", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "connect4", display_name: "四子连珠", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "tictactoe", display_name: "井字棋", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "othello", display_name: "黑白棋", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "jungle", display_name: "斗兽棋", category: "board", allowed_player_counts: [2]}},
+];
+syncGameTypeOptions(games);
 assert.deepEqual(
-  select.options.map((option) => option.textContent),
-  ["双人棋 / 2人", "点格棋 / 2–4人", "离散桌 / 2、4人"]
+  gameSelect.options.map((option) => option.textContent),
+  [
+    "斗兽棋 / 2人", "黑白棋 / 2人", "井字棋 / 2人", "四子连珠 / 2人",
+    "五子棋 / 2人", "象棋 / 2人", "点格棋 / 2–4人",
+  ]
 );
-assert.equal(select.value, "dots");
+assert.equal(gameSelect.value, "othello");
+
+const futureGames = [
+  {{game_type: "wide", display_name: "阿宽", category: "board", allowed_player_counts: [2, 3, 4, 5, 6]}},
+  {{game_type: "same_second", display_name: "同名", category: "board", allowed_player_counts: [2]}},
+  {{game_type: "range", display_name: "阿段", category: "board", allowed_player_counts: [2, 3, 4]}},
+  {{game_type: "three", display_name: "三人", category: "board", allowed_player_counts: [3]}},
+  {{game_type: "same_first", display_name: "同名", category: "board", allowed_player_counts: [2]}},
+];
+assert.deepEqual(
+  sortedGamesForCategory(futureGames, "board").map((game) => game.game_type),
+  ["same_second", "same_first", "three", "range", "wide"]
+);
+
+categorySelect.value = "dice";
+syncGameTypeOptions(games);
+assert.deepEqual(gameSelect.options.map((option) => option.textContent), ["吹牛骰子 / 2–6人"]);
+assert.equal(gameSelect.value, "liars_dice");
+assert.equal(gameSelect.disabled, false);
+
+categorySelect.value = "card";
+syncGameTypeOptions(games);
+assert.equal(gameSelect.options.length, 1);
+assert.equal(gameSelect.options[0].textContent, "牌类暂无游戏");
+assert.equal(gameSelect.options[0].disabled, true);
+assert.equal(gameSelect.value, "");
+assert.equal(gameSelect.disabled, true);
+
+categorySelect.value = "board";
+syncGameTypeOptions(games);
+assert.equal(gameSelect.value, "jungle");
+
+let identity = {{games}};
+categorySelect.value = "dice";
+gameCategoryChanged();
+assert.equal(gameSelect.value, "liars_dice");
+assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
 """
         self.run_node(harness)
+        game_field_start = HTML.index('<div class="pixel-field">\n                <span>棋种</span>')
+        game_field = HTML[
+            game_field_start:
+            HTML.index('<label class="pixel-field">', game_field_start)
+        ]
+        self.assertIn('<div class="game-type-selects">', game_field)
+        self.assertLess(
+            game_field.index('<select id="gameCategory"'),
+            game_field.index('<select id="gameType"'),
+        )
+        category_select = game_field[
+            game_field.index('<select id="gameCategory"'):
+            game_field.index("</select>", game_field.index('<select id="gameCategory"'))
+        ]
+        self.assertEqual(category_select.count("<option"), 3)
+        self.assertIn('<option value="board">棋</option>', category_select)
+        self.assertIn('<option value="card">牌</option>', category_select)
+        self.assertIn('<option value="dice">骰</option>', category_select)
+        for unwanted in ("全部", "派对", "其他"):
+            self.assertNotIn(unwanted, category_select)
+        game_select_start = HTML.index('<select id="gameType"')
         game_select = HTML[
-            HTML.index('<select id="gameType">'):
-            HTML.index("</select>", HTML.index('<select id="gameType">'))
+            game_select_start:HTML.index("</select>", game_select_start)
         ]
         for board_size in ("3×3", "15×15", "8×8", "7×6", "5×5", "7×9"):
             self.assertNotIn(board_size, game_select)
         self.assertIn("井字棋 / 2人", game_select)
         self.assertIn("点格棋 / 2–4人", game_select)
-        self.assertIn("吹牛骰子 / 2–6人", game_select)
+        self.assertNotIn("吹牛骰子 / 2–6人", game_select)
+        game_type_styles = STYLES[
+            STYLES.index(".game-type-selects {"):
+            STYLES.index("}", STYLES.index(".game-type-selects {"))
+        ]
+        self.assertIn("display: grid", game_type_styles)
+        self.assertIn(
+            "grid-template-columns: minmax(68px, .38fr) minmax(0, 1.62fr)",
+            game_type_styles,
+        )
+        self.assertEqual(STYLES.count(".game-type-selects {"), 1)
         loader = function_source("loadIdentity")
         self.assertIn("syncGameTypeOptions(data.games || [])", loader)
         self.assertLess(
             loader.index("syncGameTypeOptions(data.games || [])"),
             loader.index("syncMachinePicker(data.machines || [])"),
         )
+        self.assertIn(
+            '$("gameType").dispatchEvent(new Event("change"))',
+            function_source("gameCategoryChanged"),
+        )
+        self.assertIn(
+            '$("gameType").addEventListener("change", configureParticipantPicker);',
+            SCRIPT,
+        )
+
+    def test_empty_game_category_disables_creation_safely(self):
+        update_state = function_source("updateCreateButtonState")
+        harness = f"""
+const assert = require("node:assert/strict");
+let identity = {{bound: true}};
+const elements = {{
+  gameType: {{value: ""}},
+  mode: {{value: "human_first"}},
+  stake: {{value: "0"}},
+  createButton: {{disabled: false}},
+}};
+const $ = (id) => elements[id];
+const selectedGameRequirement = () => ({{
+  allowedPlayerCounts: [2], supportsNpcs: false, npcAvailable: false,
+}});
+const selectedParticipantIds = () => ["ai-1"];
+const selectedTargetPlayerCount = () => 2;
+const selectedFillWithNpcs = () => false;
+{update_state}
+assert.equal(updateCreateButtonState(), false);
+assert.equal(elements.createButton.disabled, true);
+"""
+        self.run_node(harness)
+
+    def test_multiplayer_target_table_options_still_follow_game_catalog(self):
+        configure = function_source("configureParticipantPicker")
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Option {{ constructor() {{ this.value = ""; this.textContent = ""; }} }}
+class Select {{
+  constructor() {{ this.children = []; this.value = ""; }}
+  get options() {{ return this.children; }}
+  replaceChildren() {{ this.children = []; this.value = ""; }}
+  appendChild(child) {{
+    this.children.push(child);
+    if (!this.value) this.value = child.value;
+  }}
+}}
+const picker = {{dataset: {{selectionMode: "single"}}}};
+const aiPlayer = new Select();
+aiPlayer.value = "ai-1";
+aiPlayer.closest = () => picker;
+const targetPlayerCount = new Select();
+const elements = {{
+  aiPlayer,
+  multiplayerOptions: {{classList: new ClassList()}},
+  targetPlayerCount,
+  fillWithNpcs: {{disabled: false, checked: true}},
+  npcProviderHint: {{textContent: ""}},
+  aiSingleField: {{classList: new ClassList()}},
+  aiMultiField: {{classList: new ClassList()}},
+}};
+const $ = (id) => elements[id];
+const document = {{createElement: () => new Option()}};
+const selectedMachineIds = new Set();
+const selectedParticipantIds = () => ["ai-1"];
+const selectedTargetPlayerCount = () => Number(targetPlayerCount.value || 2);
+let requirement = {{
+  maxPlayers: 4,
+  allowedPlayerCounts: [2, 3, 4],
+  recommendedPlayers: 4,
+  supportsNpcs: true,
+  npcAvailable: true,
+}};
+const selectedGameRequirement = () => requirement;
+let renderCount = 0;
+const renderMachineMultiPicker = () => {{ renderCount += 1; }};
+const closeMachineMultiPicker = () => undefined;
+const renderCreateSeatPreview = () => {{ renderCount += 1; }};
+{configure}
+configureParticipantPicker();
+assert.deepEqual(targetPlayerCount.options.map((option) => option.textContent), ["2 人桌", "3 人桌", "4 人桌"]);
+assert.equal(targetPlayerCount.value, "4");
+assert.equal(picker.dataset.selectionMode, "multiple");
+assert.equal(elements.multiplayerOptions.classList.contains("hidden"), false);
+assert.equal(elements.fillWithNpcs.checked, true);
+
+requirement = {{
+  maxPlayers: 2,
+  allowedPlayerCounts: [2],
+  recommendedPlayers: 2,
+  supportsNpcs: false,
+  npcAvailable: true,
+}};
+configureParticipantPicker();
+assert.equal(picker.dataset.selectionMode, "single");
+assert.equal(elements.multiplayerOptions.classList.contains("hidden"), true);
+assert.ok(renderCount >= 3);
+"""
+        self.run_node(harness)
 
     def test_roster_marks_current_actor_and_keeps_game_values_compact(self):
         functions = "\n".join((

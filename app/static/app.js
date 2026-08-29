@@ -766,20 +766,87 @@ function gamePlayerCountLabel(declared) {
     : `${counts.join("、")}人`;
 }
 
+function gameCategoryLabel(category) {
+  return {board: "棋", card: "牌", dice: "骰"}[category] || "游戏";
+}
+
+function gameCategoryFor(declared) {
+  const category = declared && declared.category;
+  return ["board", "card", "dice"].includes(category) ? category : "";
+}
+
+function compareGamePlayerCounts(left, right) {
+  const leftCounts = allowedPlayerCountsForGame(left);
+  const rightCounts = allowedPlayerCountsForGame(right);
+  const leftSpan = leftCounts[leftCounts.length - 1] - leftCounts[0];
+  const rightSpan = rightCounts[rightCounts.length - 1] - rightCounts[0];
+  const rangeComparison = (
+    leftCounts[leftCounts.length - 1] - rightCounts[rightCounts.length - 1]
+    || leftSpan - rightSpan
+    || leftCounts[0] - rightCounts[0]
+    || leftCounts.length - rightCounts.length
+  );
+  if (rangeComparison) return rangeComparison;
+  for (let index = 0; index < leftCounts.length; index += 1) {
+    if (leftCounts[index] !== rightCounts[index]) {
+      return leftCounts[index] - rightCounts[index];
+    }
+  }
+  return 0;
+}
+
+function compareGameDisplayNames(left, right) {
+  const leftName = String(left.display_name || left.game_type || "");
+  const rightName = String(right.display_name || right.game_type || "");
+  return leftName.localeCompare(
+    rightName, "zh-CN-u-co-pinyin", {sensitivity: "base"}
+  );
+}
+
+function sortedGamesForCategory(games, category) {
+  return (Array.isArray(games) ? games : [])
+    .filter((game) => game && game.game_type && gameCategoryFor(game) === category)
+    .map((game, index) => ({game, index}))
+    .sort((left, right) => (
+      compareGamePlayerCounts(left.game, right.game)
+      || compareGameDisplayNames(left.game, right.game)
+      || left.index - right.index
+    ))
+    .map(({game}) => game);
+}
+
 function syncGameTypeOptions(games) {
-  if (!Array.isArray(games) || !games.length) return;
   const select = $("gameType");
   const previousValue = select.value;
+  const category = $("gameCategory").value;
+  const categorizedGames = sortedGamesForCategory(games, category);
   select.replaceChildren();
-  games.forEach((game) => {
-    if (!game || !game.game_type) return;
+  categorizedGames.forEach((game) => {
     const option = document.createElement("option");
     option.value = game.game_type;
     option.textContent = `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
     select.appendChild(option);
   });
+  if (!categorizedGames.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = `${gameCategoryLabel(category)}类暂无游戏`;
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
+    select.value = "";
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
   const values = [...select.options].map((option) => option.value);
-  if (values.includes(previousValue)) select.value = previousValue;
+  select.value = values.includes(previousValue) ? previousValue : values[0];
+}
+
+function gameCategoryChanged() {
+  const games = identity && Array.isArray(identity.games) ? identity.games : [];
+  syncGameTypeOptions(games);
+  $("gameType").dispatchEvent(new Event("change"));
 }
 
 function selectedGameRequirement() {
@@ -2696,6 +2763,7 @@ $("targetPlayerCount").addEventListener("change", () => {
   machineSelectionChanged();
 });
 $("fillWithNpcs").addEventListener("change", renderCreateSeatPreview);
+$("gameCategory").addEventListener("change", gameCategoryChanged);
 $("gameType").addEventListener("change", configureParticipantPicker);
 $("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);

@@ -100,6 +100,32 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
         self.assertEqual(len(payload["games"]), 8)
         games = {game["game_type"]: game for game in payload["games"]}
+        self.assertEqual(
+            {game_type: game["category"] for game_type, game in games.items()},
+            {
+                "tictactoe": "board",
+                "gomoku": "board",
+                "othello": "board",
+                "connect4": "board",
+                "dots_boxes": "board",
+                "liars_dice": "dice",
+                "jungle": "board",
+                "xiangqi": "board",
+            },
+        )
+        self.assertEqual(
+            {game_type: game["display_name"] for game_type, game in games.items()},
+            {
+                "tictactoe": "井字棋",
+                "gomoku": "五子棋",
+                "othello": "黑白棋",
+                "connect4": "四子连珠",
+                "dots_boxes": "点格棋",
+                "liars_dice": "吹牛骰子",
+                "jungle": "斗兽棋",
+                "xiangqi": "象棋",
+            },
+        )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertEqual(
@@ -189,9 +215,14 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "dots_boxes", "liars_dice", "jungle", "xiangqi",
+            "connect4", "dots_boxes", "jungle", "xiangqi",
         ):
             self.assertIn(f'value="{game_type}"', html)
+        game_select = html[
+            html.index('<select id="gameType"'):
+            html.index("</select>", html.index('<select id="gameType"'))
+        ]
+        self.assertNotIn('value="liars_dice"', game_select)
         self.assertNotIn('id="playerId"', html)
         self.assertNotIn('id="joinRoomId"', html)
         self.assertNotIn('id="joinButton"', html)

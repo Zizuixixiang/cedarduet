@@ -30,6 +30,7 @@ class GamePlugin(ABC):
 
     game_type: str
     display_name: str
+    category: str = "board"
     rules_text: str
     move_format: str
     min_players: int = 2

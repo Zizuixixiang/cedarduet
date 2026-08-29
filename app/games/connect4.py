@@ -7,6 +7,7 @@ class Connect4(GamePlugin):
     supports_stakes = True
     game_type = "connect4"
     display_name = "四子连珠"
+    category = "board"
     rules_text = (
         "四子连珠使用 7 列×6 行棋盘。双方轮流选择一列，棋子受重力落到该列最低空位；"
         "最先在横、竖或斜线方向形成连续四子者获胜。棋盘下满且无人四连则和棋。"

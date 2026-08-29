@@ -90,19 +90,25 @@
                        aria-multiselectable="true" aria-labelledby="aiMultiLabel"></div>
                 </div>
               </div>
-              <label class="pixel-field">
+              <div class="pixel-field">
                 <span>棋种</span>
-                <select id="gameType">
-                  <option value="tictactoe">井字棋 / 2人</option>
-                  <option value="gomoku">五子棋 / 2人</option>
-                  <option value="othello">黑白棋 / 2人</option>
-                  <option value="connect4">四子连珠 / 2人</option>
-                  <option value="dots_boxes">点格棋 / 2–4人</option>
-                  <option value="liars_dice">吹牛骰子 / 2–6人</option>
-                  <option value="jungle">斗兽棋 / 2人</option>
-                  <option value="xiangqi">象棋 / 2人</option>
-                </select>
-              </label>
+                <div class="game-type-selects">
+                  <select id="gameCategory" aria-label="游戏分类">
+                    <option value="board">棋</option>
+                    <option value="card">牌</option>
+                    <option value="dice">骰</option>
+                  </select>
+                  <select id="gameType" aria-label="具体游戏">
+                    <option value="jungle">斗兽棋 / 2人</option>
+                    <option value="othello">黑白棋 / 2人</option>
+                    <option value="tictactoe" selected>井字棋 / 2人</option>
+                    <option value="connect4">四子连珠 / 2人</option>
+                    <option value="gomoku">五子棋 / 2人</option>
+                    <option value="xiangqi">象棋 / 2人</option>
+                    <option value="dots_boxes">点格棋 / 2–4人</option>
+                  </select>
+                </div>
+              </div>
               <label class="pixel-field">
                 <span>谁先走</span>
                 <select id="mode">
