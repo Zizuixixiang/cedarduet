@@ -14,8 +14,11 @@ class ChessFrontendStructureTests(unittest.TestCase):
     def test_renderer_uses_extension_contract_and_server_legal_moves(self):
         self.assertIn('window.DuelGameUI.register("chess"', SCRIPT)
         self.assertIn("function renderBoard(context)", SCRIPT)
+        self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("legalMoves.filter", SCRIPT)
+        self.assertIn('action.action === "claim_draw"', SCRIPT)
         self.assertIn("helpers.selectMove(movePayload", SCRIPT)
+        self.assertIn("helpers.submitMove({...claimAction})", SCRIPT)
         self.assertIn("helpers.setBoardLayout", SCRIPT)
         self.assertNotIn("new Chess(", SCRIPT)
         self.assertNotIn("generateMoves", SCRIPT)
@@ -37,6 +40,8 @@ class ChessFrontendStructureTests(unittest.TestCase):
             ".board.chess .chess-cell.last-move-from",
             ".board.chess .chess-cell.last-move-to",
             ".board.chess .chess-promotion-panel",
+            ".chess-claim-controls",
+            ".chess-claim-button",
         ):
             self.assertIn(selector, SCRIPT)
         self.assertIn('@media (max-width: 599px)', SCRIPT)
@@ -242,6 +247,44 @@ assert.deepEqual(harness.selectedMove(), {
   from_row: 1, from_col: 0, to_row: 0, to_col: 0, promotion: "q",
 });
 ''')
+
+    def test_claim_draw_control_uses_authoritative_action_and_mobile_safe_bar(self):
+        self.run_node(r'''
+const controls = new Element("div");
+controls.classList.add("hidden");
+let submitted = null;
+renderer.renderControls({
+  controls,
+  state: {claimable_draw_reasons: ["threefold_repetition"]},
+  legalActions: [{action: "claim_draw"}],
+  canMove: true,
+  helpers: {
+    canMove() { return true; },
+    submitMove(payload) { submitted = payload; return Promise.resolve(true); },
+  },
+});
+assert.equal(controls.classList.contains("hidden"), false);
+assert.equal(controls.children.length, 1);
+const buttons = controls.querySelectorAll("button");
+assert.equal(buttons.length, 1);
+assert.equal(buttons[0].textContent, "申和");
+assert.equal(buttons[0].disabled, false);
+buttons[0].listeners.click();
+assert.equal(submitted.action, "claim_draw");
+assert.deepEqual(Object.keys(submitted), ["action"]);
+
+const unavailable = new Element("div");
+renderer.renderControls({
+  controls: unavailable,
+  state: {claimable_draw_reasons: []},
+  legalActions: [],
+  canMove: true,
+  helpers: {},
+});
+assert.equal(unavailable.classList.contains("hidden"), true);
+assert.equal(unavailable.children.length, 0);
+''')
+        self.assertIn(".chess-claim-button { width: 100%; min-height: 44px; }", SCRIPT)
 
     def test_source_is_valid_javascript(self):
         completed = subprocess.run(

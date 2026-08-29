@@ -35,6 +35,10 @@ class ChessRuleTests(unittest.TestCase):
         mark = "X" if state["turn_color"] == "w" else "O"
         return self.game.apply_move(state, move(uci), mark)
 
+    def claim(self, state: dict):
+        mark = "X" if state["turn_color"] == "w" else "O"
+        return self.game.apply_move(state, {"action": "claim_draw"}, mark)
+
     def assert_legal(
         self, state: dict, uci: str, expected: bool, mark: str | None = None
     ):
@@ -54,6 +58,25 @@ class ChessRuleTests(unittest.TestCase):
         self.assertEqual(state["board"][0][4], "b:k")
         self.assert_legal(state, "e2e4", True)
         self.assert_legal(state, "e7e5", False)
+
+    def test_rules_explain_claimable_and_automatic_draws_without_schema(self):
+        self.assertIn("第三次出现", self.game.rules_text)
+        self.assertIn("50 步", self.game.rules_text)
+        self.assertIn("第五次出现", self.game.rules_text)
+        self.assertIn("75 步", self.game.rules_text)
+        self.assertIn("将死优先", self.game.rules_text)
+        for internal_name in ("position_history", "halfmove_clock", "starting_fen"):
+            self.assertNotIn(internal_name, self.game.rules_text)
+
+    def test_bridge_does_not_use_chess_js_generic_draw_terminal_api(self):
+        bridge = (
+            Path(__file__).resolve().parents[1]
+            / "third_party"
+            / "chess_js"
+            / "bridge.js"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("game.isDraw()", bridge)
+        self.assertNotIn("game.isGameOver()", bridge)
 
     def test_coordinates_turn_owner_and_self_check_are_rejected(self):
         state = self.game.initial_state()
@@ -150,32 +173,165 @@ class ChessRuleTests(unittest.TestCase):
         )
         self.assertEqual(self.game.check_winner(material_result.state), "draw")
 
-    def test_threefold_repetition_replays_complete_history(self):
+    def test_third_repetition_is_claimable_but_not_automatic(self):
         state = self.game.initial_state()
         cycle = ("g1f3", "g8f6", "f3g1", "f6g8")
-        for uci in (*cycle, *cycle):
+        for uci in cycle:
+            result = self.apply(state, uci)
+            state = result.state
+        self.assertEqual(state["repetition_count"], 2)
+        self.assertFalse(state["can_claim_draw"])
+        self.assertNotIn({"action": "claim_draw"}, state["legal_actions"])
+        with self.assertRaisesRegex(ValueError, "不满足可申和条件"):
+            self.game.validate_move(state, {"action": "claim_draw"}, "X")
+
+        for uci in cycle:
             result = self.apply(state, uci)
             state = result.state
         self.assertTrue(state["in_threefold_repetition"])
-        self.assertEqual(state["terminal_reason"], "threefold_repetition")
+        self.assertEqual(state["repetition_count"], 3)
+        self.assertFalse(state["in_draw"])
+        self.assertFalse(state["game_over"])
+        self.assertTrue(state["can_claim_draw"])
+        self.assertIn("threefold_repetition", state["claimable_draw_reasons"])
+        self.assertIn({"action": "claim_draw"}, state["legal_actions"])
+        self.assertIsNone(self.game.check_winner(state))
         self.assertEqual(state["move_history"], list((*cycle, *cycle)))
-        self.assertEqual(self.game.check_winner(state), "draw")
 
         restored = self.game.state_from_fen(
             state["starting_fen"], state["move_history"]
         )
         self.assertTrue(restored["in_threefold_repetition"])
+        self.assertEqual(restored["repetition_count"], 3)
+        self.assertEqual(restored["position_history"], state["position_history"])
         self.assertEqual(restored["fen"], state["fen"])
 
-    def test_fifty_move_rule_uses_halfmove_clock(self):
+    def test_claim_draw_action_finishes_claimable_position(self):
+        state = self.game.initial_state()
+        cycle = ("g1f3", "g8f6", "f3g1", "f6g8")
+        for uci in (*cycle, *cycle):
+            state = self.apply(state, uci).state
+        result = self.claim(state)
+        self.assertTrue(result.state["claimed_draw"])
+        self.assertEqual(result.state["terminal_reason"], "claimed_draw")
+        self.assertEqual(
+            result.state["draw_claim_reasons"], ["threefold_repetition"]
+        )
+        self.assertEqual(result.state["move_history"], list((*cycle, *cycle)))
+        self.assertEqual(result.state["legal_actions"], [])
+        self.assertEqual(self.game.check_winner(result.state), "draw")
+        self.assertIn("申和成立", result.note)
+
+    def test_fifth_repetition_is_automatic_draw(self):
+        state = self.game.initial_state()
+        cycle = ("g1f3", "g8f6", "f3g1", "f6g8")
+        for uci in cycle * 4:
+            result = self.apply(state, uci)
+            state = result.state
+        self.assertEqual(state["repetition_count"], 5)
+        self.assertTrue(state["in_fivefold_repetition"])
+        self.assertTrue(state["in_draw"])
+        self.assertEqual(state["terminal_reason"], "fivefold_repetition")
+        self.assertEqual(state["legal_actions"], [])
+        self.assertEqual(self.game.check_winner(state), "draw")
+
+    def test_fifty_move_rule_is_claimable_not_automatic(self):
         state = self.game.state_from_fen(
             "r6k/8/8/8/8/8/8/R6K w - - 99 50"
         )
         result = self.apply(state, "a1b1")
         self.assertEqual(result.state["halfmove_clock"], 100)
+        self.assertFalse(result.state["in_draw"])
+        self.assertTrue(result.state["can_claim_draw"])
+        self.assertEqual(
+            result.state["claimable_draw_reasons"], ["fifty_move_rule"]
+        )
+        self.assertIn({"action": "claim_draw"}, result.state["legal_actions"])
+        self.assertIsNone(self.game.check_winner(result.state))
+        claim_result = self.claim(result.state)
+        self.assertEqual(
+            claim_result.state["draw_claim_reasons"], ["fifty_move_rule"]
+        )
+        self.assertEqual(self.game.check_winner(claim_result.state), "draw")
+
+    def test_seventy_five_move_rule_is_automatic(self):
+        state = self.game.state_from_fen(
+            "r6k/8/8/8/8/8/8/R6K w - - 149 75"
+        )
+        result = self.apply(state, "a1b1")
+        self.assertEqual(result.state["halfmove_clock"], 150)
         self.assertTrue(result.state["in_draw"])
-        self.assertEqual(result.state["terminal_reason"], "fifty_move_rule")
+        self.assertFalse(result.state["can_claim_draw"])
+        self.assertEqual(
+            result.state["terminal_reason"], "seventy_five_move_rule"
+        )
         self.assertEqual(self.game.check_winner(result.state), "draw")
+
+    def test_pawn_move_and_capture_reset_halfmove_clock(self):
+        pawn = self.game.state_from_fen(
+            "4k3/8/8/8/8/8/4P3/4K2R w - - 99 50"
+        )
+        pawn_result = self.apply(pawn, "e2e3")
+        self.assertEqual(pawn_result.state["halfmove_clock"], 0)
+        self.assertFalse(pawn_result.state["can_claim_draw"])
+
+        capture = self.game.state_from_fen(
+            "7k/8/8/8/8/8/r7/R6K w - - 99 50"
+        )
+        capture_result = self.apply(capture, "a1a2")
+        self.assertEqual(capture_result.state["halfmove_clock"], 0)
+        self.assertEqual(capture_result.state["last_move"]["captured"], "b:r")
+        self.assertFalse(capture_result.state["can_claim_draw"])
+
+    def test_repetition_identity_includes_castling_rights(self):
+        with_rights = self.game.state_from_fen(
+            "4k3/8/8/8/8/8/8/4K2R w K - 0 1"
+        )
+        without_rights = self.game.state_from_fen(
+            "4k3/8/8/8/8/8/8/4K2R w - - 0 1"
+        )
+        self.assertNotEqual(
+            with_rights["position_history"][-1],
+            without_rights["position_history"][-1],
+        )
+
+    def test_repetition_identity_uses_only_legally_available_en_passant(self):
+        valid = self.game.state_from_fen(
+            "4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 1"
+        )
+        valid_without_right = self.game.state_from_fen(
+            "4k3/8/8/8/3pP3/8/8/4K3 b - - 0 1"
+        )
+        self.assertNotEqual(
+            valid["position_history"][-1],
+            valid_without_right["position_history"][-1],
+        )
+        self.assertTrue(valid["position_history"][-1].endswith(" e3"))
+        self.assert_legal(valid, "d4e3", True, mark="O")
+
+        pinned = self.game.state_from_fen(
+            "k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
+        )
+        pinned_without_right = self.game.state_from_fen(
+            "k3r3/8/8/3pP3/8/8/8/4K3 w - - 0 1"
+        )
+        self.assertEqual(
+            pinned["position_history"][-1],
+            pinned_without_right["position_history"][-1],
+        )
+        self.assertTrue(pinned["position_history"][-1].endswith(" -"))
+        self.assert_legal(pinned, "e5d6", False)
+
+    def test_checkmate_takes_priority_on_150th_halfmove(self):
+        state = self.game.state_from_fen(
+            "7k/5Q2/6K1/8/8/8/8/8 w - - 149 75"
+        )
+        result = self.apply(state, "f7g7")
+        self.assertEqual(result.state["halfmove_clock"], 150)
+        self.assertTrue(result.state["in_checkmate"])
+        self.assertFalse(result.state["in_draw"])
+        self.assertEqual(result.state["terminal_reason"], "checkmate")
+        self.assertEqual(self.game.check_winner(result.state), "X")
 
     def test_invalid_fen_and_corrupt_history_are_rejected_by_bridge(self):
         with self.assertRaisesRegex(ValueError, "missing black king|必须恰有一个王"):
@@ -201,6 +357,20 @@ class ChessRuleTests(unittest.TestCase):
         self.assertEqual(
             self.game.npc_legal_actions(state, {"token": "O"}, []), []
         )
+
+        cycle = ("g1f3", "g8f6", "f3g1", "f6g8")
+        for uci in (*cycle, *cycle):
+            state = self.apply(state, uci).state
+        actions = self.game.npc_legal_actions(state, {"token": "X"}, [])
+        self.assertIn({"action": "claim_draw"}, actions)
+        for action in actions:
+            self.game.validate_move(state, action, "X")
+        with self.assertRaisesRegex(ValueError, "只能包含"):
+            self.game.validate_move(
+                state,
+                {"action": "claim_draw", "reason": "threefold_repetition"},
+                "X",
+            )
 
 
 class ChessFrameworkTests(unittest.TestCase):
@@ -277,6 +447,45 @@ class ChessFrameworkTests(unittest.TestCase):
         self.assertEqual(restored["revision"], 1)
         self.assertEqual(restored["board_state"]["move_history"], ["e2e4"])
         self.assertEqual(restored["board_state"]["last_move"]["san"], "e4")
+
+    def test_repetition_history_survives_refresh_and_claim_finishes_room(self):
+        room = framework.create_room(
+            "chess", "human_first", "human", "human-repeat", "ai-repeat"
+        )
+        cycle = ("g1f3", "g8f6", "f3g1", "f6g8")
+        for uci in (*cycle, *cycle):
+            actor = next(
+                item for item in room["participants"]
+                if item["player_id"] == room["current_player_id"]
+            )
+            room = framework.play_move(
+                room["room_id"], actor["role"], actor["player_id"], move(uci)
+            )
+
+        restored = framework.get_room(room["room_id"])
+        state = restored["board_state"]
+        self.assertEqual(restored["revision"], 8)
+        self.assertEqual(len(state["position_history"]), 9)
+        self.assertEqual(state["repetition_count"], 3)
+        self.assertIn({"action": "claim_draw"}, state["legal_actions"])
+        projected = framework.project_room_for_viewer(restored, "human-repeat")
+        self.assertNotIn("position_history", projected["board_state"])
+        self.assertIn(
+            {"action": "claim_draw"}, projected["board_state"]["legal_actions"]
+        )
+
+        finished = framework.play_move(
+            restored["room_id"],
+            "human",
+            "human-repeat",
+            {"action": "claim_draw"},
+        )
+        self.assertEqual(finished["status"], "finished")
+        self.assertEqual(finished["winner"], "draw")
+        self.assertEqual(finished["result"], {"draw": True})
+        self.assertEqual(
+            finished["board_state"]["terminal_reason"], "claimed_draw"
+        )
 
     def test_checkmate_finishes_staked_room_and_settles_once(self):
         mate_in_one = self.game.state_from_fen(

@@ -28,12 +28,17 @@ class Chess(GamePlugin):
         "【特殊规则】\n"
         "完整支持王车易位、吃过路兵，以及兵到达底线后升变为后、车、象或马。\n\n"
         "【胜负】\n"
-        "将死判攻击方获胜；逼和、子力不足、三次重复，或连续五十回合没有兵移动与吃子时判和。"
+        "将死判攻击方获胜；逼和、子力不足等死局自动判和。轮到自己行棋时，若当前同一局面已第三次出现，"
+        "或双方已各走满 50 步且期间没有兵移动与吃子，可以选择申和；不申和仍可继续走棋。"
+        "同一局面第五次出现，或双方各走满 75 步且期间没有兵移动与吃子时自动和棋；"
+        "若第 75 步的最后一手同时将死，将死优先。"
     )
     move_format = (
         '移动使用零起始坐标：{"move":{"from_row":6,"from_col":4,'
         '"to_row":4,"to_col":4},"revision":当前版本}；row 0 是黑方底线，'
         'col 0 是 a 线。兵升变必须另加 "promotion":"q|r|b|n"。'
+        '当前局面满足三次重复或 50 回合条件时，可提交 '
+        '{"move":{"action":"claim_draw"},"revision":当前版本} 申和。'
     )
     piece_names = {
         "p": "兵",
@@ -46,9 +51,14 @@ class Chess(GamePlugin):
     draw_notes = {
         "stalemate": "逼和，对局结束。",
         "insufficient_material": "子力不足，和棋。",
-        "threefold_repetition": "同一局面三次重复，和棋。",
-        "fifty_move_rule": "五十回合未走兵且未吃子，和棋。",
+        "fivefold_repetition": "同一局面第五次出现，自动和棋。",
+        "seventy_five_move_rule": "双方各 75 步未走兵且未吃子，自动和棋。",
     }
+    claim_notes = {
+        "threefold_repetition": "同一局面已第三次出现",
+        "fifty_move_rule": "双方各 50 步未走兵且未吃子",
+    }
+    claim_draw_action = {"action": "claim_draw"}
 
     @staticmethod
     def _mark_for_color(color: str) -> str:
@@ -104,7 +114,7 @@ class Chess(GamePlugin):
         move_history: list[str],
         action_history: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        return {
+        state = {
             "size": 8,
             "rows": 8,
             "cols": 8,
@@ -114,6 +124,24 @@ class Chess(GamePlugin):
             "action_history": deepcopy(action_history or []),
             **engine,
         }
+        state["legal_actions"] = [
+            Chess._payload(item) for item in state.get("legal_moves", [])
+        ]
+        if state.get("can_claim_draw"):
+            state["legal_actions"].append(deepcopy(Chess.claim_draw_action))
+        if state.get("game_over"):
+            state["legal_actions"] = []
+        return state
+
+    def public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del participants
+        projected = deepcopy(state)
+        projected.pop("position_history", None)
+        return projected
 
     def initial_state(self) -> dict[str, Any]:
         try:
@@ -151,10 +179,18 @@ class Chess(GamePlugin):
     def validate_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> None:
-        from_row, from_col, _to_row, _to_col, _promotion = self._coords(move)
         expected_mark = self._mark_for_color(state["turn_color"])
         if mark != expected_mark:
             raise ValueError("当前行动者与规则引擎行棋方不一致")
+        if move.get("action") == "claim_draw":
+            if move != self.claim_draw_action:
+                raise ValueError("申和动作只能包含 action=claim_draw")
+            if move not in state.get("legal_actions", []):
+                raise ValueError("当前局面不满足可申和条件")
+            return
+        if "action" in move:
+            raise ValueError("未知国际象棋动作")
+        from_row, from_col, _to_row, _to_col, _promotion = self._coords(move)
         piece = state["board"][from_row][from_col]
         if piece is None:
             raise ValueError("起点没有棋子")
@@ -169,6 +205,36 @@ class Chess(GamePlugin):
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> MoveResult:
         self.validate_move(state, move, mark)
+        if move.get("action") == "claim_draw":
+            updated = deepcopy(state)
+            reasons = list(updated.get("claimable_draw_reasons", []))
+            if not reasons:
+                raise ValueError("当前局面不满足可申和条件")
+            labels = [self.claim_notes[reason] for reason in reasons]
+            claim = {
+                "action": "claim_draw",
+                "mark": mark,
+                "reasons": reasons,
+            }
+            updated["action_history"] = [
+                *updated.get("action_history", []), claim,
+            ]
+            updated["last_action"] = deepcopy(claim)
+            updated["winner_mark"] = "draw"
+            updated["terminal_reason"] = "claimed_draw"
+            updated["draw_reason"] = "claimed_draw"
+            updated["draw_claim_reasons"] = reasons
+            updated["claimed_draw"] = True
+            updated["in_draw"] = True
+            updated["game_over"] = True
+            updated["can_claim_draw"] = False
+            updated["claimable_draw_reasons"] = []
+            updated["legal_moves"] = []
+            updated["legal_actions"] = []
+            return MoveResult(
+                updated,
+                note=f"申和成立：{'；'.join(labels)}。",
+            )
         from_row, from_col, to_row, to_col, promotion = self._coords(move)
         origin = state["board"][from_row][from_col]
         target = state["board"][to_row][to_col]
@@ -233,7 +299,7 @@ class Chess(GamePlugin):
         del state, actor, participants
         return (
             "标准国际象棋。只能从权威 legal_actions 选择走法；优先将死、避免被将死，"
-            "升变动作必须保留 promotion 字段。"
+            "升变动作必须保留 promotion 字段；若列表含 claim_draw，优先选择申和。"
         )
 
     def npc_public_actions(
@@ -254,12 +320,19 @@ class Chess(GamePlugin):
         del participants
         if actor.get("token") != self._mark_for_color(state["turn_color"]):
             return []
+        actions = state.get("legal_actions")
+        if isinstance(actions, list):
+            return deepcopy(actions)
         return [self._payload(item) for item in state.get("legal_moves", [])]
 
     def format_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
     ) -> str:
         del mark
+        if move.get("action") == "claim_draw":
+            reasons = state.get("claimable_draw_reasons", [])
+            labels = [self.claim_notes.get(reason, reason) for reason in reasons]
+            return f"申和（{'；'.join(labels) or '和棋条件'}）"
         from_row, from_col, to_row, to_col, promotion = self._coords(move)
         value = state["board"][from_row][from_col]
         piece_type = value.split(":", 1)[1] if value else ""

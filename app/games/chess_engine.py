@@ -1,8 +1,9 @@
 """Stateless adapter for the vendored BSD-2-Clause chess.js engine.
 
 Every request uses a short-lived Node.js process. The complete UCI history is
-replayed from the game's starting FEN so repetition-dependent outcomes remain
-authoritative without a resident worker or shared mutable engine state.
+replayed from the game's starting FEN so FIDE position identities, repetition
+counts and the halfmove clock remain authoritative without a resident worker or
+shared mutable engine state.
 """
 
 from __future__ import annotations
