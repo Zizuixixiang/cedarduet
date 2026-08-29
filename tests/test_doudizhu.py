@@ -1,0 +1,621 @@
+import json
+import random
+import tempfile
+import unittest
+from copy import deepcopy
+from pathlib import Path
+from unittest.mock import patch
+
+import httpx
+
+from app import database, framework
+from app import main as main_module
+from app.games import GAMES, game_catalog
+from app.games.doudizhu import Doudizhu, build_deck
+from third_party.onestraw_doudizhu import (
+    PATTERN_ENTRY_COUNT,
+    can_beat,
+    classify_ranks,
+    legal_rank_plays,
+)
+
+
+DECK_BY_ID = {card["id"]: card for card in build_deck()}
+
+
+def cards(*card_ids):
+    return [deepcopy(DECK_BY_ID[card_id]) for card_id in card_ids]
+
+
+def seats():
+    return [
+        {
+            "player_id": "human-1",
+            "display_name": "南山",
+            "role": "human",
+            "participant_kind": "human",
+            "seat_index": 0,
+            "token": "P1",
+        },
+        {
+            "player_id": "ai-1",
+            "display_name": "小机一号",
+            "role": "ai",
+            "participant_kind": "bound_machine",
+            "seat_index": 1,
+            "token": "P2",
+        },
+        {
+            "player_id": "ai-2",
+            "display_name": "小机二号",
+            "role": "ai",
+            "participant_kind": "bound_machine",
+            "seat_index": 2,
+            "token": "P3",
+        },
+    ]
+
+
+def only_pattern(ranks, type_code=None):
+    patterns = classify_ranks(ranks)
+    if type_code is None:
+        if len(patterns) != 1:
+            raise AssertionError(f"expected one pattern, got {patterns}")
+        return patterns[0]
+    return next(pattern for pattern in patterns if pattern.type_code == type_code)
+
+
+class VendoredDoudizhuCoreTests(unittest.TestCase):
+    def test_upstream_pattern_universe_and_every_major_family(self):
+        self.assertEqual(PATTERN_ENTRY_COUNT, 34152)
+        examples = {
+            ("3",): "solo",
+            ("3", "3"): "pair",
+            ("3", "3", "3"): "trio",
+            ("3", "3", "3", "4"): "trio_solo",
+            ("3", "3", "3", "4", "4"): "trio_pair",
+            tuple("34567"): "solo_chain_5",
+            tuple("334455"): "pair_chain_3",
+            tuple("333444"): "trio_chain_2",
+            tuple("33344456"): "trio_chain_solo_2",
+            tuple("3334445566"): "trio_chain_pair_2",
+            tuple("333345"): "four_two_solo",
+            tuple("33334455"): "four_two_pair",
+            tuple("3333"): "bomb",
+            ("small_joker", "big_joker"): "rocket",
+        }
+        for ranks, expected in examples.items():
+            with self.subTest(ranks=ranks):
+                self.assertIn(expected, {value.type_code for value in classify_ranks(ranks)})
+
+    def test_key_boundaries_and_upstream_attachment_semantics(self):
+        for invalid in (
+            tuple("3456"),
+            ("10", "J", "Q", "K", "2"),
+            ("J", "Q", "K", "A", "small_joker"),
+            tuple("3344"),
+            tuple("333444555666777888999"),
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(classify_ranks(invalid), ())
+        self.assertTrue(classify_ranks(tuple("333344")))
+        self.assertTrue(classify_ranks(tuple("33334444")))
+        ambiguous = classify_ranks(tuple("33332222"))
+        self.assertEqual(
+            {(value.type_code, value.main_rank) for value in ambiguous},
+            {("four_two_pair", "3"), ("four_two_pair", "2")},
+        )
+
+    def test_comparison_bombs_rocket_shape_and_length_boundaries(self):
+        single_a = only_pattern(("A",))
+        single_2 = only_pattern(("2",))
+        pair_3 = only_pattern(("3", "3"))
+        straight_7 = only_pattern(tuple("34567"))
+        straight_8 = only_pattern(tuple("45678"))
+        straight_9_long = only_pattern(tuple("3456789"))
+        bomb_3 = only_pattern(tuple("3333"))
+        bomb_a = only_pattern(("A",) * 4)
+        rocket = only_pattern(("small_joker", "big_joker"))
+        self.assertTrue(can_beat(single_2, single_a))
+        self.assertFalse(can_beat(pair_3, single_a))
+        self.assertTrue(can_beat(straight_8, straight_7))
+        self.assertFalse(can_beat(straight_9_long, straight_7))
+        self.assertTrue(can_beat(bomb_3, single_2))
+        self.assertTrue(can_beat(bomb_a, bomb_3))
+        self.assertTrue(can_beat(rocket, bomb_a))
+        self.assertFalse(can_beat(bomb_a, rocket))
+
+    def test_legal_enumeration_round_trips_and_never_exceeds_hand(self):
+        generator = random.Random(20260830)
+        deck_ranks = [card["rank"] for card in build_deck()]
+        for _sample in range(20):
+            hand = generator.sample(deck_ranks, 17)
+            hand_counts = {rank: hand.count(rank) for rank in set(hand)}
+            for play in legal_rank_plays(hand):
+                played_labels = tuple(
+                    ("3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2", "small_joker", "big_joker")[rank]
+                    for rank in play.ranks
+                )
+                self.assertIn(play.pattern, classify_ranks(played_labels))
+                self.assertTrue(all(
+                    played_labels.count(rank) <= count
+                    for rank, count in hand_counts.items()
+                ))
+
+
+class DoudizhuGameTests(unittest.TestCase):
+    def setUp(self):
+        self.game = Doudizhu(random.Random(20260830))
+        self.table = seats()
+
+    def playing_state(self, hands, *, landlord="human-1", turn="human-1", score=1):
+        state = self.game.initialize_for_first_player(self.table, "human-1")
+        state["cards"] = {
+            "deck": [],
+            "discard": [],
+            "hands": {
+                item["player_id"]: cards(*hands[index])
+                for index, item in enumerate(self.table)
+            },
+        }
+        state["bottom_cards"] = cards("S2", "H2", "C2")
+        state["bottom_revealed"] = True
+        state["landlord_player_id"] = landlord
+        state["roles_by_player"] = {
+            item["player_id"]: "landlord" if item["player_id"] == landlord else "farmer"
+            for item in self.table
+        }
+        state["base_score"] = score
+        state["multiplier"] = score
+        state["turn_player_id"] = turn
+        state["trick"] = self.game._new_trick(1, turn)
+        state["flow"].update({"phase": "playing", "round_number": 1, "turn_number": 0})
+        return state
+
+    def action(self, state, player_id, action_type, **matches):
+        return next(
+            action for action in self.game.legal_actions_for(state, player_id)
+            if action["action"] == action_type
+            and all(action.get(key) == value for key, value in matches.items())
+        )
+
+    def apply(self, state, player_id, action_type, **matches):
+        actor = next(item for item in self.table if item["player_id"] == player_id)
+        action = self.action(state, player_id, action_type, **matches)
+        result = self.game.apply_action(state, action, actor)
+        return action, self.game.progress_after_action(
+            state, action, actor, self.table, result
+        )
+
+    def test_catalog_deck_fixed_seats_rules_and_no_stakes(self):
+        item = {value["game_type"]: value for value in game_catalog()}["doudizhu"]
+        self.assertEqual(item["display_name"], "斗地主")
+        self.assertEqual(item["allowed_player_counts"], [3])
+        self.assertEqual(item["recommended_players"], 3)
+        self.assertTrue(item["supports_npcs"])
+        self.assertFalse(item["supports_stakes"])
+        deck = build_deck()
+        self.assertEqual(len(deck), 54)
+        self.assertEqual(len({card["id"] for card in deck}), 54)
+        state = self.game.initialize_for_first_player(self.table, "ai-1")
+        self.assertEqual(
+            {player_id: len(hand) for player_id, hand in state["cards"]["hands"].items()},
+            {"human-1": 17, "ai-1": 17, "ai-2": 17},
+        )
+        self.assertEqual(len(state["bottom_cards"]), 3)
+        self.assertEqual(state["turn_player_id"], "ai-1")
+        for phrase in (
+            "0 分（不叫）", "严格高于", "全部不叫", "最后一位不叫者",
+            "定地主后底牌向全桌公开", "34,152", "王炸最高",
+            "不设倍数上限", "不设春天、反春天", "不接入筹码或钱包",
+        ):
+            self.assertIn(phrase, GAMES["doudizhu"].rules_text)
+
+    def test_bid_flow_bottom_merge_roles_and_illegal_equal_bid(self):
+        state = self.game.initialize_for_first_player(self.table, "human-1")
+        original_bottom = deepcopy(state["bottom_cards"])
+        public_before = self.game.public_state(state, self.table)
+        self.assertFalse(public_before["bottom_revealed"])
+        self.assertEqual(public_before["bottom_cards"], [])
+        self.apply(state, "human-1", "bid", score=1)
+        self.assertEqual(
+            {action["score"] for action in self.game.legal_actions_for(state, "ai-1")},
+            {0, 2, 3},
+        )
+        with self.assertRaisesRegex(ValueError, "合法动作"):
+            self.game.validate_action(
+                state, {"action": "bid", "action_id": "bid:1", "score": 1}, self.table[1]
+            )
+        self.apply(state, "ai-1", "bid", score=0)
+        _action, result = self.apply(state, "ai-2", "bid", score=2)
+        self.assertEqual(state["flow"]["phase"], "playing")
+        self.assertEqual(state["landlord_player_id"], "ai-2")
+        self.assertEqual(state["roles_by_player"], {
+            "human-1": "farmer", "ai-1": "farmer", "ai-2": "landlord",
+        })
+        self.assertEqual(len(state["cards"]["hands"]["ai-2"]), 20)
+        self.assertEqual(state["cards"]["hands"]["ai-2"][-3:], original_bottom)
+        self.assertEqual(state["turn_player_id"], "ai-2")
+        self.assertEqual(state["multiplier"], 2)
+        public = self.game.public_state(state, self.table)
+        self.assertEqual(public["bottom_cards"], original_bottom)
+        delta = result.public_event["doudizhu_delta"]
+        self.assertTrue(delta["landlord_decided"])
+        self.assertEqual(delta["bottom_cards"], original_bottom)
+        self.assertEqual(delta["hand_counts"]["ai-2"], 20)
+
+    def test_three_points_ends_bidding_immediately(self):
+        state = self.game.initialize_for_first_player(self.table, "human-1")
+        self.apply(state, "human-1", "bid", score=3)
+        self.assertEqual(state["landlord_player_id"], "human-1")
+        self.assertEqual(state["turn_player_id"], "human-1")
+        self.assertEqual(state["multiplier"], 3)
+        self.assertEqual(len(state["bidding"]["actions"]), 1)
+
+    def test_all_pass_redeals_and_last_no_bid_retains_opening_turn(self):
+        state = self.game.initialize_for_first_player(self.table, "human-1")
+        first_hand = deepcopy(state["cards"]["hands"]["ai-2"])
+        self.apply(state, "human-1", "bid", score=0)
+        self.apply(state, "ai-1", "bid", score=0)
+        _action, result = self.apply(state, "ai-2", "bid", score=0)
+        self.assertTrue(result.retain_turn)
+        self.assertEqual(state["turn_player_id"], "ai-2")
+        self.assertEqual(state["deal_number"], 2)
+        self.assertEqual(state["bidding"]["round"], 2)
+        self.assertEqual(state["bidding"]["opener_player_id"], "ai-2")
+        self.assertEqual([len(hand) for hand in state["cards"]["hands"].values()], [17, 17, 17])
+        self.assertNotEqual(state["cards"]["hands"]["ai-2"], first_hand)
+        delta = result.public_event["doudizhu_delta"]
+        self.assertTrue(delta["all_pass_redeal"])
+        encoded = json.dumps(delta, ensure_ascii=False)
+        for card in state["cards"]["hands"]["human-1"]:
+            self.assertNotIn(f'"{card["id"]}"', encoded)
+
+    def test_authoritative_physical_actions_and_ambiguous_interpretations(self):
+        state = self.playing_state([
+            ("S3", "H3", "C3", "D3", "S2", "H2", "C2", "D2", "S9"),
+            ("S4",),
+            ("S5",),
+        ])
+        legal = self.game.legal_actions_for(state, "human-1")
+        ambiguous = [
+            action for action in legal
+            if set(action.get("card_ids", [])) == {"S3", "H3", "C3", "D3", "S2", "H2", "C2", "D2"}
+        ]
+        self.assertEqual(len(ambiguous), 2)
+        self.assertEqual({action["main_rank"] for action in ambiguous}, {"3", "2"})
+        self.assertEqual(len({action["action_id"] for action in ambiguous}), 2)
+        for action in legal:
+            self.game.validate_action(deepcopy(state), action, self.table[0])
+        forged = deepcopy(ambiguous[0])
+        forged["pattern_type"] = "rocket"
+        with self.assertRaisesRegex(ValueError, "不一致"):
+            self.game.validate_action(state, forged, self.table[0])
+
+    def test_cannot_beat_pass_rotation_and_two_passes_restore_lead(self):
+        state = self.playing_state([
+            ("S3", "S9"),
+            ("S4", "S8"),
+            ("S5", "S7"),
+        ])
+        self.apply(state, "human-1", "play", card_ids=["S9"])
+        self.assertEqual(
+            {action["action"] for action in self.game.legal_actions_for(state, "ai-1")},
+            {"pass"},
+        )
+        self.apply(state, "ai-1", "pass")
+        _action, result = self.apply(state, "ai-2", "pass")
+        self.assertEqual(state["turn_player_id"], "human-1")
+        self.assertIsNone(state["trick"]["last_play"])
+        self.assertEqual(state["trick"]["pass_player_ids"], [])
+        self.assertTrue(result.public_event["doudizhu_delta"]["trick_ended"])
+        self.assertNotIn("pass", {action["action"] for action in self.game.legal_actions_for(state, "human-1")})
+
+    def test_successful_follow_clears_pass_state(self):
+        state = self.playing_state([
+            ("S3", "S9"),
+            ("S4", "S8"),
+            ("S5", "S7"),
+        ])
+        self.apply(state, "human-1", "play", card_ids=["S3"])
+        self.apply(state, "ai-1", "pass")
+        self.apply(state, "ai-2", "play", card_ids=["S5"])
+        self.assertEqual(state["trick"]["pass_player_ids"], [])
+        self.assertEqual(state["trick"]["last_play"]["player_id"], "ai-2")
+
+    def test_bomb_and_rocket_double_informational_multiplier(self):
+        state = self.playing_state([
+            ("S3", "H3", "C3", "D3", "JOKER-S", "JOKER-B", "S9"),
+            ("S4", "S8"),
+            ("S5", "S7"),
+        ], score=2)
+        self.apply(state, "human-1", "play", pattern_type="bomb")
+        self.assertEqual((state["multiplier"], state["bomb_count"]), (4, 1))
+        self.apply(state, "ai-1", "pass")
+        self.apply(state, "ai-2", "pass")
+        _action, result = self.apply(state, "human-1", "play", pattern_type="rocket")
+        self.assertEqual((state["multiplier"], state["bomb_count"]), (8, 2))
+        delta = result.public_event["doudizhu_delta"]
+        self.assertEqual((delta["multiplier"], delta["bomb_count"]), (8, 2))
+
+    def test_farmer_finish_returns_team_winners_without_chip_settlement(self):
+        state = self.playing_state([
+            ("S9", "H9"),
+            ("S3",),
+            ("S5", "S7"),
+        ], landlord="human-1", turn="ai-1", score=3)
+        _action, result = self.apply(state, "ai-1", "play", card_ids=["S3"])
+        self.assertEqual(state["flow"]["phase"], "finished")
+        self.assertEqual(state["winner_player_id"], "ai-1")
+        self.assertEqual(state["winning_side"], "farmers")
+        self.assertEqual(state["winning_player_ids"], ["ai-1", "ai-2"])
+        self.assertEqual(result.result["winning_player_ids"], ["ai-1", "ai-2"])
+        self.assertIsNone(self.game.settlement_deltas(state, result.result, self.table, 5))
+        delta = result.public_event["doudizhu_delta"]
+        self.assertTrue(delta["finished"])
+        self.assertEqual(delta["winning_side"], "farmers")
+
+    def test_public_private_npc_and_participant_relationships_are_safe(self):
+        state = self.playing_state([
+            ("S3", "H3", "C8"),
+            ("S4", "H4", "C9"),
+            ("S5", "H5", "C10"),
+        ])
+        public = self.game.public_state(state, self.table)
+        encoded = json.dumps(public, ensure_ascii=False)
+        self.assertNotIn("hands", public)
+        for card_id in ("S3", "H3", "C8", "S4", "H4", "C9", "S5", "H5", "C10"):
+            self.assertNotIn(f'"{card_id}"', encoded)
+        private = self.game.private_state(state, self.table[0], self.table)
+        self.assertEqual({card["id"] for card in private["hand"]}, {"S3", "H3", "C8"})
+        self.assertEqual(
+            private["legal_actions"],
+            self.game.npc_legal_actions(state, self.table[0], self.table),
+        )
+        farmer_summary = self.game.participant_summary(public, self.table[1], self.table)
+        self.assertEqual(farmer_summary["identity"], "农民")
+        self.assertEqual(farmer_summary["partner_player_id"], "ai-2")
+        self.assertNotIn("S4", json.dumps(self.game.npc_public_actions(state, self.table[1], self.table)))
+
+
+class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="duel-doudizhu-")
+        self.db_patch = patch.object(
+            database, "DB_PATH", Path(self.temporary.name) / "test.db"
+        )
+        self.db_patch.start()
+        database.init_db()
+        self.original_events = main_module.revision_events
+        main_module.revision_events = main_module.RevisionEvents()
+        self.game = Doudizhu(random.Random(77))
+        self.game_patch = patch.dict(GAMES, {"doudizhu": self.game})
+        self.game_patch.start()
+        self.client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=main_module.app),
+            base_url="http://duel.test",
+        )
+
+    async def asyncTearDown(self):
+        await self.client.aclose()
+        self.game_patch.stop()
+        main_module.revision_events = self.original_events
+        self.db_patch.stop()
+        self.temporary.cleanup()
+
+    @staticmethod
+    def mixed_participants():
+        return [
+            {
+                "player_id": "human-1", "role": "human",
+                "participant_kind": "human", "display_name": "南山",
+            },
+            {
+                "player_id": "ai-1", "role": "ai",
+                "participant_kind": "bound_machine", "display_name": "小机",
+            },
+            {
+                "player_id": "npc:quiet", "role": "ai",
+                "participant_kind": "system_npc", "npc_persona_id": "quiet",
+                "display_name": "安静 NPC",
+            },
+        ]
+
+    def test_framework_accepts_mixed_fixed_three_and_rejects_stakes(self):
+        room = framework.create_room(
+            "doudizhu", "human_first", "human", "human-1",
+            opponent_id="ai-1", ordered_participants=self.mixed_participants(),
+            first_player_id="human-1",
+        )
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(
+            [item["participant_kind"] for item in room["participants"]],
+            ["human", "bound_machine", "system_npc"],
+        )
+        self.assertEqual(room["stake"], 0)
+        with self.assertRaisesRegex(framework.DuelError, "筹码"):
+            framework.create_room(
+                "doudizhu", "human_first", "human", "human-2",
+                ordered_participants=[
+                    {"player_id": "human-2", "role": "human"},
+                    {"player_id": "ai-2", "role": "ai"},
+                    {"player_id": "ai-3", "role": "ai"},
+                ],
+                stake=1,
+            )
+
+    async def test_mcp_bootstrap_delta_full_state_and_private_hands(self):
+        participants = seats()
+        for item in participants:
+            item.pop("seat_index")
+            item.pop("token")
+        room = framework.create_room(
+            "doudizhu", "ai_first", "human", "human-1",
+            opponent_id="ai-1", ordered_participants=participants,
+            first_player_id="ai-1",
+        )
+        room_id = room["room_id"]
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room_id},
+        )
+        self.assertEqual(bootstrap.status_code, 200, bootstrap.text)
+        payload = bootstrap.json()
+        self.assertTrue(payload["bootstrap"])
+        projected = payload["room"]
+        self.assertEqual(len(projected["private_state"]["hand"]), 17)
+        self.assertEqual(projected["board_state"]["bottom_cards"], [])
+        raw_hands = room["board_state"]["cards"]["hands"]
+        encoded = json.dumps(payload, ensure_ascii=False)
+        for other_id in ("human-1", "ai-2"):
+            for card in raw_hands[other_id]:
+                self.assertNotIn(f'"{card["id"]}"', encoded)
+
+        bid = next(
+            action for action in projected["private_state"]["legal_actions"]
+            if action.get("score") == 1
+        )
+        moved = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-1", "room_id": room_id,
+                "move": bid,
+            },
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        delta = next(
+            item["doudizhu_delta"] for item in moved.json()["events"]
+            if "doudizhu_delta" in item
+        )
+        self.assertEqual((delta["action"], delta["score"]), ("bid", 1))
+        self.assertNotIn("private_state", moved.json())
+        self.assertNotIn("cards", json.dumps(delta, ensure_ascii=False))
+
+        latest = framework.get_room(room_id)
+        ai2_action = next(
+            action for action in self.game.private_state(
+                latest["board_state"], latest["participants"][2], latest["participants"]
+            )["legal_actions"]
+            if action.get("score") == 0
+        )
+        framework.play_move(room_id, "ai", "ai-2", ai2_action)
+        latest = framework.get_room(room_id)
+        human_action = next(
+            action for action in self.game.private_state(
+                latest["board_state"], latest["participants"][0], latest["participants"]
+            )["legal_actions"]
+            if action.get("score") == 0
+        )
+        framework.play_move(room_id, "human", "human-1", human_action)
+
+        full = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-1", "room_id": room_id,
+                "full_state": True,
+            },
+        )
+        self.assertEqual(full.status_code, 200, full.text)
+        snapshot = full.json()["snapshot"]
+        self.assertEqual(len(snapshot["private_state"]["hand"]), 20)
+        self.assertEqual(len(snapshot["board_state"]["bottom_cards"]), 3)
+        self.assertEqual(snapshot["board_state"]["landlord_player_id"], "ai-1")
+        latest = framework.get_room(room_id)
+        snapshot_json = json.dumps(snapshot, ensure_ascii=False)
+        for other_id in ("human-1", "ai-2"):
+            for card in latest["board_state"]["cards"]["hands"][other_id]:
+                self.assertNotIn(f'"{card["id"]}"', snapshot_json)
+
+        play = next(
+            action for action in snapshot["private_state"]["legal_actions"]
+            if action["action"] == "play"
+        )
+        played = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-1", "room_id": room_id,
+                "move": play,
+            },
+        )
+        self.assertEqual(played.status_code, 200, played.text)
+        play_delta = next(
+            item["doudizhu_delta"] for item in played.json()["events"]
+            if "doudizhu_delta" in item and item["doudizhu_delta"]["action"] == "play"
+        )
+        self.assertEqual(
+            {card["id"] for card in play_delta["cards"]}, set(play["card_ids"])
+        )
+        unplayed = {
+            card["id"] for card in snapshot["private_state"]["hand"]
+        } - set(play["card_ids"])
+        encoded_delta = json.dumps(play_delta, ensure_ascii=False)
+        self.assertTrue(all(card_id not in encoded_delta for card_id in unplayed))
+
+    async def test_mcp_all_pass_redeal_returns_only_actors_new_private_hand(self):
+        participants = seats()
+        participants = [participants[0], participants[2], participants[1]]
+        for item in participants:
+            item.pop("seat_index")
+            item.pop("token")
+        room = framework.create_room(
+            "doudizhu", "human_first", "human", "human-1",
+            opponent_id="ai-1", ordered_participants=participants,
+            first_player_id="human-1",
+        )
+        room_id = room["room_id"]
+        for player_id, role in (("human-1", "human"), ("ai-2", "ai")):
+            latest = framework.get_room(room_id)
+            actor = next(
+                item for item in latest["participants"]
+                if item["player_id"] == player_id
+            )
+            action = next(
+                value for value in self.game.private_state(
+                    latest["board_state"], actor, latest["participants"]
+                )["legal_actions"]
+                if value.get("score") == 0
+            )
+            framework.play_move(room_id, role, player_id, action)
+
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={"action": "state", "player_id": "ai-1", "room_id": room_id},
+        )
+        self.assertEqual(bootstrap.status_code, 200, bootstrap.text)
+        before_ids = {
+            card["id"] for card in bootstrap.json()["room"]["private_state"]["hand"]
+        }
+        no_bid = next(
+            action for action in bootstrap.json()["room"]["private_state"]["legal_actions"]
+            if action.get("score") == 0
+        )
+        redealt = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-1", "room_id": room_id,
+                "move": no_bid,
+            },
+        )
+        self.assertEqual(redealt.status_code, 200, redealt.text)
+        payload = redealt.json()
+        self.assertEqual(len(payload["private_state"]["hand"]), 17)
+        after_ids = {card["id"] for card in payload["private_state"]["hand"]}
+        self.assertNotEqual(before_ids, after_ids)
+        delta = next(
+            item["doudizhu_delta"] for item in payload["events"]
+            if "doudizhu_delta" in item
+        )
+        self.assertTrue(delta["all_pass_redeal"])
+        encoded_delta = json.dumps(delta, ensure_ascii=False)
+        self.assertTrue(all(card_id not in encoded_delta for card_id in after_ids))
+        latest = framework.get_room(room_id)
+        for other_id in ("human-1", "ai-2"):
+            for card in latest["board_state"]["cards"]["hands"][other_id]:
+                self.assertNotIn(
+                    f'"{card["id"]}"',
+                    json.dumps(payload["private_state"], ensure_ascii=False),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()
