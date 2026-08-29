@@ -372,9 +372,8 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
   双方 `exchange_out` / `exchange_in`，拒绝、撤回、失效均不动账
 - 解绑使待处理申请失效，已完成历史保留；平台不上传或保存实际互动内容，也不介入
   履约争议，双方在常用聊天平台自行完成
-- 当前商品图使用轻量 CSS/符号占位；后续原图放在
-  `app/static/assets/exchange-shop/source/`，约定文件名为 `human-items.png`、
-  `machine-items.png`、`common-items.png`，处理后的网页素材放在相邻 `items/`
+- 商品卡优先显示 `app/static/assets/exchange-shop/items/` 中的正式插画，加载失败时
+  回退到轻量 CSS/符号占位；三张原始宫格图保存在相邻 `source/`
 - 只有借款人能发起欠条；人类从筹码中心发起，小机从显式 MCP `chips/loans` 发起
 - 当前收到方可接受、拒绝或还价；还价生成新 revision，旧接受立即失效；发起人只可在生效前撤销
 - 每名借款人最多 3 张未结欠条；逾期会阻止新借款，但不影响对局、签到、破产处理和还款

@@ -141,10 +141,83 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("grid-template-columns: 68px minmax(0, 1fr)", styles)
         self.assertIn(".exchange-catalog", styles)
         self.assertIn(".exchange-catalog, .exchange-form-grid", styles)
+        self.assertIn(".exchange-art img", styles)
+        self.assertIn("object-fit: contain", styles)
+        self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
+        self.assertIn("/static/chips.css?v=1.2.0", HTML)
+        self.assertIn("/static/chips.js?v=1.2.0", HTML)
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
 class ChipCenterTabBehaviorTests(unittest.TestCase):
+    def test_exchange_art_uses_image_path_and_keeps_symbol_fallback(self):
+        renderer = function_source("renderExchangeArt")
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.values = new Set(); }}
+  add(name) {{ this.values.add(name); }}
+  remove(name) {{ this.values.delete(name); }}
+  contains(name) {{ return this.values.has(name); }}
+}}
+class Element {{
+  constructor(tag) {{
+    this.tag = tag;
+    this.children = [];
+    this.listeners = {{}};
+    this.classList = new ClassList();
+    this.hidden = false;
+    this.parent = null;
+  }}
+  append(...children) {{
+    for (const child of children) child.parent = this;
+    this.children.push(...children);
+  }}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  remove() {{
+    if (this.parent) this.parent.children = this.parent.children.filter((child) => child !== this);
+  }}
+}}
+const document = {{createElement(tag) {{ return new Element(tag); }}}};
+{renderer}
+
+const loaded = new Element("span");
+renderExchangeArt(loaded, {{
+  symbol: "☀",
+  image_key: "/static/assets/exchange-shop/items/good_life.png?v=20260829",
+}});
+assert.equal(loaded.children[0].textContent, "☀");
+assert.equal(loaded.children[1].src, "/static/assets/exchange-shop/items/good_life.png?v=20260829");
+assert.equal(loaded.children[1].hidden, true);
+loaded.children[1].listeners.load();
+assert.equal(loaded.children[1].hidden, false);
+assert.equal(loaded.classList.contains("has-image"), true);
+
+const failed = new Element("span");
+renderExchangeArt(failed, {{symbol: "♡", image_key: "/missing.png"}});
+failed.children[1].listeners.error();
+assert.equal(failed.children.length, 1);
+assert.equal(failed.children[0].textContent, "♡");
+assert.equal(failed.classList.contains("has-image"), false);
+
+const placeholderOnly = new Element("span");
+renderExchangeArt(placeholderOnly, {{symbol: "#"}});
+assert.equal(placeholderOnly.children.length, 1);
+assert.equal(placeholderOnly.children[0].textContent, "#");
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
     def test_utc_ledger_timestamp_is_rendered_in_browser_local_timezone(self):
         formatter = function_source("formatLedgerCreatedAt")
         harness = f"""

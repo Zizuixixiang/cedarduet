@@ -354,8 +354,10 @@ footer {
 .exchange-product:focus-visible { outline: 3px solid #ffd246; outline-offset: 2px; }
 .exchange-product:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 rgba(64, 43, 76, 0.14); }
 .exchange-art {
+  position: relative;
   display: grid;
   min-height: 100%;
+  overflow: hidden;
   place-items: center;
   border-right: 2px dashed var(--line);
   color: var(--pink-dark);
@@ -366,6 +368,16 @@ footer {
   font-size: 1.65rem;
   font-weight: 900;
 }
+.exchange-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3px;
+  object-fit: contain;
+}
+.exchange-art.has-image .exchange-art-fallback { visibility: hidden; }
 .exchange-copy { min-width: 0; padding: 9px 8px; }
 .exchange-copy strong { display: block; font-size: 0.78rem; overflow-wrap: anywhere; }
 .exchange-copy span { display: block; margin-top: 4px; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }

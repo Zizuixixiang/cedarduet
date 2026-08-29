@@ -578,6 +578,30 @@ function openExchangeForm(item) {
   $(custom ? "exchangeCustomTitle" : "exchangeRequestNote").focus();
 }
 
+function renderExchangeArt(art, item) {
+  const fallback = document.createElement("span");
+  fallback.className = "exchange-art-fallback";
+  fallback.textContent = item.symbol || "♡";
+  art.append(fallback);
+  if (!item.image_key) return;
+
+  const image = document.createElement("img");
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.hidden = true;
+  image.addEventListener("load", () => {
+    image.hidden = false;
+    art.classList.add("has-image");
+  });
+  image.addEventListener("error", () => {
+    image.remove();
+    art.classList.remove("has-image");
+  });
+  art.append(image);
+  image.src = item.image_key;
+}
+
 function renderExchangeCatalog(items) {
   const container = $("exchangeCatalog");
   container.replaceChildren();
@@ -596,7 +620,7 @@ function renderExchangeCatalog(items) {
     const art = document.createElement("span");
     art.className = "exchange-art";
     art.setAttribute("aria-hidden", "true");
-    art.textContent = item.symbol || "♡";
+    renderExchangeArt(art, item);
     const copy = document.createElement("span");
     copy.className = "exchange-copy";
     const title = document.createElement("strong");

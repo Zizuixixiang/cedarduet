@@ -21,6 +21,7 @@ from .chips import (
 from .achievements import filter_unlocks, get_achievements
 from .framework import DuelError
 from .exchanges import (
+    CATALOG_BY_KEY,
     close_exchange_request,
     confirm_exchange_request,
     create_exchange_request,
@@ -49,6 +50,8 @@ ROOT = Path(__file__).resolve().parent
 CHIPS_HTML = (ROOT / "static" / "chips.html").read_text(encoding="utf-8")
 CHIPS_CSS = (ROOT / "static" / "chips.css").read_text(encoding="utf-8")
 CHIPS_JS = (ROOT / "static" / "chips.js").read_text(encoding="utf-8")
+EXCHANGE_ITEMS_ROOT = ROOT / "static" / "assets" / "exchange-shop" / "items"
+EXCHANGE_ITEM_FILENAMES = frozenset(f"{key}.png" for key in CATALOG_BY_KEY)
 
 
 class ChipActionBody(BaseModel):
@@ -101,6 +104,23 @@ def create_chips_router(
             CHIPS_JS,
             media_type="text/javascript",
             headers={"Cache-Control": "no-store"},
+        )
+
+    @router.get(
+        "/static/assets/exchange-shop/items/{filename}",
+        include_in_schema=False,
+    )
+    async def exchange_item_image(filename: str):
+        if filename not in EXCHANGE_ITEM_FILENAMES:
+            raise DuelError("兑换商品图片不存在", 404)
+        try:
+            content = (EXCHANGE_ITEMS_ROOT / filename).read_bytes()
+        except OSError as exc:
+            raise DuelError("兑换商品图片不存在", 404) from exc
+        return Response(
+            content,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
     @router.get("/api/chips")

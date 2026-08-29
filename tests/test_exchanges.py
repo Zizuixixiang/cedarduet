@@ -1,5 +1,6 @@
 import base64
 import json
+import struct
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,24 @@ import httpx
 from app import chips, database, exchanges
 from app import main as main_module
 from app.framework import DuelError
+
+ROOT = Path(__file__).resolve().parents[1]
+EXCHANGE_ITEMS_ROOT = ROOT / "app" / "static" / "assets" / "exchange-shop" / "items"
+EXPECTED_IMAGE_SIZES = {
+    "good_life": (512, 512),
+    "world_glimpse": (512, 512),
+    "tiny_song": (512, 512),
+    "praise": (512, 512),
+    "dream": (512, 512),
+    "cyber_gift": (627, 627),
+    "bedtime_story": (627, 627),
+    "biased_fortune": (627, 627),
+    "contrast_play": (627, 627),
+    "hug": (627, 627),
+    "kiss": (627, 627),
+    "nickname": (627, 627),
+    "custom": (627, 627),
+}
 
 
 class ExchangeServiceTests(unittest.TestCase):
@@ -81,6 +100,9 @@ class ExchangeServiceTests(unittest.TestCase):
         self.assertIn("cyber_gift", machine_keys)
         self.assertNotIn("good_life", machine_keys)
         self.assertTrue({"hug", "kiss", "nickname", "custom"} <= human_keys & machine_keys)
+        serialized_human = json.dumps(human, ensure_ascii=False)
+        for key in ("cyber_gift", "bedtime_story", "biased_fortune", "contrast_play"):
+            self.assertNotIn(key, serialized_human)
 
         secret = self.create("ai", "ai-1", "human-1")
         human_view = exchanges.list_exchange_requests(
@@ -88,6 +110,28 @@ class ExchangeServiceTests(unittest.TestCase):
         )["pending_for_me"][0]
         self.assertEqual(human_view["item"], secret["item"])
         self.assertEqual(human_view["item"]["key"], "cyber_gift")
+        self.assertEqual(
+            human_view["item"]["image_key"],
+            "/static/assets/exchange-shop/items/cyber_gift.png?v=20260829",
+        )
+
+    def test_all_catalog_images_exist_as_rgba_pngs_with_direct_key_mappings(self):
+        files = {path.stem: path for path in EXCHANGE_ITEMS_ROOT.glob("*.png")}
+        self.assertEqual(set(files), set(EXPECTED_IMAGE_SIZES))
+        self.assertEqual(set(exchanges.CATALOG_BY_KEY), set(EXPECTED_IMAGE_SIZES))
+
+        for key, expected_size in EXPECTED_IMAGE_SIZES.items():
+            with self.subTest(key=key):
+                header = files[key].read_bytes()[:29]
+                self.assertEqual(header[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(header[12:16], b"IHDR")
+                self.assertEqual(struct.unpack(">II", header[16:24]), expected_size)
+                self.assertEqual(header[24], 8)
+                self.assertEqual(header[25], 6)
+                self.assertEqual(
+                    exchanges.CATALOG_BY_KEY[key]["image_key"],
+                    f"/static/assets/exchange-shop/items/{key}.png?v=20260829",
+                )
 
     def test_both_directions_assign_payer_and_allowed_actions(self):
         human_request = self.create()
@@ -384,6 +428,24 @@ class ExchangeApiTests(unittest.IsolatedAsyncioTestCase):
         summary_text = json.dumps(summary.json(), ensure_ascii=False)
         self.assertNotIn("cyber_gift", summary_text)
         self.assertNotIn("赛博小礼物", summary_text)
+        self.assertNotIn("/items/cyber_gift.png", summary_text)
+
+    async def test_catalog_image_route_serves_versioned_png_and_rejects_unknown_files(self):
+        image = await self.client.get(
+            "/static/assets/exchange-shop/items/good_life.png?v=20260829"
+        )
+        missing = await self.client.get(
+            "/static/assets/exchange-shop/items/not-a-product.png"
+        )
+
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image.headers["content-type"], "image/png")
+        self.assertEqual(
+            image.headers["cache-control"],
+            "public, max-age=31536000, immutable",
+        )
+        self.assertEqual(image.content[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(missing.status_code, 404)
 
     async def test_human_create_machine_confirm_and_mcp_catalog(self):
         created = await self.client.post(
@@ -423,6 +485,10 @@ class ExchangeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(selected.json()["read_only"])
         pending = selected.json()["exchange"]["pending_for_me"]
         self.assertEqual(pending[0]["item"]["title"], "今夜有故事")
+        self.assertEqual(
+            pending[0]["item"]["image_key"],
+            "/static/assets/exchange-shop/items/bedtime_story.png?v=20260829",
+        )
         approved = await self.client.post(
             f"/api/chips/exchanges/{request_id}/confirm",
             headers=self.headers(), json={"idempotency_key": "web:exchange:confirm:2"},
