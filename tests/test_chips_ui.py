@@ -99,6 +99,49 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".achievement-item.unlocked", styles)
         self.assertIn("@media (max-width: 540px)", styles)
 
+    def test_achievement_cards_scroll_below_sticky_group_headings(self):
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        section_styles = styles[
+            styles.index(".achievement-sections {"):
+            styles.index(".achievement-group h3 {")
+        ]
+        heading_styles = styles[
+            styles.index(".achievement-group h3 {"):
+            styles.index(".achievement-grid {")
+        ]
+        self.assertIn("max-height: clamp(20rem, 56vh, 40rem)", section_styles)
+        self.assertIn("overflow-y: auto", section_styles)
+        self.assertIn("overscroll-behavior: contain", section_styles)
+        self.assertIn("scrollbar-width: thin", section_styles)
+        self.assertIn("scrollbar-color: var(--lilac) transparent", section_styles)
+        self.assertIn("-webkit-overflow-scrolling: touch", section_styles)
+        self.assertIn("position: sticky", heading_styles)
+        self.assertIn("top: 0", heading_styles)
+        achievement_panel = HTML[
+            HTML.index('id="panel-achievements"'):HTML.index('id="panel-shop"')
+        ]
+        self.assertLess(
+            achievement_panel.index('id="achievementSummary"'),
+            achievement_panel.index('id="achievementSections"'),
+        )
+
+    def test_achievement_description_is_short_and_single_line(self):
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        description_styles = styles[
+            styles.index(".achievements-card .module-heading p {"):
+            styles.index(".achievement-sections {")
+        ]
+        self.assertIn(
+            '<p id="achievementDescription">永久成就 · 解锁即到账</p>',
+            HTML,
+        )
+        self.assertIn(
+            '$("achievementDescription").textContent = "永久成就 · 解锁即到账"',
+            SCRIPT,
+        )
+        self.assertNotIn("我的永久成就；奖励在解锁时自动到账", SCRIPT)
+        self.assertIn("white-space: nowrap", description_styles)
+
     def test_existing_chip_api_paths_are_unchanged(self):
         for path in (
             'requestJson("/api/chips")',
@@ -124,9 +167,12 @@ class ChipCenterStructureTests(unittest.TestCase):
         ):
             self.attributes_for_id(element_id)
         self.assertIn("互动商店", HTML)
-        self.assertIn("申请方完成约定并收取筹码，审批方确认后支付筹码", HTML)
-        self.assertIn("先由申请方在常用聊天中完成约定，再由对方确认并支付筹码", HTML)
-        self.assertIn("单次 1–100 · 每对最多 3 张待处理 · 付款方每日最多支付 100 · 72 小时失效", HTML)
+        self.assertIn("先完成约定，再由对方确认并支付筹码", HTML)
+        self.assertIn("双弈不保存互动内容，也不介入履约争议。", HTML)
+        self.assertIn("1–100 枚 · 最多 3 张 · 每日支付上限 100 · 72 小时有效", HTML)
+        self.assertNotIn("申请方完成约定并收取筹码，审批方确认后支付筹码", HTML)
+        self.assertNotIn("先由申请方在常用聊天中完成约定，再由对方确认并支付筹码", HTML)
+        self.assertNotIn("单次 1–100 · 每对最多 3 张待处理", HTML)
         self.assertEqual(HTML.count('class="exchange-limits"'), 1)
         self.assertIn("发送申请", HTML)
         self.assertIn("希望对方支付的筹码数", HTML)
@@ -624,8 +670,9 @@ assert.equal(elements.achievementSummary.textContent, "0 / 36");
 assert.equal(elements.achievementSections.children[0].children[0].textContent, "你们之间");
 assert.equal(elements.checkInDescription.textContent, "clio_web 的今日签到状态；只能由小机自己操作");
 assert.equal(elements.bankruptcyDescription.textContent, "clio_web 的破产信息只读；人类不能代为宣布");
-assert.equal(elements.achievementDescription.textContent, "clio_web 的永久成就；含你们之间的配对进度");
+assert.equal(elements.achievementDescription.textContent, "永久成就 · 解锁即到账");
 assert.equal(elements.exchangeTitle.textContent, "与 clio_web 的互动商店");
+assert.equal(elements.exchangeDescription.textContent, "先完成约定，再由对方确认并支付筹码");
 assert.equal(elements.socialTitle.textContent, "与 clio_web 的欠条");
 assert.equal(elements.ledgerDescription.textContent, "clio_web 的统一账本 · 最近流水");
 assert.equal(elements.readOnlyTag.classList.contains("hidden"), false);
@@ -641,8 +688,9 @@ assert.equal(elements.myBalance.textContent, "310");
 assert.equal(elements.checkInState.textContent, "今日未签到");
 assert.equal(elements.myBankruptcyCount.textContent, "破产 0 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "人类流水");
-assert.equal(elements.achievementDescription.textContent, "我的永久成就；奖励在解锁时自动到账");
+assert.equal(elements.achievementDescription.textContent, "永久成就 · 解锁即到账");
 assert.equal(elements.exchangeTitle.textContent, "互动商店");
+assert.equal(elements.exchangeDescription.textContent, "先完成约定，再由对方确认并支付筹码");
 assert.equal(elements.socialTitle.textContent, "欠条");
 assert.equal(elements.socialDescription.textContent, "借款提案、协商与还款");
 assert.equal(elements.checkInButton.disabled, false);

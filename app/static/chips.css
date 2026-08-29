@@ -637,12 +637,31 @@ footer {
 .loan-interest-note p { margin: 6px 0 0; padding: 7px 8px; border: 1px dashed var(--line); line-height: 1.45; }
 
 .achievements-card { background: rgba(255, 249, 253, 0.94); }
-.achievement-sections { display: grid; gap: 15px; margin-top: 13px; }
+.achievements-card .module-heading p {
+  font-size: clamp(0.7rem, 3.3vw, 0.78rem);
+  white-space: nowrap;
+}
+.achievement-sections {
+  display: grid;
+  gap: 15px;
+  max-height: clamp(20rem, 56vh, 40rem);
+  margin-top: 13px;
+  padding: 0 4px 4px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lilac) transparent;
+  -webkit-overflow-scrolling: touch;
+}
 .achievement-group h3 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   margin: 0 0 7px;
   padding-bottom: 5px;
   border-bottom: 2px dashed var(--line);
   color: var(--pink-dark);
+  background: var(--paper);
   font-size: 0.84rem;
 }
 .achievement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

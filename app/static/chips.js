@@ -276,13 +276,9 @@ function renderSubject(subject, wallet, ledger, achievements = null, loans = nul
   $("bankruptcyDescription").textContent = readOnly
     ? `${subject.name} 的破产信息只读；人类不能代为宣布`
     : "余额 ≤ -500 时可自愿宣布，重置为 50 枚。";
-  $("achievementDescription").textContent = readOnly
-    ? `${subject.name} 的永久成就；含你们之间的配对进度`
-    : "我的永久成就；奖励在解锁时自动到账";
+  $("achievementDescription").textContent = "永久成就 · 解锁即到账";
   $("exchangeTitle").textContent = readOnly ? `与 ${subject.name} 的互动商店` : "互动商店";
-  $("exchangeDescription").textContent = readOnly
-    ? `申请方先完成约定并收取筹码，审批方确认后支付；这里仅显示你与 ${subject.name} 的双向申请`
-    : "申请方先在常用聊天中完成约定并收取筹码，再由审批方确认并支付";
+  $("exchangeDescription").textContent = "先完成约定，再由对方确认并支付筹码";
   $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的欠条` : "欠条";
   $("socialDescription").textContent = readOnly
     ? `你与 ${subject.name} 的欠条；人类只能执行自己角色允许的操作`
