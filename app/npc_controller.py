@@ -189,6 +189,7 @@ async def run_current_npc_turn(
                 selected = candidate
                 break
             except asyncio.CancelledError:
+                fail_npc_decision(ticket, "NPC decision cancelled")
                 raise
             except Exception:
                 selected = None

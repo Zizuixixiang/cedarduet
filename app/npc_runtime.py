@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from .database import decode_room, write_transaction
+from .database import connect, decode_room, write_transaction
 from .framework import DuelError, _now, _player_id, _room_id
 
 
@@ -22,6 +22,30 @@ MAX_NPC_MESSAGE_LENGTH = 500
 # A stale reservation is recovered locally after this lease and never causes a
 # second provider request for the same revision.
 NPC_DECISION_LEASE_SECONDS = 130
+
+
+def list_active_npc_turn_room_ids() -> list[str]:
+    """Return playing rooms whose current actor is an active system NPC."""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT room.room_id
+            FROM rooms AS room
+            JOIN room_participants AS actor
+              ON actor.room_id = room.room_id
+             AND actor.player_id = room.current_player_id
+            WHERE room.status = 'playing'
+              AND actor.participant_kind = 'system_npc'
+              AND actor.join_status = 'joined'
+              AND actor.activity_state = 'active'
+              AND actor.active = 1
+            ORDER BY room.updated_at, room.room_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [row["room_id"] for row in rows]
 
 
 @dataclass(frozen=True)

@@ -51,6 +51,7 @@ app/
   npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
   npc_providers.py     disabled / OpenAI-compatible / CedarToy bridge provider
   npc_controller.py    查看者安全上下文、合法行动映射、重试与保底执行
+  npc_scheduler.py     HTTP 后台投递、房间去重、连续回合与启动恢复
   config/npc_avatars/  外部头像目录格式说明；仓库不含生产头像
   config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
@@ -86,6 +87,10 @@ data/                   本地运行数据目录；真实数据库不会提交�
   非法或格式错误最多重试一次，仍失败则选择稳定排序后的合法保底行动。
   `room_id + revision + npc_id` 决策票据负责幂等；同一 revision 不重复调用，
   中断后过期预留只做本地保底恢复，不产生第二次 provider 请求或重复落子。
+  HTTP 状态推进只把当前系统 NPC 房间投递到后台，不等待模型响应；后台会连续
+  执行系统 NPC 回合直至轮到人类/绑定小机、对局结束或达到单批安全上限。应用
+  启动时会扫描并恢复已存在的进行中 NPC 回合，状态轮询的兜底投递仍共用同一
+  房间任务与 revision 决策票据。
 - 同一人机对最多同时保有 3 个活跃房间，全局最多 500 个活跃房间。
 - 落子、发言、认输和终局结果进入同一条共享时间线。
 - AI 可通过 `rooms -> state -> move` 找回自己已经参与的房间，无需人类反复提供房间号。

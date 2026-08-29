@@ -57,6 +57,7 @@ from .models import (
 )
 from .npc_personas import PersonaConfigError, resolve_avatar_file, select_personas
 from .npc_providers import npc_provider_capabilities
+from .npc_scheduler import NpcTurnScheduler, is_system_npc_turn
 
 ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
@@ -104,12 +105,23 @@ class RevisionEvents:
 
 
 revision_events = RevisionEvents()
+npc_turn_scheduler = NpcTurnScheduler(room_changed=revision_events.notify)
+
+
+async def _schedule_current_system_npc(room: dict) -> bool:
+    if not is_system_npc_turn(room):
+        return False
+    return await npc_turn_scheduler.schedule(room["room_id"])
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
-    yield
+    await npc_turn_scheduler.start()
+    try:
+        yield
+    finally:
+        await npc_turn_scheduler.shutdown()
 
 
 app = FastAPI(
@@ -744,6 +756,7 @@ async def human_create(request: Request, body: CreateRoomBody):
         first_player_id=first_player_id,
         rematch_of_room_id=body.rematch_of_room_id,
     )
+    await _schedule_current_system_npc(room)
     opener = room.get("current_actor") or {}
     opening_note = f"先手：{opener.get('display_name') or first_player_id}。"
     message = (
@@ -772,6 +785,7 @@ async def human_invitation_decision(
             "message": "已拒绝邀请，该局已取消。",
             "room_id": room_id,
         }
+    await _schedule_current_system_npc(result)
     return human_response(
         result,
         "已接受邀请，对局现在开始。"
@@ -791,6 +805,7 @@ async def human_join(room_id: str, body: JoinRoomBody):
         message=body.message,
     )
     revision_events.notify(room["room_id"])
+    await _schedule_current_system_npc(room)
     message = "已加入房间。" if room["status"] == "playing" else "已占据人类席位，等待 AI。"
     return human_response(room, message, body.player_id)
 
@@ -810,6 +825,7 @@ async def human_state(
     room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
+    await _schedule_current_system_npc(room)
     if (
         wait
         and room.get("current_player_id") != player_id
@@ -866,6 +882,7 @@ async def human_move(room_id: str, body: MoveBody):
         expected_revision=body.revision,
     )
     revision_events.notify(room["room_id"])
+    await _schedule_current_system_npc(room)
     return human_response(
         room, with_action_note("人类落子成功，已通知等待中的 AI。", room),
         body.player_id,
@@ -882,6 +899,7 @@ async def human_message(room_id: str, body: MessageBody):
         opponent_id=body.opponent_id,
     )
     revision_events.notify(room["room_id"])
+    await _schedule_current_system_npc(room)
     return human_response(
         room, "留言已发送，并已通知等待中的参与者。", body.player_id
     )
@@ -897,6 +915,7 @@ async def human_resign(room_id: str, body: ResignBody):
         message=body.message,
     )
     revision_events.notify(room["room_id"])
+    await _schedule_current_system_npc(room)
     return human_response(room, "人类已认输。", body.player_id)
 
 
@@ -916,6 +935,7 @@ async def human_leave(
             "message": "已离开，未开始的房间已取消。",
             "room_id": room_id,
         }
+    await _schedule_current_system_npc(room)
     return {
         "ok": True,
         "status": "left",
@@ -1066,6 +1086,7 @@ async def mcp_play(body: McpPlayBody):
             ordered_participants=ordered_participants,
             enforce_trusted_pair=True,
         )
+        await _schedule_current_system_npc(room)
         if room["status"] == "playing":
             message = (
                 f"已为绑定参与者创建房间 {room['room_id']}，当前轮到 {room['turn']}；"
@@ -1141,6 +1162,7 @@ async def mcp_play(body: McpPlayBody):
                 "message": "AI 已拒绝邀请，该局已取消。",
                 "room_id": room_id,
             }
+        await _schedule_current_system_npc(result)
         message = f"AI 已接受 {result['stake_label']} 邀请，对局现在开始。"
         if result["status"] == "playing":
             return _bootstrap_ai_response(result, body.player_id, message)
@@ -1153,6 +1175,7 @@ async def mcp_play(body: McpPlayBody):
             message=body.message,
         )
         revision_events.notify(room["room_id"])
+        await _schedule_current_system_npc(room)
         message = (
             f"AI 已加入，当前轮到 {room['turn']}。落子格式：{room['move_format']}"
             if room["status"] == "playing"
@@ -1167,6 +1190,7 @@ async def mcp_play(body: McpPlayBody):
             post_message(room_id, "ai", body.player_id, body.message)
             revision_events.notify(room_id)
         room = get_room(room_id, "ai", body.player_id)
+        await _schedule_current_system_npc(room)
         if body.wait and room.get("current_player_id") != body.player_id:
             if has_new_room_events(room_id, body.player_id):
                 return ai_response(
@@ -1220,6 +1244,7 @@ async def mcp_play(body: McpPlayBody):
                 "message": "AI 已离开，未开始的房间已取消。",
                 "room_id": room_id,
             }
+        await _schedule_current_system_npc(room)
         payload = {
             "ok": True,
             "status": "left",
@@ -1240,6 +1265,7 @@ async def mcp_play(body: McpPlayBody):
             room_id, "ai", body.player_id, message=body.message
         )
         revision_events.notify(room["room_id"])
+        await _schedule_current_system_npc(room)
         return _move_delta_response(
             room,
             body.player_id,
@@ -1253,6 +1279,7 @@ async def mcp_play(body: McpPlayBody):
         expected_revision=body.revision,
     )
     revision_events.notify(room["room_id"])
+    await _schedule_current_system_npc(room)
     if (
         not body.wait
         or room["status"] == "finished"
