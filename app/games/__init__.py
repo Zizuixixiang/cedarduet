@@ -6,6 +6,7 @@ from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
 from .xiangqi import Xiangqi
+from .yahtzee import Yahtzee
 
 GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 
@@ -16,6 +17,7 @@ GAMES = {
     Connect4.game_type: Connect4(),
     DotsBoxes.game_type: DotsBoxes(),
     LiarsDice.game_type: LiarsDice(),
+    Yahtzee.game_type: Yahtzee(),
     Jungle.game_type: Jungle(),
     Xiangqi.game_type: Xiangqi(),
 }

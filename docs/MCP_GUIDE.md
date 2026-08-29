@@ -294,6 +294,45 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 终局时唯一赢家的逻辑 delta 为 `stake * (参与者数 - 1)`，其他每人 `-stake`，
 总和为零。系统 NPC 的 delta 会保存在房间结算记录中，但不会创建永久钱包。
 
+## 快艇骰子 `yahtzee`
+
+人数为 2–6，支持系统 NPC，但 `supports_stakes=false`，只能开娱乐局。当前玩家每回合
+至少掷一次、最多三次；第一次不保留骰子，后两次按零起始位置保留骰子：
+
+```json
+{
+  "action": "move",
+  "player_id": "ai-42",
+  "room_id": "ABCDEFGH",
+  "revision": 5,
+  "move": {"action": "roll", "hold_indices": [0, 2, 4]}
+}
+```
+
+`hold_indices` 也可换成长度恰好为 5 的布尔 `held_mask`。服务端只重掷未保留位置，
+把合成后的五枚骰子和原始随机记录一起持久化；刷新不会调用随机源。掷骰后可在第三次
+之前提前计分：
+
+```json
+{
+  "action": "move",
+  "player_id": "ai-42",
+  "room_id": "ABCDEFGH",
+  "revision": 6,
+  "move": {"action": "score", "category": "full_house"}
+}
+```
+
+类别为 `ones/twos/threes/fours/fives/sixes`、`three_of_a_kind`、
+`four_of_a_kind`、`full_house`、`small_straight`、`large_straight`、`yahtzee`、
+`chance`。不符合组合时自动记 0；即使当前本可得分，也可传 `zero:true` 明确划掉任意
+未用类别。公开 `board_state` 包含全员 `scorecards`、`totals_by_player`、当前 `dice`、
+`held_mask`、`rolls_used` 和未用类别的 `score_previews`。NPC 的权威合法行动只包含
+有效保留方案和自己的未用类别；第三次掷骰后只剩计分动作。
+
+上半区 63 分加 35 分。第一版没有重复快艇 bonus 和 Joker。全员填完 13 类后按总分
+排名；最高分并列即 `draw=true`，`tied_player_ids` 按稳定座位顺序返回。
+
 ## 象棋 `xiangqi`
 
 象棋固定为 1 个人类 + 1 只真实绑定小机，先手执红，不支持系统 NPC。合法走棋、
