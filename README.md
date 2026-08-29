@@ -12,12 +12,13 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `gomoku`：15×15 五子棋，无禁手
 - `othello`：8×8 黑白棋，支持自动跳过与终局数子
 - `connect4`：7×6 四子连珠
+- `checkers`：8×8 西洋跳棋（English draughts / American checkers）
 - `dots_boxes`：2–4 人点格棋，支持系统 NPC
 - `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
 - `jungle`：7×9 斗兽棋
 - `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
 
-井字棋、五子棋、黑白棋、四子连珠、斗兽棋和象棋继续严格双人。点格棋权威声明
+井字棋、五子棋、黑白棋、四子连珠、西洋跳棋、斗兽棋和象棋继续严格双人。点格棋权威声明
 `allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
 多人/NPC 框架验收游戏。
 
@@ -61,6 +62,20 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 人类执黑时网页仅重排显示坐标，使己方位于下方，提交仍使用上述真实坐标。时间线
 直接展示服务端 `move_label`，不在客户端重复实现象棋记谱。
 
+### 西洋跳棋规则与状态接口
+
+西洋跳棋固定使用 8×8 棋盘和 32 个深色格，每方 12 枚普通棋。普通棋只向前斜走或
+跳吃，王棋可前后斜走或跳吃，但不是国际跳棋的远距离飞王；有吃必吃，不要求选择
+吃子数最多的路线。一次跳吃后仍可吃时，服务端通过 `retain_turn` 保留当前席位，
+并用 `forced_piece` 锁定同一枚棋。普通棋跳到王线后立即升王并结束该手，新王到下
+一回合才能继续行动。对方无棋或无合法行动即负。
+
+`board_state.board` 是 8×8 数组，棋子编码为 `X:m`、`O:m`、`X:k`、`O:k`；
+`m` 是普通棋，`k` 是王棋。X 从底部向 row 减小方向前进并先行，O 方向相反。
+`legal_moves` 是当前行动者唯一权威合法动作真源，`must_capture` 表示当前是否有吃子
+义务，`forced_piece` 在多跳中只允许继续该棋，`last_move` 提供上一跳起终点、吃子、
+升王和连跳状态。Web renderer 与 NPC 都不自行推导合法性。
+
 ## 项目结构
 
 ```text
@@ -75,6 +90,7 @@ app/
   achievements.py      成就目录、可靠事实、进度与自动奖励
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
+  games/checkers.py    8×8 English draughts 权威规则与 NPC 合法动作
   games/xiangqi.py     象棋 GamePlugin 与房间状态适配
   games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
   npc_personas.py      NPC 人设目录加载与严格校验
@@ -102,7 +118,8 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
   `system_npc`，旧 `role=human/ai` 字段继续供旧游戏与客户端兼容。生产开房
   强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多四个，
-  不会接管中途离开的席位。只有点格棋与吹牛骰子声明 `supports_npcs`。
+  不会接管中途离开的席位。点格棋、吹牛骰子与西洋跳棋规则引擎声明
+  `supports_npcs`；严格双人生产入口仍要求人类与真实绑定小机各一席。
 - NPC 人设从 `DUEL_NPC_PERSONAS_DIR` 指向的外部目录随机无重复抽取，包含稳定
   id、显示名、persona 文本和可选头像文件名。头像只从
   `DUEL_NPC_AVATARS_DIR` 根目录以站内 `/api/npc-avatars/...` URL 提供；文件名、
@@ -406,6 +423,11 @@ tab 后，才调用 `POST /api/notifications/read`；请求体只允许 `categor
 使用 `board_state.board/marks/legal_moves/turn_color/in_check/last_move`，落子仍提交
 `{move:{from_row,from_col,to_row,to_col},revision}`。因此前端无需、也不应自行推导
 马腿、象眼、炮架、九宫、过河或将帅安全规则。
+
+西洋跳棋网页 renderer 位于 `app/static/games/checkers.js`，通过
+`window.DuelGameUI.register('checkers', renderer)` 扩展口注册；它只消费服务端的
+`legal_moves`、`forced_piece` 与 `last_move`。在公共 registry 接线完成前，脚本会把
+renderer 放入 `window.DuelGameUIPending`，不在旧 `app.js` 中复制规则或扩大公共改动面。
 
 ## 筹码中心
 

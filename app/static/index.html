@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css?v=0.9.0">
+  <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
   <div class="app">
@@ -99,6 +100,7 @@
                     <option value="dice">骰</option>
                   </select>
                   <select id="gameType" aria-label="具体游戏">
+                    <option value="checkers">西洋跳棋 / 2人</option>
                     <option value="jungle">斗兽棋 / 2人</option>
                     <option value="othello">黑白棋 / 2人</option>
                     <option value="tictactoe" selected>井字棋 / 2人</option>
@@ -364,6 +366,7 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
+  <script src="/static/games/checkers.js?v=0.1.0"></script>
   <script src="/static/app.js?v=0.9.0"></script>
 </body>
 </html>

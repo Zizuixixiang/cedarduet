@@ -251,6 +251,9 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "gomoku": {"row": 7, "col": 7},
             "othello": {"row": 2, "col": 3},
             "connect4": {"col": 3},
+            "checkers": {
+                "from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1
+            },
             "dots_boxes": {"orientation": "h", "row": 0, "col": 0},
             "jungle": {"from_row": 6, "from_col": 0, "to_row": 5, "to_col": 0},
             "xiangqi": {
