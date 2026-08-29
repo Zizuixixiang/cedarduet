@@ -918,8 +918,7 @@ async def game_ui_registry_javascript():
     )
 
 
-@app.get("/static/games/{game_type}.js", include_in_schema=False)
-async def game_ui_renderer_javascript(game_type: str):
+def _game_ui_asset_path(game_type: str, suffix: str) -> Path:
     valid = (
         1 <= len(game_type) <= 64
         and game_type[0].isalnum()
@@ -928,14 +927,30 @@ async def game_ui_renderer_javascript(game_type: str):
         and game_type == game_type.lower()
     )
     if not valid:
-        raise DuelError("游戏界面脚本不存在。", 404)
+        raise DuelError("游戏界面资源不存在。", 404)
     renderer_root = GAME_UI_RENDERER_DIR.resolve()
-    renderer_path = (renderer_root / f"{game_type}.js").resolve()
-    if renderer_path.parent != renderer_root or not renderer_path.is_file():
-        raise DuelError("游戏界面脚本不存在。", 404)
+    asset_path = (renderer_root / f"{game_type}.{suffix}").resolve()
+    if asset_path.parent != renderer_root or not asset_path.is_file():
+        raise DuelError("游戏界面资源不存在。", 404)
+    return asset_path
+
+
+@app.get("/static/games/{game_type}.js", include_in_schema=False)
+async def game_ui_renderer_javascript(game_type: str):
+    renderer_path = _game_ui_asset_path(game_type, "js")
     return Response(
         renderer_path.read_text(encoding="utf-8"),
         media_type="text/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/static/games/{game_type}.css", include_in_schema=False)
+async def game_ui_renderer_stylesheet(game_type: str):
+    stylesheet_path = _game_ui_asset_path(game_type, "css")
+    return Response(
+        stylesheet_path.read_text(encoding="utf-8"),
+        media_type="text/css",
         headers={"Cache-Control": "no-store"},
     )
 
