@@ -227,6 +227,111 @@ def human_response(
     return payload
 
 
+def _liars_last_round_summary(projected_room: dict) -> dict | None:
+    if projected_room.get("game_type") != "liars_dice":
+        return None
+    state = projected_room.get("board_state")
+    outcome = state.get("last_round_result") if isinstance(state, dict) else None
+    if not isinstance(outcome, dict):
+        return None
+    bid = outcome.get("bid")
+    if not isinstance(bid, dict):
+        return None
+    participants = {
+        str(item["player_id"]): item
+        for item in projected_room.get("participants", [])
+    }
+
+    def player_name(player_id: str) -> str:
+        participant = participants.get(player_id)
+        return str(
+            (participant and participant.get("display_name")) or player_id
+        )
+
+    challenger = str(outcome["challenger_player_id"])
+    bidder = str(outcome.get("bidder_player_id") or bid["bidder_player_id"])
+    loser = str(outcome["loser_player_id"])
+    starter = outcome.get("next_starter_player_id")
+    next_round = outcome.get("next_round")
+    flow_round = state.get("flow", {}).get("round_number")
+    if (
+        next_round is None
+        and projected_room.get("status") == "playing"
+        and state.get("current_bid") is None
+        and flow_round == int(outcome["round"]) + 1
+    ):
+        next_round = flow_round
+        starter = projected_room.get("current_player_id")
+    challenger_name = str(
+        outcome.get("challenger_display_name") or player_name(challenger)
+    )
+    bidder_name = str(
+        outcome.get("bidder_display_name") or player_name(bidder)
+    )
+    loser_name = str(
+        outcome.get("loser_display_name") or player_name(loser)
+    )
+    eliminated = bool(
+        outcome.get("eliminated")
+        or outcome.get("eliminated_player_id") == loser
+    )
+    summary_text = str(outcome.get("summary") or "")
+    if not summary_text:
+        summary_text = (
+            f"第 {outcome['round']} 轮：{challenger_name} 质疑 {bidder_name} 的叫点"
+            f"“{bid['quantity']} 个 {bid['face']} 点”；实际有 "
+            f"{outcome['actual_count']} 个 {bid['face']} 点，"
+            f"叫点{'成立' if outcome['bid_holds'] else '失败'}；"
+            f"{loser_name} 输掉 1 枚骰，剩余 {outcome['loser_remaining_dice']} 枚，"
+            f"{'已淘汰' if eliminated else '未淘汰'}。"
+        )
+        if next_round is not None and starter is not None:
+            summary_text += (
+                f"第 {next_round} 轮 · 由 {player_name(str(starter))} 开叫。"
+            )
+        else:
+            summary_text += "对局结束。"
+    summary = {
+        "round": int(outcome["round"]),
+        "challenger": challenger,
+        "challenger_name": challenger_name,
+        "bidder": bidder,
+        "bidder_name": bidder_name,
+        "bid": {
+            "quantity": int(bid["quantity"]),
+            "face": int(bid["face"]),
+        },
+        "actual_count": int(outcome["actual_count"]),
+        "bid_holds": bool(outcome["bid_holds"]),
+        "loser": loser,
+        "loser_name": loser_name,
+        "loser_remaining_dice": int(outcome["loser_remaining_dice"]),
+        "eliminated": eliminated,
+        "summary": summary_text,
+        "next_round": next_round,
+        "next_starter": str(starter) if starter is not None else None,
+        "next_starter_name": (
+            str(
+                outcome.get("next_starter_display_name")
+                or player_name(str(starter))
+            )
+            if starter is not None else None
+        ),
+        "awaiting_next_round_bid": bool(
+            projected_room.get("status") == "playing"
+            and state.get("current_bid") is None
+            and next_round == flow_round
+        ),
+    }
+    return summary
+
+
+def _attach_last_round_summary(payload: dict, projected_room: dict) -> None:
+    summary = _liars_last_round_summary(projected_room)
+    if summary is not None:
+        payload["last_round_summary"] = summary
+
+
 def ai_response(
     room: dict, message: str, player_id: str, status: str = "ok"
 ) -> dict:
@@ -249,6 +354,7 @@ def ai_response(
         projected_room, message, status,
         new_messages=read_new_room_events(room["room_id"], player_id),
     )
+    _attach_last_round_summary(payload, projected_room)
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
     if unlocks:
         payload["unlocks"] = unlocks
@@ -336,6 +442,7 @@ def _bootstrap_ai_response(room: dict, player_id: str, message: str) -> dict:
         "message": message,
         "room": projected_room,
     }
+    _attach_last_round_summary(payload, projected_room)
     balances = _chip_balances(room)
     if balances is not None:
         payload["chip_balances"] = balances
@@ -390,6 +497,7 @@ def _move_delta_response(
         "current_actor_id": projected_room.get("current_player_id"),
         "current_actor_seat": projected_room.get("current_actor_seat"),
     }
+    _attach_last_round_summary(payload, projected_room)
     if message:
         payload["message"] = message
     if your_move is not None:

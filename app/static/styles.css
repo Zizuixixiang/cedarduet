@@ -1574,6 +1574,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .liars-result-title { color: var(--purple-darker); }
 .liars-result-summary { margin: 0; line-height: 1.6; }
+.liars-reveal-title { font-size: 15px; }
+.liars-reveal-summary { line-height: 1.65; }
+.liars-next-round {
+  margin: 0;
+  padding: 7px 9px;
+  color: var(--purple-darker);
+  background: var(--seat-soft, rgba(230, 223, 240, .55));
+  border-left: 4px solid var(--pink);
+  font-weight: 800;
+  line-height: 1.45;
+}
 .liars-reveal-details { border-top: 1px solid var(--purple-light); }
 .liars-reveal-details summary {
   width: fit-content;

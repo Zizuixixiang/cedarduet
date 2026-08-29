@@ -190,11 +190,15 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("revealed_dice_by_player", renderer)
         self.assertIn(".liars-current-round {", STYLES)
         self.assertIn(".liars-round-result {", STYLES)
+        self.assertIn("liarsRoundResultIsVisible(state)", renderer)
+        self.assertIn("`第 ${outcome.round} 轮结算`", renderer)
+        self.assertNotIn("上一轮：", renderer)
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
         confirm = SCRIPT[SCRIPT.index("async function confirmMove("):]
         self.assertIn("revision: room.revision", confirm)
+        self.assertIn('["bid", "challenge"].includes(movePayload.action)', confirm)
         self.assertIn('value="liars_dice"', HTML)
 
 
@@ -281,7 +285,16 @@ assert.equal(authoritativeRoundText({{
         self.run_node(harness)
 
     def test_liars_dice_separates_new_round_from_collapsed_previous_reveal(self):
-        renderer = function_source("renderLiarsDice")
+        renderer = "\n".join((
+            function_source("liarsParticipantName"),
+            function_source("liarsRoundResultIsVisible"),
+            function_source("liarsRoundResultText"),
+            function_source("liarsBidSelectionIsLegal"),
+            function_source("defaultLiarsBidSelection"),
+            function_source("liarsBidSelectionFor"),
+            function_source("rememberLiarsBidSelection"),
+            function_source("renderLiarsDice"),
+        ))
         harness = f"""
 const assert = require("node:assert/strict");
 class Element {{
@@ -303,6 +316,10 @@ const participants = new Map([
   ["ai-1", {{display_name: "小机一号"}}],
 ]);
 const participantByPlayerId = (playerId) => participants.get(playerId) || null;
+let liarsBidDraft = null;
+let room = {{
+  room_id: "ROOM-1", revision: 2, status: "playing", current_player_id: "ai-1",
+}};
 const canHumanMove = () => true;
 const selectMove = () => {{}};
 const allText = (node) => [
@@ -318,11 +335,16 @@ renderLiarsDice(board, {{
   last_round_result: {{
     round: 1,
     bid: {{quantity: 3, face: 6, bidder_player_id: "ai-1"}},
+    bidder_player_id: "ai-1",
+    challenger_player_id: "human-1",
     actual_count: 2,
     bid_holds: false,
     loser_player_id: "ai-1",
     loser_remaining_dice: 4,
+    eliminated: false,
     eliminated_player_id: null,
+    next_round: 2,
+    next_starter_player_id: "ai-1",
     revealed_dice_by_player: {{"human-1": [1, 1, 2], "ai-1": [3, 4, 5, 6, 6]}},
   }},
 }});
@@ -332,17 +354,22 @@ assert.equal(currentRound.className, "liars-current-round");
 assert.match(allText(currentRound), /第 2 轮 · 当前轮/);
 assert.match(allText(currentRound), /本轮骰子已按剩余数量重新掷出并隐藏/);
 assert.match(allText(currentRound), /本轮当前叫点/);
-assert.match(allText(currentRound), /等待本轮首叫/);
+assert.match(allText(currentRound), /第 2 轮 · 由 小机一号 开叫/);
 assert.match(allText(currentRound), /提交本轮叫点/);
 assert.match(allText(currentRound), /质疑本轮上一手/);
 assert.doesNotMatch(allText(currentRound), /人类一号：1 · 1 · 2/);
 
-assert.equal(previousRound.className, "liars-round-result liars-previous-round");
-assert.equal(previousRound.children[0].textContent, "第 1 轮结算 · 上一轮");
-assert.match(previousRound.children[1].textContent, /实际 2 个 6 点，叫点失败/);
-assert.match(previousRound.children[1].textContent, /小机一号 失去 1 枚骰/);
-assert.match(previousRound.children[1].textContent, /剩余 4 枚骰，仍在场/);
-const details = previousRound.children[2];
+assert.match(previousRound.className, /liars-round-result/);
+assert.match(previousRound.className, /liars-reveal/);
+assert.match(previousRound.className, /liars-previous-round/);
+assert.equal(previousRound.children[0].textContent, "第 1 轮结算");
+assert.match(previousRound.children[1].textContent, /人类一号 质疑 小机一号/);
+assert.match(previousRound.children[1].textContent, /3 个 6 点/);
+assert.match(previousRound.children[1].textContent, /实际有 2 个 6 点，叫点失败/);
+assert.match(previousRound.children[1].textContent, /小机一号 输掉 1 枚骰/);
+assert.match(previousRound.children[1].textContent, /剩余 4 枚，未淘汰/);
+assert.equal(previousRound.children[2].textContent, "第 2 轮 · 由 小机一号 开叫");
+const details = previousRound.children.find((child) => child.tagName === "DETAILS");
 assert.equal(details.tagName, "DETAILS");
 assert.equal(details.open, false);
 assert.equal(details.children[0].textContent, "查看上一轮揭骰");
@@ -356,15 +383,27 @@ renderLiarsDice(eliminatedBoard, {{
   last_round_result: {{
     round: 2,
     bid: {{quantity: 2, face: 3, bidder_player_id: "ai-1"}},
+    bidder_player_id: "ai-1",
+    challenger_player_id: "human-1",
     actual_count: 0,
     bid_holds: false,
     loser_player_id: "ai-1",
     loser_remaining_dice: 0,
+    eliminated: true,
     eliminated_player_id: "ai-1",
     revealed_dice_by_player: {{"human-1": [4, 5, 6], "ai-1": [2]}},
   }},
 }});
-assert.match(eliminatedBoard.children[1].children[1].textContent, /剩余 0 枚骰，已淘汰/);
+assert.match(eliminatedBoard.children[1].children[1].textContent, /剩余 0 枚，已淘汰/);
+
+const afterOpeningBid = new Element("div");
+renderLiarsDice(afterOpeningBid, {{
+  flow: {{phase: "bidding", round_number: 3}},
+  max_bid_quantity: 5,
+  current_bid: {{quantity: 1, face: 2, bidder_player_id: "ai-1"}},
+  last_round_result: {{round: 2, bid: {{quantity: 2, face: 3}}}},
+}});
+assert.equal(afterOpeningBid.children.length, 1);
 """
         self.run_node(harness)
 
@@ -807,6 +846,154 @@ assert.ok(elements.humanRow.classList.contains("hidden"));
         self.assertIn("white-space: pre-wrap;", text)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertNotRegex(mobile, r"(?m)^  height: (?:54|62)px;$")
+
+    def test_liars_round_card_visibility_and_polling_safe_bid_draft(self):
+        functions = "\n".join((
+            function_source("participantByPlayerId"),
+            function_source("liarsParticipantName"),
+            function_source("liarsRoundResultIsVisible"),
+            function_source("liarsRoundResultText"),
+            function_source("liarsBidSelectionIsLegal"),
+            function_source("defaultLiarsBidSelection"),
+            function_source("liarsBidSelectionFor"),
+            function_source("rememberLiarsBidSelection"),
+            function_source("renderLiarsDice"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class Element {{
+  constructor(tag) {{
+    this.tag = tag;
+    this.children = [];
+    this.className = "";
+    this.textContent = "";
+    this.value = "";
+    this.disabled = false;
+    this.listeners = {{}};
+  }}
+  append(...children) {{ children.forEach((child) => this.appendChild(child)); }}
+  appendChild(child) {{
+    this.children.push(child);
+    if (this.tag === "select" && !this.value && child.value) this.value = child.value;
+    return child;
+  }}
+  addEventListener(name, listener) {{ this.listeners[name] = listener; }}
+  dispatch(name) {{ this.listeners[name](); }}
+}}
+const document = {{createElement: (tag) => new Element(tag)}};
+let liarsBidDraft = null;
+let room = {{
+  room_id: "ROOM-1", revision: 7, status: "playing", current_player_id: "human-1",
+  participants: [
+    {{player_id: "human-1", display_name: "Sirius", role: "human"}},
+    {{player_id: "ai-1", display_name: "Vega", role: "ai"}},
+    {{player_id: "npc:one", display_name: "Nova", role: "ai"}},
+  ],
+}};
+const canHumanMove = () => room.current_player_id === "human-1";
+const selectMove = () => {{}};
+{functions}
+const controlsFor = (board) => board.children
+  .find((child) => child.className === "liars-current-round").children.at(-1);
+const outcome = {{
+  round: 2,
+  bid: {{quantity: 4, face: 5, bidder_player_id: "ai-1"}},
+  bidder_player_id: "ai-1",
+  challenger_player_id: "human-1",
+  actual_count: 3,
+  bid_holds: false,
+  loser_player_id: "ai-1",
+  loser_remaining_dice: 4,
+  eliminated: false,
+  next_round: 3,
+  next_starter_player_id: "ai-1",
+  revealed_dice_by_player: {{
+    "human-1": [1, 2, 3, 4, 5],
+    "ai-1": [2, 2, 3, 4, 6],
+  }},
+}};
+room.current_player_id = "ai-1";
+const settledState = {{
+  flow: {{round_number: 3}}, max_bid_quantity: 14,
+  current_bid: null, last_round_result: outcome,
+}};
+const settledBoard = new Element("div");
+renderLiarsDice(settledBoard, settledState);
+const reveal = settledBoard.children.find(
+  (child) => child.className.includes("liars-reveal")
+);
+assert.ok(reveal);
+assert.equal(reveal.children[0].textContent, "第 2 轮结算");
+assert.match(reveal.children[1].textContent, /Sirius 质疑 Vega/);
+assert.match(reveal.children[1].textContent, /4 个 5 点/);
+assert.match(reveal.children[1].textContent, /实际有 3 个 5 点/);
+assert.match(reveal.children[1].textContent, /叫点失败/);
+assert.match(reveal.children[1].textContent, /Vega 输掉 1 枚骰，剩余 4 枚，未淘汰/);
+assert.equal(reveal.children[2].textContent, "第 3 轮 · 由 Vega 开叫");
+assert.doesNotMatch(reveal.children[1].textContent, /human-1|ai-1/);
+
+const afterOpeningBid = {{
+  ...settledState,
+  current_bid: {{quantity: 1, face: 2, bidder_player_id: "ai-1"}},
+}};
+const biddingBoard = new Element("div");
+renderLiarsDice(biddingBoard, afterOpeningBid);
+assert.ok(!biddingBoard.children.some((child) => child.className.includes("liars-reveal")));
+assert.equal(afterOpeningBid.last_round_result, outcome);
+
+liarsBidDraft = null;
+room.current_player_id = "human-1";
+const selectionState = {{
+  flow: {{round_number: 3}}, max_bid_quantity: 20,
+  current_bid: {{quantity: 3, face: 2, bidder_player_id: "ai-1"}},
+  last_round_result: outcome,
+}};
+const firstBoard = new Element("div");
+renderLiarsDice(firstBoard, selectionState);
+const firstControls = controlsFor(firstBoard);
+const firstQuantity = firstControls.children[0].children[0];
+const firstFace = firstControls.children[1].children[0];
+assert.equal(firstQuantity.value, "3");
+assert.equal(firstFace.value, "3");
+firstQuantity.value = "4";
+firstQuantity.dispatch("change");
+firstFace.value = "5";
+firstFace.dispatch("change");
+
+const quietRefreshBoard = new Element("div");
+renderLiarsDice(quietRefreshBoard, selectionState);
+assert.equal(controlsFor(quietRefreshBoard).children[0].children[0].value, "4");
+assert.equal(controlsFor(quietRefreshBoard).children[1].children[0].value, "5");
+
+room.revision = 8;
+const stillLegalBoard = new Element("div");
+renderLiarsDice(stillLegalBoard, selectionState);
+assert.equal(controlsFor(stillLegalBoard).children[0].children[0].value, "4");
+assert.equal(controlsFor(stillLegalBoard).children[1].children[0].value, "5");
+
+const raisedBidState = {{
+  ...selectionState,
+  current_bid: {{quantity: 4, face: 5, bidder_player_id: "ai-1"}},
+}};
+const invalidatedBoard = new Element("div");
+renderLiarsDice(invalidatedBoard, raisedBidState);
+assert.equal(controlsFor(invalidatedBoard).children[0].children[0].value, "4");
+assert.equal(controlsFor(invalidatedBoard).children[1].children[0].value, "6");
+
+rememberLiarsBidSelection(6, 2);
+room.current_player_id = "ai-1";
+const changedActorBoard = new Element("div");
+renderLiarsDice(changedActorBoard, raisedBidState);
+assert.equal(liarsBidDraft, null);
+
+room.current_player_id = "human-1";
+rememberLiarsBidSelection(6, 2);
+room.room_id = "ROOM-2";
+const changedRoomBoard = new Element("div");
+renderLiarsDice(changedRoomBoard, raisedBidState);
+assert.equal(liarsBidDraft, null);
+"""
+        self.run_node(harness)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
 let selectedJungleCell = null;
 let pendingMove = null;
+let liarsBidDraft = null;
 let currentTimeline = [];
 let lastMoveMarkerKey = null;
 const selectedMachineIds = new Set();
@@ -1048,6 +1049,7 @@ function backToLobby() {
   room = null;
   selectedJungleCell = null;
   pendingMove = null;
+  liarsBidDraft = null;
   stopPolling();
   hideWaitModeModal();
   closeHistory();
@@ -1347,6 +1349,86 @@ function renderJungleBoard(board, state) {
   });
 }
 
+function liarsParticipantName(playerId) {
+  const participant = participantByPlayerId(playerId);
+  return (participant && participant.display_name) || playerId || "未知玩家";
+}
+
+function liarsRoundResultIsVisible(state) {
+  return Boolean(state.last_round_result && !state.current_bid);
+}
+
+function liarsRoundResultText(outcome) {
+  if (outcome.result_summary) return outcome.result_summary;
+  const bid = outcome.bid || {};
+  const challenger = outcome.challenger_display_name
+    || liarsParticipantName(outcome.challenger_player_id);
+  const bidderId = outcome.bidder_player_id || bid.bidder_player_id;
+  const bidder = outcome.bidder_display_name || liarsParticipantName(bidderId);
+  const loser = outcome.loser_display_name
+    || liarsParticipantName(outcome.loser_player_id);
+  const eliminated = outcome.eliminated || Boolean(outcome.eliminated_player_id);
+  return (
+    `${challenger} 质疑 ${bidder} 的叫点“${bid.quantity} 个 ${bid.face} 点”；`
+    + `实际有 ${outcome.actual_count} 个 ${bid.face} 点，`
+    + `叫点${outcome.bid_holds ? "成立" : "失败"}；`
+    + `${loser} 输掉 1 枚骰，剩余 ${outcome.loser_remaining_dice} 枚，`
+    + `${eliminated ? "已淘汰" : "未淘汰"}。`
+  );
+}
+
+function liarsBidSelectionIsLegal(state, selection) {
+  if (!selection) return false;
+  const quantity = Number(selection.quantity);
+  const face = Number(selection.face);
+  const maximum = Number(state.max_bid_quantity || 0);
+  if (
+    !Number.isInteger(quantity) || !Number.isInteger(face)
+    || quantity < 1 || quantity > maximum || face < 1 || face > 6
+  ) return false;
+  const currentBid = state.current_bid;
+  return !currentBid
+    || quantity > currentBid.quantity
+    || (quantity === currentBid.quantity && face > currentBid.face);
+}
+
+function defaultLiarsBidSelection(state) {
+  const maximum = Number(state.max_bid_quantity || 0);
+  for (let quantity = 1; quantity <= maximum; quantity += 1) {
+    for (let face = 1; face <= 6; face += 1) {
+      const selection = {quantity, face};
+      if (liarsBidSelectionIsLegal(state, selection)) return selection;
+    }
+  }
+  return {quantity: Math.max(1, maximum), face: 6};
+}
+
+function liarsBidSelectionFor(state) {
+  const reusable = Boolean(
+    liarsBidDraft
+    && room
+    && liarsBidDraft.roomId === room.room_id
+    && liarsBidDraft.actorId === room.current_player_id
+    && canHumanMove()
+    && liarsBidSelectionIsLegal(state, liarsBidDraft)
+  );
+  if (reusable) {
+    return {quantity: liarsBidDraft.quantity, face: liarsBidDraft.face};
+  }
+  liarsBidDraft = null;
+  return defaultLiarsBidSelection(state);
+}
+
+function rememberLiarsBidSelection(quantity, face) {
+  liarsBidDraft = {
+    roomId: room && room.room_id,
+    revision: room && room.revision,
+    actorId: room && room.current_player_id,
+    quantity: Number(quantity),
+    face: Number(face),
+  };
+}
+
 function renderLiarsDice(board, state) {
   const flow = state.flow || {};
   const roundNumber = flow.round_number;
@@ -1388,8 +1470,11 @@ function renderLiarsDice(board, state) {
   if (currentBid) {
     const bidder = participantByPlayerId(currentBid.bidder_player_id);
     bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点 · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
+  } else if (room && room.status === "playing") {
+    const roundNumber = state.flow && state.flow.round_number;
+    bidValue.textContent = `第 ${roundNumber} 轮 · 由 ${liarsParticipantName(room.current_player_id)} 开叫`;
   } else {
-    bidValue.textContent = "等待本轮首叫";
+    bidValue.textContent = "本轮已结算";
   }
   heading.append(bidLabel, bidValue);
   currentRound.appendChild(heading);
@@ -1417,32 +1502,31 @@ function renderLiarsDice(board, state) {
     option.textContent = String(value);
     face.appendChild(option);
   }
-  if (currentBid) {
-    quantity.value = String(currentBid.quantity);
-    face.value = String(Math.min(6, currentBid.face + 1));
-    if (currentBid.face === 6 && currentBid.quantity < maximum) {
-      quantity.value = String(currentBid.quantity + 1);
-      face.value = "1";
-    }
-  }
+  const selectedBid = liarsBidSelectionFor(state);
+  quantity.value = String(selectedBid.quantity);
+  face.value = String(selectedBid.face);
+  quantity.disabled = !canHumanMove();
+  face.disabled = !canHumanMove();
   quantityLabel.appendChild(quantity);
   faceLabel.appendChild(face);
   const chooseBid = document.createElement("button");
   chooseBid.type = "button";
   chooseBid.className = "pixel-btn compact";
   chooseBid.textContent = "提交本轮叫点";
-  const selectionIsHigher = () => !currentBid
-    || Number(quantity.value) > currentBid.quantity
-    || (
-      Number(quantity.value) === currentBid.quantity
-      && Number(face.value) > currentBid.face
-    );
+  const selectionIsHigher = () => liarsBidSelectionIsLegal(state, {
+    quantity: Number(quantity.value),
+    face: Number(face.value),
+  });
   const updateBidAvailability = () => {
     chooseBid.disabled = !canHumanMove() || !selectionIsHigher();
   };
+  const bidSelectionChanged = () => {
+    rememberLiarsBidSelection(quantity.value, face.value);
+    updateBidAvailability();
+  };
   updateBidAvailability();
-  quantity.addEventListener("change", updateBidAvailability);
-  face.addEventListener("change", updateBidAvailability);
+  quantity.addEventListener("change", bidSelectionChanged);
+  face.addEventListener("change", bidSelectionChanged);
   chooseBid.addEventListener("click", () => selectMove({
     action: "bid",
     quantity: Number(quantity.value),
@@ -1458,30 +1542,36 @@ function renderLiarsDice(board, state) {
   currentRound.appendChild(controls);
   board.appendChild(currentRound);
 
-  if (outcome) {
+  if (liarsRoundResultIsVisible(state)) {
     const result = document.createElement("section");
-    result.className = isHistoricalResult
-      ? "liars-round-result liars-previous-round"
-      : "liars-round-result";
+    result.className = `liars-round-result liars-reveal${
+      isHistoricalResult ? " liars-previous-round" : ""
+    }`;
     result.ariaLabel = isHistoricalResult ? "上一轮结算" : "本轮结算";
     const title = document.createElement("strong");
-    title.className = "liars-result-title";
-    title.textContent = isHistoricalResult
-      ? `第 ${outcome.round} 轮结算 · 上一轮`
-      : `第 ${outcome.round} 轮结算`;
-    const loser = participantByPlayerId(outcome.loser_player_id);
-    const loserName = (loser && loser.display_name) || outcome.loser_player_id;
-    const eliminated = outcome.eliminated_player_id === outcome.loser_player_id
-      || outcome.loser_remaining_dice === 0;
+    title.className = "liars-result-title liars-reveal-title";
+    title.textContent = `第 ${outcome.round} 轮结算`;
     const summary = document.createElement("p");
-    summary.className = "liars-result-summary";
-    summary.textContent = (
-      `实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点，`
-      + `叫点${outcome.bid_holds ? "成立" : "失败"}；`
-      + `${loserName} 失去 1 枚骰，剩余 ${outcome.loser_remaining_dice} 枚骰，`
-      + `${eliminated ? "已淘汰" : "仍在场"}。`
-    );
+    summary.className = "liars-result-summary liars-reveal-summary";
+    summary.textContent = liarsRoundResultText(outcome);
     result.append(title, summary);
+
+    const nextRoundNumber = outcome.next_round
+      || (
+        Number.isInteger(roundNumber)
+        && roundNumber === Number(outcome.round) + 1
+        ? roundNumber
+        : null
+      );
+    const nextStarterId = outcome.next_starter_player_id
+      || (nextRoundNumber && room && room.current_player_id);
+    if (nextRoundNumber && nextStarterId) {
+      const nextRound = document.createElement("p");
+      nextRound.className = "liars-next-round";
+      nextRound.textContent = outcome.next_round_summary
+        || `第 ${nextRoundNumber} 轮 · 由 ${liarsParticipantName(nextStarterId)} 开叫`;
+      result.appendChild(nextRound);
+    }
 
     const reveal = document.createElement("details");
     reveal.className = "liars-reveal-details";
@@ -2090,6 +2180,7 @@ async function confirmMove() {
       method: "POST",
       body: JSON.stringify({move: movePayload, revision: room.revision}),
     });
+    if (["bid", "challenge"].includes(movePayload.action)) liarsBidDraft = null;
     pendingMove = null;
     selectedJungleCell = null;
     renderGame(data.room, data.message, data.timeline);

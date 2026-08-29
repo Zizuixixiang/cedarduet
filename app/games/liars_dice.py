@@ -209,12 +209,16 @@ class LiarsDice(GamePlugin):
             "phase": "revealed",
             "round": flow["round_number"],
             "bid": bid,
+            "bidder_player_id": bidder,
             "challenger_player_id": challenger,
             "actual_count": actual_count,
             "bid_holds": bid_holds,
             "loser_player_id": loser,
             "loser_remaining_dice": loser_remaining,
+            "eliminated": eliminated,
             "eliminated_player_id": loser if eliminated else None,
+            "next_round": None,
+            "next_starter_player_id": None,
             "revealed_dice_by_player": revealed,
         }
         state["last_round_result"] = result
@@ -248,6 +252,8 @@ class LiarsDice(GamePlugin):
             count = state["dice_counts"][player_id]
             state["dice_by_player"][player_id] = self._roll(count) if count else []
         advance_flow(state, phase="bidding", next_round=True)
+        result["next_round"] = flow["round_number"]
+        result["next_starter_player_id"] = starter
         return MoveResult(
             state=state,
             next_player_id=starter,
@@ -267,6 +273,63 @@ class LiarsDice(GamePlugin):
         if move["action"] == "bid":
             return self._apply_bid(state, move, actor)
         return self._apply_challenge(state, actor)
+
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        del state, actor
+        if move.get("action") != "challenge" or not isinstance(applied, MoveResult):
+            return applied
+        outcome = applied.state.get("last_round_result")
+        if not isinstance(outcome, dict):
+            return applied
+        names = {
+            str(participant["player_id"]): str(
+                participant.get("display_name") or participant["player_id"]
+            )
+            for participant in participants
+        }
+        challenger_id = str(outcome["challenger_player_id"])
+        bidder_id = str(outcome["bidder_player_id"])
+        loser_id = str(outcome["loser_player_id"])
+        starter_id = outcome.get("next_starter_player_id")
+        challenger_name = names.get(challenger_id, challenger_id)
+        bidder_name = names.get(bidder_id, bidder_id)
+        loser_name = names.get(loser_id, loser_id)
+        outcome["challenger_display_name"] = challenger_name
+        outcome["bidder_display_name"] = bidder_name
+        outcome["loser_display_name"] = loser_name
+        if starter_id is not None:
+            starter_id = str(starter_id)
+            outcome["next_starter_display_name"] = names.get(starter_id, starter_id)
+            outcome["next_round_summary"] = (
+                f"第 {outcome['next_round']} 轮 · "
+                f"由 {outcome['next_starter_display_name']} 开叫"
+            )
+        bid = outcome["bid"]
+        elimination = "，已淘汰" if outcome["eliminated"] else "，未淘汰"
+        result_summary = (
+            f"{challenger_name} 质疑 {bidder_name} 的叫点"
+            f"“{bid['quantity']} 个 {bid['face']} 点”；实际有 "
+            f"{outcome['actual_count']} 个 {bid['face']} 点，"
+            f"叫点{'成立' if outcome['bid_holds'] else '失败'}；"
+            f"{loser_name} 输掉 1 枚骰，剩余 {outcome['loser_remaining_dice']} 枚"
+            f"{elimination}。"
+        )
+        outcome["result_summary"] = result_summary
+        summary = f"第 {outcome['round']} 轮：{result_summary}"
+        if outcome.get("next_round_summary"):
+            summary += outcome["next_round_summary"] + "。"
+        else:
+            summary += "对局结束。"
+        outcome["summary"] = summary
+        applied.note = summary
+        return applied
 
     def result_for(
         self,
