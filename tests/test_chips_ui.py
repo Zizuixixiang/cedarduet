@@ -252,10 +252,10 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("opacity: 0", styles)
         self.assertIn(".exchange-art.has-image img { opacity: 1; }", styles)
         self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
-        self.assertIn("/static/chips.css?v=1.3.0", HTML)
-        self.assertIn("/static/chips.js?v=1.3.0", HTML)
+        self.assertIn("/static/chips.css?v=1.4.0", HTML)
+        self.assertIn("/static/chips.js?v=1.4.0", HTML)
         self.assertIn(".exchange-request-summary", styles)
-        self.assertIn(".exchange-request-detail", styles)
+        self.assertIn(".exchange-request-details", styles)
         self.assertIn(".exchange-request-time", styles)
         self.assertIn(".exchange-request-art", styles)
         self.assertIn(".exchange-request-content", styles)
@@ -274,6 +274,35 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("white-space: nowrap", form_actions)
         self.assertIn("flex-wrap: nowrap", request_actions)
         self.assertIn("white-space: nowrap", request_actions)
+
+    def test_versioned_assets_cover_direct_and_duel_proxy_paths(self):
+        self.assertEqual(HTML.count("?v=1.4.0"), 2)
+        self.assertNotIn("?v=1.3.0", HTML)
+        self.assertIn('href="/static/chips.css?v=1.4.0"', HTML)
+        self.assertIn('src="/static/chips.js?v=1.4.0"', HTML)
+
+        proxied_html = HTML.replace('="/static/', '="/duel/static/')
+        self.assertIn('href="/duel/static/chips.css?v=1.4.0"', proxied_html)
+        self.assertIn('src="/duel/static/chips.js?v=1.4.0"', proxied_html)
+
+    def test_exchange_detail_rows_share_one_wrapping_grid(self):
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        detail_styles = styles[
+            styles.index(".exchange-request-details {"):
+            styles.index(".exchange-request-time {")
+        ]
+        self.assertIn("grid-template-columns: max-content minmax(0, 1fr)", detail_styles)
+        self.assertIn("gap: 6px 8px", detail_styles)
+        self.assertIn("white-space: nowrap", detail_styles)
+        self.assertIn("min-width: 0", detail_styles)
+        self.assertIn("overflow-wrap: anywhere", detail_styles)
+
+        request_renderer = function_source("renderExchangeRequest")
+        self.assertIn('details.className = "exchange-request-details"', request_renderer)
+        self.assertIn(
+            "details.append(agreementLabel, agreementText, noteLabel, noteText)",
+            request_renderer,
+        )
 
     def test_ledger_list_scrolls_inside_its_panel(self):
         styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
@@ -1088,6 +1117,21 @@ main().catch((error) => {{
     machineCard.querySelector(".exchange-actions .primary").textContent,
     "确认并支付筹码",
   );
+
+  const cards = [
+    machineCard,
+    humanCard,
+    document.querySelector("#exchangeHistoryList .exchange-request"),
+  ];
+  for (const card of cards) {
+    const details = card.querySelector(".exchange-request-details");
+    assert.ok(details);
+    assert.deepEqual(
+      [...details.querySelectorAll(".exchange-request-label")].map((node) => node.textContent),
+      ["约定", "本次说明"],
+    );
+    assert.equal(details.querySelectorAll("p").length, 2);
+  }
 """)
 
     def test_exchange_request_cards_render_shared_art_for_every_list(self):

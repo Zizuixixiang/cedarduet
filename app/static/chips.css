@@ -485,9 +485,9 @@ footer {
 .exchange-request.rejected .exchange-status,
 .exchange-request.withdrawn .exchange-status,
 .exchange-request.expired .exchange-status { background: #776c78; }
-.exchange-request-detail { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; margin-top: 6px; align-items: start; }
-.exchange-request-label { padding: 1px 4px; color: var(--muted); background: var(--soft); font-size: 0.6rem; font-weight: 900; line-height: 1.4; }
-.exchange-request-detail p { margin: 0; font-size: 0.68rem; line-height: 1.4; overflow-wrap: anywhere; }
+.exchange-request-details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 8px; margin-top: 6px; align-items: start; }
+.exchange-request-label { padding: 1px 4px; color: var(--muted); background: var(--soft); font-size: 0.6rem; font-weight: 900; line-height: 1.4; white-space: nowrap; }
+.exchange-request-details p { min-width: 0; margin: 0; font-size: 0.68rem; line-height: 1.4; overflow-wrap: anywhere; }
 .exchange-request-time { margin: 6px 0 0; color: var(--muted); font-size: 0.61rem; line-height: 1.35; }
 .exchange-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .exchange-actions .button { flex: 0 1 auto; min-width: 0; min-height: 32px; padding: 5px 8px; font-size: 0.68rem; white-space: nowrap; }

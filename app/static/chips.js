@@ -1060,28 +1060,25 @@ function renderExchangeRequest(item) {
   status.className = "exchange-status";
   status.textContent = exchangeStatusLabels[item.status] || item.status;
   titleRow.append(sentence, status);
-  const agreement = document.createElement("div");
-  agreement.className = "exchange-request-detail";
+  const details = document.createElement("div");
+  details.className = "exchange-request-details";
   const agreementLabel = document.createElement("span");
   agreementLabel.className = "exchange-request-label";
   agreementLabel.textContent = "约定";
   const agreementText = document.createElement("p");
   agreementText.textContent = item.item.description;
-  agreement.append(agreementLabel, agreementText);
-  const note = document.createElement("div");
-  note.className = "exchange-request-detail";
   const noteLabel = document.createElement("span");
   noteLabel.className = "exchange-request-label";
   noteLabel.textContent = "本次说明";
   const noteText = document.createElement("p");
   noteText.textContent = item.request_note;
-  note.append(noteLabel, noteText);
+  details.append(agreementLabel, agreementText, noteLabel, noteText);
   const time = document.createElement("p");
   time.className = "exchange-request-time";
   time.textContent = item.status === "pending"
     ? `有效期至 ${formatLedgerCreatedAt(item.expires_at)}`
     : `创建于 ${formatLedgerCreatedAt(item.created_at)}`;
-  content.append(titleRow, agreement, note, time);
+  content.append(titleRow, details, time);
   if (item.allowed_actions?.length) {
     const actions = document.createElement("div");
     actions.className = "exchange-actions";
