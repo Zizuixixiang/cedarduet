@@ -155,26 +155,52 @@
       </section>
 
       <section id="gameView" class="game-view hidden">
-        <div class="game-toolbar pixel-card">
-          <button id="backButton" class="pixel-btn secondary game-nav-btn" type="button">← 房间列表</button>
-          <div class="game-heading">
-            <span id="gameBadge" class="tag pink">GAME</span>
-            <h1 id="gameTitle">双弈</h1>
+        <header class="game-header pixel-card">
+          <div class="game-toolbar">
+            <button id="backButton" class="pixel-btn secondary game-nav-btn" type="button">← 房间列表</button>
+            <div class="game-heading">
+              <span id="gameBadge" class="tag pink">GAME</span>
+              <h1 id="gameTitle">双弈</h1>
+            </div>
+            <div class="game-toolbar-actions" aria-label="对局操作">
+              <button id="refreshButton" class="pixel-btn secondary compact" type="button" aria-label="刷新局面">刷新</button>
+              <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
+              <button id="resignButton" class="pixel-btn danger compact" type="button">认输</button>
+            </div>
           </div>
-          <div class="game-toolbar-actions" aria-label="对局操作">
-            <button id="refreshButton" class="pixel-btn secondary compact" type="button">刷新局面</button>
-            <button id="rulesButton" class="pixel-btn secondary compact" type="button">规则</button>
-            <button id="resignButton" class="pixel-btn danger compact" type="button">认输</button>
-          </div>
-        </div>
 
-        <div class="game-meta pixel-card">
-          <div><span>ROOM</span><strong id="roomId">—</strong></div>
-          <div><span>STATUS</span><strong id="status">—</strong></div>
-          <div><span>TURN</span><strong id="turn">—</strong></div>
-          <div><span>STAKE</span><strong id="roomStake">娱乐局</strong></div>
-          <div><span>REV</span><strong id="revision">0</strong></div>
-        </div>
+          <section class="game-meta" aria-label="对局信息">
+            <div class="game-meta-line game-meta-primary">
+              <span class="game-meta-item room-number-item">
+                <span class="game-meta-label">房间号</span>
+                <button id="copyRoomButton" class="room-copy-button" type="button"
+                        aria-label="复制房间号">
+                  <strong id="roomId">—</strong>
+                  <span class="room-copy-label" aria-hidden="true">复制</span>
+                </button>
+              </span>
+              <span class="game-meta-separator" aria-hidden="true">·</span>
+              <span class="game-meta-item">
+                <span class="game-meta-label">状态</span>
+                <strong id="status">—</strong>
+              </span>
+              <span class="game-meta-separator" aria-hidden="true">·</span>
+              <span class="game-meta-item">
+                <span class="game-meta-label">筹码</span>
+                <strong id="roomStake">娱乐局</strong>
+              </span>
+            </div>
+            <div class="game-meta-line game-meta-secondary">
+              <span id="roundMeta" class="game-meta-item hidden">
+                <strong id="roundText"></strong>
+              </span>
+              <span id="roundSeparator" class="game-meta-separator hidden" aria-hidden="true">·</span>
+              <span class="game-meta-item turn-item">
+                <strong id="turn">—</strong>
+              </span>
+            </div>
+          </section>
+        </header>
         <p id="gameMessage" class="notice" role="status"></p>
 
         <section id="resultBanner" class="result-banner hidden" aria-live="polite">
@@ -219,6 +245,9 @@
               </div>
             </div>
           </div>
+
+          <div id="viewerParticipant" class="viewer-participant-slot hidden"
+               aria-label="我的席位"></div>
 
           <div id="humanRow" class="player-row human-row">
             <div class="player-identity">

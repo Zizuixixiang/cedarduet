@@ -271,6 +271,33 @@ function roomTurnText(targetRoom) {
   );
 }
 
+function authoritativeRoundText(targetRoom) {
+  if (!targetRoom || targetRoom.game_type !== "liars_dice") return "";
+  const flow = targetRoom.board_state && targetRoom.board_state.flow;
+  const roundNumber = flow && flow.round_number;
+  return Number.isInteger(roundNumber) && roundNumber >= 1
+    ? `第 ${roundNumber} 轮`
+    : "";
+}
+
+async function copyRoomNumber(
+  targetRoom = room,
+  clipboard = navigator.clipboard
+) {
+  if (!targetRoom || !targetRoom.room_id) return false;
+  try {
+    if (!clipboard || typeof clipboard.writeText !== "function") {
+      throw new Error("clipboard unavailable");
+    }
+    await clipboard.writeText(targetRoom.room_id);
+    toast("房间号已复制");
+    return true;
+  } catch (_error) {
+    toast(`房间号 ${targetRoom.room_id}，请长按复制`);
+    return false;
+  }
+}
+
 function relativeTime(value) {
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return value || "—";
@@ -1705,63 +1732,110 @@ function renderSpeechBubble({
   if (Number.isInteger(seatIndex)) bubble.classList.add(`seat-${seatIndex}`);
 }
 
-function renderParticipantRoster(targetRoom) {
-  const roster = $("roomParticipants");
+function viewerParticipantFor(targetRoom) {
   const participants = Array.isArray(targetRoom.participants)
     ? targetRoom.participants
     : [];
+  const viewerId = targetRoom.viewer && targetRoom.viewer.player_id;
+  if (viewerId) {
+    return participants.find((item) => item.player_id === viewerId) || null;
+  }
+  if (targetRoom.human_player_id) {
+    return participants.find(
+      (item) => item.player_id === targetRoom.human_player_id
+    ) || null;
+  }
+  return participants.find((item) => item.role === "human") || null;
+}
+
+function tableParticipantsFor(targetRoom) {
+  const participants = Array.isArray(targetRoom.participants)
+    ? targetRoom.participants
+    : [];
+  const viewer = viewerParticipantFor(targetRoom);
+  if (!viewer || participants.length <= 2) return participants;
+  const others = participants.filter(
+    (item) => item.player_id !== viewer.player_id
+  );
+  return participants.length >= 5 ? others : [...others, viewer];
+}
+
+function createParticipantBadge(participant, targetRoom) {
+  const viewer = viewerParticipantFor(targetRoom);
+  const isViewer = Boolean(viewer && participant.player_id === viewer.player_id);
+  const badge = document.createElement("article");
+  badge.className = `room-participant seat-${participant.seat_index}`;
+  badge.classList.toggle("viewer", isViewer);
+  if (participant.player_id === targetRoom.current_player_id) {
+    badge.classList.add("current");
+  }
+  if (!participant.active || participant.activity_state !== "active") {
+    badge.classList.add("inactive");
+  }
+  const kindLabels = {human: "人类", bound_machine: "小机", system_npc: "NPC"};
+  const kind = kindLabels[participant.participant_kind] || (participant.role === "human" ? "人类" : "小机");
+  const states = [];
+  if (participant.join_status === "left") states.push("已离开");
+  else if (participant.join_status === "invited") states.push("待加入");
+  if (participant.confirmation_status === "pending") states.push("待确认");
+  if (participant.activity_state === "eliminated") states.push("已淘汰");
+  else if (participant.activity_state === "inactive") states.push("暂停行动");
+  else if (participant.activity_state === "skipped") states.push("本轮跳过");
+  badge.setAttribute("aria-current", participant.player_id === targetRoom.current_player_id ? "true" : "false");
+  if (isViewer) badge.setAttribute("aria-label", `${participant.display_name || participant.player_id}，我的席位`);
+  const avatarWrap = document.createElement("span");
+  avatarWrap.className = "room-participant-avatar";
+  renderParticipantAvatar(avatarWrap, participant);
+  const copy = document.createElement("span");
+  copy.className = "room-participant-copy";
+  const name = document.createElement("strong");
+  name.textContent = `${participant.display_name || participant.player_id}${isViewer ? "（你）" : ""}`;
+  const seat = document.createElement("small");
+  seat.textContent = `座位 ${participant.seat_index + 1} · ${kind}`;
+  copy.append(name, seat);
+  const detail = document.createElement("span");
+  detail.className = "room-participant-detail";
+  const metadataLabels = {score: "得分", dice_count: "剩余骰子"};
+  const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
+    ? participant.game_metadata
+    : {};
+  const fragments = Object.entries(metadata).map(
+    ([key, value]) => `${metadataLabels[key] || key} ${value}`
+  );
+  if (participant.player_id === targetRoom.current_player_id) fragments.unshift("▶ 正在行动");
+  if (isViewer) fragments.unshift("你的席位");
+  if (states.length) fragments.push(states.join("/"));
+  detail.textContent = fragments.join(" · ");
+  detail.classList.toggle("hidden", !fragments.length);
+  badge.append(avatarWrap, copy, detail);
+  return badge;
+}
+
+function renderParticipantRoster(targetRoom) {
+  const roster = $("roomParticipants");
+  const viewerSlot = $("viewerParticipant");
+  const participants = Array.isArray(targetRoom.participants)
+    ? targetRoom.participants
+    : [];
+  const tableParticipants = tableParticipantsFor(targetRoom);
+  const viewer = viewerParticipantFor(targetRoom);
   roster.replaceChildren();
+  viewerSlot.replaceChildren();
   [...roster.classList]
     .filter((name) => name.startsWith("count-"))
     .forEach((name) => roster.classList.remove(name));
   roster.classList.add(`count-${participants.length}`);
   roster.classList.toggle("hidden", participants.length <= 2);
+  viewerSlot.classList.toggle(
+    "hidden", participants.length < 5 || !viewer
+  );
   if (participants.length <= 2) return;
-  participants.forEach((participant) => {
-    const badge = document.createElement("article");
-    badge.className = `room-participant seat-${participant.seat_index}`;
-    if (participant.player_id === targetRoom.current_player_id) {
-      badge.classList.add("current");
-    }
-    if (!participant.active || participant.activity_state !== "active") {
-      badge.classList.add("inactive");
-    }
-    const kindLabels = {human: "人类", bound_machine: "小机", system_npc: "NPC"};
-    const kind = kindLabels[participant.participant_kind] || (participant.role === "human" ? "人类" : "小机");
-    const states = [];
-    if (participant.join_status === "left") states.push("已离开");
-    else if (participant.join_status === "invited") states.push("待加入");
-    if (participant.confirmation_status === "pending") states.push("待确认");
-    if (participant.activity_state === "eliminated") states.push("已淘汰");
-    else if (participant.activity_state === "inactive") states.push("暂停行动");
-    else if (participant.activity_state === "skipped") states.push("本轮跳过");
-    badge.setAttribute("aria-current", participant.player_id === targetRoom.current_player_id ? "true" : "false");
-    const avatarWrap = document.createElement("span");
-    avatarWrap.className = "room-participant-avatar";
-    renderParticipantAvatar(avatarWrap, participant);
-    const copy = document.createElement("span");
-    copy.className = "room-participant-copy";
-    const name = document.createElement("strong");
-    name.textContent = participant.display_name;
-    const seat = document.createElement("small");
-    seat.textContent = `座位 ${participant.seat_index + 1} · ${kind}`;
-    copy.append(name, seat);
-    const detail = document.createElement("span");
-    detail.className = "room-participant-detail";
-    const metadataLabels = {score: "得分", dice_count: "剩余骰子"};
-    const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
-      ? participant.game_metadata
-      : {};
-    const fragments = Object.entries(metadata).map(
-      ([key, value]) => `${metadataLabels[key] || key} ${value}`
-    );
-    if (participant.player_id === targetRoom.current_player_id) fragments.unshift("▶ 正在行动");
-    if (states.length) fragments.push(states.join("/"));
-    detail.textContent = fragments.join(" · ");
-    detail.classList.toggle("hidden", !fragments.length);
-    badge.append(avatarWrap, copy, detail);
-    roster.appendChild(badge);
+  tableParticipants.forEach((participant) => {
+    roster.appendChild(createParticipantBadge(participant, targetRoom));
   });
+  if (participants.length >= 5 && viewer) {
+    viewerSlot.appendChild(createParticipantBadge(viewer, targetRoom));
+  }
 }
 
 function renderPrivateState(targetRoom) {
@@ -1860,6 +1934,8 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
+  $("copyRoomButton").setAttribute("aria-label", `复制房间号 ${room.room_id}`);
+  $("copyRoomButton").title = `复制房间号 ${room.room_id}`;
   const resultText = resultTextFor(room, timeline);
   const winner = room.winner === "draw"
     ? " · 和棋"
@@ -1869,7 +1945,10 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
   $("roomStake").textContent = room.stake_label || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
-  $("revision").textContent = room.revision;
+  const roundText = authoritativeRoundText(room);
+  $("roundText").textContent = roundText;
+  $("roundMeta").classList.toggle("hidden", !roundText);
+  $("roundSeparator").classList.toggle("hidden", !roundText);
   $("rulesTitle").textContent = `${room.game_name}规则`;
   $("rulesText").textContent = room.rules_text;
   $("resignButton").disabled = room.status !== "playing";
@@ -2083,6 +2162,7 @@ $("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());
+$("copyRoomButton").addEventListener("click", () => copyRoomNumber());
 $("sendMessageButton").addEventListener("click", sendMessage);
 $("confirmMoveButton").addEventListener("click", confirmMove);
 $("resignButton").addEventListener("click", resign);

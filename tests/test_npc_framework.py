@@ -383,7 +383,8 @@ class NpcFrontendContractTests(unittest.TestCase):
         styles = (root / "styles.css").read_text(encoding="utf-8")
         for element_id in (
             "multiplayerOptions", "targetPlayerCount", "fillWithNpcs",
-            "seatPreview", "roomParticipants", "privateStatePanel",
+            "seatPreview", "roomParticipants", "viewerParticipant",
+            "privateStatePanel",
         ):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('options.classList.toggle("hidden", !multiplayer)', script)
@@ -398,12 +399,12 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn('selectedMachineCount >= 1', script)
         self.assertIn("renderParticipantAvatar(avatarWrap, participant)", script)
         self.assertIn("participant.avatar_url", script)
-        roster_start = script.index("function renderParticipantRoster(")
-        roster_end = script.index("function renderPrivateState(", roster_start)
-        roster = script[roster_start:roster_end]
-        self.assertIn('system_npc: "NPC"', roster)
-        self.assertIn("name.textContent = participant.display_name", roster)
-        self.assertNotIn("wallet_label", roster)
+        badge_start = script.index("function createParticipantBadge(")
+        roster_end = script.index("function renderPrivateState(", badge_start)
+        participant_rendering = script[badge_start:roster_end]
+        self.assertIn('system_npc: "NPC"', participant_rendering)
+        self.assertIn("participant.display_name || participant.player_id", participant_rendering)
+        self.assertNotIn("wallet_label", participant_rendering)
         self.assertIn('targetRoom.private_state', script)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
         self.assertIn(".table-layout.layout-top-row", styles)

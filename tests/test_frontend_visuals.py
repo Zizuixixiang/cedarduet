@@ -91,12 +91,37 @@ class FrontendBoardVisualTests(unittest.TestCase):
             ".box.owned.participant-piece { background-color: var(--seat-color); }",
             STYLES,
         )
-        roster = function_source("renderParticipantRoster")
-        self.assertIn("participant.game_metadata", roster)
-        self.assertIn("dice_count: \"剩余骰子\"", roster)
-        self.assertIn("score: \"得分\"", roster)
-        self.assertIn("▶ 正在行动", roster)
-        self.assertNotIn("筹码", roster)
+        badge = function_source("createParticipantBadge")
+        self.assertIn("participant.game_metadata", badge)
+        self.assertIn("dice_count: \"剩余骰子\"", badge)
+        self.assertIn("score: \"得分\"", badge)
+        self.assertIn("▶ 正在行动", badge)
+        self.assertIn("你的席位", badge)
+        self.assertNotIn("筹码", badge)
+
+    def test_game_header_is_compact_semantic_and_hides_revision(self):
+        header = HTML[
+            HTML.index('<header class="game-header pixel-card">'):
+            HTML.index('id="gameMessage"')
+        ]
+        primary = header[
+            header.index('class="game-meta-line game-meta-primary"'):
+            header.index('class="game-meta-line game-meta-secondary"')
+        ]
+        secondary = header[header.index('class="game-meta-line game-meta-secondary"'):]
+        self.assertLess(primary.index('id="roomId"'), primary.index('id="status"'))
+        self.assertLess(primary.index('id="status"'), primary.index('id="roomStake"'))
+        self.assertIn('id="copyRoomButton"', primary)
+        self.assertIn("房间号", primary)
+        self.assertIn("筹码", primary)
+        self.assertIn('id="roundText"', secondary)
+        self.assertIn('id="turn"', secondary)
+        self.assertNotIn("REV", header)
+        self.assertNotIn('id="revision"', header)
+        render_game = function_source("renderGame")
+        self.assertNotIn('$("revision")', render_game)
+        self.assertIn("authoritativeRoundText(room)", render_game)
+        self.assertIn('revision: room.revision', SCRIPT)
 
     def test_two_player_rows_remain_and_multiplayer_uses_compact_roster(self):
         self.assertIn('id="opponentRow" class="player-row opponent-row"', HTML)
@@ -111,6 +136,8 @@ class FrontendBoardVisualTests(unittest.TestCase):
     def test_private_state_stays_below_the_table_and_legacy_rows(self):
         stage = HTML[HTML.index('<section class="battle-stage'):HTML.index("historyDrawerTab")]
         self.assertLess(stage.index('id="opponentRow"'), stage.index('id="tableLayout"'))
+        self.assertLess(stage.index('id="tableLayout"'), stage.index('id="viewerParticipant"'))
+        self.assertLess(stage.index('id="viewerParticipant"'), stage.index('id="humanRow"'))
         self.assertLess(stage.index('id="tableLayout"'), stage.index('id="humanRow"'))
         self.assertLess(stage.index('id="humanRow"'), stage.index('id="privateStatePanel"'))
         self.assertIn("我的信息 · PRIVATE", stage)
@@ -183,6 +210,90 @@ for (const [count, layout] of expected) {{
 """
         self.run_node(harness)
 
+    def test_only_liars_dice_uses_authoritative_round_number(self):
+        rounds = function_source("authoritativeRoundText")
+        harness = f"""
+const assert = require("node:assert/strict");
+{rounds}
+assert.equal(authoritativeRoundText({{
+  game_type: "liars_dice",
+  revision: 91,
+  board_state: {{flow: {{round_number: 4}}}},
+}}), "第 4 轮");
+assert.equal(authoritativeRoundText({{
+  game_type: "liars_dice", revision: 91, board_state: {{flow: {{}}}},
+}}), "");
+assert.equal(authoritativeRoundText({{
+  game_type: "liars_dice", revision: 7,
+  board_state: {{flow: {{round_number: "7"}}}},
+}}), "");
+assert.equal(authoritativeRoundText({{
+  game_type: "tictactoe", revision: 23,
+  board_state: {{flow: {{round_number: 23}}}},
+}}), "");
+assert.equal(authoritativeRoundText({{
+  game_type: "gomoku", revision: 12, board_state: {{}},
+}}), "");
+"""
+        self.run_node(harness)
+
+    def test_room_number_copy_uses_clipboard_and_reports_result(self):
+        copy_room = "async " + function_source("copyRoomNumber")
+        harness = f"""
+const assert = require("node:assert/strict");
+const messages = [];
+const toast = (message) => messages.push(message);
+{copy_room}
+(async () => {{
+  const copied = [];
+  assert.equal(await copyRoomNumber(
+    {{room_id: "ROOM-42"}}, {{writeText: async (value) => copied.push(value)}}
+  ), true);
+  assert.deepEqual(copied, ["ROOM-42"]);
+  assert.equal(messages.at(-1), "房间号已复制");
+  assert.equal(await copyRoomNumber(
+    {{room_id: "ROOM-43"}}, {{writeText: async () => {{ throw new Error("denied"); }}}}
+  ), false);
+  assert.match(messages.at(-1), /ROOM-43/);
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+"""
+        self.run_node(harness)
+
+    def test_three_and_four_player_tables_put_viewer_in_bottom_slot(self):
+        functions = "\n".join((
+            function_source("viewerParticipantFor"),
+            function_source("tableParticipantsFor"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+{functions}
+for (const count of [3, 4]) {{
+  const participants = Array.from({{length: count}}, (_, index) => ({{
+    player_id: index === 0 ? "me" : `p-${{index}}`, seat_index: index,
+  }}));
+  const ordered = tableParticipantsFor({{
+    viewer: {{player_id: "me"}}, participants,
+  }});
+  assert.equal(ordered.length, count);
+  assert.equal(ordered.at(-1).player_id, "me");
+  assert.deepEqual(
+    ordered.slice(0, -1).map((item) => item.player_id),
+    participants.slice(1).map((item) => item.player_id)
+  );
+}}
+"""
+        self.run_node(harness)
+        self.assertIn(
+            ".table-layout.count-3 .room-participant:nth-child(3) {\n"
+            "  grid-column: 3;\n  grid-row: 3;",
+            STYLES,
+        )
+        self.assertIn(
+            ".table-layout.count-4 .room-participant:nth-child(4) {\n"
+            "  grid-column: 3;\n  grid-row: 2;",
+            STYLES,
+        )
+
     def test_game_options_are_rebuilt_from_catalog_player_counts(self):
         functions = "\n".join((
             function_source("allowedPlayerCountsForGame"),
@@ -234,6 +345,9 @@ assert.equal(select.value, "dots");
         functions = "\n".join((
             function_source("participantAvatarFallback"),
             function_source("renderParticipantAvatar"),
+            function_source("viewerParticipantFor"),
+            function_source("tableParticipantsFor"),
+            function_source("createParticipantBadge"),
             function_source("renderParticipantRoster"),
         ))
         harness = f"""
@@ -271,12 +385,15 @@ class Element {{
 }}
 const roster = new Element("div");
 roster.className = "room-participants hidden count-2";
+const viewerSlot = new Element("div");
+viewerSlot.className = "viewer-participant-slot hidden";
 const document = {{createElement: (tag) => new Element(tag)}};
-const $ = (id) => {{ assert.equal(id, "roomParticipants"); return roster; }};
+const $ = (id) => ({{roomParticipants: roster, viewerParticipant: viewerSlot}})[id];
 const apiPath = (path) => path;
 {functions}
 renderParticipantRoster({{
   current_player_id: "p2",
+  viewer: {{player_id: "p1"}},
   participants: [
     {{player_id: "p1", seat_index: 0, display_name: "甲", role: "human", participant_kind: "human", active: true, activity_state: "active", join_status: "joined", confirmation_status: "accepted", game_metadata: {{score: 2}}}},
     {{player_id: "p2", seat_index: 1, display_name: "乙", role: "ai", participant_kind: "bound_machine", active: true, activity_state: "active", join_status: "joined", confirmation_status: "accepted", game_metadata: {{dice_count: 4}}}},
@@ -284,16 +401,96 @@ renderParticipantRoster({{
   ],
 }});
 assert.equal(roster.children.length, 3);
-assert.match(roster.children[0].className, /seat-0/);
-assert.doesNotMatch(roster.children[0].children[2].textContent, /正在行动|存活/);
-const current = roster.children[1];
+assert.deepEqual(
+  roster.children.map((item) => item.children[1].children[0].textContent),
+  ["乙", "丙", "甲（你）"]
+);
+assert.match(roster.children[2].className, /seat-0/);
+assert.ok(roster.children[2].classList.contains("viewer"));
+assert.match(roster.children[2].children[2].textContent, /你的席位/);
+const current = roster.children[0];
 assert.match(current.className, /seat-1/);
 assert.ok(current.classList.contains("current"));
 assert.equal(current.attributes["aria-current"], "true");
 assert.match(current.children[2].textContent, /▶ 正在行动/);
 assert.match(current.children[2].textContent, /剩余骰子 4/);
 assert.equal(current.children[0].textContent, "乙");
-assert.match(roster.children[2].children[2].textContent, /已淘汰/);
+assert.match(roster.children[1].children[2].textContent, /已淘汰/);
+assert.ok(viewerSlot.classList.contains("hidden"));
+"""
+        self.run_node(harness)
+
+    def test_five_and_six_player_top_rows_exclude_viewer(self):
+        functions = "\n".join((
+            function_source("participantAvatarFallback"),
+            function_source("renderParticipantAvatar"),
+            function_source("viewerParticipantFor"),
+            function_source("tableParticipantsFor"),
+            function_source("createParticipantBadge"),
+            function_source("renderParticipantRoster"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor(owner) {{ this.owner = owner; this.names = new Set(); }}
+  reset(value) {{ this.names = new Set(value.split(/\\s+/).filter(Boolean)); }}
+  sync() {{ this.owner._className = [...this.names].join(" "); }}
+  add(...names) {{ names.forEach((name) => this.names.add(name)); this.sync(); }}
+  remove(...names) {{ names.forEach((name) => this.names.delete(name)); this.sync(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+    this.sync();
+  }}
+  contains(name) {{ return this.names.has(name); }}
+  [Symbol.iterator]() {{ return this.names[Symbol.iterator](); }}
+}}
+class Element {{
+  constructor(tag) {{
+    this.tag = tag; this.children = []; this.attributes = {{}};
+    this.textContent = ""; this.classList = new ClassList(this); this._className = "";
+  }}
+  set className(value) {{ this._className = value; this.classList.reset(value); }}
+  get className() {{ return this._className; }}
+  replaceChildren(...children) {{ this.children = children; this.textContent = ""; }}
+  append(...children) {{ this.children.push(...children); }}
+  appendChild(child) {{ this.children.push(child); }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener() {{}}
+}}
+const document = {{createElement: (tag) => new Element(tag)}};
+const apiPath = (path) => path;
+const roster = new Element("div");
+const viewerSlot = new Element("div");
+const $ = (id) => ({{roomParticipants: roster, viewerParticipant: viewerSlot}})[id];
+{functions}
+for (const count of [5, 6]) {{
+  roster.className = "room-participants hidden count-2";
+  viewerSlot.className = "viewer-participant-slot hidden";
+  const participants = Array.from({{length: count}}, (_, index) => ({{
+    player_id: index === 0 ? "me" : `p-${{index}}`,
+    seat_index: index,
+    display_name: index === 0 ? "南山" : `玩家${{index}}`,
+    role: index === 0 ? "human" : "ai",
+    participant_kind: index === 0 ? "human" : "system_npc",
+    active: true,
+    activity_state: "active",
+    join_status: "joined",
+    confirmation_status: "accepted",
+    game_metadata: {{dice_count: 5}},
+  }}));
+  renderParticipantRoster({{
+    viewer: {{player_id: "me"}}, current_player_id: "me", participants,
+  }});
+  assert.equal(roster.children.length, count - 1);
+  assert.ok(roster.children.every(
+    (item) => item.children[1].children[0].textContent !== "南山（你）"
+  ));
+  assert.equal(viewerSlot.children.length, 1);
+  assert.equal(viewerSlot.children[0].children[1].children[0].textContent, "南山（你）");
+  assert.ok(viewerSlot.children[0].classList.contains("current"));
+  assert.ok(!viewerSlot.classList.contains("hidden"));
+}}
 """
         self.run_node(harness)
 
@@ -364,6 +561,7 @@ assert.ok(!bubble.classList.contains("seat-1"));
         self.assertIn('id="sharedSpeechName"', table)
         self.assertIn('id="sharedSpeechAvatar"', table)
         self.assertIn('id="board"', table)
+        self.assertIn('id="viewerParticipant"', HTML)
         self.assertIn(".layout-triangle .board-zone", STYLES)
         self.assertIn(".layout-corners .board-zone", STYLES)
         self.assertIn(".layout-top-row .room-participants", STYLES)
@@ -373,6 +571,8 @@ assert.ok(!bubble.classList.contains("seat-1"));
         mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
         self.assertIn("grid-column: 1 / -1", mobile)
         self.assertIn(".layout-top-row .room-participants { justify-content: flex-start; }", mobile)
+        self.assertIn(".viewer-participant-slot { padding: 0 2px; }", mobile)
+        self.assertIn(".room-copy-button { min-height: 40px;", mobile)
         self.assertIn(".shared-speech {\n    width: min(430px, 100%);", mobile)
 
 

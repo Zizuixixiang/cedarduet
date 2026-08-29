@@ -293,7 +293,10 @@ class MobileOperationSizingTests(unittest.TestCase):
         self.assertIn("min-width: 64px", STYLES)
         self.assertIn("min-height: 40px", STYLES)
         self.assertIn(".game-toolbar-actions {", STYLES)
-        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn("grid-column: auto", mobile)
+        self.assertIn("display: flex", mobile)
+        self.assertIn("min-width: 38px", mobile)
         self.assertIn(".game-toolbar-actions .pixel-btn {", STYLES)
         self.assertNotIn(".game-actions", STYLES)
         self.assertLess(HTML.index('id="refreshButton"'), HTML.index('id="chatInput"'))

@@ -253,8 +253,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             battle_stage.index('id="chatInput"'),
         )
         toolbar = html[
-            html.index('<div class="game-toolbar pixel-card">'):
-            html.index('<div class="game-meta pixel-card">')
+            html.index('<header class="game-header pixel-card">'):
+            html.index('<section class="game-meta" aria-label="对局信息">')
         ]
         for button_id in ("refreshButton", "rulesButton", "resignButton"):
             self.assertIn(f'id="{button_id}"', toolbar)
