@@ -669,7 +669,17 @@ footer {
 .achievement-empty { margin: 0; color: var(--muted); font-size: 0.8rem; }
 .achievement-group-hidden .achievement-item { border-color: #6d5290; background: linear-gradient(145deg, #f1e7ff, #fff1fa); }
 
-.ledger-list { margin: 11px 0 0; padding: 0; list-style: none; }
+.ledger-list {
+  max-height: clamp(18rem, 52vh, 38rem);
+  margin: 11px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lilac) transparent;
+  -webkit-overflow-scrolling: touch;
+}
 .ledger-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

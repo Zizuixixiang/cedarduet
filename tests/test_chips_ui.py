@@ -218,6 +218,21 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("flex-wrap: nowrap", request_actions)
         self.assertIn("white-space: nowrap", request_actions)
 
+    def test_ledger_list_scrolls_inside_its_panel(self):
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        ledger_styles = styles[
+            styles.index(".ledger-list {"):
+            styles.index(".ledger-list li {")
+        ]
+        self.assertIn("max-height: clamp(18rem, 52vh, 38rem)", ledger_styles)
+        self.assertIn("overflow-y: auto", ledger_styles)
+        self.assertIn("overscroll-behavior: contain", ledger_styles)
+        self.assertIn("scrollbar-width: thin", ledger_styles)
+        self.assertIn("scrollbar-color: var(--lilac) transparent", ledger_styles)
+        ledger_panel = HTML[HTML.index('id="panel-ledger"'):]
+        self.assertLess(ledger_panel.index("<h2>筹码流水</h2>"), ledger_panel.index('id="ledgerList"'))
+        self.assertIn('</div>\n          <ol id="ledgerList"', ledger_panel)
+
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
