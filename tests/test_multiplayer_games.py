@@ -15,6 +15,15 @@ from app.games.dots_boxes import DotsBoxes
 from app.games.liars_dice import LiarsDice
 
 
+class RecordingRng:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def randint(self, minimum: int, maximum: int) -> int:
+        self.calls += 1
+        return minimum + (self.calls - 1) % (maximum - minimum + 1)
+
+
 def participants(count: int, *, npc_count: int = 0) -> list[dict]:
     values = [
         {
@@ -366,14 +375,41 @@ class LiarsDiceTests(MultiplayerGameTestCase):
             current_bid={"quantity": 6, "face": 2, "bidder_player_id": "human-1"},
             current_player_id="ai-1",
         )
+        previous_dice = deepcopy(room["board_state"]["dice_by_player"])
+        reroller = RecordingRng()
+        self.game._rng = reroller
         room = framework.play_move(
             room["room_id"], "ai", "ai-1", {"action": "challenge"}
         )
+        state = room["board_state"]
         self.assertEqual(room["current_player_id"], "ai-1")
-        self.assertEqual(room["board_state"]["dice_counts"]["ai-1"], 4)
-        self.assertTrue(room["board_state"]["last_round_result"]["bid_holds"])
-        self.assertEqual(room["board_state"]["flow"]["round_number"], 2)
-        self.assertEqual(room["board_state"]["flow"]["phase"], "bidding")
+        self.assertEqual(state["dice_counts"]["ai-1"], 4)
+        self.assertTrue(state["last_round_result"]["bid_holds"])
+        self.assertEqual(state["last_round_result"]["round"], 1)
+        self.assertEqual(
+            state["last_round_result"]["revealed_dice_by_player"], previous_dice
+        )
+        self.assertEqual(state["flow"]["round_number"], 2)
+        self.assertEqual(state["flow"]["phase"], "bidding")
+        self.assertIsNone(state["current_bid"])
+        self.assertEqual(state["round_actions"], [])
+
+        self.assertEqual(reroller.calls, 19)
+        for player_id, count in state["dice_counts"].items():
+            self.assertEqual(len(state["dice_by_player"][player_id]), count)
+            self.assertNotEqual(
+                state["dice_by_player"][player_id], previous_dice[player_id]
+            )
+            view = framework.project_room_for_viewer(room, player_id)
+            self.assertNotIn("dice_by_player", view["board_state"])
+            self.assertIsNone(view["board_state"]["current_bid"])
+            self.assertEqual(
+                view["private_state"]["dice"], state["dice_by_player"][player_id]
+            )
+            self.assertEqual(
+                view["board_state"]["last_round_result"]["revealed_dice_by_player"],
+                previous_dice,
+            )
 
     def terminal_six_state(self, room: dict) -> dict:
         state = deepcopy(room["board_state"])

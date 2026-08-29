@@ -174,9 +174,15 @@ class FrontendBoardVisualTests(unittest.TestCase):
 
     def test_liars_dice_has_public_controls_private_dice_and_revision_guard(self):
         renderer = function_source("renderLiarsDice")
-        self.assertIn('challenge.textContent = "质疑上一手"', renderer)
-        self.assertIn('chooseBid.textContent = "选择叫点"', renderer)
+        self.assertIn('challenge.textContent = "质疑本轮上一手"', renderer)
+        self.assertIn('chooseBid.textContent = "提交本轮叫点"', renderer)
+        self.assertIn('bidLabel.textContent = "本轮当前叫点"', renderer)
+        self.assertIn('outcome.round < roundNumber', renderer)
+        self.assertIn('document.createElement("details")', renderer)
+        self.assertIn('"查看上一轮揭骰"', renderer)
         self.assertIn("revealed_dice_by_player", renderer)
+        self.assertIn(".liars-current-round {", STYLES)
+        self.assertIn(".liars-round-result {", STYLES)
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
@@ -264,6 +270,94 @@ assert.equal(authoritativeRoundText({{
 assert.equal(authoritativeRoundText({{
   game_type: "gomoku", revision: 12, board_state: {{}},
 }}), "");
+"""
+        self.run_node(harness)
+
+    def test_liars_dice_separates_new_round_from_collapsed_previous_reveal(self):
+        renderer = function_source("renderLiarsDice")
+        harness = f"""
+const assert = require("node:assert/strict");
+class Element {{
+  constructor(tagName) {{
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.className = "";
+    this.textContent = "";
+    this.open = false;
+    this.value = "";
+  }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  append(...children) {{ this.children.push(...children); }}
+  addEventListener() {{}}
+}}
+const document = {{createElement: (tagName) => new Element(tagName)}};
+const participants = new Map([
+  ["human-1", {{display_name: "人类一号"}}],
+  ["ai-1", {{display_name: "小机一号"}}],
+]);
+const participantByPlayerId = (playerId) => participants.get(playerId) || null;
+const canHumanMove = () => true;
+const selectMove = () => {{}};
+const allText = (node) => [
+  node.textContent,
+  ...node.children.map(allText),
+].filter(Boolean).join(" ");
+{renderer}
+const board = new Element("div");
+renderLiarsDice(board, {{
+  flow: {{phase: "bidding", round_number: 2}},
+  max_bid_quantity: 9,
+  current_bid: null,
+  last_round_result: {{
+    round: 1,
+    bid: {{quantity: 3, face: 6, bidder_player_id: "ai-1"}},
+    actual_count: 2,
+    bid_holds: false,
+    loser_player_id: "ai-1",
+    loser_remaining_dice: 4,
+    eliminated_player_id: null,
+    revealed_dice_by_player: {{"human-1": [1, 1, 2], "ai-1": [3, 4, 5, 6, 6]}},
+  }},
+}});
+assert.equal(board.children.length, 2);
+const [currentRound, previousRound] = board.children;
+assert.equal(currentRound.className, "liars-current-round");
+assert.match(allText(currentRound), /第 2 轮 · 当前轮/);
+assert.match(allText(currentRound), /本轮骰子已按剩余数量重新掷出并隐藏/);
+assert.match(allText(currentRound), /本轮当前叫点/);
+assert.match(allText(currentRound), /等待本轮首叫/);
+assert.match(allText(currentRound), /提交本轮叫点/);
+assert.match(allText(currentRound), /质疑本轮上一手/);
+assert.doesNotMatch(allText(currentRound), /人类一号：1 · 1 · 2/);
+
+assert.equal(previousRound.className, "liars-round-result liars-previous-round");
+assert.equal(previousRound.children[0].textContent, "第 1 轮结算 · 上一轮");
+assert.match(previousRound.children[1].textContent, /实际 2 个 6 点，叫点失败/);
+assert.match(previousRound.children[1].textContent, /小机一号 失去 1 枚骰/);
+assert.match(previousRound.children[1].textContent, /剩余 4 枚骰，仍在场/);
+const details = previousRound.children[2];
+assert.equal(details.tagName, "DETAILS");
+assert.equal(details.open, false);
+assert.equal(details.children[0].textContent, "查看上一轮揭骰");
+assert.match(allText(details), /人类一号：1 · 1 · 2/);
+
+const eliminatedBoard = new Element("div");
+renderLiarsDice(eliminatedBoard, {{
+  flow: {{phase: "bidding", round_number: 3}},
+  max_bid_quantity: 5,
+  current_bid: null,
+  last_round_result: {{
+    round: 2,
+    bid: {{quantity: 2, face: 3, bidder_player_id: "ai-1"}},
+    actual_count: 0,
+    bid_holds: false,
+    loser_player_id: "ai-1",
+    loser_remaining_dice: 0,
+    eliminated_player_id: "ai-1",
+    revealed_dice_by_player: {{"human-1": [4, 5, 6], "ai-1": [2]}},
+  }},
+}});
+assert.match(eliminatedBoard.children[1].children[1].textContent, /剩余 0 枚骰，已淘汰/);
 """
         self.run_node(harness)
 

@@ -1348,10 +1348,41 @@ function renderJungleBoard(board, state) {
 }
 
 function renderLiarsDice(board, state) {
+  const flow = state.flow || {};
+  const roundNumber = flow.round_number;
+  const outcome = state.last_round_result;
+  const isHistoricalResult = Boolean(
+    outcome
+    && Number.isInteger(outcome.round)
+    && Number.isInteger(roundNumber)
+    && outcome.round < roundNumber
+  );
+  const currentRound = document.createElement("section");
+  currentRound.className = "liars-current-round";
+  currentRound.ariaLabel = Number.isInteger(roundNumber)
+    ? `第 ${roundNumber} 轮当前操作区`
+    : "当前轮操作区";
+  const roundHeading = document.createElement("div");
+  roundHeading.className = "liars-round-heading";
+  const roundTitle = document.createElement("strong");
+  roundTitle.textContent = Number.isInteger(roundNumber)
+    ? `第 ${roundNumber} 轮${flow.phase === "finished" ? " · 已结算" : " · 当前轮"}`
+    : "当前轮";
+  const roundStatus = document.createElement("span");
+  if (isHistoricalResult) {
+    roundStatus.textContent = "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
+  } else if (flow.phase === "finished") {
+    roundStatus.textContent = "本轮已经结算";
+  } else {
+    roundStatus.textContent = "本轮骰子已掷出并隐藏（仅自己可见）";
+  }
+  roundHeading.append(roundTitle, roundStatus);
+  currentRound.appendChild(roundHeading);
+
   const heading = document.createElement("div");
   heading.className = "liars-current-bid";
   const bidLabel = document.createElement("span");
-  bidLabel.textContent = "CURRENT BID";
+  bidLabel.textContent = "本轮当前叫点";
   const bidValue = document.createElement("strong");
   const currentBid = state.current_bid;
   if (currentBid) {
@@ -1361,37 +1392,18 @@ function renderLiarsDice(board, state) {
     bidValue.textContent = "等待本轮首叫";
   }
   heading.append(bidLabel, bidValue);
-  board.appendChild(heading);
-
-  if (state.last_round_result) {
-    const reveal = document.createElement("section");
-    reveal.className = "liars-reveal";
-    const title = document.createElement("strong");
-    const outcome = state.last_round_result;
-    title.textContent = `上一轮：实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点 · ${outcome.bid_holds ? "叫点成立" : "叫点失败"}`;
-    reveal.appendChild(title);
-    const diceList = document.createElement("div");
-    diceList.className = "liars-revealed-dice";
-    Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
-      const row = document.createElement("span");
-      const participant = participantByPlayerId(playerId);
-      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "已淘汰"}`;
-      diceList.appendChild(row);
-    });
-    reveal.appendChild(diceList);
-    board.appendChild(reveal);
-  }
+  currentRound.appendChild(heading);
 
   const controls = document.createElement("div");
   controls.className = "liars-controls";
   const quantityLabel = document.createElement("label");
-  quantityLabel.textContent = "数量";
+  quantityLabel.textContent = "本轮数量";
   const quantity = document.createElement("select");
-  quantity.ariaLabel = "叫点数量";
+  quantity.ariaLabel = "本轮叫点数量";
   const faceLabel = document.createElement("label");
-  faceLabel.textContent = "点数";
+  faceLabel.textContent = "本轮点数";
   const face = document.createElement("select");
-  face.ariaLabel = "叫点点数";
+  face.ariaLabel = "本轮叫点点数";
   const maximum = Number(state.max_bid_quantity || 0);
   for (let value = 1; value <= maximum; value += 1) {
     const option = document.createElement("option");
@@ -1418,7 +1430,7 @@ function renderLiarsDice(board, state) {
   const chooseBid = document.createElement("button");
   chooseBid.type = "button";
   chooseBid.className = "pixel-btn compact";
-  chooseBid.textContent = "选择叫点";
+  chooseBid.textContent = "提交本轮叫点";
   const selectionIsHigher = () => !currentBid
     || Number(quantity.value) > currentBid.quantity
     || (
@@ -1439,11 +1451,57 @@ function renderLiarsDice(board, state) {
   const challenge = document.createElement("button");
   challenge.type = "button";
   challenge.className = "pixel-btn danger compact";
-  challenge.textContent = "质疑上一手";
+  challenge.textContent = "质疑本轮上一手";
   challenge.disabled = !canHumanMove() || !currentBid;
   challenge.addEventListener("click", () => selectMove({action: "challenge"}));
   controls.append(quantityLabel, faceLabel, chooseBid, challenge);
-  board.appendChild(controls);
+  currentRound.appendChild(controls);
+  board.appendChild(currentRound);
+
+  if (outcome) {
+    const result = document.createElement("section");
+    result.className = isHistoricalResult
+      ? "liars-round-result liars-previous-round"
+      : "liars-round-result";
+    result.ariaLabel = isHistoricalResult ? "上一轮结算" : "本轮结算";
+    const title = document.createElement("strong");
+    title.className = "liars-result-title";
+    title.textContent = isHistoricalResult
+      ? `第 ${outcome.round} 轮结算 · 上一轮`
+      : `第 ${outcome.round} 轮结算`;
+    const loser = participantByPlayerId(outcome.loser_player_id);
+    const loserName = (loser && loser.display_name) || outcome.loser_player_id;
+    const eliminated = outcome.eliminated_player_id === outcome.loser_player_id
+      || outcome.loser_remaining_dice === 0;
+    const summary = document.createElement("p");
+    summary.className = "liars-result-summary";
+    summary.textContent = (
+      `实际 ${outcome.actual_count} 个 ${outcome.bid.face} 点，`
+      + `叫点${outcome.bid_holds ? "成立" : "失败"}；`
+      + `${loserName} 失去 1 枚骰，剩余 ${outcome.loser_remaining_dice} 枚骰，`
+      + `${eliminated ? "已淘汰" : "仍在场"}。`
+    );
+    result.append(title, summary);
+
+    const reveal = document.createElement("details");
+    reveal.className = "liars-reveal-details";
+    const revealToggle = document.createElement("summary");
+    revealToggle.textContent = isHistoricalResult
+      ? "查看上一轮揭骰"
+      : "查看本轮揭骰";
+    reveal.appendChild(revealToggle);
+    const diceList = document.createElement("div");
+    diceList.className = "liars-revealed-dice";
+    Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
+      const row = document.createElement("span");
+      const participant = participantByPlayerId(playerId);
+      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "无骰"}`;
+      diceList.appendChild(row);
+    });
+    reveal.appendChild(diceList);
+    result.appendChild(reveal);
+    board.appendChild(result);
+  }
 }
 
 function latestMoveEvent(timeline = []) {
