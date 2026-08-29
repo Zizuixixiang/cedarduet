@@ -19,6 +19,7 @@ from app.npc_providers import (
     OpenAICompatibleNpcProvider,
     ProviderDecision,
     get_npc_provider,
+    parse_provider_decision,
     reset_npc_provider_cache,
 )
 from app.npc_runtime import reserve_npc_decision
@@ -81,6 +82,29 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("虚张声势", compact)
             self.assertIn("正常诈唬不受禁止", compact)
             self.assertIn("不得为了维持性格故意走明显坏棋", compact)
+
+    async def test_global_rules_encourage_natural_messages_without_leaks(self):
+        for required in (
+            "正常 NPC 行动时，多数回合应在 message 中附带一句简短、自然、"
+            "符合 persona 的中文桌边话",
+            "可以参考 recent_public_events，仅对其中的公开发言或公开局势作"
+            "简短回应",
+            "不要每回合机械重复",
+            "无话可说时可以偶尔静默",
+            "fallback 或异常恢复时也允许静默",
+            "message 使用 null",
+            '{"action_id":"...","message":null}',
+            "不得通过 message 泄露任何未公开隐藏信息",
+            "不要为了说话牺牲合法行动选择",
+            "不要返回分析、解释或思维过程",
+        ):
+            self.assertIn(required, GLOBAL_PLAYER_RULES)
+
+    async def test_provider_decision_keeps_null_message_compatibility(self):
+        self.assertEqual(
+            parse_provider_decision('{"action_id":"a_step","message":null}'),
+            ProviderDecision("a_step", None),
+        )
 
     async def test_disabled_is_default_and_exposes_no_configuration_secret(self):
         with patch.dict("os.environ", {"DUEL_NPC_PROVIDER": "disabled"}, clear=False):
