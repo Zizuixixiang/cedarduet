@@ -273,8 +273,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             html,
         )
         self.assertNotIn("← 返回首页", html)
+        self.assertIn("/static/game_ui_registry.js?v=0.9.0", html)
         self.assertIn("/static/app.js?v=0.9.0", html)
         self.assertIn("/static/styles.css?v=0.9.0", html)
+        self.assertLess(
+            html.index("/static/game_ui_registry.js?v=0.9.0"),
+            html.index("/static/app.js?v=0.9.0"),
+        )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)
@@ -384,6 +389,28 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("const waitHintShownRooms = new Set()", script.text)
         self.assertIn("function localDateString(date = new Date())", script.text)
+
+        registry = await self.client.get("/static/game_ui_registry.js")
+        self.assertEqual(registry.status_code, 200)
+        self.assertEqual(registry.headers["cache-control"], "no-store")
+        self.assertIn("global.DuelGameUI", registry.text)
+        self.assertIn("function register(gameType, renderer)", registry.text)
+
+        renderer_dir = Path(self.temporary.name) / "game-ui-renderers"
+        renderer_dir.mkdir()
+        (renderer_dir / "test_game.js").write_text(
+            'window.DuelGameUI.register("test_game", {renderBoard() {}});',
+            encoding="utf-8",
+        )
+        with patch.object(main_module, "GAME_UI_RENDERER_DIR", renderer_dir):
+            renderer = await self.client.get("/static/games/test_game.js")
+            missing_renderer = await self.client.get(
+                "/static/games/not_in_catalog.js"
+            )
+        self.assertEqual(renderer.status_code, 200)
+        self.assertEqual(renderer.headers["cache-control"], "no-store")
+        self.assertIn('DuelGameUI.register("test_game"', renderer.text)
+        self.assertEqual(missing_renderer.status_code, 404)
         self.assertIn("function waitHintHumanId(targetRoom)", script.text)
         self.assertIn("function shouldShowWaitModeHint(", script.text)
         self.assertIn("function closeWaitModeModal(", script.text)

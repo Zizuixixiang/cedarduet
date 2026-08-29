@@ -2106,6 +2106,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .chat-compose input:focus { border-color: var(--pink); }
 .chat-compose .pixel-btn { min-width: 92px; }
+.game-controls {
+  width: min(610px, 100%);
+  margin: 10px auto 0;
+}
 .move-confirm {
   width: min(610px, 100%);
   margin: 10px auto 0;

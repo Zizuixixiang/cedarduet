@@ -6,8 +6,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+REGISTRY_SCRIPT = (
+    ROOT / "app" / "static" / "game_ui_registry.js"
+).read_text(encoding="utf-8")
 STYLES = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+GAME_UI_DOC = (
+    ROOT / "app" / "static" / "games" / "README.md"
+).read_text(encoding="utf-8")
 NODE = shutil.which("node")
 
 
@@ -15,6 +21,272 @@ def function_source(name: str) -> str:
     start = SCRIPT.index(f"function {name}(")
     end = SCRIPT.find("\nfunction ", start + 1)
     return SCRIPT[start:] if end < 0 else SCRIPT[start:end]
+
+
+class GameUIExtensionContractTests(unittest.TestCase):
+    def test_registry_and_renderer_scripts_load_before_the_application(self):
+        registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.0"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.0"></script>'
+        self.assertIn(registry_tag, HTML)
+        self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
+        self.assertNotIn('<script src="/static/games/', HTML)
+        self.assertIn('id="gameControls" class="game-controls hidden"', HTML)
+        self.assertIn("window.DuelGameUI.register", GAME_UI_DOC)
+        self.assertIn("顺序必须是 registry", GAME_UI_DOC)
+        self.assertIn("renderer、`app.js`", GAME_UI_DOC)
+
+    def test_registered_renderer_precedes_the_unchanged_legacy_fallback(self):
+        renderer = function_source("renderBoard")
+        registered_lookup = "registeredGameUIRenderer(room.game_type)"
+        self.assertIn(registered_lookup, renderer)
+        self.assertIn("renderRegisteredGameUI(renderer, board, timeline)", renderer)
+        self.assertIn("return;", renderer)
+        self.assertLess(
+            renderer.index(registered_lookup),
+            renderer.index('if (room.game_type === "liars_dice")'),
+        )
+        for legacy_call in (
+            "renderLiarsDice(board, state)",
+            "renderDotsBoard(board, state)",
+            "renderJungleBoard(board, state)",
+            "renderXiangqiBoard(board, state)",
+            "renderGomokuBoard(board, state)",
+            "renderConnect4Board(board, state)",
+            "renderGridBoard(board, state)",
+        ):
+            self.assertIn(legacy_call, renderer)
+
+    def test_context_documents_complex_selection_and_legal_action_helpers(self):
+        context = function_source("createGameUIContext")
+        for contract_name in (
+            "legalMoves", "legalActions", "uiState", "pendingMove",
+            "setBoardLayout", "selectMove", "clearSelection", "submitMove",
+            "rerender", "canMove", "participantByPlayerId", "announce",
+        ):
+            self.assertIn(contract_name, context)
+            self.assertIn(contract_name, GAME_UI_DOC)
+        registered = function_source("renderRegisteredGameUI")
+        self.assertIn("renderer.renderBoard(context)", registered)
+        self.assertIn("renderer.renderControls(context)", registered)
+        self.assertIn("renderer.usesStandardMoveConfirmation === false", registered)
+        self.assertIn("width: min(610px, 100%);", STYLES[
+            STYLES.index(".game-controls {"):
+            STYLES.index("}", STYLES.index(".game-controls {"))
+        ])
+
+
+@unittest.skipUnless(NODE, "node is required for registry contract tests")
+class GameUIRegistryRuntimeTests(unittest.TestCase):
+    def run_node(self, harness: str, source: str = "") -> None:
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            input=source,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_register_get_duplicate_guard_and_convention_loader(self):
+        harness = r'''
+const assert = require("node:assert/strict");
+const vm = require("node:vm");
+const fs = require("node:fs");
+const source = fs.readFileSync(0, "utf8");
+const scripts = [];
+const document = {
+  createElement(tag) {
+    assert.equal(tag, "script");
+    return {
+      dataset: {}, listeners: {},
+      addEventListener(name, listener) { this.listeners[name] = listener; },
+    };
+  },
+  head: {appendChild(script) { scripts.push(script); }},
+};
+const sandbox = {window: {document}, Promise, encodeURIComponent};
+vm.runInNewContext(source, sandbox);
+const registry = sandbox.window.DuelGameUI;
+assert.equal(registry.version, 1);
+const renderer = {renderBoard() {}};
+assert.equal(registry.register("future_game", renderer), renderer);
+assert.equal(registry.get("future_game"), renderer);
+assert.equal(registry.get("missing"), null);
+assert.equal(registry.has("future_game"), true);
+assert.deepEqual([...registry.registeredGameTypes()], ["future_game"]);
+assert.throws(() => registry.register("future_game", renderer), /already registered/);
+assert.throws(() => registry.register("Bad Type", renderer), /gameType/);
+assert.throws(() => registry.register("no_board", {}), /renderBoard/);
+
+const automaticRenderer = {renderBoard() {}};
+const loading = registry.load("automatic_game");
+assert.equal(scripts.length, 1);
+assert.equal(scripts[0].src, "/static/games/automatic_game.js");
+assert.equal(scripts[0].dataset.duelGameUi, "automatic_game");
+registry.register("automatic_game", automaticRenderer);
+scripts[0].listeners.load();
+loading.then((loaded) => {
+  assert.equal(loaded, automaticRenderer);
+  return registry.load("automatic_game");
+}).then((loadedAgain) => {
+  assert.equal(loadedAgain, automaticRenderer);
+}).catch((error) => { console.error(error); process.exitCode = 1; });
+'''
+        self.run_node(harness, REGISTRY_SCRIPT)
+
+    def test_app_dispatches_registered_renderer_and_falls_back_without_one(self):
+        sources = "\n".join((
+            function_source("registeredGameUIRenderer"),
+            function_source("registeredGameUIStateFor"),
+            function_source("createGameUIContext"),
+            function_source("renderRegisteredGameUI"),
+            function_source("renderBoard"),
+        ))
+        harness = r'''
+const assert = require("node:assert/strict");
+class ClassList {
+  constructor() { this.names = new Set(); }
+  add(name) { this.names.add(name); }
+  toggle(name, force) {
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }
+  contains(name) { return this.names.has(name); }
+}
+class Style {
+  constructor() { this.values = {}; }
+  setProperty(name, value) { this.values[name] = String(value); }
+}
+class Element {
+  constructor() {
+    this.children = [];
+    this.classList = new ClassList();
+    this.className = "";
+    this.style = new Style();
+    this.attributes = {};
+  }
+  appendChild(child) { this.children.push(child); return child; }
+  replaceChildren(...children) { this.children = children; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === "style") this.style = new Style();
+  }
+}
+const elements = {
+  board: new Element(), gameControls: new Element(), moveConfirm: new Element(),
+};
+const $ = (id) => elements[id] || (elements[id] = new Element());
+let room = null;
+let identity = {human_name: "Tester"};
+let currentTimeline = [];
+let pendingMove = null;
+let registeredGameUIStateKey = null;
+let registeredGameUIState = Object.create(null);
+let pluginRenders = 0;
+let fallbackRenders = 0;
+let confirmationUpdates = 0;
+const plugin = {
+  usesStandardMoveConfirmation: false,
+  renderBoard(context) {
+    pluginRenders += 1;
+    assert.equal(context.room, room);
+    assert.deepEqual(context.legalMoves, [{row: 0, col: 0}]);
+    assert.equal(context.canMove, true);
+    assert.equal(typeof context.helpers.selectMove, "function");
+    context.helpers.setBoardLayout({rows: 2, cols: 3, ariaLabel: "测试棋盘"});
+    context.board.appendChild({kind: "plugin-board"});
+  },
+  renderControls(context) { context.controls.appendChild({kind: "controls"}); },
+};
+const window = {DuelGameUI: {get: (gameType) => (
+  gameType === "future_game" ? plugin : null
+)}};
+const canHumanMove = () => true;
+const isTerminal = () => false;
+const viewerParticipantFor = () => ({player_id: "human"});
+const selectMove = (move) => { pendingMove = move; };
+const submitMove = async () => true;
+const movesEqual = () => false;
+const participantByPlayerId = () => null;
+const participantForOwner = () => null;
+const pieceClass = () => "";
+const ownerDescription = () => "";
+const showNotice = () => {};
+const updateMoveConfirmation = () => { confirmationUpdates += 1; };
+const renderLiarsDice = () => { throw new Error("unexpected legacy dice renderer"); };
+const renderDotsBoard = () => { fallbackRenders += 1; };
+const renderJungleBoard = () => { fallbackRenders += 1; };
+const renderXiangqiBoard = () => { fallbackRenders += 1; };
+const renderGomokuBoard = () => { fallbackRenders += 1; };
+const renderConnect4Board = () => { fallbackRenders += 1; };
+const renderGridBoard = () => { fallbackRenders += 1; };
+const renderLastMoveMarker = () => {};
+''' + sources + r'''
+room = {
+  room_id: "CUSTOM1", revision: 4, game_type: "future_game",
+  game_name: "未来游戏", status: "playing",
+  board_state: {rows: 2, cols: 3, legal_moves: [{row: 0, col: 0}]},
+  participants: [], viewer: {player_id: "human"},
+};
+renderBoard([]);
+assert.equal(pluginRenders, 1);
+assert.equal(fallbackRenders, 0);
+assert.equal(elements.board.children[0].kind, "plugin-board");
+assert.equal(elements.board.style.values["--cols"], "3");
+assert.equal(elements.board.attributes["aria-label"], "测试棋盘");
+assert.equal(elements.gameControls.children[0].kind, "controls");
+assert.equal(elements.gameControls.classList.contains("hidden"), false);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), true);
+
+room = {
+  room_id: "LEGACY1", revision: 1, game_type: "tictactoe",
+  game_name: "井字棋", status: "playing",
+  board_state: {size: 1, board: [[null]], marks: {human: "X"}},
+  participants: [], viewer: {player_id: "human"},
+};
+renderBoard([]);
+assert.equal(pluginRenders, 1);
+assert.equal(fallbackRenders, 1);
+assert.equal(elements.gameControls.children.length, 0);
+assert.equal(elements.gameControls.classList.contains("hidden"), true);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), false);
+assert.equal(confirmationUpdates, 2);
+'''
+        self.run_node(harness)
+
+    def test_catalog_autoloads_only_new_unregistered_game_types(self):
+        loader_start = SCRIPT.index("async function loadCatalogGameRenderers(")
+        loader_end = SCRIPT.index("\nfunction unreadCount(", loader_start)
+        loader_source = SCRIPT[loader_start:loader_end]
+        harness = r'''
+const assert = require("node:assert/strict");
+const loaded = [];
+const LEGACY_GAME_UI_TYPES = new Set([
+  "tictactoe", "gomoku", "othello", "connect4",
+  "dots_boxes", "liars_dice", "jungle", "xiangqi",
+]);
+const window = {DuelGameUI: {
+  get(gameType) { return gameType === "already_ready" ? {renderBoard() {}} : null; },
+  load(gameType) { loaded.push(gameType); return Promise.resolve({renderBoard() {}}); },
+}};
+''' + loader_source + r'''
+(async () => {
+  await loadCatalogGameRenderers([
+    {game_type: "tictactoe"},
+    {game_type: "future_game"},
+    {game_type: "future_game"},
+    {game_type: "already_ready"},
+  ]);
+  assert.deepEqual(loaded, ["future_game"]);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+'''
+        self.run_node(harness)
 
 
 class FrontendBoardVisualTests(unittest.TestCase):

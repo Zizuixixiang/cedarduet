@@ -250,6 +250,8 @@
               <div class="board-frame">
                 <div id="board" class="board" aria-label="棋盘"></div>
               </div>
+              <div id="gameControls" class="game-controls hidden"
+                   aria-label="游戏专属操作"></div>
               <div id="moveConfirm" class="move-confirm">
                 <span id="selectionHint">请先在棋盘上选择落点</span>
                 <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
@@ -364,6 +366,8 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
+  <script src="/static/game_ui_registry.js?v=0.9.0"></script>
+  <!-- Explicit game renderer scripts may be added here, before app.js. -->
   <script src="/static/app.js?v=0.9.0"></script>
 </body>
 </html>
