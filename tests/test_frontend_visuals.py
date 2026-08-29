@@ -72,11 +72,51 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('content: "●"', STYLES)
         self.assertIn('content: "◆"', STYLES)
 
-    def test_jungle_keeps_beast_names_without_raw_side_marks(self):
+    def test_jungle_uses_tokens_terrain_layers_and_mobile_safe_sizing(self):
         renderer = function_source("renderJungleBoard")
         self.assertIn("JUNGLE_SYMBOLS[beast]", renderer)
-        self.assertIn('pieceOwner === humanMark ? "●" : "○"', renderer)
+        self.assertIn('document.createElement("span")', renderer)
+        self.assertIn('`jungle-piece jungle-piece-${side}`', renderer)
+        self.assertIn('`jungle-terrain jungle-terrain-${terrain.kind}`', renderer)
+        self.assertIn('terrainElement.textContent = terrain.label', renderer)
+        self.assertIn('pieceElement.textContent = JUNGLE_SYMBOLS[beast]', renderer)
+        self.assertNotIn('"●"', renderer)
+        self.assertNotIn('"○"', renderer)
         self.assertNotIn("cell.textContent = piece", renderer)
+        self.assertIn('humanMark === "O"', renderer)
+        self.assertIn('cell.dataset.moveRow = String(rowIndex)', renderer)
+        self.assertIn('cell.dataset.displayRow = String(displayRow)', renderer)
+
+        jungle_styles = STYLES[
+            STYLES.index(".board.jungle {"):
+            STYLES.index(".board.gomoku {")
+        ]
+        self.assertIn(".jungle-piece-human {", jungle_styles)
+        self.assertIn("border-color: var(--pink-dark);", jungle_styles)
+        self.assertIn(".jungle-piece-ai {", jungle_styles)
+        self.assertIn("border-color: var(--purple-darker);", jungle_styles)
+        self.assertIn(".jungle-terrain-water", jungle_styles)
+        self.assertIn(".jungle-terrain-trap", jungle_styles)
+        self.assertIn(".jungle-terrain-den", jungle_styles)
+        self.assertIn(
+            ".board.jungle .cell.selected-origin .jungle-piece",
+            jungle_styles,
+        )
+        self.assertIn(".board.jungle .cell.selected::after", jungle_styles)
+        self.assertNotIn("url(", jungle_styles)
+
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(
+            ".board.jungle { width: min(94vw, 420px); max-width: 100%; }",
+            mobile,
+        )
+        self.assertIn("width: min(74%, 42px);", mobile)
+        for viewport in (320, 375):
+            board_width = min(viewport * 0.94, 420)
+            cell_width = (board_width - 6 - 6) / 7
+            self.assertLessEqual(board_width, viewport)
+            self.assertGreaterEqual(cell_width, 41)
+            self.assertGreaterEqual(cell_width * 0.74, 30)
 
     def test_xiangqi_uses_server_targets_intersections_and_mobile_safe_board(self):
         renderer = function_source("renderXiangqiBoard")
@@ -425,6 +465,217 @@ class MultiplayerTableRenderingTests(unittest.TestCase):
             0,
             f"JavaScript assertion failed:\n{completed.stderr}",
         )
+
+    def test_jungle_dom_tokens_terrain_rotation_and_true_coordinates(self):
+        functions = "\n".join((
+            function_source("canHumanMove"),
+            function_source("renderJungleBoard"),
+            function_source("latestMoveEvent"),
+            function_source("authoritativeLastMove"),
+            function_source("renderLastMoveMarker"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor(owner) {{ this.owner = owner; this.names = new Set(); }}
+  reset(value) {{ this.names = new Set(value.split(/\\s+/).filter(Boolean)); }}
+  sync() {{ this.owner._className = [...this.names].join(" "); }}
+  add(...names) {{ names.forEach((name) => this.names.add(name)); this.sync(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+    this.sync();
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor(tag = "div") {{
+    this.tag = tag;
+    this.children = [];
+    this.dataset = {{}};
+    this.attributes = {{}};
+    this.listeners = {{}};
+    this.disabled = false;
+    this.textContent = "";
+    this.ariaLabel = "";
+    this._className = "";
+    this.classList = new ClassList(this);
+  }}
+  set className(value) {{ this._className = value; this.classList.reset(value); }}
+  get className() {{ return this._className; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener(name, callback) {{ this.listeners[name] = callback; }}
+  click() {{ if (!this.disabled && this.listeners.click) this.listeners.click(); }}
+  querySelector(selector) {{
+    const row = selector.match(/data-move-row="(\\d+)"/);
+    const col = selector.match(/data-move-col="(\\d+)"/);
+    if (!row || !col) return null;
+    return this.children.find((child) => (
+      child.dataset.moveRow === row[1] && child.dataset.moveCol === col[1]
+    )) || null;
+  }}
+}}
+const document = {{createElement: (tag) => new Element(tag)}};
+const JUNGLE_SYMBOLS = {{
+  R: "鼠", C: "猫", D: "狗", W: "狼",
+  P: "豹", T: "虎", L: "狮", E: "象",
+}};
+const JUNGLE_WATER = new Set(
+  [3, 4, 5].flatMap((row) => [1, 2, 4, 5].map((col) => `${{row}},${{col}}`))
+);
+const JUNGLE_TRAPS = new Set(["0,2", "0,4", "1,3", "8,2", "8,4", "7,3"]);
+const JUNGLE_DENS = new Set(["0,3", "8,3"]);
+const participantFor = (role) => role === "human" ? {{player_id: "human-1"}} : null;
+const pieceClass = (owner) => !owner ? "" : (
+  owner === room.board_state.marks.human ? " human-piece" : " ai-piece"
+);
+const ownerDescription = (owner) => (
+  owner === room.board_state.marks.human ? "你" : "绑定小机"
+);
+let selectedJungleCell = null;
+let pendingMove = null;
+let renders = 0;
+let lastMoveMarkerKey = null;
+const renderBoard = () => {{ renders += 1; }};
+let room = {{
+  room_id: "ROOM-JG",
+  revision: 4,
+  game_type: "jungle",
+  status: "playing",
+  current_player_id: "human-1",
+  viewer: {{player_id: "human-1"}},
+  board_state: {{}},
+}};
+{functions}
+const emptyBoard = () => Array.from({{length: 9}}, () => Array(7).fill(null));
+const cellAt = (board, row, col) => board.children.find((cell) => (
+  cell.dataset.moveRow === String(row) && cell.dataset.moveCol === String(col)
+));
+const childWithClass = (cell, className) => cell.children.find(
+  (child) => child.classList.contains(className)
+);
+
+const xState = {{
+  marks: {{human: "X", ai: "O"}},
+  board: emptyBoard(),
+}};
+xState.board[6][0] = "X:E";
+xState.board[3][1] = "X:R";
+xState.board[0][0] = "O:L";
+room.board_state = xState;
+let xBoard = new Element("board");
+renderJungleBoard(xBoard, xState);
+assert.equal(xBoard.children.length, 63);
+assert.equal(xBoard.dataset.viewMark, "X");
+assert.equal(xBoard.classList.contains("rotated-view"), false);
+for (let displayRow = 0; displayRow < 9; displayRow += 1) {{
+  for (let displayCol = 0; displayCol < 7; displayCol += 1) {{
+    const cell = xBoard.children[displayRow * 7 + displayCol];
+    assert.deepEqual(
+      [cell.dataset.moveRow, cell.dataset.moveCol],
+      [String(displayRow), String(displayCol)]
+    );
+  }}
+}}
+const humanToken = childWithClass(cellAt(xBoard, 6, 0), "jungle-piece");
+const aiToken = childWithClass(cellAt(xBoard, 0, 0), "jungle-piece");
+assert.equal(humanToken.textContent, "象");
+assert.equal(humanToken.classList.contains("jungle-piece-human"), true);
+assert.equal(aiToken.textContent, "狮");
+assert.equal(aiToken.classList.contains("jungle-piece-ai"), true);
+assert.equal(/[●○]/.test(humanToken.textContent + aiToken.textContent), false);
+
+const waterCell = cellAt(xBoard, 3, 1);
+const trapCell = cellAt(xBoard, 0, 2);
+const denCell = cellAt(xBoard, 0, 3);
+assert.equal(childWithClass(waterCell, "jungle-terrain-water").textContent, "河");
+assert.equal(childWithClass(trapCell, "jungle-terrain-trap").textContent, "陷");
+assert.equal(childWithClass(denCell, "jungle-terrain-den").textContent, "穴");
+assert.match(waterCell.ariaLabel, /河道.*你的鼠/);
+assert.match(trapCell.ariaLabel, /陷阱.*空位/);
+assert.match(denCell.ariaLabel, /兽穴.*空位/);
+
+cellAt(xBoard, 6, 0).click();
+assert.deepEqual(selectedJungleCell, {{row: 6, col: 0}});
+assert.equal(pendingMove, null);
+assert.equal(renders, 1);
+xBoard = new Element("board");
+renderJungleBoard(xBoard, xState);
+assert.equal(cellAt(xBoard, 6, 0).classList.contains("selected-origin"), true);
+assert.equal(
+  childWithClass(cellAt(xBoard, 6, 0), "jungle-piece").classList.contains("jungle-piece-human"),
+  true
+);
+cellAt(xBoard, 5, 0).click();
+assert.deepEqual(pendingMove, {{
+  from_row: 6, from_col: 0, to_row: 5, to_col: 0,
+}});
+xBoard = new Element("board");
+renderJungleBoard(xBoard, xState);
+assert.equal(cellAt(xBoard, 5, 0).classList.contains("selected"), true);
+
+room.board_state.last_move = {{
+  from_row: 6, from_col: 0, to_row: 5, to_col: 0,
+}};
+let lastMoveBoard = new Element("board");
+renderJungleBoard(lastMoveBoard, xState);
+renderLastMoveMarker(lastMoveBoard, []);
+assert.equal(cellAt(lastMoveBoard, 5, 0).classList.contains("last-move-target"), true);
+assert.match(cellAt(lastMoveBoard, 5, 0).ariaLabel, /上一手/);
+
+selectedJungleCell = null;
+pendingMove = null;
+const oState = {{
+  marks: {{human: "O", ai: "X"}},
+  board: emptyBoard(),
+}};
+oState.board[0][0] = "O:L";
+oState.board[8][6] = "X:L";
+room.board_state = oState;
+let oBoard = new Element("board");
+renderJungleBoard(oBoard, oState);
+assert.equal(oBoard.dataset.viewMark, "O");
+assert.equal(oBoard.classList.contains("rotated-view"), true);
+for (let displayRow = 0; displayRow < 9; displayRow += 1) {{
+  for (let displayCol = 0; displayCol < 7; displayCol += 1) {{
+    const cell = oBoard.children[displayRow * 7 + displayCol];
+    assert.deepEqual(
+      [cell.dataset.moveRow, cell.dataset.moveCol],
+      [String(8 - displayRow), String(6 - displayCol)]
+    );
+    assert.deepEqual(
+      [cell.dataset.displayRow, cell.dataset.displayCol],
+      [String(displayRow), String(displayCol)]
+    );
+  }}
+}}
+cellAt(oBoard, 0, 0).click();
+assert.deepEqual(selectedJungleCell, {{row: 0, col: 0}});
+oBoard = new Element("board");
+renderJungleBoard(oBoard, oState);
+assert.equal(cellAt(oBoard, 0, 0).classList.contains("selected-origin"), true);
+cellAt(oBoard, 1, 0).click();
+assert.deepEqual(pendingMove, {{
+  from_row: 0, from_col: 0, to_row: 1, to_col: 0,
+}});
+oBoard = new Element("board");
+renderJungleBoard(oBoard, oState);
+assert.equal(cellAt(oBoard, 1, 0).classList.contains("selected"), true);
+room.board_state.last_move = {{
+  from_row: 0, from_col: 0, to_row: 1, to_col: 0,
+}};
+lastMoveMarkerKey = null;
+renderLastMoveMarker(oBoard, []);
+assert.equal(cellAt(oBoard, 1, 0).classList.contains("last-move-target"), true);
+assert.match(cellAt(oBoard, 1, 0).ariaLabel, /上一手/);
+
+room.current_player_id = "ai-1";
+oBoard = new Element("board");
+renderJungleBoard(oBoard, oState);
+assert.equal(oBoard.children.every((cell) => cell.disabled), true);
+"""
+        self.run_node(harness)
 
     def test_two_through_six_players_apply_stable_layout_classes(self):
         functions = "\n".join((

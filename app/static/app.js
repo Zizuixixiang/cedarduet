@@ -1325,18 +1325,40 @@ function renderDotsBoard(board, state) {
 
 function renderJungleBoard(board, state) {
   const humanMark = state.marks.human;
-  state.board.forEach((rowData, rowIndex) => {
-    rowData.forEach((piece, colIndex) => {
+  const rotated = humanMark === "O";
+  const rowOrder = Array.from(
+    {length: 9}, (_, index) => rotated ? 8 - index : index
+  );
+  const colOrder = Array.from(
+    {length: 7}, (_, index) => rotated ? 6 - index : index
+  );
+
+  board.classList.toggle("rotated-view", rotated);
+  board.dataset.viewMark = humanMark;
+  rowOrder.forEach((rowIndex, displayRow) => {
+    colOrder.forEach((colIndex, displayCol) => {
+      const piece = state.board[rowIndex][colIndex];
       const cell = document.createElement("button");
       const key = `${rowIndex},${colIndex}`;
       const owner = piece ? piece.split(":")[0] : null;
+      let terrain = null;
+      if (JUNGLE_WATER.has(key)) terrain = {kind: "water", label: "河", name: "河道"};
+      if (JUNGLE_TRAPS.has(key)) terrain = {kind: "trap", label: "陷", name: "陷阱"};
+      if (JUNGLE_DENS.has(key)) terrain = {kind: "den", label: "穴", name: "兽穴"};
       cell.type = "button";
-      cell.className = `cell${pieceClass(owner)}`;
+      cell.className = `cell jungle-cell${piece ? " occupied" : ""}${pieceClass(owner)}`;
       cell.dataset.moveRow = String(rowIndex);
       cell.dataset.moveCol = String(colIndex);
-      if (JUNGLE_WATER.has(key)) cell.classList.add("water");
-      if (JUNGLE_TRAPS.has(key)) cell.classList.add("trap");
-      if (JUNGLE_DENS.has(key)) cell.classList.add("den");
+      cell.dataset.displayRow = String(displayRow);
+      cell.dataset.displayCol = String(displayCol);
+      if (terrain) {
+        cell.classList.add(terrain.kind);
+        const terrainElement = document.createElement("span");
+        terrainElement.className = `jungle-terrain jungle-terrain-${terrain.kind}`;
+        terrainElement.textContent = terrain.label;
+        terrainElement.setAttribute("aria-hidden", "true");
+        cell.appendChild(terrainElement);
+      }
       if (
         selectedJungleCell
         && selectedJungleCell.row === rowIndex
@@ -1349,8 +1371,18 @@ function renderJungleBoard(board, state) {
       ) cell.classList.add("selected");
       if (piece) {
         const [pieceOwner, beast] = piece.split(":");
-        cell.textContent = `${pieceOwner === humanMark ? "●" : "○"}${JUNGLE_SYMBOLS[beast]}`;
+        const pieceElement = document.createElement("span");
+        const side = pieceOwner === humanMark ? "human" : "ai";
+        pieceElement.className = `jungle-piece jungle-piece-${side}`;
+        pieceElement.textContent = JUNGLE_SYMBOLS[beast];
+        pieceElement.setAttribute("aria-hidden", "true");
+        cell.appendChild(pieceElement);
       }
+      cell.ariaLabel = (
+        `第 ${rowIndex + 1} 行第 ${colIndex + 1} 列`
+        + `${terrain ? `，${terrain.name}` : "，陆地"}`
+        + `${piece ? `，${ownerDescription(owner)}的${JUNGLE_SYMBOLS[piece.split(":")[1]]}` : "，空位"}`
+      );
       cell.disabled = !canHumanMove();
       cell.addEventListener("click", () => {
         if (!selectedJungleCell) {

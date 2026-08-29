@@ -1325,9 +1325,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   outline: 4px solid var(--pink);
   outline-offset: -4px;
 }
-.cell.water { background: var(--purple-light); }
-.cell.trap { background: rgba(230, 168, 177, .32); }
-.cell.den { background: var(--pink); color: #fff; }
 .piece { pointer-events: none; }
 .last-move-target { position: relative; }
 .last-move-marker {
@@ -1353,6 +1350,134 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .last-move-fresh .last-move-marker { animation: none; }
+}
+
+.board.jungle {
+  width: min(70vw, 420px);
+  max-width: 100%;
+  gap: 1px;
+  background: var(--purple-darker);
+  border-width: 3px;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, .72),
+    0 0 0 4px rgba(134, 120, 160, .3);
+}
+.board.jungle .jungle-cell {
+  isolation: isolate;
+  overflow: hidden;
+  background: #fffaf8;
+  box-shadow: inset 0 0 0 1px rgba(134, 120, 160, .18);
+  touch-action: manipulation;
+}
+.board.jungle .jungle-cell:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 0 2px rgba(194, 139, 147, .58),
+    inset 0 0 14px rgba(230, 168, 177, .16);
+}
+.board.jungle .jungle-cell.water {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(134, 120, 160, .13) 0,
+      rgba(134, 120, 160, .13) 1px,
+      transparent 1px,
+      transparent 7px
+    ),
+    var(--purple-light);
+}
+.board.jungle .jungle-cell.trap { background: #faecee; }
+.board.jungle .jungle-cell.den {
+  background:
+    linear-gradient(135deg, rgba(230, 168, 177, .16) 25%, transparent 25%) 0 0 / 8px 8px,
+    #f7e3e7;
+}
+.jungle-terrain {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 3px 4px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  color: var(--purple-darker);
+  font-family: system-ui, sans-serif;
+  font-size: clamp(8px, 1.1vw, 11px);
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+.jungle-terrain-water { color: #655776; }
+.jungle-terrain-trap,
+.jungle-terrain-den {
+  inset: 3px;
+  padding: 1px 2px;
+  color: #8a485a;
+  border: 1px dashed rgba(194, 139, 147, .8);
+}
+.jungle-terrain-den {
+  border-style: double;
+  border-color: var(--pink-dark);
+}
+.jungle-piece {
+  width: min(74%, 46px);
+  aspect-ratio: 1;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border: 3px solid;
+  border-radius: 50%;
+  font-family: "Noto Serif SC", "Songti SC", SimSun, serif;
+  font-size: clamp(18px, 3vw, 30px);
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .82);
+  pointer-events: none;
+}
+.jungle-piece-human {
+  color: #7a3146;
+  background: #fff3f5;
+  border-color: var(--pink-dark);
+  box-shadow:
+    inset 0 0 0 2px rgba(230, 168, 177, .3),
+    1px 2px 2px rgba(92, 58, 68, .2);
+}
+.jungle-piece-ai {
+  color: #4f3f68;
+  background: #f2eef7;
+  border-color: var(--purple-darker);
+  border-style: double;
+  box-shadow:
+    inset 0 0 0 1px rgba(190, 177, 209, .52),
+    1px 2px 2px rgba(64, 53, 82, .2);
+}
+.board.jungle .cell.selected-origin { outline: 0; }
+.board.jungle .cell.selected-origin .jungle-piece {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, .94),
+    0 0 0 5px var(--pink-dark),
+    1px 2px 3px rgba(73, 47, 60, .25);
+}
+.board.jungle .cell.selected {
+  outline: 0;
+  box-shadow:
+    inset 0 0 0 2px rgba(194, 139, 147, .84),
+    inset 0 0 12px rgba(230, 168, 177, .2);
+}
+.board.jungle .cell.selected::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  z-index: 3;
+  border: 1px dashed var(--pink-dark);
+  pointer-events: none;
+}
+.board.jungle .last-move-marker {
+  right: 2px;
+  bottom: 2px;
+  width: 7px;
+  height: 7px;
+  border-width: 1px;
 }
 
 .board.gomoku {
@@ -2510,6 +2635,18 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .layout-triangle .board,
   .layout-corners .board { width: min(82vw, 560px); }
   .board { width: min(82vw, 560px); border-width: 3px; gap: 1px; }
+  .board.jungle { width: min(94vw, 420px); max-width: 100%; }
+  .board.jungle .jungle-piece {
+    width: min(74%, 42px);
+    border-width: 2px;
+    font-size: clamp(18px, 6.2vw, 26px);
+  }
+  .board.jungle .cell.selected-origin .jungle-piece {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .94),
+      0 0 0 4px var(--pink-dark),
+      1px 2px 2px rgba(73, 47, 60, .24);
+  }
   .board.gomoku { width: min(88vw, 560px); padding: 4px; gap: 0; }
   .board.xiangqi { width: min(86vw, 480px); max-width: 100%; padding: 10px; gap: 0; }
   .board.xiangqi .xiangqi-piece { border-width: 1.5px; font-size: clamp(14px, 5.1vw, 25px); }
