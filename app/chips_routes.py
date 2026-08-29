@@ -20,6 +20,21 @@ from .chips import (
 )
 from .achievements import filter_unlocks, get_achievements
 from .framework import DuelError
+from .loans import (
+    accept_loan,
+    close_proposal,
+    counter_loan,
+    create_loan,
+    get_loan,
+    list_loans,
+    repay_loan,
+)
+from .models import (
+    LoanCounterBody,
+    LoanCreateBody,
+    LoanDecisionBody,
+    LoanRepaymentBody,
+)
 
 ROOT = Path(__file__).resolve().parent
 CHIPS_HTML = (ROOT / "static" / "chips.html").read_text(encoding="utf-8")
@@ -65,13 +80,17 @@ def create_chips_router(
         human_name = (
             unquote(request.headers.get("X-Duel-Human-Name", "")).strip() or "你"
         )
+        machines = trusted_bound_ais(request)
+        machine_ids = {machine["id"] for machine in machines}
+        loans = list_loans("human", human_id, bound_counterparty_ids=machine_ids)
         achievements = get_achievements("human", human_id)
         return {
             "ok": True,
             "human_name": human_name,
             "wallet": get_wallet("human", human_id),
-            "machines": trusted_bound_ais(request),
+            "machines": machines,
             "ledger": list_ledger("human", human_id),
+            "loans": loans,
             "achievements": achievements,
             "rules": {
                 "initial_balance": INITIAL_BALANCE,
@@ -91,6 +110,10 @@ def create_chips_router(
         )
         if selected is None:
             raise DuelError("这只小机不在当前账号的绑定清单中", 403)
+        loans = list_loans(
+            "human", human_id, counterparty_id=machine_id,
+            bound_counterparty_ids={machine_id},
+        )
         achievements = get_achievements(
             "ai", machine_id, bound_human_id=human_id
         )
@@ -99,6 +122,7 @@ def create_chips_router(
             "machine": {"id": machine_id, "name": selected["name"]},
             "wallet": get_wallet("ai", machine_id),
             "ledger": list_ledger("ai", machine_id),
+            "loans": loans,
             "achievements": achievements,
             "read_only": True,
         }
@@ -151,6 +175,121 @@ def create_chips_router(
             "ledger": list_ledger("human", human_id),
             "achievements": get_achievements("human", human_id),
             **({"unlocks": unlocks} if unlocks else {}),
+        }
+
+    def human_loan_payload(request: Request, human_id: str, loan: dict) -> dict:
+        machine_ids = {machine["id"] for machine in trusted_bound_ais(request)}
+        loans = list_loans("human", human_id, bound_counterparty_ids=machine_ids)
+        return {
+            "ok": True, "loan": loan, "loans": loans,
+            "wallet": get_wallet("human", human_id),
+            "ledger": list_ledger("human", human_id),
+            "achievements": get_achievements("human", human_id),
+        }
+
+    @router.post("/api/chips/loans")
+    async def human_create_loan(request: Request, body: LoanCreateBody):
+        human_id = trusted_human_player(request)
+        machine_ids = {machine["id"] for machine in trusted_bound_ais(request)}
+        loan = create_loan(
+            "human", human_id, body.machine_id,
+            principal=body.principal,
+            daily_rate_micro_percent=body.daily_rate_micro_percent,
+            due_date=body.due_date,
+            interest_cap_enabled=body.interest_cap_enabled,
+            idempotency_key=body.idempotency_key,
+            pair_is_bound=body.machine_id in machine_ids,
+        )
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": "借款提案已发给小机，等待小机回应。",
+        }
+
+    def bound_counterparty_for(
+        request: Request, human_id: str, loan_id: str
+    ) -> str | None:
+        loan = get_loan(loan_id, "human", human_id)
+        bound_ids = {machine["id"] for machine in trusted_bound_ais(request)}
+        return loan["counterparty_id"] if loan["counterparty_id"] in bound_ids else None
+
+    @router.post("/api/chips/loans/{loan_id}/accept")
+    async def human_accept_loan(
+        loan_id: str, request: Request, body: LoanDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        loan = accept_loan(
+            loan_id, "human", human_id, revision=body.revision,
+            idempotency_key=body.idempotency_key,
+            bound_counterparty_id=bound_counterparty_for(request, human_id, loan_id),
+        )
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": "已接受当前条款，本金已原子转账。",
+        }
+
+    @router.post("/api/chips/loans/{loan_id}/reject")
+    async def human_reject_loan(
+        loan_id: str, request: Request, body: LoanDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        loan = close_proposal(
+            loan_id, "human", human_id, action="reject",
+            revision=body.revision, idempotency_key=body.idempotency_key,
+        )
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": "已拒绝当前借款提案。",
+        }
+
+    @router.post("/api/chips/loans/{loan_id}/withdraw")
+    async def human_withdraw_loan(
+        loan_id: str, request: Request, body: LoanDecisionBody
+    ):
+        human_id = trusted_human_player(request)
+        loan = close_proposal(
+            loan_id, "human", human_id, action="withdraw",
+            revision=body.revision, idempotency_key=body.idempotency_key,
+        )
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": "已撤销未生效的借款提案。",
+        }
+
+    @router.post("/api/chips/loans/{loan_id}/counter")
+    async def human_counter_loan(
+        loan_id: str, request: Request, body: LoanCounterBody
+    ):
+        human_id = trusted_human_player(request)
+        loan = counter_loan(
+            loan_id, "human", human_id, revision=body.revision,
+            principal=body.principal,
+            daily_rate_micro_percent=body.daily_rate_micro_percent,
+            due_date=body.due_date,
+            interest_cap_enabled=body.interest_cap_enabled,
+            idempotency_key=body.idempotency_key,
+            bound_counterparty_id=bound_counterparty_for(request, human_id, loan_id),
+        )
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": "还价已生成新 revision，等待小机回应。",
+        }
+
+    @router.post("/api/chips/loans/{loan_id}/repay")
+    async def human_repay_loan(
+        loan_id: str, request: Request, body: LoanRepaymentBody
+    ):
+        human_id = trusted_human_player(request)
+        loan = repay_loan(
+            loan_id, "human", human_id, amount=body.amount,
+            idempotency_key=body.idempotency_key,
+        )
+        split = loan.get("repayment", {})
+        return {
+            **human_loan_payload(request, human_id, loan),
+            "message": (
+                f"还款 {split.get('amount', body.amount)} 枚："
+                f"利息 {split.get('interest', 0)}，本金 {split.get('principal', 0)}。"
+            ),
         }
 
     return router

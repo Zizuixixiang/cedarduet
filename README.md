@@ -2,7 +2,7 @@
 
 人类与自己的 AI 搭档进行回合制棋牌对弈的独立服务。
 
-CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及正在建设中的全局娱乐筹码系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
+CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及全局娱乐筹码、欠条与成就系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
 
 > 当前定位：公益、非商业、娱乐用途。筹码仅为站内娱乐数值，不支持充值、提现或与真钱兑换。
 
@@ -45,6 +45,8 @@ app/
   framework.py         房间、身份、轮次、胜负、消息
   models.py            HTTP 请求模型
   chips.py             全局娱乐筹码钱包与统一流水
+  loans.py             人机欠条协商、计息、转账与还款
+  achievements.py      成就目录、可靠事实、进度与自动奖励
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
   npc_personas.py      NPC 人设目录加载与严格校验
@@ -125,7 +127,7 @@ data/                   本地运行数据目录；真实数据库不会提交�
   结算批次和流水 metadata 中。
 - 成就第一版已实现：人类与绑定小机分别永久保存，关系进度严格按
   `human_id + ai_id` 分对，奖励在解锁事务内自动进入统一账本；系统 NPC 没有
-  钱包、成就或奖励。互动兑换、借款/欠条仍在设计中。
+  钱包、成就或奖励。欠条已接入可靠事实与自动奖励；互动交换仍在设计中。
 
 ## 本地启动
 
@@ -285,9 +287,11 @@ Content-Type: application/json
 `still_waiting` 只返回房间号、revision 和必要的当前行动者信息。
 
 小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持
-`status`、`check_in`、`bankruptcy`、`ledger`、`achievements`；只能操作当前
+`status`、`check_in`、`bankruptcy`、`ledger`、`achievements`、`loans`；只能操作当前
 canonical AI 自己的钱包，绑定人类余额只读。`achievements` 返回通用、小机专属、
 已启用 NPC 与当前可信绑定人类的“你们之间”成就；未解锁隐藏成就完全不返回。
+`loans` 是显式欠条入口，提供 list/create/accept/reject/counter/withdraw/repay；
+普通 status、房间和对局响应不会夹带欠条或逾期提醒。
 ledger 默认 5 条、硬上限 10。小机可对已正常结束且原阵容不含随机 NPC 的房间提交
 `{"action":"rematch","room_id":"..."}` 发起对称、权威、可追踪的重赛。
 
@@ -306,6 +310,10 @@ POST /api/rooms/{room_id}/leave
 POST /api/rooms/{room_id}/invitation
 POST /api/rooms/{room_id}/retention
 POST /api/rooms/{room_id}/delete
+GET  /api/chips
+GET  /api/chips/machines/{machine_id}
+POST /api/chips/loans
+POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 ```
 
 终局保留和删除仅允许该房间中的可信人类参与者操作。
@@ -336,6 +344,14 @@ POST /api/rooms/{room_id}/delete
 - 余额恢复到 `>= 200` 后自动解除破产状态
 - 人类只能操作自己；绑定 AI 的钱包在人类端只读
 - 所有筹码变化进入统一账本流水
+- 只有借款人能发起欠条；人类从筹码中心发起，小机从显式 MCP `chips/loans` 发起
+- 当前收到方可接受、拒绝或还价；还价生成新 revision，旧接受立即失效；发起人只可在生效前撤销
+- 每名借款人最多 3 张未结欠条；逾期会阻止新借款，但不影响对局、签到、破产处理和还款
+- 接受时重新校验出借人余额并原子转账；仅借款人可正整数部分/全额还款，先抵利息再抵本金
+- 到期日按上海日期计算，至少次日且最终接受日起最多 30 天；当天结束后才逾期，提案 3 天过期
+- 日利率以整数微百分比保存（1,000,000 单位 = 1%/日），按剩余本金和实际秒数单利累计；余数跨段携带、只对完整整数利息向下取整
+- 利息封顶默认开启，欠条终身计收利息（含已还）最多等于原始本金；关闭时持续单利累计并在网页警示
+- 解绑、破产不会删除或减免生效债务；旧债仍可审计、还款，但接受/还价仍要求当前绑定
 - 双人旧游戏及首批多人验收游戏的自定义本局筹码、全员确认和幂等结算
 - 普通成就完整显示条件、可靠进度、奖励和解锁时间；未解锁为灰色
 - 隐藏成就未解锁前不进入 API、MCP、网页或公开总数，解锁后才进入隐藏区
@@ -345,7 +361,9 @@ POST /api/rooms/{room_id}/delete
 - 成就终局快照、参与者结果、开局余额、事件、配对与进度独立于 `rooms` 持久化，
   删除房间不会删除成就事实
 
-数据库初始化保持增量兼容：成就表和索引使用 `CREATE ... IF NOT EXISTS`，房间仅增加
+数据库初始化保持增量兼容：成就、`loans`、`loan_revisions`、`loan_operations` 表及索引
+使用 `CREATE ... IF NOT EXISTS`，不改写现有钱包/账本，也不会从普通旧流水猜测历史欠条。
+房间仅增加
 `terminal_reason` 与权威重赛链字段，不重建或覆盖已兼容旧库。启动回填只接受最终
 revision 上存在权威 `move` 或 `resign` 事件、且具有明确赢家/和棋的旧终局；陈旧超时
 归档、主动离桌、人数不足、进行中和故障记录不计。旧局没有开局余额时不回填
@@ -414,13 +432,30 @@ revision 上存在权威 `move` 或 `resign` 事件、且具有明确赢家/和�
 | NPC（乔麦） | `defeat_npc_qiao_mai` | 这次猜错啦 | 10 |
 | NPC | `defeat_all_six_npcs` | 一个都没放过 | 30 |
 
+借款事实只由欠条服务在同一数据库事务内写入，不从普通历史账本回填：
+
+| 类别 | 稳定 ID | 名称 | 奖励 |
+|---|---|---:|---:|
+| 借款 | `loan_first_borrower_active` | 白纸黑字 | 5 |
+| 借款 | `loan_first_lender_active` | 江湖救急 | 5 |
+| 借款 | `loan_first_partial_repayment` | 分期也是还 | 5 |
+| 借款 | `loan_first_ontime_repayment` | 说到做到 | 10 |
+| 借款 | `loan_three_ontime_repayments` | 一诺千金 | 20 |
+| 借款 | `loan_lend_to_negative_borrower` | 雪中送炭 | 10 |
+| 借款 | `loan_debt_free_after_three` | 无债一身轻 | 20 |
+| 关系 | `loan_pair_counter_activated` | 有商有量 | 双方各 5 |
+| 关系 | `loan_pair_bidirectional` | 有来有往 | 双方各 10 |
+| 隐藏 | `loan_three_active` | 三张欠条一台戏 | 10 |
+| 隐藏 | `loan_first_overdue` | 明日复明日 | 无筹码奖励 |
+| 隐藏 | `loan_interest_cap_reached` | 利息比本金还熟 | 无筹码奖励 |
+
 NPC 项只在对应 `persona_id` 实际启用时公开；全收集项要求六位全部启用。已经解锁的
 历史项即使管理员稍后停用该人设仍会保留。`一子定乾坤` 目前没有足以证明“最后一手
 从落后反胜”的统一权威分差，因此只保留隐藏定义，不设置猜测型触发器。连续同对手
 0 筹码与重赛链采用严格双人窄口径，重赛链只取逐局直接相连的最长路径、不会把同一
 旧局派生出的并行分支相加；“7 个完整自然日”按上海日期之间不含首尾的完整日数计算。
 
-尚未实现的内容会继续分阶段加入：互动兑换、借款与欠条。
+尚未实现的内容会继续分阶段加入：互动交换。
 
 ## 数据与隐私
 

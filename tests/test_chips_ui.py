@@ -96,6 +96,18 @@ class ChipCenterStructureTests(unittest.TestCase):
             self.assertIn(path, SCRIPT)
         self.assertIn("fetch(apiPath(url)", SCRIPT)
 
+    def test_loan_panel_has_real_terms_and_keeps_exchange_as_placeholder(self):
+        for element_id in (
+            "loanCreateForm", "loanMachineSelect", "loanPrincipal", "loanRate",
+            "loanDueDate", "loanCapEnabled", "loanCapWarning", "loanList",
+        ):
+            self.attributes_for_id(element_id)
+        self.assertIn("互动交换", HTML)
+        self.assertIn("筹备中", HTML)
+        self.assertIn("function renderLoans(loans)", SCRIPT)
+        self.assertIn("daily_rate_micro_percent", SCRIPT)
+        self.assertNotIn('reward.textContent = `+${achievement.reward}`;', SCRIPT.split("if (achievement.reward > 0)")[0])
+
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
 class ChipCenterTabBehaviorTests(unittest.TestCase):
@@ -220,7 +232,9 @@ const ids = [
   "myBankruptcyState", "myBankruptcyCount", "bankruptcyDescription",
   "bankruptcyButton", "checkInState", "checkInDescription", "checkInButton",
   "achievementDescription", "achievementSummary", "achievementSections",
-  "socialTitle", "socialDescription",
+  "socialTitle", "socialDescription", "loanCreateForm", "loanMachineSelect",
+  "loanPrincipal", "loanRate", "loanDueDate", "loanCapEnabled",
+  "loanCapWarning", "loanCreateButton", "loanCount", "loanList",
   "ledgerDescription", "ledgerList",
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
@@ -255,6 +269,7 @@ const payloads = {{
     achievements: {{summary: {{unlocked: 1, total: 25, hidden_unlocked: 0}}, sections: [
       {{id: "human", name: "人类专属", items: [{{id: "h1", name: "人类成就", condition: "条件", reward: 5, progress: {{current: 1, target: 1}}, unlocked: true, unlocked_at: "2026-08-27T01:00:00+00:00"}}]}},
     ]}},
+    loans: [],
     ledger: [{{label: "人类流水", amount: 10, created_at: "2026-08-27T01:00:00+00:00", balance_after: 310}}],
   }},
   "/api/chips/machines/ai-9": {{
@@ -263,6 +278,7 @@ const payloads = {{
     achievements: {{summary: {{unlocked: 0, total: 36, hidden_unlocked: 0}}, sections: [
       {{id: "relationship", name: "你们之间", items: [{{id: "pair", name: "来都来了", condition: "完成一局", reward: 5, progress: {{current: 0, target: 1}}, unlocked: false}}]}},
     ]}},
+    loans: [],
     ledger: [{{label: "小机流水", amount: -20, created_at: "2026-08-27T02:00:00+00:00", balance_after: 50}}],
   }},
 }};
@@ -316,7 +332,7 @@ assert.equal(elements.myBankruptcyCount.textContent, "破产 0 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "人类流水");
 assert.equal(elements.achievementDescription.textContent, "我的永久成就；奖励在解锁时自动到账");
 assert.equal(elements.socialTitle.textContent, "互动与借款");
-assert.equal(elements.socialDescription.textContent, "选择一只绑定小机后查看关系功能；规则筹备中");
+assert.equal(elements.socialDescription.textContent, "借款已开放；互动交换仍在筹备中");
 assert.equal(elements.checkInButton.disabled, false);
 assert.equal(elements.checkInButton.classList.contains("hidden"), false);
 assert.equal(elements.bankruptcyButton.classList.contains("hidden"), false);

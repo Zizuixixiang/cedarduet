@@ -404,6 +404,10 @@ def init_db() -> None:
         )
 
         init_achievement_schema(conn)
+        # Additive IOUs are independent of rooms and never infer old debts.
+        from .loans import init_loans_schema
+
+        init_loans_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         try:
             backfill_authoritative_matches(conn)

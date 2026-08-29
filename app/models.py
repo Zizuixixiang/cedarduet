@@ -111,6 +111,67 @@ class InvitationDecisionBody(StrictBody):
     decision: Literal["accept", "reject"]
 
 
+class LoanTermsBody(StrictBody):
+    principal: int = Field(gt=0)
+    daily_rate_micro_percent: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    due_date: str = Field(min_length=10, max_length=10)
+    interest_cap_enabled: bool = True
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("principal", "daily_rate_micro_percent", mode="before")
+    @classmethod
+    def require_integer_loan_terms(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("借款金额与利率必须使用整数单位")
+        return value
+
+    @field_validator("interest_cap_enabled", mode="before")
+    @classmethod
+    def require_boolean_cap(cls, value):
+        if not isinstance(value, bool):
+            raise ValueError("利息封顶保护必须是布尔值")
+        return value
+
+
+class LoanCreateBody(LoanTermsBody):
+    machine_id: str = Field(min_length=1, max_length=80)
+
+
+class LoanCounterBody(LoanTermsBody):
+    revision: int = Field(ge=1)
+
+    @field_validator("revision", mode="before")
+    @classmethod
+    def require_integer_revision(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("revision 必须是正整数")
+        return value
+
+
+class LoanDecisionBody(StrictBody):
+    revision: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("revision", mode="before")
+    @classmethod
+    def require_integer_revision(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("revision 必须是正整数")
+        return value
+
+
+class LoanRepaymentBody(StrictBody):
+    amount: int = Field(gt=0)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def require_integer_amount(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("还款额必须是正整数")
+        return value
+
+
 class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -133,8 +194,23 @@ class McpPlayBody(BaseModel):
     stake: int = Field(default=0, ge=0)
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
-    op: Literal["status", "check_in", "bankruptcy", "ledger", "achievements"] | None = None
+    op: Literal[
+        "status", "check_in", "bankruptcy", "ledger", "achievements", "loans"
+    ] | None = None
     revision: int | None = Field(default=None, ge=0)
+    loan_action: Literal[
+        "list", "create", "accept", "reject", "counter", "withdraw", "repay"
+    ] | None = None
+    loan_id: str | None = Field(default=None, min_length=1, max_length=80)
+    loan_revision: int | None = Field(default=None, ge=1)
+    principal: int | None = Field(default=None, gt=0)
+    daily_rate_micro_percent: int | None = Field(
+        default=None, ge=0, le=9_223_372_036_854_775_807
+    )
+    due_date: str | None = Field(default=None, min_length=10, max_length=10)
+    interest_cap_enabled: bool | None = None
+    amount: int | None = Field(default=None, gt=0)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
     @field_validator("move", mode="before")
     @classmethod
@@ -174,6 +250,25 @@ class McpPlayBody(BaseModel):
             isinstance(value, bool) or not isinstance(value, int)
         ):
             raise ValueError("revision 必须是非负整数")
+        return value
+
+    @field_validator(
+        "loan_revision", "principal", "daily_rate_micro_percent", "amount",
+        mode="before",
+    )
+    @classmethod
+    def require_integer_loan_fields(cls, value):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
+            raise ValueError("借款 revision、金额与利率必须使用整数")
+        return value
+
+    @field_validator("interest_cap_enabled", mode="before")
+    @classmethod
+    def require_boolean_loan_cap(cls, value):
+        if value is not None and not isinstance(value, bool):
+            raise ValueError("interest_cap_enabled 必须是布尔值")
         return value
 
     @field_validator("participant_ids")

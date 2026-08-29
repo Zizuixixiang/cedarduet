@@ -71,6 +71,10 @@ TRANSACTION_LABELS = {
     "duel_win": "双弈胜局",
     "duel_loss": "双弈负局",
     "achievement_reward": "成就自动奖励",
+    "loan_principal_out": "借款本金出账",
+    "loan_principal_in": "借款本金入账",
+    "loan_repayment_out": "欠条还款出账",
+    "loan_repayment_in": "欠条还款入账",
 }
 
 

@@ -105,6 +105,16 @@ ACHIEVEMENT_CATALOG: tuple[AchievementDefinition, ...] = (
     _definition("pair_balanced_twenty", "半斤八两", "至少完成 20 场有胜负的对局，双方胜场差不超过 2", "relationship", ("human", "ai"), 20, 20),
     _definition("pair_five_wins_each", "相爱相杀", "双方各正常战胜对方至少 5 次", "relationship", ("human", "ai"), 20, 5),
 
+    _definition("loan_first_borrower_active", "白纸黑字", "首次以借款人身份激活欠条", "loan", ("human", "ai"), 5),
+    _definition("loan_first_lender_active", "江湖救急", "首次成功出借", "loan", ("human", "ai"), 5),
+    _definition("loan_first_partial_repayment", "分期也是还", "首次部分还款后仍有余额", "loan", ("human", "ai"), 5),
+    _definition("loan_first_ontime_repayment", "说到做到", "首次在到期日或之前还清", "loan", ("human", "ai"), 10),
+    _definition("loan_three_ontime_repayments", "一诺千金", "累计 3 张欠条按时还清", "loan", ("human", "ai"), 20, 3),
+    _definition("loan_lend_to_negative_borrower", "雪中送炭", "借款人负余额时成功出借", "loan", ("human", "ai"), 10),
+    _definition("loan_debt_free_after_three", "无债一身轻", "同时有 3 张债务后全部还清", "loan", ("human", "ai"), 20),
+    _definition("loan_pair_counter_activated", "有商有量", "同一对人机还价后激活欠条", "relationship", ("human", "ai"), 5),
+    _definition("loan_pair_bidirectional", "有来有往", "同一绑定组合双向借款均成功", "relationship", ("human", "ai"), 10, 2),
+
     _definition("jungle_rat_captures_elephant", "大象也怕老鼠", "斗兽棋中权威地用老鼠吃掉大象", "hidden", ("human", "ai"), 10, hidden=True),
     _definition("all_in_loss", "倾家荡产", "以开局正余额为筹码且押注额恰好等于余额，随后正常输掉", "hidden", ("human", "ai"), 20, hidden=True),
     _definition("settlement_balance_minus_500", "输到系统都心疼", "因正常对局结算使余额不高于 -500", "hidden", ("human", "ai"), 20, hidden=True),
@@ -115,6 +125,9 @@ ACHIEVEMENT_CATALOG: tuple[AchievementDefinition, ...] = (
     # The authoritative data currently cannot prove a last-move deficit reversal.
     # Keeping the hidden definition without a trigger is safer than guessing.
     _definition("last_move_comeback_win", "一子定乾坤", "最后一手从落后反胜（等待权威局势证据）", "hidden", ("human", "ai"), 20, hidden=True),
+    _definition("loan_three_active", "三张欠条一台戏", "同时有 3 张生效或逾期欠条", "hidden", ("human", "ai"), 10, 3, hidden=True),
+    _definition("loan_first_overdue", "明日复明日", "首次发生欠条逾期", "hidden", ("human", "ai"), 0, hidden=True),
+    _definition("loan_interest_cap_reached", "利息比本金还熟", "开启保护的欠条触达终身利息封顶", "hidden", ("human", "ai"), 0, hidden=True),
 
     _definition("defeat_npc_xu_zhi_heng", "这回算漏了", f"正常完成并战胜{PRODUCTION_NPC_NAMES['xu_zhi_heng']}", "npc", ("human", "ai"), 10, npc_persona_id="xu_zhi_heng"),
     _definition("defeat_npc_yue_ming_chuan", "别催，赢着呢", f"正常完成并战胜{PRODUCTION_NPC_NAMES['yue_ming_chuan']}", "npc", ("human", "ai"), 10, npc_persona_id="yue_ming_chuan"),
@@ -665,6 +678,75 @@ def record_wallet_change(
     return evaluate_subject(conn, subject_type, subject_id, source_type="wallet", source_id=reference_id)
 
 
+def record_loan_event(
+    conn: sqlite3.Connection,
+    loan: sqlite3.Row,
+    event_type: str,
+    *,
+    event_id: str,
+    data: dict | None = None,
+) -> list[dict]:
+    """Record only authoritative facts emitted by the loan service."""
+    if not conn.in_transaction:
+        raise RuntimeError("loan achievement facts require a write transaction")
+    allowed = {
+        "loan_activated", "loan_partial_repayment", "loan_repaid",
+        "loan_debt_free", "loan_overdue", "loan_interest_cap_reached",
+    }
+    if event_type not in allowed:
+        raise ValueError("unsupported loan achievement event")
+    _register_pair(conn, loan["human_id"], loan["ai_id"])
+    fact = {
+        "loan_id": loan["loan_id"],
+        "borrower_type": loan["borrower_type"],
+        "borrower_id": loan["borrower_id"],
+        "lender_type": loan["lender_type"],
+        "lender_id": loan["lender_id"],
+        **(data or {}),
+    }
+    if event_type == "loan_activated":
+        subjects = [
+            (loan["borrower_type"], loan["borrower_id"], "loan_activated_borrower"),
+            (loan["lender_type"], loan["lender_id"], "loan_activated_lender"),
+        ]
+    else:
+        subjects = [(loan["borrower_type"], loan["borrower_id"], event_type)]
+    for subject_type, subject_id, stored_type in subjects:
+        conn.execute(
+            """
+            INSERT INTO achievement_events (
+                idempotency_key, event_type, subject_type, subject_id,
+                human_id, ai_id, data_json, occurred_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(idempotency_key) DO NOTHING
+            """,
+            (
+                f"loan:{stored_type}:{event_id}:{subject_type}:{subject_id}",
+                stored_type, subject_type, subject_id,
+                loan["human_id"], loan["ai_id"],
+                json.dumps(fact, ensure_ascii=False, separators=(",", ":")), _now(),
+            ),
+        )
+    unlocks: list[dict] = []
+    for subject_type, subject_id in (
+        (loan["borrower_type"], loan["borrower_id"]),
+        (loan["lender_type"], loan["lender_id"]),
+    ):
+        unlocks.extend(
+            evaluate_subject(
+                conn, subject_type, subject_id,
+                source_type=event_type, source_id=loan["loan_id"],
+            )
+        )
+    unlocks.extend(
+        evaluate_relationship(
+            conn, loan["human_id"], loan["ai_id"],
+            source_type=event_type, source_id=loan["loan_id"],
+        )
+    )
+    return unlocks
+
+
 def _normal_rows(conn: sqlite3.Connection, subject_type: SubjectType, subject_id: str) -> list[dict]:
     return [
         dict(row) for row in conn.execute(
@@ -888,13 +970,14 @@ def _unlock(
     ).rowcount
     if not inserted:
         return None
-    wallet = _ensure_wallet(conn, subject_type, subject_id)
-    _apply_balance_change(
-        conn, wallet, definition.reward, "achievement_reward",
-        idempotency_key=f"achievement:{achievement_id}:{context_key or 'global'}",
-        reference_type="achievement", reference_id=achievement_id,
-        metadata={"achievement_name": definition.name, "context_key": context_key},
-    )
+    if definition.reward > 0:
+        wallet = _ensure_wallet(conn, subject_type, subject_id)
+        _apply_balance_change(
+            conn, wallet, definition.reward, "achievement_reward",
+            idempotency_key=f"achievement:{achievement_id}:{context_key or 'global'}",
+            reference_type="achievement", reference_id=achievement_id,
+            metadata={"achievement_name": definition.name, "context_key": context_key},
+        )
     payload = {
         "subject_type": subject_type,
         "subject_id": subject_id,
@@ -992,6 +1075,39 @@ def evaluate_subject(
             rematch_after_loss = True
             break
     preserved_loss = _event_count(conn, subject_type, subject_id, "preserved_loss")
+    loan_data = [
+        (row["event_type"], json.loads(row["data_json"] or "{}"))
+        for row in conn.execute(
+            """
+            SELECT event_type, data_json FROM achievement_events
+            WHERE subject_type = ? AND subject_id = ? AND event_type LIKE 'loan_%'
+            """,
+            (subject_type, subject_id),
+        )
+    ]
+    borrower_activations = sum(kind == "loan_activated_borrower" for kind, _ in loan_data)
+    lender_activations = sum(kind == "loan_activated_lender" for kind, _ in loan_data)
+    partial_repayments = sum(kind == "loan_partial_repayment" for kind, _ in loan_data)
+    on_time_repayments = sum(
+        kind == "loan_repaid" and bool(data.get("on_time"))
+        for kind, data in loan_data
+    )
+    negative_borrower_loans = sum(
+        kind == "loan_activated_lender"
+        and isinstance(data.get("borrower_balance_before"), int)
+        and data["borrower_balance_before"] < 0
+        for kind, data in loan_data
+    )
+    maximum_active_debts = max(
+        (
+            int(data.get("active_debt_count", 0))
+            for kind, data in loan_data if kind == "loan_activated_borrower"
+        ),
+        default=0,
+    )
+    became_debt_free = any(kind == "loan_debt_free" for kind, _ in loan_data)
+    overdue_count = sum(kind == "loan_overdue" for kind, _ in loan_data)
+    cap_reached_count = sum(kind == "loan_interest_cap_reached" for kind, _ in loan_data)
     created_count = _event_count(conn, subject_type, subject_id, "room_created") + len(rematch_events)
     zero_streak, best_zero_streak = _zero_stake_opponent_streak(rows, opponents)
     chain_count = _max_rematch_chain(rows, opponents)
@@ -1028,6 +1144,16 @@ def evaluate_subject(
         "non_tictactoe_draw": (sum(row["game_type"] != "tictactoe" for row in draws), any(row["game_type"] != "tictactoe" for row in draws), None),
         "othello_win_both_sides": (len(othello_tokens), len(othello_tokens) >= 2, {"tokens": sorted(othello_tokens)}),
         "last_move_comeback_win": (0, False, {"trigger": "not_implemented_without_authoritative_deficit"}),
+        "loan_first_borrower_active": (borrower_activations, borrower_activations >= 1, None),
+        "loan_first_lender_active": (lender_activations, lender_activations >= 1, None),
+        "loan_first_partial_repayment": (partial_repayments, partial_repayments >= 1, None),
+        "loan_first_ontime_repayment": (on_time_repayments, on_time_repayments >= 1, None),
+        "loan_three_ontime_repayments": (on_time_repayments, on_time_repayments >= 3, None),
+        "loan_lend_to_negative_borrower": (negative_borrower_loans, negative_borrower_loans >= 1, None),
+        "loan_debt_free_after_three": (int(maximum_active_debts >= 3 and became_debt_free), maximum_active_debts >= 3 and became_debt_free, None),
+        "loan_three_active": (maximum_active_debts, maximum_active_debts >= 3, None),
+        "loan_first_overdue": (overdue_count, overdue_count >= 1, None),
+        "loan_interest_cap_reached": (cap_reached_count, cap_reached_count >= 1, None),
     }
     for game_type, achievement_id in GAME_WIN_IDS.items():
         count = sum(row["game_type"] == game_type for row in wins)
@@ -1142,6 +1268,21 @@ def evaluate_relationship(
         """,
         (human_id, ai_id),
     ).fetchone()[0]
+    loan_activations = [
+        json.loads(row["data_json"] or "{}")
+        for row in conn.execute(
+            """
+            SELECT data_json FROM achievement_events
+            WHERE event_type = 'loan_activated_borrower'
+              AND human_id = ? AND ai_id = ?
+            """,
+            (human_id, ai_id),
+        )
+    ]
+    countered_loans = sum(
+        int(item.get("counter_count", 0)) > 0 for item in loan_activations
+    )
+    loan_directions = {item.get("borrower_type") for item in loan_activations}
     metrics: dict[str, tuple[int, bool, dict | None]] = {
         "pair_first_game": (completed, completed >= 1, None),
         "pair_ten_games": (completed, completed >= 10, None),
@@ -1151,6 +1292,8 @@ def evaluate_relationship(
         "pair_both_won": (int(human_wins > 0) + int(ai_wins > 0), human_wins > 0 and ai_wins > 0, {"human_wins": human_wins, "ai_wins": ai_wins}),
         "pair_balanced_twenty": (decisive, decisive >= 20 and abs(human_wins - ai_wins) <= 2, {"human_wins": human_wins, "ai_wins": ai_wins}),
         "pair_five_wins_each": (min(human_wins, ai_wins), human_wins >= 5 and ai_wins >= 5, {"human_wins": human_wins, "ai_wins": ai_wins}),
+        "loan_pair_counter_activated": (countered_loans, countered_loans >= 1, None),
+        "loan_pair_bidirectional": (len(loan_directions & {"human", "ai"}), {"human", "ai"} <= loan_directions, {"borrower_types": sorted(loan_directions - {None})}),
     }
     context_key = _pair_key(human_id, ai_id)
     unlocks: list[dict] = []
@@ -1243,6 +1386,7 @@ def get_achievements(
     section_specs = [("common", "通用与棋种")]
     section_specs.append(("human", "人类专属") if subject_type == "human" else ("ai", "小机专属"))
     section_specs.append(("npc", "NPC 对手"))
+    section_specs.append(("loan", "借款与欠条"))
     if context_key:
         section_specs.append(("relationship", "你们之间"))
     public_count = unlocked_public = 0

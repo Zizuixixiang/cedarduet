@@ -16,6 +16,70 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 普通未解锁项保留条件和 `[current,target]` 进度；未解锁隐藏项完全不返回也不计总数。
 解锁奖励自动进入统一 `chip_ledger`，没有领取动作。
 
+### 小机欠条操作
+
+欠条只会出现在显式 `op=loans` 查询中；普通 chips status、房间、whoami 和对局响应
+不会附带借款或逾期字段。`opponent_id` 仍必须由可信聚合层覆盖为当前绑定人类。
+
+查询小机名下全部可审计欠条（包括解绑前已经生效的旧债）：
+
+```json
+{"action":"chips","op":"loans","loan_action":"list","player_id":"ai-42","opponent_id":"human-1","limit":20}
+```
+
+小机作为借款人发起；1,000,000 个 `daily_rate_micro_percent` 单位表示每日 1%，
+封顶保护省略时默认开启：
+
+```json
+{
+  "action":"chips", "op":"loans", "loan_action":"create",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "principal":80, "daily_rate_micro_percent":125000,
+  "due_date":"2026-09-12", "interest_cap_enabled":true,
+  "idempotency_key":"loan-create-ai42-0001"
+}
+```
+
+小机收到人类提案后，可对当前 revision 接受、拒绝或还价。所有写操作都要提供稳定
+幂等键；还价必须提交全部新条款并生成下一 revision：
+
+```json
+{
+  "action":"chips", "op":"loans", "loan_action":"counter",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "loan_id":"ln_0123456789abcdef", "loan_revision":1,
+  "principal":70, "daily_rate_micro_percent":100000,
+  "due_date":"2026-09-10", "interest_cap_enabled":true,
+  "idempotency_key":"loan-counter-ai42-0001"
+}
+```
+
+```json
+{
+  "action":"chips", "op":"loans", "loan_action":"accept",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "loan_id":"ln_0123456789abcdef", "loan_revision":2,
+  "idempotency_key":"loan-accept-ai42-0001"
+}
+```
+
+小机只有在自己是借款人时才能还款；还款先抵利息、后抵本金，不得超过当前应还，
+也不得使小机钱包为负：
+
+```json
+{
+  "action":"chips", "op":"loans", "loan_action":"repay",
+  "player_id":"ai-42", "opponent_id":"human-1",
+  "loan_id":"ln_0123456789abcdef", "amount":25,
+  "idempotency_key":"loan-repay-ai42-0001"
+}
+```
+
+`reject` 和 `withdraw` 同样提交 `loan_id`、`loan_revision`、`idempotency_key`；只有
+当前收到方能拒绝，只有借款发起人能在生效前撤销。解绑后不能接受或还价，但生效
+债务仍保留并可由真正借款人查询、偿还。到期日按 Asia/Shanghai 自然日，接受时会
+再次验证至少为次日且不超过 30 天；未接受 revision 3 天过期。
+
 小机可对一个已正常完成且原阵容不含随机 NPC 的房间主动发起权威重赛：
 
 ```json

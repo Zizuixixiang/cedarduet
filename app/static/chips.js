@@ -72,7 +72,7 @@ function bankruptcyText(wallet) {
     : "正常营业";
 }
 
-function renderSubject(subject, wallet, ledger, achievements = null) {
+function renderSubject(subject, wallet, ledger, achievements = null, loans = null) {
   const readOnly = subject.type === "ai";
   currentSubject = subject;
   $("balanceTitle").textContent = readOnly ? `${subject.name} 的筹码` : "我的筹码";
@@ -86,6 +86,7 @@ function renderSubject(subject, wallet, ledger, achievements = null) {
   $("checkInButton").disabled = readOnly || wallet.checked_in_today;
   $("checkInButton").textContent = wallet.checked_in_today ? "今日已签到" : "立即签到";
   $("bankruptcyButton").classList.toggle("hidden", readOnly);
+  $("loanCreateForm").classList.toggle("hidden", readOnly);
   $("bankruptcyButton").disabled = readOnly || !wallet.can_declare_bankruptcy;
   $("checkInDescription").textContent = readOnly
     ? `${subject.name} 的今日签到状态；只能由小机自己操作`
@@ -98,13 +99,14 @@ function renderSubject(subject, wallet, ledger, achievements = null) {
     : "我的永久成就；奖励在解锁时自动到账";
   $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的互动与借款` : "互动与借款";
   $("socialDescription").textContent = readOnly
-    ? `你与 ${subject.name} 的互动、借款与欠条规则筹备中`
-    : "选择一只绑定小机后查看关系功能；规则筹备中";
+    ? `你与 ${subject.name} 的欠条；人类只能执行自己角色允许的操作`
+    : "借款已开放；互动交换仍在筹备中";
   $("ledgerDescription").textContent = readOnly
     ? `${subject.name} 的统一账本 · 最近流水`
     : "我的统一账本 · 最近流水";
   renderLedger(ledger);
   renderAchievements(achievements);
+  renderLoans(loans || []);
 }
 
 function renderAchievements(payload) {
@@ -140,10 +142,13 @@ function renderAchievements(payload) {
       icon.textContent = achievement.unlocked ? "★" : "◇";
       const name = document.createElement("h4");
       name.textContent = achievement.name;
-      const reward = document.createElement("span");
-      reward.className = "achievement-reward";
-      reward.textContent = `+${achievement.reward}`;
-      titleRow.append(icon, name, reward);
+      titleRow.append(icon, name);
+      if (achievement.reward > 0) {
+        const reward = document.createElement("span");
+        reward.className = "achievement-reward";
+        reward.textContent = `+${achievement.reward}`;
+        titleRow.append(reward);
+      }
       const condition = document.createElement("p");
       condition.className = "achievement-condition";
       condition.textContent = achievement.condition;
@@ -196,6 +201,17 @@ function renderMachines(machines) {
   }
   select.value = "human";
   select.disabled = false;
+  const loanSelect = $("loanMachineSelect");
+  if (loanSelect) {
+    loanSelect.replaceChildren();
+    for (const machine of machines) {
+      const option = document.createElement("option");
+      option.value = machine.id;
+      option.textContent = machine.name;
+      loanSelect.append(option);
+    }
+    loanSelect.disabled = machines.length === 0;
+  }
 }
 
 function formatLedgerCreatedAt(createdAt) {
@@ -237,6 +253,258 @@ function renderLedger(entries) {
   }
 }
 
+const loanStatusLabels = {
+  negotiating: "协商中", active: "已生效", overdue: "已逾期", repaid: "已还清",
+  rejected: "已拒绝", withdrawn: "已撤销", expired: "提案过期",
+};
+
+function machineName(machineId) {
+  return summary?.machines?.find((item) => item.id === machineId)?.name || machineId;
+}
+
+function appendLoanTerm(list, label, value, className = "") {
+  const wrapper = document.createElement("div");
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = String(value);
+  if (className) detail.className = className;
+  wrapper.append(term, detail);
+  list.append(wrapper);
+}
+
+function microPercentFromInput(value) {
+  const match = String(value).trim().match(/^(\d+)(?:\.(\d{1,6}))?$/);
+  if (!match) throw new Error("日利率最多保留 6 位小数，且不能为负");
+  const units = BigInt(match[1]) * 1000000n
+    + BigInt((match[2] || "").padEnd(6, "0") || "0");
+  if (units > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("日利率超过浏览器可安全提交的技术上限");
+  }
+  return Number(units);
+}
+
+function positiveSafeIntegerInput(value, label) {
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) throw new Error(`${label}必须是正整数`);
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label}超过浏览器可安全提交的范围`);
+  }
+  return parsed;
+}
+
+function newIdempotencyKey(prefix) {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}:${suffix}`;
+}
+
+function shanghaiDateOffset(days) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date()).filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return new Date(Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day) + days,
+  )).toISOString().slice(0, 10);
+}
+
+function loanBaseBody(loan) {
+  return {
+    revision: loan.revision,
+    idempotency_key: newIdempotencyKey(`web:${loan.loan_id}`),
+  };
+}
+
+async function runLoanAction(loan, action, body) {
+  try {
+    const payload = await requestJson(
+      `/api/chips/loans/${encodeURIComponent(loan.loan_id)}/${action}`,
+      {method: "POST", body: JSON.stringify(body)},
+    );
+    if (summary) {
+      summary.wallet = payload.wallet;
+      summary.ledger = payload.ledger;
+      summary.loans = payload.loans;
+      summary.achievements = payload.achievements;
+    }
+    if (currentSubject.type === "human") {
+      renderSubject(
+        currentSubject, payload.wallet, payload.ledger,
+        payload.achievements, payload.loans,
+      );
+    } else {
+      await selectSubject(`ai:${currentSubject.id}`);
+    }
+    showNotice(payload.message);
+  } catch (error) {
+    showNotice(error.message, true);
+  }
+}
+
+function renderLoanCounterForm(loan, actionBox) {
+  const form = document.createElement("form");
+  form.className = "loan-counter-form";
+  const grid = document.createElement("div");
+  grid.className = "loan-counter-grid";
+  const specs = [
+    ["本金", "number", String(loan.principal)],
+    ["日利率（%）", "text", loan.daily_rate_percent],
+    ["到期日", "date", loan.due_date],
+  ];
+  const inputs = specs.map(([text, type, value]) => {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    label.textContent = text;
+    input.type = type;
+    input.value = value;
+    input.required = true;
+    if (type === "number") { input.min = "1"; input.step = "1"; }
+    if (type === "date") {
+      input.min = shanghaiDateOffset(1);
+      input.max = shanghaiDateOffset(30);
+    }
+    label.append(input);
+    grid.append(label);
+    return input;
+  });
+  const cap = document.createElement("label");
+  cap.className = "cap-choice";
+  const capInput = document.createElement("input");
+  capInput.type = "checkbox";
+  capInput.checked = loan.interest_cap_enabled;
+  const capText = document.createElement("span");
+  capText.textContent = "利息封顶保护";
+  cap.append(capInput, capText);
+  const submit = document.createElement("button");
+  submit.className = "button primary";
+  submit.type = "submit";
+  submit.textContent = "提交新 revision";
+  form.append(grid, cap, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      await runLoanAction(loan, "counter", {
+        revision: loan.revision,
+        principal: positiveSafeIntegerInput(inputs[0].value, "本金"),
+        daily_rate_micro_percent: microPercentFromInput(inputs[1].value),
+        due_date: inputs[2].value,
+        interest_cap_enabled: capInput.checked,
+        idempotency_key: newIdempotencyKey(`web:${loan.loan_id}:counter`),
+      });
+    } catch (error) {
+      showNotice(error.message, true);
+      submit.disabled = false;
+    }
+  });
+  actionBox.replaceChildren(form);
+}
+
+function renderLoanActions(loan, card) {
+  if (!loan.allowed_actions?.length) return;
+  const box = document.createElement("div");
+  box.className = "loan-actions";
+  const labels = {accept: "接受", reject: "拒绝", counter: "还价", withdraw: "撤销", repay: "还款"};
+  for (const action of loan.allowed_actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `button ${action === "accept" || action === "repay" ? "primary" : "ghost"}`;
+    button.textContent = labels[action];
+    button.addEventListener("click", async () => {
+      if (action === "counter") return renderLoanCounterForm(loan, box);
+      if (action === "repay") {
+        const form = document.createElement("form");
+        form.className = "loan-repay-form";
+        const label = document.createElement("label");
+        label.textContent = `还款额（最多 ${loan.total_due}）`;
+        const input = document.createElement("input");
+        input.type = "number"; input.min = "1"; input.max = String(loan.total_due);
+        input.step = "1"; input.required = true;
+        const submit = document.createElement("button");
+        submit.type = "submit"; submit.className = "button primary";
+        submit.textContent = "确认还款";
+        label.append(input); form.append(label, submit);
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          submit.disabled = true;
+          await runLoanAction(loan, "repay", {
+            amount: positiveSafeIntegerInput(input.value, "还款额"),
+            idempotency_key: newIdempotencyKey(`web:${loan.loan_id}:repay`),
+          });
+        });
+        box.replaceChildren(form);
+        return;
+      }
+      button.disabled = true;
+      await runLoanAction(loan, action, loanBaseBody(loan));
+    });
+    box.append(button);
+  }
+  card.append(box);
+}
+
+function renderLoans(loans) {
+  const container = $("loanList");
+  const count = $("loanCount");
+  if (!container || !count) return;
+  container.replaceChildren();
+  count.textContent = `${loans.length} 张`;
+  if (!loans.length) {
+    const empty = document.createElement("p");
+    empty.className = "loan-empty";
+    empty.textContent = "还没有欠条或借款提案。";
+    container.append(empty);
+    return;
+  }
+  for (const loan of loans) {
+    const card = document.createElement("article");
+    card.className = `loan-item ${loan.status}`;
+    const title = document.createElement("div");
+    title.className = "loan-title-row";
+    const heading = document.createElement("h4");
+    const direction = loan.borrower.type === "human"
+      ? "人类借款 / 小机出借" : "小机借款 / 人类出借";
+    heading.textContent = `${direction} · ${machineName(loan.ai_id)} · ${loan.loan_id}`;
+    const status = document.createElement("span");
+    status.className = "loan-status";
+    status.textContent = loanStatusLabels[loan.status] || loan.status;
+    title.append(heading, status); card.append(title);
+    if (loan.awaiting) {
+      const waiting = document.createElement("p");
+      waiting.className = "loan-waiting";
+      waiting.textContent = loan.awaiting.you ? "当前等你回应" : "当前等对方回应";
+      card.append(waiting);
+    }
+    const terms = document.createElement("dl");
+    terms.className = "loan-terms";
+    appendLoanTerm(terms, "revision / 还价", `${loan.revision} / ${loan.counter_count} 次`);
+    appendLoanTerm(terms, "本金 / 剩余本金", `${loan.principal} / ${loan.remaining_principal}`);
+    appendLoanTerm(terms, "日利率", `${loan.daily_rate_percent}%`);
+    appendLoanTerm(terms, "累计 / 已还利息", `${loan.lifetime_interest} / ${loan.interest_paid}`);
+    appendLoanTerm(terms, "已还总额 / 当前应还", `${loan.total_repaid} / ${loan.total_due}`);
+    appendLoanTerm(terms, "到期日 / 逾期", `${loan.due_date} / ${loan.overdue_days} 天`);
+    appendLoanTerm(
+      terms, "利息封顶",
+      loan.interest_cap_enabled
+        ? `${loan.interest_cap_reached ? "已触达" : "开启"}（上限 ${loan.interest_cap_amount}）`
+        : "关闭：持续单利累计",
+      loan.interest_cap_enabled ? "" : "loan-cap-off",
+    );
+    appendLoanTerm(terms, "协商有效期", loan.proposal_expires_at ? formatLedgerCreatedAt(loan.proposal_expires_at) : "—");
+    card.append(terms);
+    const note = document.createElement("p");
+    note.className = "loan-form-note";
+    note.textContent = "利息按剩余本金与实际秒数累计，携带余数后统一向下取整；逾期仍按原利率计息。";
+    card.append(note);
+    renderLoanActions(loan, card);
+    container.append(card);
+  }
+}
+
 async function loadSummary() {
   try {
     summary = await requestJson("/api/chips");
@@ -246,6 +514,7 @@ async function loadSummary() {
       summary.wallet,
       summary.ledger,
       summary.achievements,
+      summary.loans,
     );
   } catch (error) {
     showNotice(error.message, true);
@@ -261,15 +530,22 @@ async function runHumanAction(url) {
     const payload = await requestJson(url, {method: "POST", body: "{}"});
     summary.wallet = payload.wallet;
     summary.ledger = payload.ledger;
+    summary.loans = payload.loans || summary.loans;
     summary.achievements = payload.achievements || summary.achievements;
     if (currentSubject.type === "human") {
-      renderSubject(currentSubject, payload.wallet, payload.ledger, summary.achievements);
+      renderSubject(
+        currentSubject, payload.wallet, payload.ledger,
+        summary.achievements, summary.loans,
+      );
     }
     showNotice(payload.message);
   } catch (error) {
     showNotice(error.message, true);
     if (summary && currentSubject.type === "human") {
-      renderSubject(currentSubject, summary.wallet, summary.ledger);
+      renderSubject(
+        currentSubject, summary.wallet, summary.ledger,
+        summary.achievements, summary.loans,
+      );
     }
   }
 }
@@ -282,6 +558,7 @@ async function selectSubject(value) {
       summary.wallet,
       summary.ledger,
       summary.achievements,
+      summary.loans,
     );
     return;
   }
@@ -301,13 +578,16 @@ async function selectSubject(value) {
     bankruptcy_badge: null,
     bankruptcy_count: "--",
     can_declare_bankruptcy: false,
-  }, [], null);
+  }, [], null, []);
   $("checkInState").textContent = "读取中";
   $("myBankruptcyState").textContent = "读取中";
   try {
     const payload = await requestJson(`/api/chips/machines/${encodeURIComponent(machineId)}`);
     if (requestSequence !== subjectRequestSequence) return;
-    renderSubject(subject, payload.wallet, payload.ledger, payload.achievements);
+    renderSubject(
+      subject, payload.wallet, payload.ledger,
+      payload.achievements, payload.loans,
+    );
   } catch (error) {
     if (requestSequence !== subjectRequestSequence) return;
     showNotice(error.message, true);
@@ -319,6 +599,46 @@ async function selectSubject(value) {
 $("checkInButton").addEventListener("click", () => runHumanAction("/api/chips/check-in"));
 $("bankruptcyButton").addEventListener("click", () => runHumanAction("/api/chips/bankruptcy"));
 $("subjectSelect").addEventListener("change", (event) => selectSubject(event.target.value));
+
+const loanDueDate = $("loanDueDate");
+loanDueDate.min = shanghaiDateOffset(1);
+loanDueDate.max = shanghaiDateOffset(30);
+loanDueDate.value = shanghaiDateOffset(7);
+$("loanCapEnabled").addEventListener("change", (event) => {
+  $("loanCapWarning").classList.toggle("hidden", event.target.checked);
+});
+$("loanCreateForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = $("loanCreateButton");
+  button.disabled = true;
+  try {
+    const payload = await requestJson("/api/chips/loans", {
+      method: "POST",
+      body: JSON.stringify({
+        machine_id: $("loanMachineSelect").value,
+        principal: positiveSafeIntegerInput($("loanPrincipal").value, "本金"),
+        daily_rate_micro_percent: microPercentFromInput($("loanRate").value),
+        due_date: loanDueDate.value,
+        interest_cap_enabled: $("loanCapEnabled").checked,
+        idempotency_key: newIdempotencyKey("web:create-loan"),
+      }),
+    });
+    summary.wallet = payload.wallet;
+    summary.ledger = payload.ledger;
+    summary.loans = payload.loans;
+    summary.achievements = payload.achievements;
+    renderSubject(
+      currentSubject, payload.wallet, payload.ledger,
+      payload.achievements, payload.loans,
+    );
+    $("loanPrincipal").value = "";
+    showNotice(payload.message);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 initModuleTabs();
 loadSummary();

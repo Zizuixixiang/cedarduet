@@ -100,10 +100,20 @@ class AchievementServiceTests(unittest.TestCase):
                 )
 
     def test_catalog_is_stable_complete_and_rewarded(self):
-        self.assertEqual(len(achievements.ACHIEVEMENT_CATALOG), 54)
+        self.assertEqual(len(achievements.ACHIEVEMENT_CATALOG), 66)
         ids = [item.id for item in achievements.ACHIEVEMENT_CATALOG]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertTrue(all(item.reward in {5, 10, 20, 30} for item in achievements.ACHIEVEMENT_CATALOG))
+        zero_reward_ids = {
+            item.id for item in achievements.ACHIEVEMENT_CATALOG
+            if item.reward == 0
+        }
+        self.assertEqual(
+            zero_reward_ids,
+            {"loan_first_overdue", "loan_interest_cap_reached"},
+        )
+        self.assertTrue(
+            all(item.reward in {0, 5, 10, 20, 30} for item in achievements.ACHIEVEMENT_CATALOG)
+        )
         self.assertEqual(achievements.DEFINITIONS["pair_five_wins_each"].name, "相爱相杀")
         self.assertTrue(achievements.DEFINITIONS["last_move_comeback_win"].hidden)
         self.assertEqual(
@@ -742,7 +752,7 @@ class AchievementApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(human.status_code, 200, human.text)
         self.assertEqual(
             [section["id"] for section in human.json()["achievements"]["sections"]],
-            ["common", "human"],
+            ["common", "human", "loan"],
         )
         machine = await self.client.get(
             "/api/chips/machines/api-ai", headers=self.headers()
@@ -750,7 +760,7 @@ class AchievementApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(machine.status_code, 200, machine.text)
         self.assertEqual(
             [section["id"] for section in machine.json()["achievements"]["sections"]],
-            ["common", "ai", "relationship"],
+            ["common", "ai", "loan", "relationship"],
         )
         mcp = await self.client.post(
             "/mcp/play",
@@ -760,8 +770,11 @@ class AchievementApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         payload = mcp.json()["achievements"]
-        self.assertLess(len(json.dumps(payload, ensure_ascii=False)), 6000)
-        self.assertEqual([section["id"] for section in payload["sections"]], ["common", "ai", "relationship"])
+        self.assertLess(len(json.dumps(payload, ensure_ascii=False)), 7000)
+        self.assertEqual(
+            [section["id"] for section in payload["sections"]],
+            ["common", "ai", "loan", "relationship"],
+        )
         self.assertNotIn("last_move_comeback_win", json.dumps(payload))
 
     async def test_human_check_in_never_projects_machine_only_repair_unlocks(self):

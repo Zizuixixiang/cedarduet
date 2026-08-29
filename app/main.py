@@ -42,6 +42,14 @@ from .chips import (
     list_ledger,
 )
 from .achievements import compact_achievements, filter_unlocks, get_achievements
+from .loans import (
+    accept_loan,
+    close_proposal,
+    counter_loan,
+    create_loan,
+    list_loans,
+    repay_loan,
+)
 from .games import game_catalog, get_game
 from .models import (
     CreateRoomBody,
@@ -404,11 +412,13 @@ def _compact_wallet(wallet: dict) -> dict:
 
 
 def _mcp_chips(body: McpPlayBody) -> dict:
+    op = body.op or "status"
+    if op == "loans":
+        return _mcp_loans(body)
     human_player_id = require(
         body.opponent_id,
         "chips 动作需要由可信上游注入绑定人类身份",
     )
-    op = body.op or "status"
     human_balance = get_wallet("human", human_player_id)["balance"]
     if op == "achievements":
         return {
@@ -468,6 +478,90 @@ def _mcp_chips(body: McpPlayBody) -> dict:
             }
             for item in list_ledger("ai", body.player_id, limit=limit)
         ]
+    return payload
+
+
+def _mcp_loans(body: McpPlayBody) -> dict:
+    """Explicit AI-owned loan surface; normal chip status stays debt-free."""
+    action = body.loan_action or "list"
+    human_id = body.opponent_id
+    bound_ids = {human_id} if human_id else set()
+    if action == "list":
+        limit = body.limit if body.limit is not None else 20
+        if limit > 50:
+            raise DuelError("chips/loans limit 最大为 50")
+        return {
+            "ok": True, "status": "ok", "op": "loans",
+            "loan_action": "list",
+            "loans": list_loans(
+                "ai", body.player_id,
+                bound_counterparty_ids=bound_ids, limit=limit,
+            ),
+        }
+    key = require(body.idempotency_key, "借款写操作需要 idempotency_key")
+    if action == "create":
+        human = require(human_id, "小机发起借款需要可信上游注入绑定人类身份")
+        loan = create_loan(
+            "ai", body.player_id, human,
+            principal=require(body.principal, "create 需要 principal"),
+            daily_rate_micro_percent=require(
+                body.daily_rate_micro_percent, "create 需要 daily_rate_micro_percent"
+            ),
+            due_date=require(body.due_date, "create 需要 due_date"),
+            interest_cap_enabled=(
+                True if body.interest_cap_enabled is None else body.interest_cap_enabled
+            ),
+            idempotency_key=key, pair_is_bound=True,
+        )
+    else:
+        loan_id = require(body.loan_id, f"{action} 需要 loan_id")
+        if action == "accept":
+            loan = accept_loan(
+                loan_id, "ai", body.player_id,
+                revision=require(body.loan_revision, "accept 需要 loan_revision"),
+                idempotency_key=key, bound_counterparty_id=human_id,
+            )
+        elif action == "reject":
+            loan = close_proposal(
+                loan_id, "ai", body.player_id, action="reject",
+                revision=require(body.loan_revision, "reject 需要 loan_revision"),
+                idempotency_key=key,
+            )
+        elif action == "withdraw":
+            loan = close_proposal(
+                loan_id, "ai", body.player_id, action="withdraw",
+                revision=require(body.loan_revision, "withdraw 需要 loan_revision"),
+                idempotency_key=key,
+            )
+        elif action == "counter":
+            loan = counter_loan(
+                loan_id, "ai", body.player_id,
+                revision=require(body.loan_revision, "counter 需要 loan_revision"),
+                principal=require(body.principal, "counter 需要 principal"),
+                daily_rate_micro_percent=require(
+                    body.daily_rate_micro_percent, "counter 需要 daily_rate_micro_percent"
+                ),
+                due_date=require(body.due_date, "counter 需要 due_date"),
+                interest_cap_enabled=require(
+                    body.interest_cap_enabled, "counter 需要 interest_cap_enabled"
+                ),
+                idempotency_key=key, bound_counterparty_id=human_id,
+            )
+        elif action == "repay":
+            loan = repay_loan(
+                loan_id, "ai", body.player_id,
+                amount=require(body.amount, "repay 需要 amount"),
+                idempotency_key=key,
+            )
+        else:
+            raise DuelError("未知 chips/loans 操作")
+    payload = {
+        "ok": True, "status": "ok", "op": "loans",
+        "loan_action": action, "loan": loan,
+        "wallet": _compact_wallet(get_wallet("ai", body.player_id)),
+    }
+    if human_id:
+        payload["bound_human_balance"] = get_wallet("human", human_id)["balance"]
     return payload
 
 

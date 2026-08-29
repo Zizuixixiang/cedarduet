@@ -29,7 +29,7 @@ body {
   background-size: 18px 18px, 18px 18px, auto;
 }
 
-button, select { font: inherit; }
+button, select, input { font: inherit; }
 
 .chip-shell {
   width: min(760px, 100%);
@@ -280,6 +280,52 @@ footer {
 .placeholder-actions { gap: 8px; margin-top: 11px; }
 .placeholder-actions .button { flex: 1; min-width: 0; padding-inline: 6px; font-size: 0.78rem; }
 
+.loans-card { background: rgba(255, 249, 253, 0.94); }
+.exchange-placeholder {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 12px;
+  padding: 8px 10px; border: 1px dashed var(--line); color: var(--muted);
+  background: var(--soft-purple); font-size: 0.75rem;
+}
+.exchange-placeholder span { font-weight: 900; }
+.loan-form { margin-top: 12px; padding: 11px; border: 2px solid var(--line); background: #fff; }
+.loan-form h3, .loan-list-heading h3 { margin: 0; font-size: 0.88rem; }
+.loan-form > p { margin: 4px 0 10px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
+.loan-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.loan-form label, .loan-counter-form label, .loan-repay-form label {
+  display: grid; gap: 4px; color: var(--muted); font-size: 0.68rem; font-weight: 800;
+}
+.loan-form input, .loan-form select,
+.loan-counter-form input, .loan-repay-form input {
+  min-width: 0; width: 100%; min-height: 36px; padding: 6px 7px;
+  border: 2px solid var(--ink); border-radius: 2px; color: var(--ink); background: #fff;
+}
+.cap-choice { grid-template-columns: auto minmax(0, 1fr) !important; align-items: start; margin-top: 9px; }
+.cap-choice input { width: 17px; min-height: 17px; margin: 1px 0 0; accent-color: var(--pink-dark); }
+.loan-warning { margin: 8px 0 0 !important; padding: 7px; color: var(--warning) !important; background: #fff0f0; font-weight: 800; }
+.loan-form > .button { width: 100%; margin-top: 10px; }
+.loan-list-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 15px; }
+.loan-list { display: grid; gap: 9px; margin-top: 8px; }
+.loan-empty { margin: 0; padding: 12px; color: var(--muted); border: 1px dashed var(--line); font-size: 0.76rem; }
+.loan-item { padding: 10px; border: 2px solid var(--ink); background: #fff; box-shadow: 2px 2px 0 rgba(64, 43, 76, 0.12); }
+.loan-item.overdue { border-color: var(--warning); background: #fff5f5; }
+.loan-item.repaid { border-color: #67937a; background: #f1fff6; }
+.loan-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.loan-title-row h4 { margin: 0; font-size: 0.82rem; overflow-wrap: anywhere; }
+.loan-status { flex: 0 0 auto; padding: 3px 5px; color: #fff; background: var(--lilac); font-size: 0.65rem; font-weight: 900; }
+.loan-item.overdue .loan-status { background: var(--warning); }
+.loan-item.repaid .loan-status { background: #4d8062; }
+.loan-waiting { margin: 5px 0 0; color: var(--pink-dark); font-size: 0.7rem; font-weight: 800; }
+.loan-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 10px; margin: 9px 0 0; }
+.loan-terms div { min-width: 0; }
+.loan-terms dt { color: var(--muted); font-size: 0.62rem; }
+.loan-terms dd { margin: 1px 0 0; font-size: 0.72rem; font-weight: 800; overflow-wrap: anywhere; }
+.loan-cap-off { color: var(--warning); }
+.loan-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.loan-actions .button { min-height: 34px; padding: 5px 8px; font-size: 0.7rem; }
+.loan-counter-form, .loan-repay-form { display: grid; gap: 7px; width: 100%; padding: 9px; border: 1px dashed var(--line); background: var(--soft); }
+.loan-counter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.loan-form-note { margin: 6px 0 0; color: var(--muted); font-size: 0.64rem; line-height: 1.4; }
+
 .achievements-card { background: rgba(255, 249, 253, 0.94); }
 .achievement-sections { display: grid; gap: 15px; margin-top: 13px; }
 .achievement-group h3 {
@@ -348,6 +394,7 @@ footer p { margin: 3px 0 0; font-size: 0.75rem; line-height: 1.45; }
 @media (max-width: 540px) {
   .achievement-grid { grid-template-columns: minmax(0, 1fr); }
   .achievement-condition { min-height: 0; }
+  .loan-form-grid, .loan-counter-grid, .loan-terms { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

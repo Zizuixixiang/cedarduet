@@ -99,18 +99,39 @@
           <div id="achievementSections" class="achievement-sections" aria-live="polite"></div>
         </section>
 
-        <section id="panel-social" class="module-card module-panel placeholder-card" role="tabpanel"
+        <section id="panel-social" class="module-card module-panel loans-card" role="tabpanel"
           aria-labelledby="tab-social" hidden>
           <div class="module-heading">
             <span class="pixel-icon" aria-hidden="true">♡</span>
             <div>
               <h2 id="socialTitle">互动与借款</h2>
-              <p id="socialDescription">选择一只绑定小机后查看关系功能；规则筹备中</p>
+              <p id="socialDescription">借款已开放；互动交换仍在筹备中</p>
             </div>
           </div>
-          <div class="placeholder-actions">
-            <button class="button ghost" type="button" disabled>互动兑换</button>
-            <button class="button ghost" type="button" disabled>借款 / 欠条</button>
+          <div class="exchange-placeholder">
+            <strong>互动交换</strong><span>筹备中</span>
+          </div>
+          <form id="loanCreateForm" class="loan-form" autocomplete="off">
+            <h3>我要借款</h3>
+            <p>只有借款人能发起。提案 3 天未接受会过期。</p>
+            <div class="loan-form-grid">
+              <label>向谁借<select id="loanMachineSelect" required disabled></select></label>
+              <label>本金（正整数）<input id="loanPrincipal" type="number" min="1" step="1" required></label>
+              <label>日利率（%）<input id="loanRate" type="text" inputmode="decimal" value="0" required></label>
+              <label>到期日（上海时区）<input id="loanDueDate" type="date" required></label>
+            </div>
+            <label class="cap-choice">
+              <input id="loanCapEnabled" type="checkbox" checked>
+              <span>开启利息封顶保护（终身计收利息最多等于原始本金）</span>
+            </label>
+            <p id="loanCapWarning" class="loan-warning hidden">关闭后将按约定单利持续累计至还清，没有本金倍数保护。</p>
+            <button id="loanCreateButton" class="button primary" type="submit">发送借款提案</button>
+          </form>
+          <div class="loan-list-heading">
+            <h3>欠条与协商</h3><span id="loanCount" class="panel-state">0 张</span>
+          </div>
+          <div id="loanList" class="loan-list" aria-live="polite">
+            <p class="loan-empty">正在读取欠条…</p>
           </div>
         </section>
 
