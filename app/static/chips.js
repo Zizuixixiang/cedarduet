@@ -72,7 +72,7 @@ function bankruptcyText(wallet) {
     : "正常营业";
 }
 
-function renderSubject(subject, wallet, ledger) {
+function renderSubject(subject, wallet, ledger, achievements = null) {
   const readOnly = subject.type === "ai";
   currentSubject = subject;
   $("balanceTitle").textContent = readOnly ? `${subject.name} 的筹码` : "我的筹码";
@@ -94,8 +94,8 @@ function renderSubject(subject, wallet, ledger) {
     ? `${subject.name} 的破产信息只读；人类不能代为宣布`
     : "余额 ≤ -500 时可自愿宣布，重置为 50 枚。";
   $("achievementDescription").textContent = readOnly
-    ? `${subject.name} 的对局成就与奖励正在筹备`
-    : "我的对局成就与奖励正在筹备";
+    ? `${subject.name} 的永久成就；含你们之间的配对进度`
+    : "我的永久成就；奖励在解锁时自动到账";
   $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的互动与借款` : "互动与借款";
   $("socialDescription").textContent = readOnly
     ? `你与 ${subject.name} 的互动、借款与欠条规则筹备中`
@@ -104,6 +104,81 @@ function renderSubject(subject, wallet, ledger) {
     ? `${subject.name} 的统一账本 · 最近流水`
     : "我的统一账本 · 最近流水";
   renderLedger(ledger);
+  renderAchievements(achievements);
+}
+
+function renderAchievements(payload) {
+  const container = $("achievementSections");
+  const summaryElement = $("achievementSummary");
+  if (!container || !summaryElement) return;
+  container.replaceChildren();
+  if (!payload) {
+    summaryElement.textContent = "读取中";
+    const loading = document.createElement("p");
+    loading.className = "achievement-empty";
+    loading.textContent = "正在读取成就资料…";
+    container.append(loading);
+    return;
+  }
+  const summary = payload.summary || {unlocked: 0, total: 0, hidden_unlocked: 0};
+  summaryElement.textContent = `${summary.unlocked} / ${summary.total}`;
+  for (const section of payload.sections || []) {
+    const group = document.createElement("section");
+    group.className = `achievement-group achievement-group-${section.id}`;
+    const heading = document.createElement("h3");
+    heading.textContent = section.name;
+    const grid = document.createElement("div");
+    grid.className = "achievement-grid";
+    for (const achievement of section.items || []) {
+      const card = document.createElement("article");
+      card.className = `achievement-item ${achievement.unlocked ? "unlocked" : "locked"}`;
+      const titleRow = document.createElement("div");
+      titleRow.className = "achievement-title-row";
+      const icon = document.createElement("span");
+      icon.className = "achievement-state-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = achievement.unlocked ? "★" : "◇";
+      const name = document.createElement("h4");
+      name.textContent = achievement.name;
+      const reward = document.createElement("span");
+      reward.className = "achievement-reward";
+      reward.textContent = `+${achievement.reward}`;
+      titleRow.append(icon, name, reward);
+      const condition = document.createElement("p");
+      condition.className = "achievement-condition";
+      condition.textContent = achievement.condition;
+      const progress = achievement.progress || {current: 0, target: 1};
+      const progressRow = document.createElement("div");
+      progressRow.className = "achievement-progress-row";
+      const track = document.createElement("span");
+      track.className = "achievement-progress-track";
+      const fill = document.createElement("span");
+      fill.className = "achievement-progress-fill";
+      fill.style.width = `${Math.min(100, Math.round(100 * progress.current / Math.max(1, progress.target)))}%`;
+      track.append(fill);
+      const count = document.createElement("span");
+      count.className = "achievement-progress-count";
+      count.textContent = `${progress.current} / ${progress.target}`;
+      progressRow.append(track, count);
+      card.append(titleRow, condition, progressRow);
+      if (achievement.unlocked && achievement.unlocked_at) {
+        const unlockedAt = document.createElement("time");
+        unlockedAt.className = "achievement-unlocked-at";
+        unlockedAt.dateTime = achievement.unlocked_at;
+        unlockedAt.textContent = `解锁于 ${formatLedgerCreatedAt(achievement.unlocked_at)}`;
+        card.append(unlockedAt);
+      }
+      grid.append(card);
+    }
+    group.append(heading, grid);
+    container.append(group);
+  }
+  if (!container.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "achievement-empty";
+    empty.textContent = "当前对象暂无适用成就。";
+    container.append(empty);
+  }
 }
 
 function renderMachines(machines) {
@@ -170,6 +245,7 @@ async function loadSummary() {
       {type: "human", id: null, name: summary.human_name || "我"},
       summary.wallet,
       summary.ledger,
+      summary.achievements,
     );
   } catch (error) {
     showNotice(error.message, true);
@@ -185,8 +261,9 @@ async function runHumanAction(url) {
     const payload = await requestJson(url, {method: "POST", body: "{}"});
     summary.wallet = payload.wallet;
     summary.ledger = payload.ledger;
+    summary.achievements = payload.achievements || summary.achievements;
     if (currentSubject.type === "human") {
-      renderSubject(currentSubject, payload.wallet, payload.ledger);
+      renderSubject(currentSubject, payload.wallet, payload.ledger, summary.achievements);
     }
     showNotice(payload.message);
   } catch (error) {
@@ -204,6 +281,7 @@ async function selectSubject(value) {
       {type: "human", id: null, name: summary.human_name || "我"},
       summary.wallet,
       summary.ledger,
+      summary.achievements,
     );
     return;
   }
@@ -223,13 +301,13 @@ async function selectSubject(value) {
     bankruptcy_badge: null,
     bankruptcy_count: "--",
     can_declare_bankruptcy: false,
-  }, []);
+  }, [], null);
   $("checkInState").textContent = "读取中";
   $("myBankruptcyState").textContent = "读取中";
   try {
     const payload = await requestJson(`/api/chips/machines/${encodeURIComponent(machineId)}`);
     if (requestSequence !== subjectRequestSequence) return;
-    renderSubject(subject, payload.wallet, payload.ledger);
+    renderSubject(subject, payload.wallet, payload.ledger, payload.achievements);
   } catch (error) {
     if (requestSequence !== subjectRequestSequence) return;
     showNotice(error.message, true);

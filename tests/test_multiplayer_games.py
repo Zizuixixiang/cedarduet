@@ -201,7 +201,7 @@ class DotsBoxesMultiplayerTests(MultiplayerGameTestCase):
             room["result"]["settlement_deltas"],
             {"human-1": 15, "ai-1": -5, "ai-2": -5, "ai-3": -5},
         )
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 215)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 260)
 
     def test_four_way_tie_refunds_stake(self):
         room = framework.create_room(
@@ -220,7 +220,7 @@ class DotsBoxesMultiplayerTests(MultiplayerGameTestCase):
         self.assertEqual(room["result"]["settlement_deltas"], {
             "human-1": 0, "ai-1": 0, "ai-2": 0, "ai-3": 0,
         })
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 200)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 250)
 
     def test_legacy_x_o_state_still_works(self):
         game = DotsBoxes()
@@ -417,8 +417,8 @@ class LiarsDiceTests(MultiplayerGameTestCase):
             expected_revision=room["revision"],
         )
         self.assertEqual(room["winner_player_id"], "ai-1")
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 193)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 207)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 218)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 232)
 
     def test_four_player_terminal_settlement_uses_whole_pot(self):
         room = self.create_liars(4, stake=3)
@@ -453,8 +453,8 @@ class LiarsDiceTests(MultiplayerGameTestCase):
         self.assertEqual(room["winner_player_id"], "human-1")
         self.assertEqual(room["result"]["settlement_deltas"]["human-1"], 25)
         self.assertEqual(sum(room["result"]["settlement_deltas"].values()), 0)
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 225)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 195)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 250)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 220)
         conn = database.connect()
         try:
             npc_wallets = conn.execute(

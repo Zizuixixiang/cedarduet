@@ -2018,6 +2018,7 @@ async function rematch() {
         game_type: previousRoom.game_type,
         mode: oppositeMode(previousRoom.mode),
         stake: previousRoom.stake || 0,
+        rematch_of_room_id: previousRoom.room_id,
       }),
     });
     closeResultModal();

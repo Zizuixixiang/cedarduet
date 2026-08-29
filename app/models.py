@@ -18,6 +18,7 @@ class CreateRoomBody(StrictBody):
     stake: int = Field(default=0, ge=0)
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
+    rematch_of_room_id: str | None = Field(default=None, min_length=8, max_length=8)
 
     @field_validator("stake", mode="before")
     @classmethod
@@ -114,7 +115,7 @@ class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal[
-        "rooms", "new", "join", "move", "state", "resign", "leave", "accept", "reject",
+        "rooms", "new", "rematch", "join", "move", "state", "resign", "leave", "accept", "reject",
         "chips",
     ]
     player_id: str = Field(min_length=1, max_length=80)
@@ -132,7 +133,7 @@ class McpPlayBody(BaseModel):
     stake: int = Field(default=0, ge=0)
     target_player_count: int | None = Field(default=None, ge=2, le=6)
     fill_with_npcs: bool = False
-    op: Literal["status", "check_in", "bankruptcy", "ledger"] | None = None
+    op: Literal["status", "check_in", "bankruptcy", "ledger", "achievements"] | None = None
     revision: int | None = Field(default=None, ge=0)
 
     @field_validator("move", mode="before")

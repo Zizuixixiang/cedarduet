@@ -41,6 +41,7 @@ from .chips import (
     get_wallet,
     list_ledger,
 )
+from .achievements import compact_achievements, filter_unlocks, get_achievements
 from .games import game_catalog, get_game
 from .models import (
     CreateRoomBody,
@@ -113,7 +114,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Duel — Human vs AI",
-    version="0.9.0",
+    version="1.0.0",
     description="纯单机、非社交的人类与绑定 AI 回合制对弈服务。",
     lifespan=lifespan,
 )
@@ -184,6 +185,11 @@ def human_response(
         "message": message,
         "room": projected_room,
     }
+    unlocks = filter_unlocks(
+        room.get("achievement_unlocks", []), "human", viewer_player_id
+    )
+    if unlocks:
+        payload["unlocks"] = unlocks
     # Web receives its projected shared timeline while its independent cursor is
     # advanced so long-poll visibility checks remain correct.
     read_new_room_events(room["room_id"], viewer_player_id)
@@ -211,10 +217,14 @@ def ai_response(
             "room_id": room["room_id"],
         }
     projected_room = project_room_for_viewer(room, player_id)
-    return response(
+    payload = response(
         projected_room, message, status,
         new_messages=read_new_room_events(room["room_id"], player_id),
     )
+    unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
+    if unlocks:
+        payload["unlocks"] = unlocks
+    return payload
 
 
 def _chip_balances(room: dict) -> dict[str, int] | None:
@@ -283,6 +293,9 @@ def _pending_ai_response(room: dict, player_id: str, message: str) -> dict:
         balances = _chip_balances(room)
         if balances is not None:
             payload["chip_balances"] = balances
+    unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
+    if unlocks:
+        payload["unlocks"] = unlocks
     return payload
 
 
@@ -301,6 +314,9 @@ def _bootstrap_ai_response(room: dict, player_id: str, message: str) -> dict:
     events = _compact_events(read_new_room_events(room["room_id"], player_id))
     if events:
         payload["new_messages"] = events
+    unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
+    if unlocks:
+        payload["unlocks"] = unlocks
     return payload
 
 
@@ -359,6 +375,9 @@ def _move_delta_response(
         payload["new_messages"] = events
     if room["status"] in {"finished", "archived"}:
         payload.update(_terminal_fields(projected_room))
+    unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
+    if unlocks:
+        payload["unlocks"] = unlocks
     return payload
 
 
@@ -379,24 +398,41 @@ def _mcp_chips(body: McpPlayBody) -> dict:
     )
     op = body.op or "status"
     human_balance = get_wallet("human", human_player_id)["balance"]
+    if op == "achievements":
+        return {
+            "ok": True,
+            "status": "ok",
+            "op": op,
+            "achievements": compact_achievements(
+                get_achievements(
+                    "ai", body.player_id, bound_human_id=human_player_id
+                )
+            ),
+        }
     if op == "check_in":
-        result = claim_daily_check_in("ai", body.player_id)
+        result = claim_daily_check_in(
+            "ai", body.player_id, bound_human_ids=[human_player_id]
+        )
+        unlocks = filter_unlocks(result.get("unlocks", []), "ai", body.player_id)
         return {
             "ok": True,
             "status": "ok",
             "op": op,
             "claimed": result["claimed"],
             "wallet": _compact_wallet(result["wallet"]),
-            "bound_human_balance": human_balance,
+            "bound_human_balance": get_wallet("human", human_player_id)["balance"],
+            **({"unlocks": unlocks} if unlocks else {}),
         }
     if op == "bankruptcy":
         wallet = declare_bankruptcy("ai", body.player_id)
+        unlocks = filter_unlocks(wallet.pop("unlocks", []), "ai", body.player_id)
         return {
             "ok": True,
             "status": "ok",
             "op": op,
             "wallet": _compact_wallet(wallet),
             "bound_human_balance": human_balance,
+            **({"unlocks": unlocks} if unlocks else {}),
         }
     wallet = get_wallet("ai", body.player_id)
     payload = {
@@ -517,7 +553,7 @@ async def wait_for_revision(
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "duel", "version": "0.9.0"}
+    return {"ok": True, "service": "duel", "version": "1.0.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -706,6 +742,7 @@ async def human_create(request: Request, body: CreateRoomBody):
         stake=body.stake,
         enforce_trusted_pair=True,
         first_player_id=first_player_id,
+        rematch_of_room_id=body.rematch_of_room_id,
     )
     opener = room.get("current_actor") or {}
     opening_note = f"先手：{opener.get('display_name') or first_player_id}。"
@@ -1049,6 +1086,48 @@ async def mcp_play(body: McpPlayBody):
         return _pending_ai_response(room, body.player_id, message)
 
     room_id = require(body.room_id, f"{body.action} 动作需要 room_id")
+
+    if body.action == "rematch":
+        previous = get_room(room_id, "ai", body.player_id)
+        if previous["status"] not in {"finished", "archived"}:
+            raise DuelError("只有已正常结束的对局可以发起权威重赛", 409)
+        if any(
+            item.get("participant_kind") == "system_npc"
+            for item in previous["participants"]
+        ):
+            raise DuelError("含随机 NPC 的房间暂不支持原阵容权威重赛", 409)
+        humans = [
+            item for item in previous["participants"]
+            if item.get("participant_kind") == "human"
+        ]
+        if len(humans) != 1:
+            raise DuelError("权威重赛需要且只允许一名绑定人类", 409)
+        ordered = [
+            {
+                "player_id": item["player_id"],
+                "display_name": item.get("display_name") or item["player_id"],
+                "role": item["role"],
+                "participant_kind": item.get("participant_kind"),
+            }
+            for item in previous["participants"]
+        ]
+        rematch = create_room(
+            previous["game_type"],
+            "ai_first" if previous["mode"] == "human_first" else "human_first",
+            "ai",
+            body.player_id,
+            opponent_id=humans[0]["player_id"],
+            ordered_participants=ordered,
+            stake=previous.get("stake", 0),
+            enforce_trusted_pair=True,
+            rematch_of_room_id=room_id,
+        )
+        message = f"AI 已发起权威重赛，房间 {rematch['room_id']}。"
+        return (
+            _bootstrap_ai_response(rematch, body.player_id, message)
+            if rematch["status"] == "playing"
+            else _pending_ai_response(rematch, body.player_id, message)
+        )
 
     if body.action in {"accept", "reject"}:
         result = respond_to_invitation(

@@ -115,7 +115,9 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 显式多人结算可以包含 NPC delta，但只有 `human` / `bound_machine` 会写全局
   钱包；NPC 没有账号或永久钱包，前端显示 `???`，其本局增减保存在房间结果、
   结算批次和流水 metadata 中。
-- 成就、互动兑换、借款/欠条目前仍在设计/建设中。
+- 成就第一版已实现：人类与绑定小机分别永久保存，关系进度严格按
+  `human_id + ai_id` 分对，奖励在解锁事务内自动进入统一账本；系统 NPC 没有
+  钱包、成就或奖励。互动兑换、借款/欠条仍在设计中。
 
 ## 本地启动
 
@@ -217,6 +219,7 @@ Content-Type: application/json
 - `leave`
 - `accept`
 - `reject`
+- `rematch`
 - `chips`
 
 当前官方 CedarToy 部署会在聚合层认证 AI，并强制覆盖为 canonical `player_id`；客户端自报的 `player_id` 不参与身份选择。
@@ -273,7 +276,12 @@ Content-Type: application/json
 非当前参与者也可用 `state + wait=true` 等待自己的行动权或可见事件。
 `still_waiting` 只返回房间号、revision 和必要的当前行动者信息。
 
-小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持 `status`、`check_in`、`bankruptcy`、`ledger`；只能操作当前 canonical AI 自己的钱包，绑定人类余额只读。ledger 默认 5 条、硬上限 10。正常 bootstrap 已有双方余额，无需额外查询。
+小机筹码仍复用同一入口：`{"action":"chips","op":"status"}`。op 支持
+`status`、`check_in`、`bankruptcy`、`ledger`、`achievements`；只能操作当前
+canonical AI 自己的钱包，绑定人类余额只读。`achievements` 返回通用、小机专属、
+已启用 NPC 与当前可信绑定人类的“你们之间”成就；未解锁隐藏成就完全不返回。
+ledger 默认 5 条、硬上限 10。小机可对已正常结束且原阵容不含随机 NPC 的房间提交
+`{"action":"rematch","room_id":"..."}` 发起对称、权威、可追踪的重赛。
 
 ## 人类网页 API
 
@@ -321,12 +329,90 @@ POST /api/rooms/{room_id}/delete
 - 人类只能操作自己；绑定 AI 的钱包在人类端只读
 - 所有筹码变化进入统一账本流水
 - 双人旧游戏及首批多人验收游戏的自定义本局筹码、全员确认和幂等结算
+- 普通成就完整显示条件、可靠进度、奖励和解锁时间；未解锁为灰色
+- 隐藏成就未解锁前不进入 API、MCP、网页或公开总数，解锁后才进入隐藏区
+- 人类视图显示通用 + 人类专属；绑定小机视图显示通用 + 小机专属 + 当前配对关系
+- 解锁奖励无领取按钮；`achievement_unlocks` 与 `chip_ledger` 的
+  `achievement_reward` 在同一写事务内完成，账本幂等键保证同一成就不重复发奖
+- 成就终局快照、参与者结果、开局余额、事件、配对与进度独立于 `rooms` 持久化，
+  删除房间不会删除成就事实
 
-数据库初始化保持增量兼容：游戏注册和骰子状态都存入现有 `rooms.board_state`，
-不需要新增生产表；旧点格棋房间的 X/O 状态仍可继续落子，新房间才增加
-player_id 权威归属与分数字段；本批游戏不会为了注册新类型而重建或覆盖已兼容旧库。
+数据库初始化保持增量兼容：成就表和索引使用 `CREATE ... IF NOT EXISTS`，房间仅增加
+`terminal_reason` 与权威重赛链字段，不重建或覆盖已兼容旧库。启动回填只接受最终
+revision 上存在权威 `move` 或 `resign` 事件、且具有明确赢家/和棋的旧终局；陈旧超时
+归档、主动离桌、人数不足、进行中和故障记录不计。旧局没有开局余额时不回填
+“倾家荡产”；没有房间结算批次/账本时不猜历史结算余额。回填、展示修复和重复事件
+都复用相同唯一键，可安全重复执行。旧正常终局中可由 `initiator_player_id`、权威重赛
+字段和唯一人类败方的保留标记证明的创建、重赛与保留事件会一并回填。
 
-尚未实现的内容会继续分阶段加入：成就、互动兑换、借款与欠条。
+### 第一版成就奖励表
+
+奖励常量集中在 `app/achievements.py`，上线前可在一个目录中统一调整。
+
+| 类别 | 稳定 ID | 名称 | 奖励 |
+|---|---|---:|---:|
+| 通用 | `first_normal_game` | 落子无悔 | 5 |
+| 通用 | `first_authoritative_rematch` | 再来一局 | 5 |
+| 通用 | `first_normal_draw` | 棋逢对手 | 5 |
+| 通用 | `six_game_types` | 十八般棋艺 | 20 |
+| 通用 | `first_four_player_game` | 满堂生辉 | 10 |
+| 通用 | `first_staked_game` | 愿赌服输 | 5 |
+| 通用 | `win_after_three_losses` | 越挫越勇 | 10 |
+| 通用 | `win_gomoku` | 五子登科 | 10 |
+| 通用 | `win_tictactoe` | 井井有条 | 10 |
+| 通用 | `win_othello` | 黑白分明 | 10 |
+| 通用 | `win_connect4` | 四通八达 | 10 |
+| 通用 | `win_dots_boxes` | 圈地为王 | 10 |
+| 通用 | `win_jungle` | 万兽之王 | 10 |
+| 通用 | `first_negative_balance` | 兜比脸干净 | 10 |
+| 通用 | `first_bankruptcy` | 这下真没了 | 5 |
+| 通用 | `bankruptcy_recovery` | 东山再起 | 10 |
+| 通用 | `three_bankruptcies` | 三起三落 | 20 |
+| 通用 | `lose_100_in_game` | 钱都去哪了 | 10 |
+| 通用 | `win_zero_stake` | 赢了也没钱 | 5 |
+| 通用 | `lose_zero_stake` | 输了也不亏 | 5 |
+| 通用 | `ten_zero_stake_games` | 君子之交 | 20 |
+| 通用 | `five_zero_stake_same_opponent` | 不押筹码，押一口气 | 20 |
+| 人类 | `human_rematch_after_loss` | 人类的胜负欲 | 10 |
+| 人类 | `human_preserve_loss` | 输了也要留档 | 10 |
+| 人类 | `human_loses_to_bound_ai` | 我家小机初长成 | 10 |
+| 小机 | `ai_creates_room` | 我自己来的 | 5 |
+| 小机 | `ai_beats_bound_human` | 我不是陪玩 | 10 |
+| 小机 | `ai_three_win_streak` | 算力花在刀刃上 | 10 |
+| 小机 | `ai_authoritative_rematch` | 轮到你了，人类 | 10 |
+| 小机 | `ai_revenge_bound_human` | 你教得好，下次别教了 | 20 |
+| 小机 | `ai_six_game_types` | 棋盘不在提示词里 | 20 |
+| 关系 | `pair_first_game` | 来都来了 | 双方各 5 |
+| 关系 | `pair_ten_games` | 又是你 | 双方各 10 |
+| 关系 | `pair_fifty_games` | 老对手了 | 双方各 20 |
+| 关系 | `pair_reunion_after_seven_days` | 座位还给你留着 | 双方各 20 |
+| 关系 | `pair_same_day_check_in` | 同一天想起这里 | 双方各 10 |
+| 关系 | `pair_both_won` | 有来有回 | 双方各 10 |
+| 关系 | `pair_balanced_twenty` | 半斤八两 | 双方各 20 |
+| 关系 | `pair_five_wins_each` | 相爱相杀 | 双方各 20 |
+| 隐藏 | `jungle_rat_captures_elephant` | 大象也怕老鼠 | 10 |
+| 隐藏 | `all_in_loss` | 倾家荡产 | 20 |
+| 隐藏 | `settlement_balance_minus_500` | 输到系统都心疼 | 20 |
+| 隐藏 | `game_last_at_least_24h` | 棋盘钉子户 | 20 |
+| 隐藏 | `ten_game_rematch_chain` | 十局之后还是朋友 | 20 |
+| 隐藏 | `non_tictactoe_draw` | 这也能和？ | 10 |
+| 隐藏 | `othello_win_both_sides` | 黑白通吃 | 20 |
+| 隐藏 | `last_move_comeback_win` | 一子定乾坤 | 20（仅定义，暂不触发） |
+| NPC（许知衡） | `defeat_npc_xu_zhi_heng` | 这回算漏了 | 10 |
+| NPC（岳鸣川） | `defeat_npc_yue_ming_chuan` | 别催，赢着呢 | 10 |
+| NPC（温行止） | `defeat_npc_wen_xing_zhi` | 这次没上当 | 10 |
+| NPC（唐熠） | `defeat_npc_tang_yi` | 这句还给你 | 10 |
+| NPC（商令仪） | `defeat_npc_shang_ling_yi` | 后发也有来不及 | 10 |
+| NPC（乔麦） | `defeat_npc_qiao_mai` | 这次猜错啦 | 10 |
+| NPC | `defeat_all_six_npcs` | 一个都没放过 | 30 |
+
+NPC 项只在对应 `persona_id` 实际启用时公开；全收集项要求六位全部启用。已经解锁的
+历史项即使管理员稍后停用该人设仍会保留。`一子定乾坤` 目前没有足以证明“最后一手
+从落后反胜”的统一权威分差，因此只保留隐藏定义，不设置猜测型触发器。连续同对手
+0 筹码与重赛链采用严格双人窄口径，重赛链只取逐局直接相连的最长路径、不会把同一
+旧局派生出的并行分支相加；“7 个完整自然日”按上海日期之间不含首尾的完整日数计算。
+
+尚未实现的内容会继续分阶段加入：互动兑换、借款与欠条。
 
 ## 数据与隐私
 

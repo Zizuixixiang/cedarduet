@@ -336,8 +336,8 @@ class NpcRoomContractTests(unittest.TestCase):
             "human-1": 15, "ai-1": -5,
             "npc:quiet": -5, "npc:bright": -5,
         })
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 215)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 195)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 240)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 220)
         conn = database.connect()
         try:
             npc_wallets = conn.execute(

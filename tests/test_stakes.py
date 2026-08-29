@@ -58,8 +58,19 @@ class StakeFrameworkTests(unittest.TestCase):
         self.assertEqual(room["winner"], "human")
         conn = database.connect()
         try:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chip_wallets").fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chip_ledger").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chip_wallets").fetchone()[0], 2)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM chip_ledger WHERE transaction_type IN ('duel_win', 'duel_loss')"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertGreater(
+                conn.execute(
+                    "SELECT COUNT(*) FROM chip_ledger WHERE transaction_type = 'achievement_reward'"
+                ).fetchone()[0],
+                0,
+            )
         finally:
             conn.close()
 
@@ -125,8 +136,8 @@ class StakeFrameworkTests(unittest.TestCase):
             ("human", "human-1", {"row": 0, "col": 2}),
         ):
             room = framework.play_move(room["room_id"], role, player_id, move)
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 205)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 195)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 230)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 210)
 
         with database.write_transaction() as conn:
             row = conn.execute(
@@ -135,8 +146,8 @@ class StakeFrameworkTests(unittest.TestCase):
             decoded = database.decode_room(row, conn)
             self.assertFalse(framework._settle_terminal_room(conn, decoded))
         framework.get_room(room["room_id"])
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 205)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 195)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 230)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 210)
         self.assertEqual(self.ledger_types("human", "human-1").count("duel_win"), 1)
         self.assertEqual(self.ledger_types("ai", "ai-1").count("duel_loss"), 1)
 
@@ -156,16 +167,16 @@ class StakeFrameworkTests(unittest.TestCase):
         self.assertEqual(room["winner"], "draw")
         self.assertNotIn("duel_win", self.ledger_types("human", "human-1"))
         self.assertNotIn("duel_loss", self.ledger_types("ai", "ai-1"))
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 200)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 200)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 220)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 220)
 
     def test_resign_settles_loss_and_negative_balance_is_allowed(self):
         chips.change_balance("human", "human-1", -205, "test_setup")
         room = self.paired_room(stake=10)
         room = framework.resign(room["room_id"], "human", "human-1")
         self.assertEqual(room["winner"], "ai")
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], -15)
-        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 210)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 20)
+        self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 245)
 
     def test_nonzero_rematch_contract_requires_fresh_confirmation(self):
         first = self.paired_room(stake=6)

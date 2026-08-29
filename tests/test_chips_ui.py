@@ -72,6 +72,20 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertNotIn('id="machineSelect"', HTML)
         self.assertNotIn("查看小机", HTML)
 
+    def test_achievement_panel_is_real_and_mobile_ready(self):
+        self.assertIn('id="achievementSummary"', HTML)
+        self.assertIn('id="achievementSections"', HTML)
+        self.assertNotIn("成就与奖励正在筹备", HTML)
+        achievement_panel = HTML[
+            HTML.index('id="panel-achievements"'):HTML.index('id="panel-social"')
+        ]
+        self.assertNotIn("即将开放", achievement_panel)
+        self.assertIn("function renderAchievements(payload)", SCRIPT)
+        styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
+        self.assertIn(".achievement-item.locked", styles)
+        self.assertIn(".achievement-item.unlocked", styles)
+        self.assertIn("@media (max-width: 540px)", styles)
+
     def test_existing_chip_api_paths_are_unchanged(self):
         for path in (
             'requestJson("/api/chips")',
@@ -126,6 +140,7 @@ class Element {{
     this.dataset = panel ? {{panel}} : {{}};
     this.hidden = false;
     this.tabIndex = selected ? 0 : -1;
+    this.style = {{}};
     this.attributes = {{"aria-selected": String(selected)}};
     this.listeners = {{}};
   }}
@@ -191,6 +206,7 @@ class Element {{
     this.disabled = false;
     this.hidden = false;
     this.tabIndex = selected ? 0 : -1;
+    this.style = {{}};
   }}
   addEventListener(name, callback) {{ this.listeners[name] = callback; }}
   append(...children) {{ this.children.push(...children); }}
@@ -203,7 +219,8 @@ const ids = [
   "notice", "subjectSelect", "readOnlyTag", "balanceTitle", "myBalance",
   "myBankruptcyState", "myBankruptcyCount", "bankruptcyDescription",
   "bankruptcyButton", "checkInState", "checkInDescription", "checkInButton",
-  "achievementDescription", "socialTitle", "socialDescription",
+  "achievementDescription", "achievementSummary", "achievementSections",
+  "socialTitle", "socialDescription",
   "ledgerDescription", "ledgerList",
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
@@ -235,11 +252,17 @@ const payloads = {{
   "/api/chips": {{
     ok: true, human_name: "南山君", wallet: humanWallet,
     machines: [{{id: "ai-9", name: "clio_web"}}],
+    achievements: {{summary: {{unlocked: 1, total: 25, hidden_unlocked: 0}}, sections: [
+      {{id: "human", name: "人类专属", items: [{{id: "h1", name: "人类成就", condition: "条件", reward: 5, progress: {{current: 1, target: 1}}, unlocked: true, unlocked_at: "2026-08-27T01:00:00+00:00"}}]}},
+    ]}},
     ledger: [{{label: "人类流水", amount: 10, created_at: "2026-08-27T01:00:00+00:00", balance_after: 310}}],
   }},
   "/api/chips/machines/ai-9": {{
     ok: true, machine: {{id: "ai-9", name: "clio_web"}}, read_only: true,
     wallet: machineWallet,
+    achievements: {{summary: {{unlocked: 0, total: 36, hidden_unlocked: 0}}, sections: [
+      {{id: "relationship", name: "你们之间", items: [{{id: "pair", name: "来都来了", condition: "完成一局", reward: 5, progress: {{current: 0, target: 1}}, unlocked: false}}]}},
+    ]}},
     ledger: [{{label: "小机流水", amount: -20, created_at: "2026-08-27T02:00:00+00:00", balance_after: 50}}],
   }},
 }};
@@ -258,6 +281,8 @@ assert.equal(elements.myBalance.textContent, "310");
 assert.equal(elements.checkInState.textContent, "今日未签到");
 assert.equal(elements.myBankruptcyCount.textContent, "破产 0 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "人类流水");
+assert.equal(elements.achievementSummary.textContent, "1 / 25");
+assert.equal(elements.achievementSections.children[0].children[0].textContent, "人类专属");
 assert.equal(elements.checkInButton.disabled, false);
 assert.equal(elements.checkInButton.classList.contains("hidden"), false);
 
@@ -269,9 +294,11 @@ assert.equal(elements.checkInState.textContent, "今日已签到");
 assert.equal(elements.myBankruptcyState.textContent, "像素吃土中");
 assert.equal(elements.myBankruptcyCount.textContent, "破产 2 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "小机流水");
+assert.equal(elements.achievementSummary.textContent, "0 / 36");
+assert.equal(elements.achievementSections.children[0].children[0].textContent, "你们之间");
 assert.equal(elements.checkInDescription.textContent, "clio_web 的今日签到状态；只能由小机自己操作");
 assert.equal(elements.bankruptcyDescription.textContent, "clio_web 的破产信息只读；人类不能代为宣布");
-assert.equal(elements.achievementDescription.textContent, "clio_web 的对局成就与奖励正在筹备");
+assert.equal(elements.achievementDescription.textContent, "clio_web 的永久成就；含你们之间的配对进度");
 assert.equal(elements.socialTitle.textContent, "与 clio_web 的互动与借款");
 assert.equal(elements.ledgerDescription.textContent, "clio_web 的统一账本 · 最近流水");
 assert.equal(elements.readOnlyTag.classList.contains("hidden"), false);
@@ -287,7 +314,7 @@ assert.equal(elements.myBalance.textContent, "310");
 assert.equal(elements.checkInState.textContent, "今日未签到");
 assert.equal(elements.myBankruptcyCount.textContent, "破产 0 次");
 assert.equal(elements.ledgerList.children[0].children[0].textContent, "人类流水");
-assert.equal(elements.achievementDescription.textContent, "我的对局成就与奖励正在筹备");
+assert.equal(elements.achievementDescription.textContent, "我的永久成就；奖励在解锁时自动到账");
 assert.equal(elements.socialTitle.textContent, "互动与借款");
 assert.equal(elements.socialDescription.textContent, "选择一只绑定小机后查看关系功能；规则筹备中");
 assert.equal(elements.checkInButton.disabled, false);

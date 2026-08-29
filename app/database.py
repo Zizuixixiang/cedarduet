@@ -31,6 +31,9 @@ CREATE TABLE rooms (
     confirmation_expires_at TEXT,
     preserved INTEGER NOT NULL DEFAULT 0 CHECK (preserved IN (0, 1)),
     terminal_at TEXT,
+    terminal_reason TEXT,
+    rematch_of_room_id TEXT,
+    rematch_root_room_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_move_at TEXT NOT NULL
@@ -191,6 +194,12 @@ def init_db() -> None:
             )
         if "terminal_at" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN terminal_at TEXT")
+        if "terminal_reason" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN terminal_reason TEXT")
+        if "rematch_of_room_id" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN rematch_of_room_id TEXT")
+        if "rematch_root_room_id" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN rematch_root_room_id TEXT")
         if "current_player_id" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN current_player_id TEXT")
         if "winner_player_id" not in room_columns:
@@ -387,6 +396,21 @@ def init_db() -> None:
         from .chips import init_chips_schema
 
         init_chips_schema(conn)
+        # Achievement facts/rewards are additive and survive room deletion.
+        # The strict legacy backfill runs as one transaction and is idempotent.
+        from .achievements import (
+            backfill_authoritative_matches,
+            init_achievement_schema,
+        )
+
+        init_achievement_schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            backfill_authoritative_matches(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     finally:
         conn.close()
 

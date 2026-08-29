@@ -46,12 +46,12 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def assert_full_room(self, payload):
+    def assert_full_room(self, payload, *, ai_balance=205):
         self.assertTrue(payload["bootstrap"])
         self.assertEqual(payload["status"], "playing")
         for field in ("board_state", "rules_text", "move_format", "turn", "status", "stake"):
             self.assertIn(field, payload["room"])
-        self.assertEqual(payload["chip_balances"], {"ai": 200, "human": 200})
+        self.assertEqual(payload["chip_balances"], {"ai": ai_balance, "human": 200})
 
     def assert_compact_delta(self, payload, move):
         self.assertEqual(payload["your_move"], move)
@@ -71,7 +71,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pending["status"], "pending")
         self.assertEqual(pending["stake"], 9)
         self.assertEqual(pending["confirmation_decision"], "accepted")
-        self.assertEqual(pending["chip_balances"], {"ai": 200, "human": 200})
+        self.assertEqual(pending["chip_balances"], {"ai": 205, "human": 200})
         for forbidden in ("room", "board_state", "rules_text", "move_format"):
             self.assertNotIn(forbidden, pending)
 
@@ -83,7 +83,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             json={"action": "accept", "player_id": "ai-a", "room_id": invited["room_id"]},
         )
         self.assertEqual(accepted.status_code, 200, accepted.text)
-        self.assert_full_room(accepted.json())
+        self.assert_full_room(accepted.json(), ai_balance=200)
         self.assertEqual(accepted.json()["room"]["stake"], 4)
 
     async def test_state_is_full_but_move_and_wait_wakeup_are_compact_raw_deltas(self):
@@ -191,7 +191,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["winner"], "ai")
         self.assertEqual(payload["result"], "win")
         self.assertEqual(payload["settlement"]["delta"], {"ai": 7, "human": -7})
-        self.assertEqual(payload["settlement"]["balances"], {"ai": 207, "human": 193})
+        self.assertEqual(payload["settlement"]["balances"], {"ai": 242, "human": 218})
 
         resign_room = (await self.new_room(ai="ai-r", human="human-r"))["room"]["room_id"]
         resigned = await self.client.post(
@@ -234,7 +234,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "opponent_id": "human-chip",
             },
         )
-        self.assertEqual(bankrupt.json()["wallet"]["balance"], 50)
+        self.assertEqual(bankrupt.json()["wallet"]["balance"], 55)
         self.assertEqual(chips.get_wallet("human", "human-chip")["balance"], 200)
 
         ledger = await self.client.post(

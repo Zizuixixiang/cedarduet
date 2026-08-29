@@ -1177,9 +1177,9 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             {"human-1": 15, "ai-1": -5, "ai-2": -5, "ai-3": -5},
         )
         from app import chips
-        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 215)
+        self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 250)
         for player_id in ("ai-1", "ai-2", "ai-3"):
-            self.assertEqual(chips.get_wallet("ai", player_id)["balance"], 195)
+            self.assertEqual(chips.get_wallet("ai", player_id)["balance"], 220)
 
 
 if __name__ == "__main__":

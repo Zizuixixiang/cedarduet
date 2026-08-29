@@ -105,7 +105,7 @@ class ChipServiceTests(unittest.TestCase):
         chips.change_balance("human", "human-1", -700, "test_loss")
         wallet = chips.declare_bankruptcy("human", "human-1")
 
-        self.assertEqual(wallet["balance"], 50)
+        self.assertEqual(wallet["balance"], 55)
         self.assertEqual(wallet["bankruptcy_count"], 1)
         self.assertTrue(wallet["bankruptcy_active"])
         self.assertEqual(wallet["bankruptcy_badge"]["id"], "pixel_dirt_poor")
@@ -123,7 +123,7 @@ class ChipServiceTests(unittest.TestCase):
         chips.change_balance("human", "human-1", -700, "test_loss")
         chips.declare_bankruptcy("human", "human-1")
         still_active = chips.change_balance(
-            "human", "human-1", 149, "test_recovery"
+            "human", "human-1", 144, "test_recovery"
         )
         recovered = chips.change_balance(
             "human", "human-1", 1, "test_recovery"
@@ -131,7 +131,7 @@ class ChipServiceTests(unittest.TestCase):
 
         self.assertEqual(still_active["balance"], 199)
         self.assertTrue(still_active["bankruptcy_active"])
-        self.assertEqual(recovered["balance"], 200)
+        self.assertEqual(recovered["balance"], 210)
         self.assertFalse(recovered["bankruptcy_active"])
         self.assertIsNone(recovered["bankruptcy_badge"])
         self.assertEqual(recovered["bankruptcy_count"], 1)
@@ -207,13 +207,13 @@ class ChipApiTests(unittest.IsolatedAsyncioTestCase):
         payload = response.json()
         self.assertTrue(payload["read_only"])
         self.assertEqual(payload["machine"], {"id": "ai-9", "name": "克莱奥"})
-        self.assertEqual(payload["wallet"]["balance"], 50)
+        self.assertEqual(payload["wallet"]["balance"], 55)
         self.assertTrue(payload["wallet"]["checked_in_today"])
         self.assertTrue(payload["wallet"]["bankruptcy_active"])
         self.assertEqual(payload["wallet"]["bankruptcy_count"], 1)
         self.assertEqual(
             [entry["transaction_type"] for entry in payload["ledger"]],
-            ["bankruptcy_reset", "test_loss", "daily_check_in", "wallet_opened"],
+            ["achievement_reward", "bankruptcy_reset", "test_loss", "daily_check_in", "wallet_opened"],
         )
 
         for action in ("check-in", "bankruptcy"):

@@ -70,6 +70,7 @@ TRANSACTION_LABELS = {
     "bankruptcy_reset": "宣布破产",
     "duel_win": "双弈胜局",
     "duel_loss": "双弈负局",
+    "achievement_reward": "成就自动奖励",
 }
 
 
@@ -290,7 +291,23 @@ def change_balance(
             reference_id=reference_id,
             metadata=metadata,
         )
-        return _wallet_payload(conn, wallet)
+        from .achievements import record_wallet_change
+
+        unlocks = record_wallet_change(
+            conn,
+            subject_type,
+            subject_id,
+            transaction_type=transaction_type,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            idempotency_key=idempotency_key,
+            balance_after=wallet["balance"],
+        )
+        latest = _wallet_row(conn, subject_type, subject_id)
+        payload = _wallet_payload(conn, latest or wallet)
+        if unlocks:
+            payload["unlocks"] = unlocks
+        return payload
 
 
 def apply_participant_deltas(
@@ -471,7 +488,13 @@ def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
     )
 
 
-def claim_daily_check_in(subject_type: SubjectType, subject_id: str) -> dict:
+def claim_daily_check_in(
+    subject_type: SubjectType,
+    subject_id: str,
+    *,
+    bound_human_ids: list[str] | None = None,
+    bound_ai_ids: list[str] | None = None,
+) -> dict:
     """Claim one +20 grant per Asia/Shanghai calendar day."""
     today = _effective_date()
     key = f"daily_check_in:{today}"
@@ -484,20 +507,34 @@ def claim_daily_check_in(subject_type: SubjectType, subject_id: str) -> dict:
             """,
             (wallet["id"], key),
         ).fetchone()
-        if existing is not None:
-            return {
-                "claimed": False,
-                "wallet": _wallet_payload(conn, wallet),
-            }
-        wallet = _apply_balance_change(
-            conn,
-            wallet,
-            DAILY_CHECK_IN_AMOUNT,
-            "daily_check_in",
-            idempotency_key=key,
-            effective_date=today,
+        claimed = existing is None
+        if claimed:
+            wallet = _apply_balance_change(
+                conn,
+                wallet,
+                DAILY_CHECK_IN_AMOUNT,
+                "daily_check_in",
+                idempotency_key=key,
+                effective_date=today,
+            )
+        from .achievements import record_check_in
+
+        human_ids = list(bound_human_ids or [])
+        ai_ids = list(bound_ai_ids or [])
+        if subject_type == "human":
+            human_ids.append(subject_id)
+        else:
+            ai_ids.append(subject_id)
+        unlocks = record_check_in(
+            conn, subject_type, subject_id, today,
+            human_ids=human_ids, ai_ids=ai_ids,
         )
-        return {"claimed": True, "wallet": _wallet_payload(conn, wallet)}
+        latest = _wallet_row(conn, subject_type, subject_id)
+        return {
+            "claimed": claimed,
+            "wallet": _wallet_payload(conn, latest or wallet),
+            "unlocks": unlocks,
+        }
 
 
 def declare_bankruptcy(subject_type: SubjectType, subject_id: str) -> dict:
@@ -538,7 +575,16 @@ def declare_bankruptcy(subject_type: SubjectType, subject_id: str) -> dict:
         ).fetchone()
         if updated is None:
             raise RuntimeError("bankrupt wallet disappeared")
-        return _wallet_payload(conn, updated)
+        from .achievements import record_bankruptcy
+
+        unlocks = record_bankruptcy(
+            conn, subject_type, subject_id, updated["bankruptcy_count"]
+        )
+        latest = _wallet_row(conn, subject_type, subject_id)
+        payload = _wallet_payload(conn, latest or updated)
+        if unlocks:
+            payload["unlocks"] = unlocks
+        return payload
 
 
 def _wallet_payload(conn: sqlite3.Connection, wallet: sqlite3.Row) -> dict:

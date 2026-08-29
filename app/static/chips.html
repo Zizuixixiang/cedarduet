@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8d9f1">
   <title>筹码中心 · Duel</title>
-  <link rel="stylesheet" href="/static/chips.css?v=0.3.0">
+  <link rel="stylesheet" href="/static/chips.css?v=1.0.0">
 </head>
 <body>
   <main class="chip-shell">
@@ -86,16 +86,17 @@
           </div>
         </section>
 
-        <section id="panel-achievements" class="module-card module-panel placeholder-card" role="tabpanel"
+        <section id="panel-achievements" class="module-card module-panel achievements-card" role="tabpanel"
           aria-labelledby="tab-achievements" hidden>
           <div class="module-heading">
             <span class="pixel-icon" aria-hidden="true">★</span>
             <div>
               <h2>成就</h2>
-              <p id="achievementDescription">我的对局成就与奖励正在筹备</p>
+              <p id="achievementDescription">读取永久成就资料…</p>
             </div>
+            <span id="achievementSummary" class="panel-state">-- / --</span>
           </div>
-          <button class="button ghost" type="button" disabled>即将开放</button>
+          <div id="achievementSections" class="achievement-sections" aria-live="polite"></div>
         </section>
 
         <section id="panel-social" class="module-card module-panel placeholder-card" role="tabpanel"
@@ -130,6 +131,6 @@
     </section>
 
   </main>
-  <script src="/static/chips.js?v=0.3.0"></script>
+  <script src="/static/chips.js?v=1.0.0"></script>
 </body>
 </html>

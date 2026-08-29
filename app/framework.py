@@ -57,7 +57,15 @@ def _new_room_id(conn) -> str:
     for _ in range(20):
         candidate = "".join(secrets.choice(alphabet) for _ in range(8))
         if conn.execute(
-            "SELECT 1 FROM rooms WHERE room_id = ?", (candidate,)
+            """
+            SELECT 1 FROM rooms WHERE room_id = ?
+            UNION ALL
+            SELECT 1 FROM achievement_matches WHERE room_id = ?
+            UNION ALL
+            SELECT 1 FROM achievement_room_openings WHERE room_id = ?
+            LIMIT 1
+            """,
+            (candidate, candidate, candidate),
         ).fetchone() is None:
             return candidate
     raise DuelError("暂时无法生成房间号，请重试", 503)
@@ -183,6 +191,9 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     if not isinstance(public_state, dict) or not isinstance(private_state, dict):
         raise DuelError("游戏插件 public_state/private_state 必须返回对象")
     projected = deepcopy(room)
+    # Unlocks can include several participants because evaluation is atomic.
+    # Callers project only the authenticated viewer's compact list at top level.
+    projected.pop("achievement_unlocks", None)
     projected_participants = deepcopy(participants)
     for participant in projected_participants:
         try:
@@ -1071,6 +1082,7 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
             UPDATE rooms
             SET status = 'archived', winner = 'draw',
                 winner_player_id = NULL, result_json = '{"draw":true}',
+                terminal_reason = 'stale_archive',
                 current_player_id = NULL,
                 revision = revision + 1, updated_at = ?, terminal_at = ?
             WHERE room_id = ?
@@ -1085,6 +1097,11 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
         terminal_room = decode_room(updated, conn)
         _record_result_event(conn, terminal_room)
         _settle_terminal_room(conn, terminal_room)
+        from .achievements import record_terminal_room
+
+        record_terminal_room(
+            conn, terminal_room, "stale_archive", normal=False
+        )
     return len(stale_rows)
 
 
@@ -1275,6 +1292,7 @@ def create_room(
     require_confirmations: bool | None = None,
     enforce_trusted_pair: bool = False,
     first_player_id: str | None = None,
+    rematch_of_room_id: str | None = None,
 ) -> dict:
     try:
         game = get_game(game_type)
@@ -1411,6 +1429,20 @@ def create_room(
         for human_player_id in humans:
             for ai_player_id in ais:
                 _check_pair_capacity(conn, human_player_id, ai_player_id)
+        rematch_root_room_id = None
+        if rematch_of_room_id is not None:
+            rematch_of_room_id = _room_id(rematch_of_room_id)
+            from .achievements import validate_rematch
+
+            try:
+                rematch_of_room_id, rematch_root_room_id = validate_rematch(
+                    conn,
+                    rematch_of_room_id,
+                    (item["player_id"] for item in participants),
+                    game_type,
+                )
+            except ValueError as exc:
+                raise DuelError(str(exc), 409) from exc
         room_id = _new_room_id(conn)
         enough_players = game.accepts_player_count(len(participants))
         status = (
@@ -1426,8 +1458,9 @@ def create_room(
                 stake, initiator_player_id,
                 confirmation_required, confirmation_expires_at,
                 preserved, terminal_at,
+                terminal_reason, rematch_of_room_id, rematch_root_room_id,
                 created_at, updated_at, last_move_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, NULL, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, NULL, NULL, ?, ?, ?, ?, ?)
             """,
             (
                 room_id,
@@ -1441,6 +1474,8 @@ def create_room(
                 player_id,
                 int(confirmation_required),
                 confirmation_expires_at,
+                rematch_of_room_id,
+                rematch_root_room_id,
                 timestamp,
                 timestamp,
                 timestamp,
@@ -1503,6 +1538,9 @@ def create_room(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
         room = decode_room(row, conn)
+        from .achievements import record_room_created
+
+        room["achievement_unlocks"] = record_room_created(conn, room)
     return _decorate(room)
 
 
@@ -1909,6 +1947,12 @@ def set_room_preserved(
                 "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
             ).fetchone()
             result = decode_room(updated, conn)
+            if preserved:
+                from .achievements import record_preserved_loss
+
+                result["achievement_unlocks"] = record_preserved_loss(
+                    conn, human_player_id, room_id
+                )
     if result is None:
         raise DuelError("房间不存在", 404)
     return _decorate(result)
@@ -2109,7 +2153,8 @@ def play_move(
                 revision = revision + 1, status = ?, winner = ?,
                 winner_player_id = ?, result_json = ?,
                 updated_at = ?, last_move_at = ?,
-                terminal_at = CASE WHEN ? = 'finished' THEN ? ELSE terminal_at END
+                terminal_at = CASE WHEN ? = 'finished' THEN ? ELSE terminal_at END,
+                terminal_reason = CASE WHEN ? = 'finished' THEN 'game_result' ELSE terminal_reason END
             WHERE room_id = ?
             """,
             (
@@ -2127,6 +2172,7 @@ def play_move(
                 timestamp,
                 status,
                 timestamp,
+                status,
                 room_id,
             ),
         )
@@ -2146,9 +2192,21 @@ def play_move(
             visible_to_player_ids=event_visible_to_player_ids,
         )
         result = decode_room(updated, conn)
+        achievement_unlocks: list[dict] = []
         if result["status"] == "finished":
             _record_result_event(conn, result)
             _settle_terminal_room(conn, result)
+            from .achievements import record_terminal_room
+
+            achievement_unlocks.extend(
+                record_terminal_room(conn, result, "game_result", normal=True)
+            )
+        from .achievements import record_special_move
+
+        achievement_unlocks.extend(
+            record_special_move(conn, result, actor, move)
+        )
+        result["achievement_unlocks"] = achievement_unlocks
     return _decorate(result)
 
 
@@ -2302,7 +2360,8 @@ def leave_room(
             UPDATE rooms
             SET status = ?, winner = ?, winner_player_id = ?, result_json = ?,
                 turn = ?, current_player_id = ?, revision = revision + 1,
-                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END
+                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
+                terminal_reason = CASE WHEN ? THEN 'participant_left' ELSE terminal_reason END
             WHERE room_id = ? AND status = 'playing'
             """,
             (
@@ -2318,6 +2377,7 @@ def leave_room(
                 timestamp,
                 int(terminal),
                 timestamp,
+                int(terminal),
                 room_id,
             ),
         )
@@ -2332,6 +2392,11 @@ def leave_room(
         if terminal:
             _record_result_event(conn, result)
             _settle_terminal_room(conn, result)
+            from .achievements import record_terminal_room
+
+            result["achievement_unlocks"] = record_terminal_room(
+                conn, result, "participant_left", normal=False
+            )
     return _decorate(result)
 
 
@@ -2420,7 +2485,8 @@ def resign(
             UPDATE rooms
             SET status = ?, winner = ?, winner_player_id = ?, result_json = ?,
                 turn = ?, current_player_id = ?, revision = revision + 1,
-                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END
+                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
+                terminal_reason = CASE WHEN ? THEN 'resignation' ELSE terminal_reason END
             WHERE room_id = ?
             """,
             (
@@ -2436,6 +2502,7 @@ def resign(
                 timestamp,
                 int(terminal),
                 timestamp,
+                int(terminal),
                 room_id,
             ),
         )
@@ -2457,4 +2524,12 @@ def resign(
                 conn, result, resigned_player_id=player_id
             )
             _settle_terminal_room(conn, result)
+            from .achievements import record_terminal_room
+
+            result["achievement_unlocks"] = record_terminal_room(
+                conn,
+                result,
+                "resignation",
+                normal=result.get("winner_player_id") is not None,
+            )
     return _decorate(result)
