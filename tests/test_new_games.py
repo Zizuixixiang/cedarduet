@@ -1,3 +1,4 @@
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -201,6 +202,48 @@ class RegistryErrorTests(unittest.TestCase):
             self.assertEqual(plugin.min_players, 2)
             self.assertLessEqual(plugin.max_players, 6)
             self.assertIn(2, plugin.resolved_allowed_player_counts())
+
+    def test_player_rules_use_the_light_structure_without_move_schema_terms(self):
+        heading_pattern = re.compile(r"^【[^【】]+】$", re.MULTILINE)
+        for game_type, plugin in GAMES.items():
+            with self.subTest(game_type=game_type):
+                rules = plugin.rules_text
+                self.assertGreaterEqual(len(heading_pattern.findall(rules)), 3)
+                self.assertIn("\n\n", rules)
+                for developer_term in (
+                    "row", "legal_actions", "legal_moves", '{"move"', "stake",
+                ):
+                    self.assertNotIn(developer_term, rules)
+
+        for game_type in ("aeroplane_chess", "chinese_checkers", "yahtzee"):
+            with self.subTest(long_rules=game_type):
+                rules = GAMES[game_type].rules_text
+                self.assertGreaterEqual(len(heading_pattern.findall(rules)), 4)
+                self.assertIn("\n- ", rules)
+
+    def test_long_variant_rules_keep_their_player_facing_distinctions(self):
+        expectations = {
+            "aeroplane_chess": (
+                "只有掷出 6", "继续掷骰", "连续第三个 6", "前跳 4 格",
+                "第 21 格", "第 33 格", "所有对手机", "精确点数", "不反弹",
+            ),
+            "chinese_checkers": (
+                "121 孔", "2、3、4、6 人", "连续跳跃", "其他四个角营不能作为回合终点",
+                "不能离开", "anti-spoiling",
+            ),
+            "yahtzee": (
+                "13 类", "63 分", "35 分", "重复快艇", "Joker", "不支持筹码",
+            ),
+            "liars_dice": (
+                "每人初始 5 枚六面骰", "1 点不作万能点", "数量相同而点数更大",
+                "质疑", "淘汰", "最后一名",
+            ),
+        }
+        for game_type, phrases in expectations.items():
+            with self.subTest(game_type=game_type):
+                rules = GAMES[game_type].rules_text
+                for phrase in phrases:
+                    self.assertIn(phrase, rules)
 
     def test_unknown_game_lists_every_available_type(self):
         with self.assertRaises(DuelError) as caught:

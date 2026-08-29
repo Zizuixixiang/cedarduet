@@ -75,6 +75,109 @@ class GameUIExtensionContractTests(unittest.TestCase):
         ])
 
 
+class RulesDrawerContractTests(unittest.TestCase):
+    def test_drawer_uses_a_semantic_scrollable_structure_at_readable_sizes(self):
+        drawer = HTML[
+            HTML.index('<div id="rulesScrim"'):
+            HTML.index('<div id="historyDrawer"')
+        ]
+        self.assertIn('id="rulesDrawer" class="rules-drawer" role="dialog"', drawer)
+        self.assertIn('aria-labelledby="rulesTitle"', drawer)
+        self.assertIn('aria-describedby="rulesGuide"', drawer)
+        self.assertIn(
+            'id="rulesText" class="rules-content" tabindex="0"', drawer
+        )
+        self.assertNotIn('<p id="rulesText"', drawer)
+        self.assertIn('aria-expanded="false" aria-controls="rulesDrawer"', HTML)
+
+        content = STYLES[
+            STYLES.index(".rules-content {"):
+            STYLES.index("}", STYLES.index(".rules-content {"))
+        ]
+        self.assertIn("overflow-y: auto", content)
+        self.assertIn("font-size: 14px", content)
+        self.assertIn("line-height: 1.75", content)
+        self.assertIn(".rules-section-title {", STYLES)
+        self.assertIn(".rules-list li::marker {", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(".rules-drawer {\n    width: 100%;\n    height: 86dvh;", mobile)
+        self.assertIn(".rules-content {\n    padding: 14px 12px;\n    font-size: 14px;", mobile)
+        self.assertIn("@media (max-width: 340px)", mobile)
+        self.assertIn(".rules-drawer { padding-inline: 10px; }", mobile)
+
+    @unittest.skipUnless(NODE, "node is required for rules DOM renderer tests")
+    def test_renderer_builds_headings_paragraphs_lists_and_plain_text_fallback(self):
+        renderer = function_source("renderRulesText")
+        self.assertNotIn("innerHTML", renderer)
+        harness = f'''
+const assert = require("node:assert/strict");
+class Element {{
+  constructor(tagName) {{
+    this.tagName = tagName;
+    this.children = [];
+    this.className = "";
+    this.textContent = "";
+  }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  replaceChildren(...children) {{
+    this.children = children.flatMap(
+      (child) => child.tagName === "#fragment" ? child.children : [child]
+    );
+  }}
+}}
+const rulesText = new Element("div");
+const $ = (id) => {{ assert.equal(id, "rulesText"); return rulesText; }};
+const document = {{
+  createElement(tagName) {{ return new Element(tagName); }},
+  createDocumentFragment() {{ return new Element("#fragment"); }},
+}};
+{renderer}
+
+renderRulesText(
+  "【目标】\\r\\n先取得更多分数。\\n\\n"
+  + "【行动】\\n- 第一项\\n- <img src=x onerror=alert(1)>\\n补充段落。"
+);
+assert.equal(rulesText.children.length, 2);
+assert.deepEqual(
+  rulesText.children[0].children.map((node) => node.tagName),
+  ["h3", "p"],
+);
+assert.equal(rulesText.children[0].children[0].textContent, "目标");
+assert.equal(rulesText.children[0].children[1].textContent, "先取得更多分数。");
+assert.deepEqual(
+  rulesText.children[1].children.map((node) => node.tagName),
+  ["h3", "ul", "p"],
+);
+const list = rulesText.children[1].children[1];
+assert.deepEqual(list.children.map((node) => node.tagName), ["li", "li"]);
+assert.equal(list.children[1].textContent, "<img src=x onerror=alert(1)>");
+assert.equal(rulesText.children[1].children[2].textContent, "补充段落。");
+
+renderRulesText("旧房间只有一整段纯文本规则。");
+assert.equal(rulesText.children.length, 1);
+assert.deepEqual(
+  rulesText.children[0].children.map((node) => node.tagName),
+  ["p"],
+);
+assert.equal(
+  rulesText.children[0].children[0].textContent,
+  "旧房间只有一整段纯文本规则。",
+);
+'''
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+
 @unittest.skipUnless(NODE, "node is required for registry contract tests")
 class GameUIRegistryRuntimeTests(unittest.TestCase):
     def run_node(self, harness: str, source: str = "") -> None:
@@ -743,6 +846,7 @@ const showNotice = () => {{}};
 const renderPlayers = () => {{}};
 const renderParticipantRoster = () => {{ participantRenderCount += 1; }};
 const renderPrivateState = () => {{}};
+const renderRulesText = () => {{}};
 const renderBoard = () => {{
   boardRenderCount += 1;
   elements.board.replaceChildren({{revision: room.revision}});
