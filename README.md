@@ -502,9 +502,10 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 `legal_actions` 与公开棋盘，不在客户端推导暗子或合法性。
 
 
-国际象棋固定 2 人，规则由仓库内 vendored `chess.js` 权威判定，覆盖易位、吃过路、
-升变、将军/将死与和棋；网页 renderer 位于 `app/static/games/chess.js`，使用内联 SVG
-棋子并只提交服务端 `legal_moves`。
+国际象棋固定 2 人，规则由仓库内 vendored `chess.js` 1.4.0 与 FIDE 和棋适配层权威判定，
+覆盖易位、吃过路、升变、将军/将死、三次重复/50 回合申和及五次重复/75 回合自动和棋；
+网页 renderer 位于 `app/static/games/chess.js`，使用内联 SVG 棋子并只提交服务端
+`legal_moves` / `legal_actions`。
 
 
 快艇骰子支持 2–6 人与系统 NPC，使用独立 `yahtzee.js` renderer 展示五枚骰子与计分卡；

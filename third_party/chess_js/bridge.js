@@ -50,6 +50,15 @@ function checkedHistory(history) {
   return history;
 }
 
+function positionIdentity(game) {
+  // FIDE 9.2.3 compares piece placement, side to move and possible moves.
+  // chess.js' default FEN deliberately omits an en-passant square unless a
+  // legal (including king-safe) en-passant capture exists. The first four FEN
+  // fields therefore preserve exactly the castling/en-passant rights that can
+  // change the set of possible moves while excluding the clocks.
+  return game.fen().split(/\s+/).slice(0, 4).join(" ");
+}
+
 function loadGame(startingFen, history) {
   const fen = startingFen == null ? STANDARD_FEN : startingFen;
   const validation = validateFen(fen);
@@ -66,6 +75,7 @@ function loadGame(startingFen, history) {
       throw new Error(`无效 FEN：${color === "w" ? "白" : "黑"}方必须恰有一个王`);
     }
   }
+  const positionHistory = [positionIdentity(game)];
   checkedHistory(history || []).forEach((uci, index) => {
     const legal = game.moves({verbose: true}).find((move) => uciFor(move) === uci);
     if (!legal || !game.move({
@@ -75,22 +85,43 @@ function loadGame(startingFen, history) {
     })) {
       throw new Error(`无法重放第 ${index + 1} 手：${uci}`);
     }
+    positionHistory.push(positionIdentity(game));
   });
-  return game;
+  return {game, positionHistory};
 }
 
-function drawReason(game) {
+function currentRepetitionCount(positionHistory) {
+  const current = positionHistory[positionHistory.length - 1];
+  return positionHistory.reduce(
+    (count, identity) => count + Number(identity === current),
+    0
+  );
+}
+
+function automaticDrawReason(game, repetitionCount) {
+  if (game.isCheckmate()) return null;
   if (game.isStalemate()) return "stalemate";
   if (game.isInsufficientMaterial()) return "insufficient_material";
-  if (game.isThreefoldRepetition()) return "threefold_repetition";
   const halfmoveClock = Number(game.fen().split(/\s+/)[4]);
-  if (halfmoveClock >= 100) return "fifty_move_rule";
+  if (repetitionCount >= 5) return "fivefold_repetition";
+  if (halfmoveClock >= 150) return "seventy_five_move_rule";
   return null;
 }
 
-function snapshot(game) {
+function snapshot(game, positionHistory) {
   const fen = game.fen();
   const halfmoveClock = Number(fen.split(/\s+/)[4]);
+  const repetitionCount = currentRepetitionCount(positionHistory);
+  const drawReason = automaticDrawReason(game, repetitionCount);
+  const claimableDrawReasons = [];
+  if (!game.isCheckmate() && drawReason === null) {
+    if (repetitionCount >= 3) {
+      claimableDrawReasons.push("threefold_repetition");
+    }
+    if (halfmoveClock >= 100) {
+      claimableDrawReasons.push("fifty_move_rule");
+    }
+  }
   return {
     fen,
     turn_color: game.turn(),
@@ -102,11 +133,16 @@ function snapshot(game) {
     in_checkmate: game.isCheckmate(),
     in_stalemate: game.isStalemate(),
     insufficient_material: game.isInsufficientMaterial(),
-    in_threefold_repetition: game.isThreefoldRepetition(),
+    position_history: [...positionHistory],
+    repetition_count: repetitionCount,
+    in_threefold_repetition: repetitionCount >= 3,
+    in_fivefold_repetition: repetitionCount >= 5,
     halfmove_clock: halfmoveClock,
-    in_draw: game.isDraw(),
-    game_over: game.isGameOver(),
-    draw_reason: drawReason(game),
+    can_claim_draw: claimableDrawReasons.length > 0,
+    claimable_draw_reasons: claimableDrawReasons,
+    in_draw: drawReason !== null,
+    game_over: game.isCheckmate() || drawReason !== null,
+    draw_reason: drawReason,
   };
 }
 
@@ -114,13 +150,14 @@ function dispatch(request) {
   if (!request || typeof request !== "object") throw new Error("请求必须是对象");
   const history = checkedHistory(request.history || []);
   if (request.action === "state") {
-    return {state: snapshot(loadGame(request.starting_fen, history))};
+    const loaded = loadGame(request.starting_fen, history);
+    return {state: snapshot(loaded.game, loaded.positionHistory)};
   }
   if (request.action === "apply") {
     if (typeof request.move !== "string" || !UCI_PATTERN.test(request.move)) {
       throw new Error("move 必须是四或五位 UCI 坐标");
     }
-    const game = loadGame(request.starting_fen, history);
+    const {game, positionHistory} = loadGame(request.starting_fen, history);
     const legal = game.moves({verbose: true}).find(
       (candidate) => uciFor(candidate) === request.move
     );
@@ -131,7 +168,8 @@ function dispatch(request) {
       ...(legal.promotion ? {promotion: legal.promotion} : {}),
     });
     if (!applied) throw new Error("规则引擎未能执行合法走法");
-    return {move: legalMove(applied), state: snapshot(game)};
+    positionHistory.push(positionIdentity(game));
+    return {move: legalMove(applied), state: snapshot(game, positionHistory)};
   }
   throw new Error(`未知规则动作：${String(request.action)}`);
 }

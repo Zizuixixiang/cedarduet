@@ -231,6 +231,32 @@
       outline-offset: -5px;
       box-shadow: inset 0 0 0 5px #6b3f82;
     }
+    .game-controls:has(.chess-claim-controls) {
+      width: min(560px, 100%);
+    }
+    .chess-claim-controls {
+      padding: 9px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: #4c3031;
+      background: #fff9e9;
+      border: 3px solid #87563e;
+      box-shadow: 4px 5px 0 rgba(52, 32, 27, .2);
+      font-family: system-ui, sans-serif;
+    }
+    .chess-claim-copy {
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .chess-claim-button {
+      min-width: 112px;
+      min-height: 42px;
+      flex: 0 0 auto;
+    }
     @media (max-width: 599px) {
       .board.chess {
         width: min(92vw, 560px);
@@ -244,6 +270,14 @@
       .board.chess .legal-capture .legal-target-dot { border-width: 3px; }
       .board.chess .chess-check-notice { top: 7px; padding: 3px 7px; font-size: 10px; }
       .board.chess .chess-promotion-panel { width: 92%; padding: 8px; gap: 5px; }
+      .chess-claim-controls {
+        width: 100%;
+        padding: 8px;
+        align-items: stretch;
+        flex-direction: column;
+        box-sizing: border-box;
+      }
+      .chess-claim-button { width: 100%; min-height: 44px; }
     }
     @media (prefers-reduced-motion: reduce) {
       .board.chess .chess-cell { scroll-behavior: auto; }
@@ -479,9 +513,48 @@
     }
   }
 
+  function renderControls(context) {
+    const claimAction = (Array.isArray(context.legalActions)
+      ? context.legalActions
+      : []
+    ).find((action) => action && action.action === "claim_draw");
+    if (!claimAction) {
+      context.controls.classList.add("hidden");
+      return;
+    }
+    context.controls.classList.toggle("hidden", false);
+    const bar = document.createElement("section");
+    bar.className = "chess-claim-controls";
+    bar.setAttribute("aria-label", "国际象棋申和操作");
+    const copy = document.createElement("span");
+    copy.className = "chess-claim-copy";
+    const reasons = Array.isArray(context.state.claimable_draw_reasons)
+      ? context.state.claimable_draw_reasons
+      : [];
+    const labels = reasons.map((reason) => (
+      reason === "threefold_repetition" ? "三次重复" : "50 回合规则"
+    ));
+    copy.textContent = `${labels.join("、") || "当前局面"}已满足，可申和或继续走棋。`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pixel-btn chess-claim-button";
+    button.textContent = "申和";
+    button.disabled = !context.canMove;
+    button.addEventListener("click", async () => {
+      if (!context.helpers.canMove()) return;
+      button.disabled = true;
+      const submitted = await context.helpers.submitMove({...claimAction});
+      if (!submitted && context.helpers.canMove()) button.disabled = false;
+    });
+    bar.appendChild(copy);
+    bar.appendChild(button);
+    context.controls.appendChild(bar);
+  }
+
   installStyles();
   window.DuelGameUI.register("chess", {
     usesStandardMoveConfirmation: true,
     renderBoard,
+    renderControls,
   });
 }());
