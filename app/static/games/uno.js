@@ -434,6 +434,7 @@
   }
 
   const renderer = {
+    participantPresentation: "embedded",
     usesStandardMoveConfirmation: false,
     renderBoard,
     renderControls,

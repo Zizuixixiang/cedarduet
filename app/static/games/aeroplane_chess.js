@@ -90,6 +90,68 @@
     ) || "玩家";
   }
 
+  function createEdgeIdentity(documentRef, context, participant, color, point) {
+    const item = documentRef.createElement("article");
+    const viewerId = context.viewer && context.viewer.player_id;
+    item.className = [
+      "board-edge-participant",
+      "aeroplane-edge-participant",
+      `seat-${participant.seat_index}`,
+      `color-${color}`,
+      participant.player_id === context.room.current_player_id ? "current" : "",
+      participant.player_id === viewerId ? "viewer" : "",
+    ].filter(Boolean).join(" ");
+    item.dataset.playerId = participant.player_id;
+    item.dataset.color = color;
+    item.dataset.visualEdge = `${point[1] < 50 ? "top" : "bottom"}-${point[0] < 50 ? "left" : "right"}`;
+    item.style.setProperty("--edge-column", point[0] < 50 ? 1 : 2);
+    item.setAttribute(
+      "aria-label",
+      `${playerName(participant)}，${COLOR_LABELS[color]}${participant.player_id === viewerId ? "，你" : ""}`
+    );
+    const avatar = documentRef.createElement("span");
+    avatar.className = "board-edge-avatar";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    } else {
+      avatar.textContent = Array.from(playerName(participant))[0] || "?";
+    }
+    const copy = documentRef.createElement("span");
+    copy.className = "board-edge-copy";
+    const name = documentRef.createElement("strong");
+    name.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
+    const label = documentRef.createElement("small");
+    label.textContent = COLOR_LABELS[color];
+    copy.append(name, label);
+    item.append(avatar, copy);
+    return item;
+  }
+
+  function edgeRosters(documentRef, context, quarterTurns) {
+    if ((context.participants || []).length <= 2) return null;
+    const top = documentRef.createElement("div");
+    const bottom = documentRef.createElement("div");
+    top.className = "aeroplane-edge-roster top";
+    bottom.className = "aeroplane-edge-roster bottom";
+    (context.participants || []).forEach((participant) => {
+      const color = colorForPlayer(context.state, participant.player_id);
+      const airport = AIRPORT_POINTS[color] || AIRPORT_POINTS.red;
+      const center = airport.reduce(
+        (total, point) => [total[0] + point[0] / 4, total[1] + point[1] / 4],
+        [0, 0]
+      );
+      const visualPoint = rotatePoint(center, quarterTurns);
+      const item = createEdgeIdentity(
+        documentRef, context, participant, color, visualPoint
+      );
+      (visualPoint[1] < 50 ? top : bottom).appendChild(item);
+    });
+    return {top, bottom};
+  }
+
   function colorForPlayer(state, playerId) {
     return (state.color_by_player || {})[playerId] || "red";
   }
@@ -510,6 +572,7 @@
     shell.appendChild(svg);
     appendLegalTargets(documentRef, shell, context, quarterTurns);
     appendPlanes(documentRef, shell, context, quarterTurns);
+    const edgeRoster = edgeRosters(documentRef, context, quarterTurns);
 
     const activity = documentRef.createElement("div");
     activity.className = "aeroplane-activity";
@@ -521,7 +584,11 @@
       lastRoll ? `上一骰 ${lastRoll.value} 点` : "等待第一位玩家掷骰"
     );
     activity.appendChild(activityCopy);
-    root.append(heading, shell, activity);
+    root.appendChild(heading);
+    if (edgeRoster) root.appendChild(edgeRoster.top);
+    root.appendChild(shell);
+    if (edgeRoster) root.appendChild(edgeRoster.bottom);
+    root.appendChild(activity);
     board.appendChild(root);
     return true;
   }
@@ -567,36 +634,40 @@
     });
     actionPanel.append(die, actionCopy, rollButton);
 
-    const roster = documentRef.createElement("div");
-    roster.className = "aeroplane-roster";
-    (context.participants || []).forEach((participant) => {
-      const playerId = participant.player_id;
-      const color = colorForPlayer(state, playerId);
-      const planes = (state.planes || {})[playerId] || [];
-      const homeCount = planes.filter((plane) => plane.zone === "home").length;
-      const airportCount = planes.filter((plane) => plane.zone === "airport").length;
-      const item = documentRef.createElement("div");
-      item.className = [
-        "aeroplane-roster-item",
-        `color-${color}`,
-        room.current_player_id === playerId ? "current" : "",
-        context.viewer && context.viewer.player_id === playerId ? "viewer" : "",
-      ].filter(Boolean).join(" ");
-      const swatch = documentRef.createElement("span");
-      swatch.className = "aeroplane-color-swatch";
-      swatch.setAttribute("aria-hidden", "true");
-      const name = documentRef.createElement("strong");
-      name.textContent = playerName(participant);
-      const count = documentRef.createElement("span");
-      count.textContent = `到家 ${homeCount}/4 · 机场 ${airportCount}`;
-      item.append(swatch, name, count);
-      roster.appendChild(item);
-    });
-    root.append(actionPanel, roster);
+    root.appendChild(actionPanel);
+    if ((context.participants || []).length <= 2) {
+      const roster = documentRef.createElement("div");
+      roster.className = "aeroplane-roster";
+      (context.participants || []).forEach((participant) => {
+        const playerId = participant.player_id;
+        const color = colorForPlayer(state, playerId);
+        const planes = (state.planes || {})[playerId] || [];
+        const homeCount = planes.filter((plane) => plane.zone === "home").length;
+        const airportCount = planes.filter((plane) => plane.zone === "airport").length;
+        const item = documentRef.createElement("div");
+        item.className = [
+          "aeroplane-roster-item",
+          `color-${color}`,
+          room.current_player_id === playerId ? "current" : "",
+          context.viewer && context.viewer.player_id === playerId ? "viewer" : "",
+        ].filter(Boolean).join(" ");
+        const swatch = documentRef.createElement("span");
+        swatch.className = "aeroplane-color-swatch";
+        swatch.setAttribute("aria-hidden", "true");
+        const name = documentRef.createElement("strong");
+        name.textContent = playerName(participant);
+        const count = documentRef.createElement("span");
+        count.textContent = `到家 ${homeCount}/4 · 机场 ${airportCount}`;
+        item.append(swatch, name, count);
+        roster.appendChild(item);
+      });
+      root.appendChild(roster);
+    }
     controls.appendChild(root);
   }
 
   const renderer = {
+    participantPresentation: "board-edge",
     glyph: "飞",
     usesStandardMoveConfirmation: false,
     boardLabel: "飞行棋棋盘",

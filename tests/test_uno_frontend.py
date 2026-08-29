@@ -18,6 +18,7 @@ NODE = shutil.which("node")
 class UnoFrontendContractTests(unittest.TestCase):
     def test_independent_registry_renderer_and_idempotent_css_loading(self):
         self.assertIn('window.DuelGameUI.register("uno", renderer);', SCRIPT)
+        self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)

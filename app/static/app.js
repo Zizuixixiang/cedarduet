@@ -29,6 +29,10 @@ const LEGACY_GAME_UI_TYPES = new Set([
   "tictactoe", "gomoku", "othello", "connect4",
   "dots_boxes", "liars_dice", "jungle", "xiangqi",
 ]);
+const PARTICIPANT_PRESENTATIONS = new Set([
+  "generic", "embedded", "board-edge",
+]);
+const RECENT_CHAT_LIMIT = 5;
 
 const GAME_GLYPHS = {
   tictactoe: "井",
@@ -326,6 +330,25 @@ function isTerminal(targetRoom) {
   return Boolean(
     targetRoom && ["finished", "archived"].includes(targetRoom.status)
   );
+}
+
+function actualPlayerCount(targetRoom) {
+  return targetRoom && Array.isArray(targetRoom.participants)
+    ? targetRoom.participants.length
+    : 2;
+}
+
+function isMultiplayerRoom(targetRoom) {
+  return actualPlayerCount(targetRoom) > 2;
+}
+
+function participantPresentationFor(targetRoom) {
+  if (!isMultiplayerRoom(targetRoom)) return "duel";
+  const renderer = registeredGameUIRenderer(targetRoom.game_type);
+  const presentation = renderer && renderer.participantPresentation;
+  return PARTICIPANT_PRESENTATIONS.has(presentation)
+    ? presentation
+    : "generic";
 }
 
 function aiNameFor(playerId = room && room.ai_player_id) {
@@ -2243,6 +2266,11 @@ function createGameUIContext(board, controls, timeline = currentTimeline) {
     canMove: () => contextIsCurrent() && canHumanMove(),
     participantByPlayerId,
     participantForOwner,
+    renderParticipantAvatar: (target, participant) => {
+      if (!target) return false;
+      renderParticipantAvatar(target, participant);
+      return true;
+    },
     pieceClass,
     ownerDescription,
     announce: (message, {error = false, emphasize = false} = {}) => {
@@ -2434,8 +2462,60 @@ function renderTimeline(timeline = []) {
   list.scrollTop = list.scrollHeight;
 }
 
+function recentMessageEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
+  return timeline.filter((event) => (
+    event
+    && event.event_type === "message"
+    && typeof event.text === "string"
+    && Boolean(event.text.trim())
+    && event.is_public !== false
+  )).slice(-limit);
+}
+
+function timelineSpeakerName(event) {
+  const sender = event && typeof event.sender === "object" && event.sender
+    ? event.sender
+    : {};
+  const participant = participantByPlayerId(speechSenderPlayerId(event));
+  return sender.name
+    || event.sender_name
+    || (participant && participant.display_name)
+    || (speechSenderRole(event) === "human" ? "你" : "玩家");
+}
+
+function renderRecentChat(timeline = []) {
+  const feed = $("recentChatFeed");
+  const list = $("recentChatMessages");
+  const messages = isMultiplayerRoom(room) ? recentMessageEvents(timeline) : [];
+  list.replaceChildren();
+  feed.classList.toggle("hidden", messages.length === 0);
+  if (!messages.length) return;
+
+  messages.forEach((event) => {
+    const sender = typeof event.sender === "object" && event.sender
+      ? event.sender
+      : {};
+    const participant = participantByPlayerId(speechSenderPlayerId(event));
+    const seatIndex = participant && Number.isInteger(participant.seat_index)
+      ? participant.seat_index
+      : sender.seat;
+    const item = document.createElement("li");
+    item.className = "recent-chat-message";
+    if (Number.isInteger(seatIndex)) item.classList.add(`seat-${seatIndex}`);
+    const speaker = document.createElement("strong");
+    speaker.className = "recent-chat-speaker";
+    speaker.textContent = timelineSpeakerName(event);
+    const copy = document.createElement("p");
+    copy.className = "recent-chat-copy";
+    copy.textContent = event.text;
+    item.append(speaker, copy);
+    list.appendChild(item);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
 function renderPlayers(timeline = []) {
-  const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
+  const multiplayer = isMultiplayerRoom(room);
   const viewerPlayerId = viewerPlayerIdFor(room);
   const viewerParticipant = viewerParticipantFor(room);
   const viewerSpeechEvent = viewerPlayerId
@@ -2443,8 +2523,7 @@ function renderPlayers(timeline = []) {
     : null;
   applyParticipantLayout(room);
   $("opponentRow").classList.toggle("hidden", multiplayer);
-  $("humanRow").classList.toggle("hidden", false);
-  $("viewerParticipantSlot").classList.toggle("hidden", true);
+  $("humanRow").classList.toggle("hidden", multiplayer);
   const aiName = participantName("ai");
   const humanName = (viewerParticipant && viewerParticipant.display_name)
     || participantName("human");
@@ -2455,13 +2534,15 @@ function renderPlayers(timeline = []) {
 
   renderSpeechBubble({
     bubble: $("aiSpeech"),
-    event: latestSpeechEvent(timeline, "ai"),
+    event: multiplayer ? null : latestSpeechEvent(timeline, "ai"),
   });
   renderSpeechBubble({
     bubble: $("humanSpeech"),
-    event: viewerPlayerId
-      ? viewerSpeechEvent
-      : latestSpeechEvent(timeline, "human"),
+    event: multiplayer
+      ? null
+      : (viewerPlayerId
+        ? viewerSpeechEvent
+        : latestSpeechEvent(timeline, "human")),
     textTarget: $("humanSpeechText"),
   });
   renderSpeechBubble({
@@ -2471,33 +2552,30 @@ function renderPlayers(timeline = []) {
   });
   renderSpeechBubble({
     bubble: $("sharedSpeech"),
-    event: multiplayer && viewerPlayerId
-      ? latestSpeechEvent(timeline, {excludePlayerId: viewerPlayerId})
-      : null,
+    event: null,
     textTarget: $("sharedSpeechText"),
     nameTarget: $("sharedSpeechName"),
     avatarTarget: $("sharedSpeechAvatar"),
-    reserveSpace: true,
+    reserveSpace: !multiplayer,
   });
 }
 
 function participantLayoutClass(playerCount) {
-  if (playerCount === 3) return "layout-triangle";
-  if (playerCount === 4) return "layout-corners";
-  if (playerCount >= 5) return "layout-top-row";
-  return "layout-duel";
+  return playerCount > 2 ? "layout-multiplayer" : "layout-duel";
 }
 
 function applyParticipantLayout(targetRoom) {
-  const playerCount = targetRoom && Array.isArray(targetRoom.participants)
-    ? targetRoom.participants.length
-    : 2;
+  const playerCount = actualPlayerCount(targetRoom);
+  const presentation = participantPresentationFor(targetRoom);
   const layoutClass = participantLayoutClass(playerCount);
   const table = $("tableLayout");
   table.className = `table-layout ${layoutClass} count-${playerCount}`;
   table.dataset.playerCount = String(playerCount);
+  table.dataset.participantPresentation = presentation;
   $("battleStage").dataset.playerCount = String(playerCount);
-  $("sharedSpeechSlot").classList.toggle("hidden", playerCount <= 2);
+  $("battleStage").dataset.participantPresentation = presentation;
+  $("battleStage").classList.toggle("multiplayer-presentation", playerCount > 2);
+  $("sharedSpeechSlot").classList.toggle("hidden", true);
 }
 
 function speechSenderRole(event) {
@@ -2663,6 +2741,9 @@ function renderParticipantRoster(targetRoom) {
   const participants = Array.isArray(targetRoom.participants)
     ? targetRoom.participants
     : [];
+  const presentation = participantPresentationFor(targetRoom);
+  const showGenericRoster = participants.length > 2 && presentation === "generic";
+  const viewer = viewerParticipantFor(targetRoom);
   const tableParticipants = tableParticipantsFor(targetRoom);
   roster.replaceChildren();
   viewerSlot.replaceChildren();
@@ -2670,12 +2751,16 @@ function renderParticipantRoster(targetRoom) {
     .filter((name) => name.startsWith("count-"))
     .forEach((name) => roster.classList.remove(name));
   roster.classList.add(`count-${participants.length}`);
-  roster.classList.toggle("hidden", participants.length <= 2);
-  viewerSlot.classList.toggle("hidden", true);
-  if (participants.length <= 2) return;
+  roster.classList.toggle("hidden", !showGenericRoster);
+  $("viewerParticipantSlot").classList.toggle("hidden", !showGenericRoster);
+  viewerSlot.classList.toggle("hidden", !showGenericRoster || !viewer);
+  if (!showGenericRoster) return;
   tableParticipants.forEach((participant) => {
     roster.appendChild(createParticipantBadge(participant, targetRoom));
   });
+  if (viewer) {
+    viewerSlot.appendChild(createParticipantBadge(viewer, targetRoom));
+  }
 }
 
 function renderPrivateState(targetRoom) {
@@ -2691,6 +2776,10 @@ function renderPrivateState(targetRoom) {
   const visible = !rendererOwnsPresentation
     && privateState && typeof privateState === "object"
     && !Array.isArray(privateState) && Object.keys(privateState).length > 0;
+  panel.classList.toggle(
+    "compact-dice-private",
+    isMultiplayerRoom(targetRoom) && targetRoom.game_type === "liars_dice"
+  );
   panel.classList.toggle("hidden", !visible);
   content.replaceChildren();
   if (!visible) return;
@@ -2873,6 +2962,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   renderPlayers(timeline);
   renderParticipantRoster(room);
   renderPrivateState(room);
+  renderRecentChat(timeline);
   if (boardStateChanged) renderBoard(timeline);
   renderTimeline(timeline);
   if (isTerminal(room)) stopPolling();

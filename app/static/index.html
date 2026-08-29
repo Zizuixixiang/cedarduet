@@ -291,10 +291,16 @@
             <div id="privateStateContent"></div>
           </section>
 
-          <div class="chat-compose game-compose" aria-label="对局聊天">
-            <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">
-            <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
-          </div>
+          <section id="gameChatArea" class="game-chat-area" aria-label="对局聊天">
+            <div id="recentChatFeed" class="recent-chat-feed hidden" aria-label="最近发言">
+              <div class="recent-chat-heading" aria-hidden="true">最近发言</div>
+              <ol id="recentChatMessages" class="recent-chat-messages" aria-live="polite"></ol>
+            </div>
+            <div class="chat-compose game-compose">
+              <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">
+              <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
+            </div>
+          </section>
         </section>
 
         <button id="historyDrawerTab" class="history-drawer-tab" type="button"
