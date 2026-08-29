@@ -2416,6 +2416,16 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 12px;
 }
 .yahtzee-score-heading strong { color: var(--purple-darker); font-size: 15px; }
+.yahtzee-joker-notice {
+  margin: 0;
+  padding: 7px 9px;
+  color: #7d2940;
+  background: rgba(249, 225, 231, .72);
+  border: 2px solid var(--pink);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.45;
+}
 .yahtzee-scorecard-scroll {
   width: 100%;
   max-width: 100%;
@@ -2491,7 +2501,12 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .yahtzee-summary-row th,
 .yahtzee-summary-row td { background: rgba(230, 223, 240, .3); font-weight: 700; }
 .yahtzee-summary-upper_bonus th,
-.yahtzee-summary-upper_bonus td { color: #7d2940; background: rgba(249, 225, 231, .72); }
+.yahtzee-summary-upper_bonus td,
+.yahtzee-summary-yahtzee_bonus th,
+.yahtzee-summary-yahtzee_bonus td {
+  color: #7d2940;
+  background: rgba(249, 225, 231, .72);
+}
 .yahtzee-summary-total th,
 .yahtzee-summary-total td {
   color: var(--purple-darker);
@@ -3264,6 +3279,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .yahtzee-roll-actions { grid-template-columns: 1fr 1fr; align-items: stretch; }
   .yahtzee-scratch-toggle { min-width: 0; padding: 5px; font-size: 10px; }
   .yahtzee-score-heading { display: grid; gap: 3px; }
+  .yahtzee-joker-notice { padding: 6px 7px; font-size: 10px; }
   .yahtzee-scorecard { min-width: max(540px, calc(184px + var(--yahtzee-player-count) * 76px)); }
   .yahtzee-scorecard th,
   .yahtzee-scorecard td { height: 36px; padding: 4px 6px; }

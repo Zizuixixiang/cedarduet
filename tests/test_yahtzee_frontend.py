@@ -52,12 +52,23 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         self.assertIn("state.score_previews", RENDERER)
         self.assertIn("context.legalActions", RENDERER)
         self.assertIn("hasAuthoritativeActions", RENDERER)
-        self.assertIn('scratchText.textContent = "划掉类别，记 0 分"', RENDERER)
+        self.assertIn("scratchText.textContent = jokerActive", RENDERER)
+        self.assertIn('"Joker 回合按规则计分"', RENDERER)
+        self.assertIn('"划掉类别，记 0 分"', RENDERER)
         self.assertIn('action: "score"', RENDERER)
         self.assertIn('...(scratch.checked ? {zero: true} : {})', RENDERER)
         self.assertIn('action: "roll", held_mask: heldMask', RENDERER)
         self.assertIn('"上半区奖励", "upper_bonus"', RENDERER)
+        self.assertIn('"重复快艇奖励", "yahtzee_bonus"', RENDERER)
         self.assertIn('"总分", "total"', RENDERER)
+
+    def test_joker_and_pending_bonus_have_clear_non_emoji_ui(self):
+        self.assertIn("const jokerActive = Boolean(state.joker_active);", RENDERER)
+        self.assertIn("const pendingYahtzeeBonus", RENDERER)
+        self.assertIn('jokerNotice.className = "yahtzee-joker-notice";', RENDERER)
+        self.assertIn('"每次 +100"', RENDERER)
+        self.assertIn(".yahtzee-joker-notice {", STYLES)
+        self.assertNotIn("🎲", RENDERER)
 
     def test_scorecard_and_dice_are_desktop_and_mobile_safe(self):
         self.assertIn(".board.yahtzee {", STYLES)
@@ -70,6 +81,10 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         self.assertIn(".yahtzee-roll-panel { grid-template-columns: 1fr;", mobile)
         self.assertIn("width: clamp(45px, 14.5vw, 58px);", mobile)
         self.assertIn("touch-action: pan-x;", STYLES)
+        self.assertIn(
+            ".yahtzee-joker-notice { padding: 6px 7px; font-size: 10px; }",
+            mobile,
+        )
 
     @unittest.skipUnless(NODE, "node is required for JavaScript syntax validation")
     def test_renderer_is_valid_javascript(self):
@@ -184,6 +199,41 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   assert.equal(submitted[1].action, "score");
   assert.equal(submitted[1].category, "ones");
   assert.equal(submitted[1].zero, true);
+
+  const jokerBoard = new Element("board");
+  const jokerState = {
+    ...state,
+    dice: [4, 4, 4, 4, 4],
+    scorecards: {"human-1": {yahtzee: 50}, "ai-1": {ones: 2}},
+    score_previews: {fours: 20},
+    joker_active: true,
+    pending_yahtzee_bonus: 100,
+    totals_by_player: {
+      "human-1": {upper_subtotal: 0, upper_bonus: 0, yahtzee_bonus: 100, total: 150},
+      "ai-1": {upper_subtotal: 2, upper_bonus: 0, yahtzee_bonus: 0, total: 2},
+    },
+  };
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: jokerBoard,
+    state: jokerState,
+    legalActions: [{action: "score", category: "fours"}],
+  });
+  const jokerAll = descendants(jokerBoard);
+  const jokerScores = jokerAll.filter((item) => (
+    item.classList.contains("yahtzee-score-button")
+  ));
+  assert.equal(jokerScores.length, 1);
+  assert.equal(jokerScores[0].textContent, "20 分");
+  assert.equal(jokerAll.find((item) => item.tag === "input").disabled, true);
+  assert.match(
+    jokerAll.find((item) => item.classList.contains("yahtzee-joker-notice")).textContent,
+    /另加 100 分/
+  );
+  const bonusRow = jokerAll.find((item) => (
+    item.classList.contains("yahtzee-summary-yahtzee_bonus")
+  ));
+  assert.equal(bonusRow.children[1].textContent, "100");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 '''
         completed = subprocess.run(
