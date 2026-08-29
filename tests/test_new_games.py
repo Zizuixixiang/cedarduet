@@ -194,7 +194,7 @@ class JungleTests(unittest.TestCase):
 
 class RegistryErrorTests(unittest.TestCase):
     def test_every_plugin_has_shared_rules_and_move_format(self):
-        self.assertEqual(len(GAMES), 8)
+        self.assertEqual(len(GAMES), 9)
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
             self.assertTrue(plugin.move_format)
@@ -204,11 +204,11 @@ class RegistryErrorTests(unittest.TestCase):
 
     def test_unknown_game_lists_every_available_type(self):
         with self.assertRaises(DuelError) as caught:
-            create_room("chess", "human_first", "human", "human")
+            create_room("not_a_game", "human_first", "human", "human")
         for game_type in (
             "tictactoe", "gomoku", "othello",
             "connect4", "dots_boxes", "liars_dice", "jungle",
-            "xiangqi",
+            "xiangqi", "chess",
         ):
             self.assertIn(game_type, caught.exception.message)
 

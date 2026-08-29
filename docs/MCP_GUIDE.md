@@ -325,3 +325,34 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 象眼、炮架、九宫、过河、将帅照面和送将等非法着法，是调用方选择行动的唯一合法
 目标真源；不要在客户端或提示词里重写一套规则。落子事件另带服务端生成的
 `move_label`，用于历史展示。
+
+## 国际象棋 `chess`
+
+国际象棋固定 2 人、先手执白并支持筹码。仓库内置 BSD-2-Clause `chess.js`
+v0.10.3；服务端权威处理王车易位、吃过路兵、后/车/象/马升变、非法自将、将死、
+逼和、子力不足、三次重复与五十回合终局。无状态桥会从 `starting_fen` 重放完整
+`move_history`，调用方不要自行从当前 FEN 猜测重复次数。
+
+坐标是零起始真实坐标：`row=0` 为黑方底线、`row=7` 为白方底线，`col=0..7`
+为 a–h 线。升变必须保留权威合法动作中的 `promotion`：
+
+```json
+{
+  "action": "move",
+  "player_id": "ai-42",
+  "room_id": "ABCDEFGH",
+  "revision": 12,
+  "move": {
+    "from_row": 1,
+    "from_col": 0,
+    "to_row": 0,
+    "to_col": 0,
+    "promotion": "q"
+  }
+}
+```
+
+`board_state.legal_moves` 是唯一合法走子真源；每项含起终点，升变分支另含
+`promotion`，并可带 `uci`、`san`、`flags`、`captured` 等展示元数据。插件的
+`npc_legal_actions` 只投影可提交字段，NPC controller 再以 action id 限定选择并在
+落子事务中重新校验，不能提交列表之外或会令己方王受攻击的动作。

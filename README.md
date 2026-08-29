@@ -16,8 +16,9 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
 - `jungle`：7×9 斗兽棋
 - `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
+- `chess`：标准 8×8 国际象棋，支持完整特殊规则与权威终局判定
 
-井字棋、五子棋、黑白棋、四子连珠、斗兽棋和象棋继续严格双人。点格棋权威声明
+井字棋、五子棋、黑白棋、四子连珠、斗兽棋、象棋和国际象棋继续严格双人。点格棋权威声明
 `allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
 多人/NPC 框架验收游戏。
 
@@ -61,6 +62,37 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 人类执黑时网页仅重排显示坐标，使己方位于下方，提交仍使用上述真实坐标。时间线
 直接展示服务端 `move_label`，不在客户端重复实现象棋记谱。
 
+### 国际象棋规则与状态接口
+
+国际象棋固定 2 人、支持筹码，先手执白。服务端通过仓库内 vendored `chess.js`
+v0.10.3 列出全部 `legal_moves` 并判定王车易位、吃过路兵、四种升变、非法自将、
+将军、将死、逼和、子力不足、三次重复和五十回合规则。该引擎采用
+BSD-2-Clause 许可证；Python 插件通过短生命周期 Node 桥调用，不需要 npm 安装或
+运行时联网。每次调用从 `starting_fen` 重放完整 UCI `move_history`，因此三次重复
+不会因无状态桥只保存当前 FEN 而丢失。按 chess.js 的既有语义，三次重复和半回合
+计数达到 100 时自动终局判和。
+
+`board_state.board` 是 8×8 数组，棋子使用 `w:q`、`b:k` 这类“颜色:棋种”值；
+`row=0` 是黑方底线（第 8 横线），`row=7` 是白方底线（第 1 横线），`col=0..7`
+对应 a–h 线。普通走子提交四个真实坐标；升变还必须提交 `promotion=q|r|b|n`：
+
+```json
+{
+  "revision": 3,
+  "move": {
+    "from_row": 1, "from_col": 0,
+    "to_row": 0, "to_col": 0,
+    "promotion": "q"
+  }
+}
+```
+
+插件实现 `npc_legal_actions`，其 payload 严格投影自同一份服务端 `legal_moves`；NPC
+provider 只能回选权威 action id，控制器仍会在提交前重新映射和校验。官方开房策略
+仍要求至少 1 个人类和 1 只真实绑定小机；插件本身可供内部双人 NPC 框架测试使用。
+网页棋盘位于独立 `app/static/games/chess.js` renderer，消费服务端合法动作，不在
+浏览器重算规则；黑方查看时只旋转展示顺序，提交坐标保持真实值。
+
 ## 项目结构
 
 ```text
@@ -77,6 +109,8 @@ app/
   games/               棋种插件
   games/xiangqi.py     象棋 GamePlugin 与房间状态适配
   games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
+  games/chess.py       国际象棋 GamePlugin、NPC 合法行动与房间状态适配
+  games/chess_engine.py  chess.js 短生命周期 Node 规则引擎桥
   npc_personas.py      NPC 人设目录加载与严格校验
   npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
   npc_providers.py     disabled / OpenAI-compatible / CedarToy bridge provider
@@ -85,8 +119,10 @@ app/
   config/npc_avatars/  外部头像目录格式说明；仓库不含生产头像
   config/npc_personas/ 管理员人设格式说明；仓库不含生产人设
   static/              人类端网页、棋盘、时间线、筹码中心
+  static/games/chess.js 国际象棋独立 renderer、内联 SVG 棋子与响应式样式
 tests/                  单元测试与前端行为测试
 third_party/xiangqi_js/ BSD-2-Clause 象棋规则引擎、许可与桥接脚本
+third_party/chess_js/  BSD-2-Clause 国际象棋规则引擎、许可与桥接脚本
 data/                   本地运行数据目录；真实数据库不会提交到 Git
 ```
 
@@ -102,7 +138,8 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - 参与者真源用 `participant_kind` 区分 `human`、`bound_machine` 和
   `system_npc`，旧 `role=human/ai` 字段继续供旧游戏与客户端兼容。生产开房
   强制至少一名人类和一只真实绑定小机；NPC 只在创建时补空座，每局最多四个，
-  不会接管中途离开的席位。只有点格棋与吹牛骰子声明 `supports_npcs`。
+  不会接管中途离开的席位。点格棋、吹牛骰子与国际象棋插件声明 `supports_npcs`；
+  国际象棋仍是双人桌，官方生产开房策略继续要求真实绑定小机席位。
 - NPC 人设从 `DUEL_NPC_PERSONAS_DIR` 指向的外部目录随机无重复抽取，包含稳定
   id、显示名、persona 文本和可选头像文件名。头像只从
   `DUEL_NPC_AVATARS_DIR` 根目录以站内 `/api/npc-avatars/...` URL 提供；文件名、

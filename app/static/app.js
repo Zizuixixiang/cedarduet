@@ -27,6 +27,7 @@ const GAME_GLYPHS = {
   liars_dice: "骰",
   jungle: "兽",
   xiangqi: "象",
+  chess: "西",
 };
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",
