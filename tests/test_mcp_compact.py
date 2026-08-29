@@ -9,6 +9,7 @@ from unittest.mock import patch
 import httpx
 
 from app import chips, database, framework
+from app.games import get_game
 from app import main as main_module
 
 
@@ -47,12 +48,22 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def assert_full_room(self, payload, *, ai_balance=205):
+    def assert_full_room(self, payload, *, ai_balance=205, human_balance=200):
         self.assertTrue(payload["bootstrap"])
         self.assertEqual(payload["status"], "playing")
         for field in ("board_state", "rules_text", "move_format", "turn", "status", "stake"):
             self.assertIn(field, payload["room"])
-        self.assertEqual(payload["chip_balances"], {"ai": ai_balance, "human": 200})
+        rules_text = payload["room"]["rules_text"]
+        plugin_rules = get_game(payload["room"]["game_type"]).rules_text
+        self.assertTrue(rules_text.startswith(plugin_rules))
+        self.assertEqual(rules_text.count(framework.GLOBAL_ROOM_CHAT_RULE), 1)
+        self.assertIn("不得主动逐项泄露自己的真实未公开", rules_text)
+        self.assertIn("公开以系统结果为准", rules_text)
+        self.assertIn("正常诈唬不受限", rules_text)
+        self.assertEqual(
+            payload["chip_balances"],
+            {"ai": ai_balance, "human": human_balance},
+        )
 
     def assert_compact_delta(self, payload):
         for forbidden in (
@@ -103,6 +114,24 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(accepted.status_code, 200, accepted.text)
         self.assert_full_room(accepted.json(), ai_balance=200)
         self.assertEqual(accepted.json()["room"]["stake"], 4)
+
+    async def test_join_liars_dice_bootstrap_keeps_rules_and_appends_chat_rule_once(self):
+        waiting = framework.create_room(
+            "liars_dice", "human_first", "human", "human-join"
+        )
+        self.assertEqual(waiting["status"], "waiting")
+        joined = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "join",
+                "player_id": "ai-join",
+                "opponent_id": "human-join",
+                "room_id": waiting["room_id"],
+            },
+        )
+        self.assertEqual(joined.status_code, 200, joined.text)
+        self.assert_full_room(joined.json(), ai_balance=200)
+        self.assertIn("每人初始 5 枚六面骰", joined.json()["room"]["rules_text"])
 
     async def test_bootstrap_is_once_then_state_move_and_wait_are_incremental(self):
         started = await self.new_room()
@@ -358,7 +387,12 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "room_id": room["room_id"],
             },
         )
-        self.assertTrue(first.json()["bootstrap"])
+        self.assert_full_room(first.json(), ai_balance=200)
+        redecorated = framework._decorate(first.json()["room"])
+        self.assertEqual(
+            redecorated["rules_text"].count(framework.GLOBAL_ROOM_CHAT_RULE),
+            1,
+        )
         second = await self.client.post(
             "/mcp/play",
             json={
