@@ -64,6 +64,28 @@
     4px 5px 0 rgba(82, 60, 75, .18);
 }
 
+.aeroplane-edge-roster {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.aeroplane-edge-participant {
+  --aero-edge-color: #777;
+  grid-column: var(--edge-column);
+  width: min(150px, 100%);
+  border-left: 5px solid var(--aero-edge-color);
+}
+
+.aeroplane-edge-participant.color-red { --aero-edge-color: var(--aero-red); }
+.aeroplane-edge-participant.color-yellow { --aero-edge-color: var(--aero-yellow); }
+.aeroplane-edge-participant.color-blue { --aero-edge-color: var(--aero-blue); }
+.aeroplane-edge-participant.color-green { --aero-edge-color: var(--aero-green); }
+
+.aeroplane-edge-participant[data-visual-edge$="-right"] { justify-self: end; }
+
 .aeroplane-board-svg {
   width: 100%;
   height: 100%;
@@ -487,6 +509,14 @@
   }
 
   .aeroplane-game { gap: 6px; }
+
+  .aeroplane-edge-roster { gap: 4px; }
+  .aeroplane-edge-participant {
+    width: min(132px, 100%);
+    min-height: 30px;
+    padding: 2px 4px;
+    border-left-width: 4px;
+  }
 
   .aeroplane-board-shell {
     border-width: 4px;

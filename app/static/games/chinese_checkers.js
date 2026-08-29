@@ -52,6 +52,86 @@
     );
   }
 
+  function playerName(participant) {
+    return participant && (
+      participant.display_name || participant.player_id
+    ) || "玩家";
+  }
+
+  function visualCampCenter(nodes, camp, rotationSteps) {
+    const positions = nodes
+      .filter((node) => node.camp === camp)
+      .map((node) => visualPosition(node, rotationSteps));
+    if (!positions.length) return {left: 50, top: 50};
+    return positions.reduce(
+      (total, point) => ({
+        left: total.left + point.left / positions.length,
+        top: total.top + point.top / positions.length,
+      }),
+      {left: 0, top: 0}
+    );
+  }
+
+  function createEdgeIdentity(context, participant, camp, position) {
+    const viewerId = viewerPlayerId(context);
+    const column = position.left < 34 ? 1 : (position.left > 66 ? 3 : 2);
+    const edge = position.top < 50 ? "top" : "bottom";
+    const item = document.createElement("article");
+    item.className = [
+      "board-edge-participant",
+      "cc-edge-participant",
+      `seat-${participant.seat_index}`,
+      participant.player_id === context.room.current_player_id ? "current" : "",
+      participant.player_id === viewerId ? "viewer" : "",
+    ].filter(Boolean).join(" ");
+    item.dataset.playerId = participant.player_id;
+    item.dataset.camp = String(camp);
+    item.dataset.visualEdge = `${edge}-${column}`;
+    item.style.setProperty("--edge-column", column);
+    item.setAttribute(
+      "aria-label",
+      `${playerName(participant)}，起始营 ${camp + 1}${participant.player_id === viewerId ? "，你" : ""}`
+    );
+    const avatar = document.createElement("span");
+    avatar.className = "board-edge-avatar";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    } else {
+      avatar.textContent = Array.from(playerName(participant))[0] || "?";
+    }
+    const copy = document.createElement("span");
+    copy.className = "board-edge-copy";
+    const name = document.createElement("strong");
+    name.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
+    const label = document.createElement("small");
+    label.textContent = `起始营 ${camp + 1}`;
+    copy.append(name, label);
+    item.append(avatar, copy);
+    return item;
+  }
+
+  function edgeRosters(context, nodes, rotationSteps) {
+    if ((context.participants || []).length <= 2) return null;
+    const top = document.createElement("div");
+    const bottom = document.createElement("div");
+    top.className = "cc-edge-roster top";
+    bottom.className = "cc-edge-roster bottom";
+    (context.participants || []).forEach((participant) => {
+      const camp = Number(
+        context.state.start_camps_by_player
+        && context.state.start_camps_by_player[participant.player_id]
+      );
+      if (!Number.isInteger(camp)) return;
+      const position = visualCampCenter(nodes, camp, rotationSteps);
+      const item = createEdgeIdentity(context, participant, camp, position);
+      (position.top < 50 ? top : bottom).appendChild(item);
+    });
+    return {top, bottom};
+  }
+
   function movePayload(move) {
     return {from: move.from, to: move.to, kind: move.kind};
   }
@@ -180,13 +260,22 @@
     board.dataset.rotationSteps = String(rotationSteps);
     board.style.setProperty("--viewer-rotation", `${rotationSteps * 60}deg`);
 
+    const edgeRoster = edgeRosters(context, nodes, rotationSteps);
+    let playfield = board;
+    if (edgeRoster) {
+      board.classList.add("multiplayer-board");
+      playfield = document.createElement("div");
+      playfield.className = "cc-playfield";
+      board.append(edgeRoster.top, playfield, edgeRoster.bottom);
+    }
+
     const surface = document.createElement("span");
     surface.className = "cc-star-surface";
     surface.setAttribute("aria-hidden", "true");
-    board.appendChild(surface);
+    playfield.appendChild(surface);
 
     appendPathPreview(
-      board,
+      playfield,
       currentPath(context, legalMoves),
       nodeById,
       positions
@@ -287,7 +376,7 @@
           : [targetMove.from, targetMove.to];
         helpers.selectMove(movePayload(targetMove));
       });
-      board.appendChild(hole);
+      playfield.appendChild(hole);
     });
 
     const progress = Number(
@@ -298,7 +387,7 @@
     badge.className = "cc-progress-badge";
     badge.setAttribute("role", "status");
     badge.textContent = `目标营 ${Number.isFinite(progress) ? progress : 0} / 10`;
-    board.appendChild(badge);
+    playfield.appendChild(badge);
     return true;
   }
 
@@ -322,6 +411,7 @@
 
   ensureStylesheet();
   const renderer = {
+    participantPresentation: "board-edge",
     usesStandardMoveConfirmation: true,
     ensureStylesheet,
     rotateAxial,

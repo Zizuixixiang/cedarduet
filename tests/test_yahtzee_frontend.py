@@ -14,6 +14,7 @@ NODE = shutil.which("node")
 class YahtzeeFrontendStructureTests(unittest.TestCase):
     def test_renderer_uses_the_game_extension_contract(self):
         self.assertIn("window.DuelGameUI.register('yahtzee', renderer);", RENDERER)
+        self.assertIn('participantPresentation: "embedded"', RENDERER)
         self.assertIn("renderBoard,", RENDERER)
         self.assertIn("usesStandardMoveConfirmation: false", RENDERER)
         self.assertIn("helpers.submitMove", RENDERER)

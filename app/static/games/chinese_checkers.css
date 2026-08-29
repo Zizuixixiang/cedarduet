@@ -23,6 +23,57 @@
   touch-action: manipulation;
 }
 
+.board.chinese_checkers.multiplayer-board {
+  aspect-ratio: auto;
+  display: grid;
+  gap: 5px;
+  overflow: visible;
+  isolation: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.board.chinese_checkers .cc-playfield {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: .88 / 1;
+  min-width: 0;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  isolation: isolate;
+  box-sizing: border-box;
+  border: clamp(5px, 1vw, 9px) solid #4a4352;
+  border-radius: clamp(18px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .95), transparent 47%),
+    linear-gradient(145deg, #f6efdf 0%, #ddd0b9 62%, #cbbda7 100%);
+  box-shadow:
+    0 0 0 2px #bba982,
+    0 0 0 6px rgba(58, 52, 67, .16),
+    0 22px 46px rgba(43, 38, 51, .24),
+    inset 0 2px 0 rgba(255, 255, 255, .84);
+  touch-action: manipulation;
+}
+
+.cc-edge-roster {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.cc-edge-participant {
+  grid-column: var(--edge-column);
+  width: min(138px, 100%);
+}
+
+.cc-edge-participant[data-visual-edge$="-2"] { justify-self: center; }
+.cc-edge-participant[data-visual-edge$="-3"] { justify-self: end; }
+
 .board.chinese_checkers .cc-star-surface {
   position: absolute;
   inset: 3.2% 4.5%;
@@ -344,6 +395,20 @@
       inset 0 2px 0 rgba(255, 255, 255, .78);
   }
 
+  .board.chinese_checkers .cc-playfield {
+    border-width: 4px;
+    border-radius: 18px;
+    box-shadow:
+      0 0 0 2px #bba982,
+      0 10px 24px rgba(43, 38, 51, .2),
+      inset 0 2px 0 rgba(255, 255, 255, .78);
+  }
+
+  .cc-edge-participant {
+    min-height: 30px;
+    padding: 2px 4px;
+  }
+
   .board.chinese_checkers .cc-hole {
     width: clamp(17px, 5.2%, 25px);
     border-width: 1px;
@@ -383,6 +448,7 @@
     width: min(98vw, 314px);
     border-width: 3px;
   }
+  .board.chinese_checkers .cc-playfield { border-width: 3px; }
 
   .board.chinese_checkers .cc-hole {
     width: 16px;

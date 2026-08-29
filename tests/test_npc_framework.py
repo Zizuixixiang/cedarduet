@@ -419,9 +419,9 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertNotIn("wallet_label", participant_rendering)
         self.assertIn('targetRoom.private_state', script)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
-        self.assertIn(".table-layout.layout-top-row", styles)
-        self.assertIn(".layout-top-row .room-participants", styles)
-        self.assertIn("overflow-x: auto", styles)
+        self.assertIn(".table-layout.layout-multiplayer", styles)
+        self.assertIn(".layout-multiplayer .room-participants", styles)
+        self.assertIn("repeat(auto-fit, minmax(82px, 1fr))", styles)
 
 
 class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):

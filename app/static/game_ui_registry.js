@@ -4,6 +4,9 @@
   const renderers = new Map();
   const scriptLoads = new Map();
   const GAME_TYPE_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+  const PARTICIPANT_PRESENTATIONS = new Set([
+    "generic", "embedded", "board-edge",
+  ]);
 
   function normalizedGameType(gameType) {
     const value = typeof gameType === "string" ? gameType.trim() : "";
@@ -22,6 +25,14 @@
     }
     if (typeof renderer.renderBoard !== "function") {
       throw new TypeError("DuelGameUI renderer.renderBoard(context) is required");
+    }
+    if (
+      renderer.participantPresentation !== undefined
+      && !PARTICIPANT_PRESENTATIONS.has(renderer.participantPresentation)
+    ) {
+      throw new TypeError(
+        "DuelGameUI renderer.participantPresentation must be generic, embedded or board-edge"
+      );
     }
     if (renderers.has(key)) {
       throw new Error(`DuelGameUI renderer already registered for ${key}`);

@@ -18,6 +18,7 @@ NODE = shutil.which("node")
 class GandengyanFrontendStructureTests(unittest.TestCase):
     def test_renderer_is_independent_registry_autoloaded_and_css_is_idempotent(self):
         self.assertIn('window.DuelGameUI.register("gandengyan", renderer);', SCRIPT)
+        self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)

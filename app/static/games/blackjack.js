@@ -270,6 +270,7 @@
   }
 
   window.DuelGameUI.register("blackjack", {
+    participantPresentation: "embedded",
     usesStandardMoveConfirmation: false,
     renderBoard,
     renderControls,

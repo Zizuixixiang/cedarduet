@@ -225,6 +225,18 @@ assert.deepEqual([...registry.registeredGameTypes()], ["future_game"]);
 assert.throws(() => registry.register("future_game", renderer), /already registered/);
 assert.throws(() => registry.register("Bad Type", renderer), /gameType/);
 assert.throws(() => registry.register("no_board", {}), /renderBoard/);
+assert.throws(
+  () => registry.register("bad_presentation", {
+    renderBoard() {}, participantPresentation: "around",
+  }),
+  /participantPresentation/
+);
+assert.equal(
+  registry.register("embedded_game", {
+    renderBoard() {}, participantPresentation: "embedded",
+  }).participantPresentation,
+  "embedded"
+);
 
 const automaticRenderer = {renderBoard() {}};
 const loading = registry.load("automatic_game");
@@ -586,8 +598,9 @@ class FrontendBoardVisualTests(unittest.TestCase):
 
     def test_multiplayer_roster_is_compact_and_seat_colored(self):
         self.assertIn(".room-participant {", STYLES)
-        self.assertIn("width: 128px", STYLES)
-        self.assertIn("min-height: 66px", STYLES)
+        self.assertIn("width: 116px", STYLES)
+        self.assertIn("min-height: 52px", STYLES)
+        self.assertIn("width: 24px", STYLES)
         for seat in range(6):
             self.assertIn(f".seat-{seat} {{ --seat-color:", STYLES)
         self.assertIn(
@@ -673,16 +686,13 @@ class FrontendBoardVisualTests(unittest.TestCase):
             HTML,
         )
         players = function_source("renderPlayers")
-        self.assertIn('participants.length > 2', players)
+        self.assertIn("isMultiplayerRoom(room)", players)
         self.assertIn(
             '$("opponentRow").classList.toggle("hidden", multiplayer)',
             players,
         )
         self.assertIn(
-            '$("humanRow").classList.toggle("hidden", false)', players,
-        )
-        self.assertIn(
-            '$("viewerParticipantSlot").classList.toggle("hidden", true)',
+            '$("humanRow").classList.toggle("hidden", multiplayer)',
             players,
         )
         self.assertIn(
@@ -697,7 +707,8 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("const viewerPlayerId = viewerPlayerIdFor(room)", players)
         self.assertIn('bubble: $("viewerSpeech")', players)
         self.assertIn('bubble: $("sharedSpeech")', players)
-        self.assertIn("{excludePlayerId: viewerPlayerId}", players)
+        self.assertIn("event: multiplayer ? null", players)
+        self.assertIn("reserveSpace: !multiplayer", players)
 
     def test_ended_room_cards_have_a_prominent_non_hover_status(self):
         renderer = function_source("renderRooms")
@@ -722,14 +733,16 @@ class FrontendBoardVisualTests(unittest.TestCase):
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn(".room-status-badge {", mobile)
 
-    def test_private_state_stays_below_the_table_and_legacy_rows(self):
+    def test_private_state_and_recent_feed_precede_the_chat_composer(self):
         stage = HTML[HTML.index('<section class="battle-stage'):HTML.index("historyDrawerTab")]
         self.assertLess(stage.index('id="opponentRow"'), stage.index('id="tableLayout"'))
         self.assertLess(stage.index('id="tableLayout"'), stage.index('id="viewerParticipant"'))
         self.assertLess(stage.index('id="viewerParticipant"'), stage.index('id="humanRow"'))
         self.assertLess(stage.index('id="tableLayout"'), stage.index('id="humanRow"'))
         self.assertLess(stage.index('id="humanRow"'), stage.index('id="privateStatePanel"'))
-        self.assertLess(stage.index('id="humanRow"'), stage.index('class="chat-compose game-compose"'))
+        self.assertLess(stage.index('id="privateStatePanel"'), stage.index('id="recentChatFeed"'))
+        self.assertLess(stage.index('id="recentChatFeed"'), stage.index('class="chat-compose game-compose"'))
+        self.assertIn('id="gameChatArea" class="game-chat-area"', stage)
         self.assertIn("我的信息 · PRIVATE", stage)
 
     def test_liars_dice_has_public_controls_private_dice_and_revision_guard(self):
@@ -846,6 +859,7 @@ const showNotice = () => {{}};
 const renderPlayers = () => {{}};
 const renderParticipantRoster = () => {{ participantRenderCount += 1; }};
 const renderPrivateState = () => {{}};
+const renderRecentChat = () => {{}};
 const renderRulesText = () => {{}};
 const renderBoard = () => {{
   boardRenderCount += 1;
@@ -1418,6 +1432,9 @@ assert.equal(oBoard.children.every((cell) => cell.disabled), true);
 
     def test_two_through_six_players_apply_stable_layout_classes(self):
         functions = "\n".join((
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
+            function_source("participantPresentationFor"),
             function_source("participantLayoutClass"),
             function_source("applyParticipantLayout"),
         ))
@@ -1433,24 +1450,37 @@ class ClassList {{
 }}
 const elements = {{
   tableLayout: {{className: "", dataset: {{}}}},
-  battleStage: {{dataset: {{}}}},
+  battleStage: {{dataset: {{}}, classList: new ClassList()}},
   sharedSpeechSlot: {{classList: new ClassList()}},
 }};
 const $ = (id) => elements[id];
+const PARTICIPANT_PRESENTATIONS = new Set(["generic", "embedded", "board-edge"]);
+const registeredGameUIRenderer = () => null;
 {functions}
 const expected = new Map([
   [2, "layout-duel"],
-  [3, "layout-triangle"],
-  [4, "layout-corners"],
-  [5, "layout-top-row"],
-  [6, "layout-top-row"],
+  [3, "layout-multiplayer"],
+  [4, "layout-multiplayer"],
+  [5, "layout-multiplayer"],
+  [6, "layout-multiplayer"],
 ]);
 for (const [count, layout] of expected) {{
-  applyParticipantLayout({{participants: Array.from({{length: count}}, () => ({{}}))}});
+  applyParticipantLayout({{
+    game_type: "dots_boxes",
+    participants: Array.from({{length: count}}, () => ({{}})),
+  }});
   assert.equal(elements.tableLayout.className, `table-layout ${{layout}} count-${{count}}`);
   assert.equal(elements.tableLayout.dataset.playerCount, String(count));
   assert.equal(elements.battleStage.dataset.playerCount, String(count));
-  assert.equal(elements.sharedSpeechSlot.classList.contains("hidden"), count === 2);
+  assert.equal(
+    elements.tableLayout.dataset.participantPresentation,
+    count === 2 ? "duel" : "generic"
+  );
+  assert.equal(elements.sharedSpeechSlot.classList.contains("hidden"), true);
+  assert.equal(
+    elements.battleStage.classList.contains("multiplayer-presentation"),
+    count > 2
+  );
 }}
 """
         self.run_node(harness)
@@ -2133,37 +2163,19 @@ for (const count of [3, 4, 5, 6]) {{
 """
         self.run_node(harness)
 
-        desktop = STYLES[:STYLES.index("@media (max-width: 860px)")]
         self.assertIn(
-            ".table-layout.count-3 .room-participant:nth-child(1) {\n"
-            "  grid-column: 1;\n  grid-row: 1;\n  justify-self: end;",
-            desktop,
-        )
-        self.assertIn(
-            ".table-layout.count-3 .room-participant:nth-child(2) {\n"
-            "  grid-column: 3;\n  grid-row: 1;\n  justify-self: start;",
-            desktop,
-        )
-        self.assertNotIn(
-            ".table-layout.count-3 .room-participant:nth-child(3)", desktop,
-        )
-
-        mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
-        self.assertIn(
-            ".table-layout.count-3 .room-participant:nth-child(1) {\n"
-            "    grid-column: 1;\n    grid-row: 1;\n"
-            "    align-self: start;\n    justify-self: start;",
-            mobile,
+            ".layout-multiplayer .room-participants {\n"
+            "  width: min(700px, 100%);\n"
+            "  margin: 0 auto;\n"
+            "  display: grid;\n"
+            "  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));",
+            STYLES,
         )
         self.assertIn(
-            ".table-layout.count-3 .room-participant:nth-child(2) {\n"
-            "    grid-column: 2;\n    grid-row: 1;\n"
-            "    align-self: start;\n    justify-self: end;",
-            mobile,
+            ".layout-multiplayer .room-participant { width: 100%; }",
+            STYLES,
         )
-        self.assertNotIn(
-            ".table-layout.count-3 .room-participant:nth-child(3)", mobile,
-        )
+        self.assertNotIn(".table-layout.count-3 .room-participant:nth-child", STYLES)
 
     def test_game_options_are_rebuilt_from_catalog_player_counts(self):
         functions = "\n".join((
@@ -2420,6 +2432,9 @@ assert.ok(renderCount >= 3);
 
     def test_roster_marks_current_actor_and_keeps_game_values_compact(self):
         functions = "\n".join((
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
+            function_source("participantPresentationFor"),
             function_source("participantAvatarFallback"),
             function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
@@ -2465,11 +2480,21 @@ const roster = new Element("div");
 roster.className = "room-participants hidden count-2";
 const viewerSlot = new Element("div");
 viewerSlot.className = "viewer-participant-slot hidden";
+const viewerRow = new Element("div");
+viewerRow.className = "viewer-participant-row hidden";
 const document = {{createElement: (tag) => new Element(tag)}};
-const $ = (id) => ({{roomParticipants: roster, viewerParticipant: viewerSlot}})[id];
+const $ = (id) => ({{
+  roomParticipants: roster,
+  viewerParticipant: viewerSlot,
+  viewerParticipantSlot: viewerRow,
+}})[id];
 const apiPath = (path) => path;
+const PARTICIPANT_PRESENTATIONS = new Set(["generic", "embedded", "board-edge"]);
+let activeRenderer = null;
+const registeredGameUIRenderer = () => activeRenderer;
 {functions}
-renderParticipantRoster({{
+const targetRoom = {{
+  game_type: "liars_dice",
   current_player_id: "p2",
   viewer: {{player_id: "p1"}},
   participants: [
@@ -2477,7 +2502,8 @@ renderParticipantRoster({{
     {{player_id: "p1", seat_index: 2, display_name: "甲", role: "human", participant_kind: "human", active: true, activity_state: "active", join_status: "joined", confirmation_status: "accepted", game_metadata: {{score: 2}}}},
     {{player_id: "p3", seat_index: 1, display_name: "丙", role: "ai", participant_kind: "system_npc", active: false, activity_state: "eliminated", join_status: "joined", confirmation_status: "accepted", game_metadata: {{dice_count: 0}}}},
   ],
-}});
+}};
+renderParticipantRoster(targetRoom);
 assert.equal(roster.children.length, 2);
 assert.deepEqual(
   roster.children.map((item) => item.children[1].children[0].textContent),
@@ -2492,13 +2518,28 @@ assert.match(current.children[2].textContent, /▶ 正在行动/);
 assert.match(current.children[2].textContent, /剩余骰子 4/);
 assert.equal(current.children[0].textContent, "乙");
 assert.match(roster.children[1].children[2].textContent, /已淘汰/);
-assert.equal(viewerSlot.children.length, 0);
-assert.ok(viewerSlot.classList.contains("hidden"));
+assert.equal(viewerSlot.children.length, 1);
+assert.equal(viewerSlot.children[0].children[1].children[0].textContent, "甲（你）");
+assert.ok(!viewerSlot.classList.contains("hidden"));
+assert.ok(!viewerRow.classList.contains("hidden"));
+
+for (const presentation of ["embedded", "board-edge"]) {{
+  activeRenderer = {{participantPresentation: presentation}};
+  renderParticipantRoster({{...targetRoom, game_type: `game-${{presentation}}`}});
+  assert.equal(roster.children.length, 0);
+  assert.equal(viewerSlot.children.length, 0);
+  assert.ok(roster.classList.contains("hidden"));
+  assert.ok(viewerSlot.classList.contains("hidden"));
+  assert.ok(viewerRow.classList.contains("hidden"));
+}}
 """
         self.run_node(harness)
 
     def test_three_through_six_player_rosters_never_duplicate_viewer(self):
         functions = "\n".join((
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
+            function_source("participantPresentationFor"),
             function_source("participantAvatarFallback"),
             function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
@@ -2540,7 +2581,14 @@ const document = {{createElement: (tag) => new Element(tag)}};
 const apiPath = (path) => path;
 const roster = new Element("div");
 const viewerSlot = new Element("div");
-const $ = (id) => ({{roomParticipants: roster, viewerParticipant: viewerSlot}})[id];
+const viewerRow = new Element("div");
+const $ = (id) => ({{
+  roomParticipants: roster,
+  viewerParticipant: viewerSlot,
+  viewerParticipantSlot: viewerRow,
+}})[id];
+const PARTICIPANT_PRESENTATIONS = new Set(["generic", "embedded", "board-edge"]);
+const registeredGameUIRenderer = () => null;
 {functions}
 for (const count of [3, 4, 5, 6]) {{
   roster.className = "room-participants hidden count-2";
@@ -2562,6 +2610,7 @@ for (const count of [3, 4, 5, 6]) {{
     game_metadata: {{dice_count: 5}},
   }}));
   renderParticipantRoster({{
+    game_type: "dots_boxes",
     viewer: {{player_id: "me"}}, current_player_id: "me", participants,
   }});
   assert.equal(roster.children.length, count - 1);
@@ -2571,29 +2620,100 @@ for (const count of [3, 4, 5, 6]) {{
   assert.ok(roster.children.every((item) => !item.classList.contains("viewer")));
   assert.ok(roster.classList.contains(`count-${{count}}`));
   assert.ok(!roster.classList.contains("hidden"));
-  assert.equal(viewerSlot.children.length, 0);
-  assert.ok(viewerSlot.classList.contains("hidden"));
+  assert.equal(viewerSlot.children.length, 1);
+  assert.equal(
+    viewerSlot.children[0].children[1].children[0].textContent,
+    "南山（你）"
+  );
+  assert.ok(!viewerSlot.classList.contains("hidden"));
+  assert.ok(!viewerRow.classList.contains("hidden"));
 }}
 """
         self.run_node(harness)
 
-    def test_shared_bubble_updates_speaker_avatar_message_and_seat_color(self):
+    def test_multiplayer_liars_dice_private_panel_is_compact(self):
         functions = "\n".join((
-            function_source("participantByPlayerId"),
-            function_source("participantAvatarFallback"),
-            function_source("accountAvatarForParticipant"),
-            function_source("renderParticipantAvatar"),
-            function_source("speechSenderRole"),
-            function_source("speechSenderPlayerId"),
-            function_source("latestSpeechEvent"),
-            function_source("renderSpeechBubble"),
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
+            function_source("renderPrivateState"),
         ))
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
-  constructor() {{ this.names = new Set(["speech-bubble", "shared-speech", "empty"]); }}
+  constructor() {{ this.names = new Set(["hidden"]); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor() {{
+    this.children = []; this.classList = new ClassList();
+    this.textContent = ""; this.attributes = {{}};
+  }}
+  set className(value) {{ this.classList.names = new Set(String(value).split(/\s+/).filter(Boolean)); }}
+  append(...children) {{ this.children.push(...children); }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  replaceChildren(...children) {{ this.children = children; }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+}}
+const panel = new Element();
+const content = new Element();
+const $ = (id) => ({{privateStatePanel: panel, privateStateContent: content}})[id];
+const document = {{createElement: () => new Element()}};
+let activeRenderer = null;
+const registeredGameUIRenderer = () => activeRenderer;
+{functions}
+const participants = Array.from({{length: 4}}, (_, index) => ({{player_id: `p${{index}}`}}));
+renderPrivateState({{
+  game_type: "liars_dice", participants, private_state: {{dice: [1, 2, 3, 4, 5]}},
+}});
+assert.ok(!panel.classList.contains("hidden"));
+assert.ok(panel.classList.contains("compact-dice-private"));
+assert.equal(content.children.length, 1);
+assert.ok(content.children[0].children[1].classList.contains("my-dice"));
+assert.equal(content.children[0].children[1].children.length, 5);
+
+renderPrivateState({{
+  game_type: "liars_dice", participants: participants.slice(0, 2),
+  private_state: {{dice: [1, 2, 3, 4, 5]}},
+}});
+assert.ok(!panel.classList.contains("compact-dice-private"));
+
+activeRenderer = {{ownsPrivateStatePresentation: true}};
+renderPrivateState({{
+  game_type: "uno", participants, private_state: {{hand: ["r1"]}},
+}});
+assert.ok(panel.classList.contains("hidden"));
+assert.equal(content.children.length, 0);
+"""
+        self.run_node(harness)
+        compact = STYLES[
+            STYLES.index(".private-state-panel.compact-dice-private {"):
+            STYLES.index(".create-submit {")
+        ]
+        self.assertIn("> .tag { display: none; }", compact)
+        self.assertIn("width: 27px;", compact)
+        self.assertIn("height: 27px;", compact)
+        self.assertIn("gap: 4px;", compact)
+
+    def test_recent_chat_feed_only_keeps_public_message_events(self):
+        functions = "\n".join((
+            function_source("participantByPlayerId"),
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
+            function_source("speechSenderRole"),
+            function_source("speechSenderPlayerId"),
+            function_source("recentMessageEvents"),
+            function_source("timelineSpeakerName"),
+            function_source("renderRecentChat"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(["hidden"]); }}
   add(...names) {{ names.forEach((name) => this.names.add(name)); }}
-  remove(...names) {{ names.forEach((name) => this.names.delete(name)); }}
   toggle(name, force) {{
     if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
     else this.names.delete(name);
@@ -2602,49 +2722,69 @@ class ClassList {{
   [Symbol.iterator]() {{ return this.names[Symbol.iterator](); }}
 }}
 class Element {{
-  constructor() {{ this.classList = new ClassList(); this.textContent = ""; this.attributes = {{}}; this.children = []; }}
+  constructor() {{
+    this.classList = new ClassList(); this.textContent = "";
+    this.attributes = {{}}; this.children = []; this.scrollTop = 0; this.scrollHeight = 80;
+  }}
+  set className(value) {{ this.classList.names = new Set(String(value).split(/\s+/).filter(Boolean)); }}
+  get className() {{ return [...this.classList.names].join(" "); }}
   replaceChildren(...children) {{ this.children = children; this.textContent = ""; }}
+  append(...children) {{ this.children.push(...children); }}
+  appendChild(child) {{ this.children.push(child); return child; }}
   setAttribute(name, value) {{ this.attributes[name] = value; }}
-  addEventListener() {{}}
 }}
 const document = {{createElement: () => new Element()}};
-const apiPath = (path) => path;
+const feed = new Element();
+const list = new Element();
+const $ = (id) => ({{recentChatFeed: feed, recentChatMessages: list}})[id];
+const RECENT_CHAT_LIMIT = 5;
 let room = {{viewer: {{player_id: "p1"}}, participants: [
   {{player_id: "p1", seat_index: 0, display_name: "甲", role: "human"}},
   {{player_id: "p2", seat_index: 1, display_name: "乙", role: "ai"}},
-  {{player_id: "p3", seat_index: 2, display_name: "丙", role: "ai", participant_kind: "system_npc", avatar_url: "/api/npc-avatars/p3.webp"}},
+  {{player_id: "p3", seat_index: 2, display_name: "丙", role: "ai"}},
 ]}};
 {functions}
-const bubble = new Element();
-const textTarget = new Element();
-const nameTarget = new Element();
-const avatarTarget = new Element();
 const events = [
-  {{event_type: "message", text: "第一句", sender_role: "human", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
-  {{event_type: "message", text: "第二句", sender_role: "ai", sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
-  {{event_type: "result", text: "不应进入气泡", sender_role: "system", sender: {{player_id: "system", name: "裁判", role: "system"}}}},
+  {{event_type: "message", text: "第一句", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
+  {{event_type: "move", text: "落子附言也不能混入", sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  {{event_type: "resign", text: "认输", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
+  {{event_type: "leave", text: "离桌", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
+  {{event_type: "message", text: "私聊", is_public: false, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  ...Array.from({{length: 5}}, (_, index) => ({{
+    event_type: "message", text: `公开 ${{index + 2}}`,
+    sender: {{player_id: index % 2 ? "p2" : "p3", role: "ai", seat: index % 2 ? 1 : 2}},
+  }})),
 ];
-renderSpeechBubble({{bubble, event: latestSpeechEvent(events, {{excludePlayerId: "p1"}}), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
-assert.equal(nameTarget.textContent, "乙");
-assert.equal(textTarget.textContent, "第二句");
-assert.equal(avatarTarget.textContent, "乙");
-assert.ok(bubble.classList.contains("seat-1"));
-assert.ok(!bubble.classList.contains("empty"));
-events.push({{event_type: "move", text: "连续更新", sender_role: "ai", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}});
-events.push({{event_type: "message", text: "我的最新发言", sender_role: "human", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}});
-renderSpeechBubble({{bubble, event: latestSpeechEvent(events, {{excludePlayerId: "p1"}}), textTarget, nameTarget, avatarTarget, reserveSpace: true}});
-assert.equal(nameTarget.textContent, "丙");
-assert.equal(textTarget.textContent, "连续更新");
-assert.equal(avatarTarget.children.length, 1);
-assert.equal(avatarTarget.children[0].src, "/api/npc-avatars/p3.webp");
-assert.ok(bubble.classList.contains("seat-2"));
-assert.ok(!bubble.classList.contains("seat-1"));
+renderRecentChat(events);
+assert.equal(list.children.length, 5);
+assert.deepEqual(
+  list.children.map((item) => item.children[1].textContent),
+  ["公开 2", "公开 3", "公开 4", "公开 5", "公开 6"]
+);
+assert.deepEqual(
+  list.children.map((item) => item.children[0].textContent),
+  ["丙", "乙", "丙", "乙", "丙"]
+);
+assert.ok(list.children[0].classList.contains("seat-2"));
+assert.ok(!feed.classList.contains("hidden"));
+assert.equal(list.scrollTop, list.scrollHeight);
+
+renderRecentChat(events.filter((event) => event.event_type !== "message"));
+assert.equal(list.children.length, 0);
+assert.ok(feed.classList.contains("hidden"));
+
+room = {{...room, participants: room.participants.slice(0, 2)}};
+renderRecentChat(events);
+assert.equal(list.children.length, 0);
+assert.ok(feed.classList.contains("hidden"));
 """
         self.run_node(harness)
 
 
-    def test_multiplayer_keeps_human_row_avatar_and_speech_by_viewer(self):
+    def test_two_player_speech_is_unchanged_and_multiplayer_bubbles_are_hidden(self):
         functions = "\n".join((
+            function_source("actualPlayerCount"),
+            function_source("isMultiplayerRoom"),
             function_source("participantAvatarFallback"),
             function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
@@ -2693,6 +2833,7 @@ const elements = Object.fromEntries(elementIds.map((id) => [
   id, new Element(id),
 ]));
 elements.humanRow.classList.toggle("hidden", true);
+elements.viewerParticipantSlot.classList.toggle("hidden", true);
 const $ = (id) => elements[id];
 const document = {{createElement: () => new Element()}};
 const apiPath = (path) => `asset:${{path}}`;
@@ -2738,12 +2879,13 @@ renderPlayers(timeline);
 const shared = calls.find((call) => call.bubble.id === "sharedSpeech");
 const viewer = calls.find((call) => call.bubble.id === "viewerSpeech");
 const human = calls.find((call) => call.bubble.id === "humanSpeech");
-assert.equal(shared.event.text, "其他人的公开发言");
-assert.notEqual(speechSenderPlayerId(shared.event), "viewer-1");
+const ai = calls.find((call) => call.bubble.id === "aiSpeech");
+assert.equal(shared.event, null);
 assert.equal(viewer.event, null);
-assert.equal(human.event.text, "我的公开发言");
+assert.equal(human.event, null);
+assert.equal(ai.event, null);
 assert.ok(elements.opponentRow.classList.contains("hidden"));
-assert.ok(!elements.humanRow.classList.contains("hidden"));
+assert.ok(elements.humanRow.classList.contains("hidden"));
 assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
 assert.equal(elements.humanName.textContent, "南山");
 assert.equal(elements.humanAvatar.children.length, 0);
@@ -2758,10 +2900,17 @@ room = {{
     {{player_id: "machine-1", role: "ai", participant_kind: "bound_machine", display_name: "紫机", seat_index: 1}},
   ],
 }};
-renderPlayers([]);
+renderPlayers([
+  {{event_type: "message", text: "双人 AI 发言", sender_role: "ai", sender: {{player_id: "machine-1", role: "ai"}}}},
+  {{event_type: "message", text: "双人我的发言", sender_role: "human", sender: {{player_id: "viewer-1", role: "human"}}}},
+]);
+const duelAi = calls.find((call) => call.bubble.id === "aiSpeech");
+const duelHuman = calls.find((call) => call.bubble.id === "humanSpeech");
 assert.ok(!elements.opponentRow.classList.contains("hidden"));
 assert.ok(!elements.humanRow.classList.contains("hidden"));
 assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
+assert.equal(duelAi.event.text, "双人 AI 发言");
+assert.equal(duelHuman.event.text, "双人我的发言");
 assert.equal(elements.humanName.textContent, "南山");
 assert.equal(elements.humanAvatar.children.length, 0);
 assert.equal(elements.humanAvatar.textContent, "🐼");
@@ -2779,24 +2928,23 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn('id="viewerParticipantSlot"', HTML)
         self.assertIn('id="viewerSpeechText"', HTML)
         self.assertIn('id="viewerParticipant"', HTML)
-        self.assertIn(".layout-triangle .board-zone", STYLES)
-        self.assertIn(".layout-corners .board-zone", STYLES)
-        self.assertIn(".layout-top-row .room-participants", STYLES)
-        self.assertIn("overflow-x: auto", STYLES)
-        self.assertIn("overscroll-behavior-inline: contain", STYLES)
-        self.assertNotIn(".layout-top-row .room-participants { flex-wrap:", STYLES)
+        self.assertIn(".table-layout.layout-multiplayer", STYLES)
+        self.assertIn(".layout-multiplayer .room-participants", STYLES)
+        self.assertIn(
+            "grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));",
+            STYLES,
+        )
+        self.assertIn(".layout-multiplayer .room-participant { width: 100%; }", STYLES)
+        self.assertIn(".layout-multiplayer .board-zone { min-width: 0; }", STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
-        self.assertIn("grid-column: 1 / -1", mobile)
-        self.assertIn(".layout-top-row .room-participants { justify-content: flex-start; }", mobile)
         self.assertIn(".viewer-participant-row { padding: 0 2px; gap: 8px; }", mobile)
         viewer_slot = mobile[
             mobile.index(".viewer-participant-slot {"):
             mobile.index(".viewer-participant-slot .room-participant")
         ]
-        self.assertIn("width: min(190px, 44%);", viewer_slot)
-        self.assertIn("max-width: 44%;", viewer_slot)
-        self.assertIn("flex-basis: 190px;", viewer_slot)
-        self.assertIn(".viewer-speech { max-width: 100%; flex: 1 1 0; }", mobile)
+        self.assertIn("width: min(180px, 62%);", viewer_slot)
+        self.assertIn("max-width: 62%;", viewer_slot)
+        self.assertIn("flex-basis: 180px;", viewer_slot)
         self.assertIn(
             ".player-avatar img { width: 100%; height: 100%; object-fit: cover; }",
             STYLES,
@@ -2807,29 +2955,31 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             "padding: 3px 4px 3px 2px; }",
             mobile,
         )
-        self.assertIn(".shared-speech {\n    width: min(430px, 100%);", mobile)
+        self.assertIn(".recent-chat-message {", mobile)
+        for viewport in (320, 375):
+            inner_width = viewport - 20 - 14
+            self.assertGreaterEqual(inner_width, 286)
+            self.assertLessEqual(3 * 82 + 2 * 5, inner_width)
 
-    def test_speech_bubbles_grow_before_scrolling_without_fixed_height(self):
-        shared = STYLES[
-            STYLES.index(".shared-speech-slot {\n  min-width"):
-            STYLES.index(".board-zone { min-width")
+    def test_recent_chat_is_bounded_while_two_player_speech_can_still_wrap(self):
+        recent = STYLES[
+            STYLES.index(".recent-chat-feed {"):
+            STYLES.index(".chat-compose {")
         ]
         text = STYLES[
             STYLES.index(".speech-bubble-text {"):
             STYLES.index(".ai-speech::before")
         ]
-        self.assertIn("min-height: 68px;", shared)
-        self.assertIn("min-height: 58px;", shared)
-        self.assertNotRegex(shared, r"(?m)^  height: (?:58|68)px;$")
-        self.assertNotIn("-webkit-line-clamp", shared)
-        self.assertIn("max-height: min(180px, 30vh);", shared)
-        self.assertIn("overflow-y: auto;", shared)
-        self.assertIn("white-space: pre-wrap;", shared)
+        self.assertIn("max-height: 132px;", recent)
+        self.assertIn("overflow-y: auto;", recent)
+        self.assertIn("overflow-wrap: anywhere;", recent)
+        self.assertIn("white-space: pre-wrap;", recent)
+        self.assertNotIn("table", recent)
         self.assertIn("max-height: min(180px, 30vh);", text)
         self.assertIn("overflow-y: auto;", text)
         self.assertIn("white-space: pre-wrap;", text)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
-        self.assertNotRegex(mobile, r"(?m)^  height: (?:54|62)px;$")
+        self.assertIn(".recent-chat-messages { max-height: 116px;", mobile)
 
     def test_liars_round_card_visibility_and_polling_safe_bid_draft(self):
         functions = "\n".join((

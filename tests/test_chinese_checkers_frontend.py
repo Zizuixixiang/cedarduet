@@ -29,6 +29,7 @@ class ChineseCheckersFrontendStructureTests(unittest.TestCase):
             'window.DuelGameUI.register("chinese_checkers", renderer)', SCRIPT
         )
         self.assertIn("function renderBoard(context)", SCRIPT)
+        self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("state.legal_moves", SCRIPT)
         self.assertIn("movePayload(targetMove)", SCRIPT)
         self.assertNotIn("function legalMoves", SCRIPT)
@@ -81,44 +82,49 @@ class ChineseCheckersFrontendStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for Chinese Checkers renderer test")
 class ChineseCheckersFrontendRuntimeTests(unittest.TestCase):
-    def run_node(self, assertions: str) -> None:
+    def run_node(self, assertions: str, *, state=None, participants=None) -> None:
         game = ChineseCheckers()
-        participants = [
-            {
-                "player_id": "human-1",
-                "display_name": "南山",
-                "role": "human",
-                "seat_index": 0,
-                "token": "P1",
-            },
-            {
-                "player_id": "ai-1",
-                "display_name": "小机",
-                "role": "ai",
-                "seat_index": 1,
-                "token": "P2",
-            },
-        ]
-        state = game.initialize(participants)
-        camp_zero = state["camps"]["0"]
-        central = [node["id"] for node in state["nodes"] if node["camp"] is None]
-        origin = camp_zero[0]
-        midpoint = central[len(central) // 2]
-        target = central[len(central) // 2 + 1]
-        state["pieces"] = {origin: "P1"}
-        state["legal_moves"] = [{
-            "from": origin,
-            "to": target,
-            "kind": "jump",
-            "path": [origin, midpoint, target],
-        }]
-        state["last_move"] = {
-            "from": camp_zero[1],
-            "to": camp_zero[2],
-            "kind": "step",
-            "path": [camp_zero[1], camp_zero[2]],
-        }
+        if participants is None:
+            participants = [
+                {
+                    "player_id": "human-1",
+                    "display_name": "南山",
+                    "role": "human",
+                    "seat_index": 0,
+                    "token": "P1",
+                },
+                {
+                    "player_id": "ai-1",
+                    "display_name": "小机",
+                    "role": "ai",
+                    "seat_index": 1,
+                    "token": "P2",
+                },
+            ]
+        if state is None:
+            state = game.initialize(participants)
+            camp_zero = state["camps"]["0"]
+            central = [node["id"] for node in state["nodes"] if node["camp"] is None]
+            origin = camp_zero[0]
+            midpoint = central[len(central) // 2]
+            target = central[len(central) // 2 + 1]
+            state["pieces"] = {origin: "P1"}
+            state["legal_moves"] = [{
+                "from": origin,
+                "to": target,
+                "kind": "jump",
+                "path": [origin, midpoint, target],
+            }]
+            state["last_move"] = {
+                "from": camp_zero[1],
+                "to": camp_zero[2],
+                "kind": "step",
+                "path": [camp_zero[1], camp_zero[2]],
+            }
         state_json = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+        participants_json = json.dumps(
+            participants, ensure_ascii=False, separators=(",", ":")
+        )
         harness = r'''
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
@@ -182,6 +188,13 @@ assert.equal(headChildren.length, 1);
 assert.equal(headChildren[0].href, "/static/games/chinese_checkers.css?v=0.1.0");
 
 const state = JSON.parse(STATE_JSON);
+const participants = JSON.parse(PARTICIPANTS_JSON);
+function descendants(root) {
+  const result = [];
+  const visit = (node) => { result.push(node); node.children.forEach(visit); };
+  root.children.forEach(visit);
+  return result;
+}
 function createHarness(viewerId, canMove) {
   const board = new Element("div");
   const controls = new Element("div");
@@ -193,6 +206,9 @@ function createHarness(viewerId, canMove) {
       board.style.setProperty("--cols", options.visualCols || options.cols);
       board.style.setProperty("--rows", options.visualRows || options.rows);
       board.setAttribute("aria-label", options.ariaLabel);
+    },
+    renderParticipantAvatar(target, participant) {
+      target.textContent = `avatar:${participant.player_id}`;
     },
     canMove() { return canMove; },
     clearSelection({render = true} = {}) {
@@ -216,18 +232,21 @@ function createHarness(viewerId, canMove) {
     },
   };
   context = {
-    board, controls, state, legalMoves: state.legal_moves, uiState, helpers,
-    room: {room_id: "ROOM", revision: 7, viewer: {player_id: viewerId}},
+    board, controls, state, participants, legalMoves: state.legal_moves, uiState, helpers,
+    room: {
+      room_id: "ROOM", revision: 7, viewer: {player_id: viewerId},
+    },
     viewer: {player_id: viewerId}, canMove, pendingMove: null,
   };
   helpers.rerender();
-  const hole = (nodeId) => board.children.find(
+  const hole = (nodeId) => descendants(board).find(
     (item) => item.classList.contains("cc-hole") && item.dataset.nodeId === nodeId
   );
   return {board, controls, uiState, helpers, hole, selectedMove: () => selectedMove};
 }
 ''' + assertions
         harness = harness.replace("STATE_JSON", repr(state_json))
+        harness = harness.replace("PARTICIPANTS_JSON", repr(participants_json))
         completed = subprocess.run(
             [NODE, "-e", harness],
             cwd=ROOT,
@@ -280,6 +299,57 @@ assert.ok(
     .every((hole) => Number(hole.dataset.displayR) <= -5)
 );
 ''')
+
+    def test_multiplayer_edge_identities_follow_viewer_rotated_camps(self):
+        participants = [
+            {
+                "player_id": f"p-{index}",
+                "display_name": f"玩家{index}",
+                "role": "human" if index == 0 else "ai",
+                "seat_index": index,
+                "token": f"P{index + 1}",
+                "participant_kind": "human" if index == 0 else "system_npc",
+            }
+            for index in range(6)
+        ]
+        state = ChineseCheckers().initialize(participants)
+        self.run_node(r'''
+for (const participant of participants) {
+  const harness = createHarness(participant.player_id, false);
+  assert.ok(harness.board.classList.contains("multiplayer-board"));
+  const nodes = descendants(harness.board);
+  const identities = nodes.filter((node) => node.classList.contains("cc-edge-participant"));
+  assert.equal(identities.length, 6);
+  const viewerIdentity = identities.find(
+    (node) => node.dataset.playerId === participant.player_id
+  );
+  assert.equal(viewerIdentity.dataset.visualEdge, "bottom-2");
+  assert.equal(
+    viewerIdentity.dataset.camp,
+    String(state.start_camps_by_player[participant.player_id])
+  );
+  assert.equal(viewerIdentity.children[0].textContent, `avatar:${participant.player_id}`);
+  assert.match(viewerIdentity.children[1].children[1].textContent, /^起始营 [1-6]$/);
+
+  const playfield = harness.board.children.find(
+    (node) => node.classList.contains("cc-playfield")
+  );
+  assert.ok(playfield);
+  assert.equal(
+    descendants(playfield).filter((node) => node.classList.contains("cc-hole")).length,
+    121
+  );
+  assert.equal(
+    descendants(playfield).some((node) => node.classList.contains("board-edge-participant")),
+    false
+  );
+}
+''', state=state, participants=participants)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", STYLES)
+        self.assertIn(".board.chinese_checkers .cc-playfield", STYLES)
+        for viewport in (320, 375):
+            board_width = min(viewport * (0.98 if viewport == 320 else 0.97), 365)
+            self.assertLessEqual(board_width, viewport)
 
     def test_source_has_valid_javascript_syntax(self):
         completed = subprocess.run(

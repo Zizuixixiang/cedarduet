@@ -45,6 +45,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
+        self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("helpers.submitMove", SCRIPT)
         self.assertIn("context.legalActions", SCRIPT)
         self.assertIn("context.legalMoves", SCRIPT)
@@ -99,8 +100,20 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
 class AeroplaneChessFrontendRuntimeTests(unittest.TestCase):
-    def run_node(self, assertions):
-        state_json = json.dumps(rolled_state(), ensure_ascii=False)
+    def run_node(self, assertions, *, state=None, participants=None):
+        state = state or rolled_state()
+        participants = participants or [
+            {
+                "player_id": "human-1", "display_name": "南山", "token": "red",
+                "seat_index": 0, "participant_kind": "human",
+            },
+            {
+                "player_id": "ai-1", "display_name": "小机", "token": "blue",
+                "seat_index": 1, "participant_kind": "system_npc",
+            },
+        ]
+        state_json = json.dumps(state, ensure_ascii=False)
+        participants_json = json.dumps(participants, ensure_ascii=False)
         harness = r'''
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
@@ -164,28 +177,30 @@ function descendants(root) {
 }
 function hasClass(node, name) { return node.classList && node.classList.contains(name); }
 const state = STATE_JSON;
-const participants = [
-  {player_id: "human-1", display_name: "南山", token: "red"},
-  {player_id: "ai-1", display_name: "小机", token: "blue"},
-];
+const participants = PARTICIPANTS_JSON;
 function makeContext(viewerId, canMove = true) {
   const board = new Element("div");
   const controls = new Element("div");
   const submitted = [];
   const context = {
     board, controls, state, participants,
-    room: {current_player_id: "human-1", status: "playing"},
+    room: {current_player_id: participants[0].player_id, status: "playing"},
     viewer: {player_id: viewerId}, canMove, isTerminal: false,
     legalActions: state.legal_actions, legalMoves: state.legal_moves,
     helpers: {
       setBoardLayout(options) { board.attributes.ariaLabel = options.ariaLabel; },
+      renderParticipantAvatar(target, participant) {
+        target.textContent = `avatar:${participant.player_id}`;
+      },
       canMove() { return canMove; },
       async submitMove(move) { submitted.push(move); return true; },
     },
   };
   return {context, board, controls, submitted};
 }
-'''.replace("STATE_JSON", state_json) + assertions
+'''.replace("STATE_JSON", state_json).replace(
+            "PARTICIPANTS_JSON", participants_json
+        ) + assertions
         completed = subprocess.run(
             [NODE, "-e", harness],
             cwd=ROOT,
@@ -254,6 +269,52 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(JSON.stringify(harness.submitted), JSON.stringify([{action: "roll"}]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
+
+    def test_multiplayer_edge_identities_follow_rotated_airports(self):
+        participants = [
+            {
+                "player_id": f"p-{index}",
+                "display_name": f"玩家{index}",
+                "token": color,
+                "seat_index": index,
+                "role": "human" if index == 0 else "ai",
+                "participant_kind": "human" if index == 0 else "system_npc",
+            }
+            for index, color in enumerate(("red", "yellow", "blue", "green"))
+        ]
+        state = AeroplaneChess().initialize(participants)
+        self.run_node(r'''
+for (const participant of participants) {
+  const harness = makeContext(participant.player_id, false);
+  renderer.renderBoard(harness.context);
+  renderer.renderControls(harness.context);
+  const nodes = descendants(harness.board);
+  const identities = nodes.filter((node) => hasClass(node, "aeroplane-edge-participant"));
+  assert.equal(identities.length, 4);
+  const viewerIdentity = identities.find(
+    (node) => node.dataset.playerId === participant.player_id
+  );
+  assert.equal(viewerIdentity.dataset.visualEdge, "bottom-left");
+  assert.equal(viewerIdentity.dataset.color, state.color_by_player[participant.player_id]);
+  assert.equal(viewerIdentity.children[0].textContent, `avatar:${participant.player_id}`);
+  assert.match(viewerIdentity.children[1].children[1].textContent, /方$/);
+
+  const shell = nodes.find((node) => hasClass(node, "aeroplane-board-shell"));
+  assert.ok(shell);
+  assert.equal(
+    descendants(shell).some((node) => hasClass(node, "board-edge-participant")),
+    false
+  );
+  assert.equal(
+    descendants(harness.controls).filter((node) => hasClass(node, "aeroplane-roster-item")).length,
+    0
+  );
+}
+''', state=state, participants=participants)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", STYLES)
+        self.assertIn('data-visual-edge$="-right"', STYLES)
+        for viewport in (320, 375):
+            self.assertLessEqual(min(viewport * 0.96, 680), viewport)
 
     def test_source_is_valid_javascript(self):
         completed = subprocess.run(

@@ -407,6 +407,7 @@
   }
 
   const renderer = Object.freeze({
+    participantPresentation: "embedded",
     usesStandardMoveConfirmation: false,
     ownsPrivateStatePresentation: true,
     renderBoard,

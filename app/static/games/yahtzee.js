@@ -308,6 +308,7 @@
   }
 
   const renderer = {
+    participantPresentation: "embedded",
     glyph: "艇",
     usesStandardMoveConfirmation: false,
     boardLabel: "快艇骰子与计分卡",
