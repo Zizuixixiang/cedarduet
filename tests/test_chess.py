@@ -178,7 +178,7 @@ class ChessRuleTests(unittest.TestCase):
         self.assertEqual(self.game.check_winner(result.state), "draw")
 
     def test_invalid_fen_and_corrupt_history_are_rejected_by_bridge(self):
-        with self.assertRaisesRegex(ValueError, "必须恰有一个王"):
+        with self.assertRaisesRegex(ValueError, "missing black king|必须恰有一个王"):
             self.game.state_from_fen("8/8/8/8/8/8/8/4K3 w - - 0 1")
         with self.assertRaisesRegex(ValueError, "无法重放第 1 手"):
             self.game.state_from_fen(

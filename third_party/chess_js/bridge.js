@@ -1,7 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
-const {Chess} = require("./chess.js");
+const {Chess, validateFen} = require("./chess.js");
 
 const STANDARD_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const UCI_PATTERN = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
@@ -51,12 +51,12 @@ function checkedHistory(history) {
 }
 
 function loadGame(startingFen, history) {
-  const game = new Chess();
   const fen = startingFen == null ? STANDARD_FEN : startingFen;
-  const validation = game.validate_fen(fen);
-  if (!validation.valid || !game.load(fen)) {
+  const validation = validateFen(fen);
+  if (!validation.ok) {
     throw new Error(`无效 FEN：${validation.error || "无法载入局面"}`);
   }
+  const game = new Chess(fen);
   const pieces = game.board().flat().filter(Boolean);
   for (const color of ["w", "b"]) {
     const kings = pieces.filter(
@@ -80,9 +80,9 @@ function loadGame(startingFen, history) {
 }
 
 function drawReason(game) {
-  if (game.in_stalemate()) return "stalemate";
-  if (game.insufficient_material()) return "insufficient_material";
-  if (game.in_threefold_repetition()) return "threefold_repetition";
+  if (game.isStalemate()) return "stalemate";
+  if (game.isInsufficientMaterial()) return "insufficient_material";
+  if (game.isThreefoldRepetition()) return "threefold_repetition";
   const halfmoveClock = Number(game.fen().split(/\s+/)[4]);
   if (halfmoveClock >= 100) return "fifty_move_rule";
   return null;
@@ -98,14 +98,14 @@ function snapshot(game) {
       (piece) => piece ? `${piece.color}:${piece.type}` : null
     )),
     legal_moves: game.moves({verbose: true}).map(legalMove),
-    in_check: game.in_check(),
-    in_checkmate: game.in_checkmate(),
-    in_stalemate: game.in_stalemate(),
-    insufficient_material: game.insufficient_material(),
-    in_threefold_repetition: game.in_threefold_repetition(),
+    in_check: game.isCheck(),
+    in_checkmate: game.isCheckmate(),
+    in_stalemate: game.isStalemate(),
+    insufficient_material: game.isInsufficientMaterial(),
+    in_threefold_repetition: game.isThreefoldRepetition(),
     halfmove_clock: halfmoveClock,
-    in_draw: game.in_draw(),
-    game_over: game.game_over(),
+    in_draw: game.isDraw(),
+    game_over: game.isGameOver(),
     draw_reason: drawReason(game),
   };
 }
