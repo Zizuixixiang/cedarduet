@@ -44,6 +44,7 @@ CATEGORY_LABELS = {
 }
 UPPER_BONUS_THRESHOLD = 63
 UPPER_BONUS_SCORE = 35
+YAHTZEE_BONUS_SCORE = 100
 MAX_ROLLS = 3
 
 
@@ -101,8 +102,11 @@ class Yahtzee(GamePlugin):
         "- 13 类为一点至六点、三条、四条、葫芦、小顺、大顺、快艇/五同和机会，每类整局只能填写一次。\n"
         "- 一点至六点按对应点数骰子的总和；三条、四条与机会按五枚骰子总和。\n"
         "- 葫芦 25 分，小顺 30 分，大顺 40 分，快艇 50 分；上半区一点至六点合计达到 63 分时另加 35 分。\n\n"
-        "【特殊规则与胜负】\n"
-        "本版没有重复快艇额外 100 分，也没有 Joker 规则；快艇栏填过后再掷出五同，只能按普通骰型填写其他未用类别，或划掉一类记 0 分。所有人各完成 13 回合后，总分最高者获胜；最高分并列则和局。本游戏只开娱乐局，不支持筹码；刷新页面不会重掷已经出现的结果。"
+        "【重复快艇与 Joker】\n"
+        "- 快艇格已记 50 后，每再掷出一个快艇都另加 100 分，一局可累积多次；快艇格已记 0 时不得这项奖励。\n"
+        "- 快艇格已填后再掷出五同，按 Joker 规则计分：必须优先填写对应点数的未用上栏格；若该格已填，可选任一未用下栏格。其中葫芦固定 25 分、小顺 30 分、大顺 40 分，三条、四条和机会按五枚骰子总和。若下栏全部已填，则在任一未用上栏格记 0 分。快艇格已记 0 时仍使用 Joker 规则。\n\n"
+        "【胜负】\n"
+        "所有人各完成 13 回合后，将上栏奖励和重复快艇奖励计入总分，总分最高者获胜；最高分并列则和局。本游戏只开娱乐局，不支持筹码；刷新页面不会重掷已经出现的结果。"
     )
     move_format = (
         '掷骰：{"move":{"action":"roll","hold_indices":[0,2]},"revision":当前版本}，'
@@ -120,6 +124,7 @@ class Yahtzee(GamePlugin):
             "board_kind": "yahtzee",
             "participant_order": [],
             "scorecards": {},
+            "yahtzee_bonus_counts": {},
             "turns_completed_by_player": {},
             "turn_player_id": None,
             "dice": [],
@@ -140,26 +145,96 @@ class Yahtzee(GamePlugin):
         order = [str(item["player_id"]) for item in participants]
         state["participant_order"] = order
         state["scorecards"] = {player_id: {} for player_id in order}
+        state["yahtzee_bonus_counts"] = {player_id: 0 for player_id in order}
         state["turns_completed_by_player"] = {player_id: 0 for player_id in order}
         return state
 
     @staticmethod
-    def _card_totals(card: dict[str, int]) -> dict[str, int]:
+    def _card_totals(
+        card: dict[str, int], yahtzee_bonus_count: int = 0
+    ) -> dict[str, int]:
         upper_subtotal = sum(int(card.get(category, 0)) for category in UPPER_CATEGORIES)
         upper_bonus = UPPER_BONUS_SCORE if upper_subtotal >= UPPER_BONUS_THRESHOLD else 0
         lower_subtotal = sum(int(card.get(category, 0)) for category in LOWER_CATEGORIES)
+        yahtzee_bonus_count = max(0, int(yahtzee_bonus_count))
+        yahtzee_bonus = yahtzee_bonus_count * YAHTZEE_BONUS_SCORE
         return {
             "upper_subtotal": upper_subtotal,
             "upper_bonus": upper_bonus,
             "lower_subtotal": lower_subtotal,
-            "total": upper_subtotal + upper_bonus + lower_subtotal,
+            "yahtzee_bonus_count": yahtzee_bonus_count,
+            "yahtzee_bonus": yahtzee_bonus,
+            "total": upper_subtotal + upper_bonus + lower_subtotal + yahtzee_bonus,
         }
 
     @classmethod
     def _totals_by_player(cls, state: dict[str, Any]) -> dict[str, dict[str, int]]:
+        bonus_counts = state.get("yahtzee_bonus_counts", {})
         return {
-            player_id: cls._card_totals(state["scorecards"][player_id])
+            player_id: cls._card_totals(
+                state["scorecards"][player_id], bonus_counts.get(player_id, 0)
+            )
             for player_id in state["participant_order"]
+        }
+
+    @staticmethod
+    def _is_yahtzee(dice: list[int]) -> bool:
+        return len(dice) == 5 and len(set(dice)) == 1
+
+    @classmethod
+    def _joker_active(cls, state: dict[str, Any], player_id: str) -> bool:
+        card = state.get("scorecards", {}).get(player_id, {})
+        return cls._is_yahtzee(list(state.get("dice", []))) and "yahtzee" in card
+
+    @classmethod
+    def _pending_yahtzee_bonus(cls, state: dict[str, Any], player_id: str) -> int:
+        card = state.get("scorecards", {}).get(player_id, {})
+        return (
+            YAHTZEE_BONUS_SCORE
+            if cls._is_yahtzee(list(state.get("dice", [])))
+            and card.get("yahtzee") == 50
+            else 0
+        )
+
+    @classmethod
+    def _legal_score_options(
+        cls, state: dict[str, Any], player_id: str
+    ) -> dict[str, int]:
+        """Return the single authoritative category-to-score map for this roll."""
+        dice = list(state.get("dice", []))
+        if len(dice) != 5:
+            return {}
+        card = state["scorecards"][player_id]
+        open_categories = [category for category in CATEGORIES if category not in card]
+        if not cls._joker_active(state, player_id):
+            return {
+                category: score_category(category, dice)
+                for category in open_categories
+            }
+
+        matching_upper = UPPER_CATEGORIES[dice[0] - 1]
+        if matching_upper not in card:
+            return {matching_upper: sum(dice)}
+
+        open_lower = [
+            category for category in LOWER_CATEGORIES if category not in card
+        ]
+        if open_lower:
+            dice_total = sum(dice)
+            joker_scores = {
+                "three_of_a_kind": dice_total,
+                "four_of_a_kind": dice_total,
+                "full_house": 25,
+                "small_straight": 30,
+                "large_straight": 40,
+                "chance": dice_total,
+            }
+            return {category: joker_scores[category] for category in open_lower}
+
+        return {
+            category: 0
+            for category in UPPER_CATEGORIES
+            if category not in card
         }
 
     @staticmethod
@@ -238,6 +313,12 @@ class Yahtzee(GamePlugin):
             raise ValueError("每回合至少掷一次骰后才能计分")
         if category in state["scorecards"][player_id]:
             raise ValueError(f"{CATEGORY_LABELS[category]}已经填写过")
+        score_options = self._legal_score_options(state, player_id)
+        if category not in score_options:
+            raise ValueError("Joker 必须优先填匹配上栏；匹配上栏已填后才能填下栏")
+        if move.get("zero") and self._joker_active(state, player_id):
+            if score_options[category] != 0:
+                raise ValueError("Joker 计分不能主动划掉")
 
     def validate_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
@@ -335,7 +416,18 @@ class Yahtzee(GamePlugin):
         player_id = str(actor["player_id"])
         category = str(move["category"])
         scratched = bool(move.get("zero", False))
-        points = 0 if scratched else score_category(category, state["dice"])
+        score_options = self._legal_score_options(state, player_id)
+        joker_active = self._joker_active(state, player_id)
+        if category not in score_options:
+            raise ValueError("该类别不是本轮合法计分选项")
+        if scratched and joker_active:
+            if score_options[category] != 0:
+                raise ValueError("Joker 计分不能主动划掉")
+        points = 0 if scratched else score_options[category]
+        yahtzee_bonus = self._pending_yahtzee_bonus(state, player_id)
+        if yahtzee_bonus:
+            bonus_counts = state.setdefault("yahtzee_bonus_counts", {})
+            bonus_counts[player_id] = int(bonus_counts.get(player_id, 0)) + 1
         state["scorecards"][player_id][category] = points
         completed = len(state["scorecards"][player_id])
         state["turns_completed_by_player"][player_id] = completed
@@ -347,6 +439,8 @@ class Yahtzee(GamePlugin):
             "category_label": CATEGORY_LABELS[category],
             "score": points,
             "scratched": scratched,
+            "joker": joker_active,
+            "yahtzee_bonus": yahtzee_bonus,
             "dice": list(state["dice"]),
         }
         state["last_scoring"] = scoring
@@ -364,6 +458,8 @@ class Yahtzee(GamePlugin):
         state["rolls_used"] = 0
         verb = "划掉" if scratched else "填写"
         note = f"{verb}{CATEGORY_LABELS[category]}：{points} 分。"
+        if yahtzee_bonus:
+            note += f"重复快艇另加 {yahtzee_bonus} 分。"
         return MoveResult(
             state=state,
             note=note,
@@ -454,14 +550,18 @@ class Yahtzee(GamePlugin):
         projected["max_rolls"] = MAX_ROLLS
         projected["totals_by_player"] = self._totals_by_player(state)
         turn_player_id = state.get("turn_player_id")
-        card = state.get("scorecards", {}).get(turn_player_id, {})
-        projected["score_previews"] = (
-            {
-                category: score_category(category, state["dice"])
-                for category in CATEGORIES
-                if category not in card
-            }
-            if len(state.get("dice", [])) == 5 else {}
+        score_options = (
+            self._legal_score_options(state, turn_player_id)
+            if turn_player_id is not None else {}
+        )
+        projected["score_previews"] = score_options
+        projected["joker_active"] = (
+            self._joker_active(state, turn_player_id)
+            if turn_player_id is not None else False
+        )
+        projected["pending_yahtzee_bonus"] = (
+            self._pending_yahtzee_bonus(state, turn_player_id)
+            if turn_player_id is not None else 0
         )
         if state.get("flow", {}).get("phase") == "finished":
             projected["legal_actions"] = []
@@ -506,12 +606,9 @@ class Yahtzee(GamePlugin):
             or len(state.get("dice", [])) != 5
         ):
             return {}
-        card = state["scorecards"][player_id]
         return {
             "dice": list(state["dice"]),
-            "legal_categories": [
-                category for category in CATEGORIES if category not in card
-            ],
+            "legal_categories": list(self._legal_score_options(state, player_id)),
         }
 
     def npc_compact_rules(
@@ -524,7 +621,8 @@ class Yahtzee(GamePlugin):
         return (
             "5d6，每回合至少掷一次、最多三次；roll 的 held_mask 保留对应位置，"
             "score 填一个未用类别。上半区 63 加 35；三/四条按总和，葫芦25，"
-            "小顺30，大顺40，快艇50，机会按总和。无重复快艇 bonus/Joker。"
+            "小顺30，大顺40，快艇50，机会按总和。快艇格为50后每个重复快艇加100；"
+            "Joker 必须优先匹配上栏，已填才选下栏。"
             "公开计分卡、当前骰子和 score_previews 可用于决策；只能选权威合法行动。"
         )
 
@@ -594,14 +692,14 @@ class Yahtzee(GamePlugin):
         dice = list(state.get("dice", []))
         if rolls_used == 0:
             return [{"action": "roll", "held_mask": [False] * 5}]
-        card = state["scorecards"][player_id]
+        score_options = self._legal_score_options(state, player_id)
         score_actions = [
             {"action": "score", "category": category}
-            for category in CATEGORIES if category not in card
+            for category in score_options
         ]
         score_actions.sort(
             key=lambda action: self._score_action_priority(
-                action["category"], score_category(action["category"], dice), dice
+                action["category"], score_options[action["category"]], dice
             ),
             reverse=True,
         )

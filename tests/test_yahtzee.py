@@ -10,6 +10,7 @@ from app.games import GAMES, game_catalog
 from app.games.yahtzee import (
     CATEGORIES,
     UPPER_BONUS_SCORE,
+    YAHTZEE_BONUS_SCORE,
     Yahtzee,
     score_category,
 )
@@ -22,6 +23,18 @@ class RecordingRng:
     def randint(self, minimum: int, maximum: int) -> int:
         self.calls += 1
         return minimum + (self.calls - 1) % (maximum - minimum + 1)
+
+
+class ConstantRng:
+    def __init__(self, value: int) -> None:
+        self.value = value
+        self.calls = 0
+
+    def randint(self, minimum: int, maximum: int) -> int:
+        self.calls += 1
+        if not minimum <= self.value <= maximum:
+            raise AssertionError("constant die value is out of range")
+        return self.value
 
 
 def participants(count: int) -> list[dict]:
@@ -80,6 +93,152 @@ class YahtzeeScoringTests(unittest.TestCase):
             score_category("chance", [1, 2, 3])
         with self.assertRaisesRegex(ValueError, "未知"):
             score_category("joker", [1, 2, 3, 4, 5])
+
+
+class YahtzeeJokerRuleTests(unittest.TestCase):
+    def setUp(self):
+        self.game = Yahtzee(RecordingRng())
+        self.player_id = "human-1"
+        self.actor = participants(2)[0]
+
+    def rolled_state(
+        self, card: dict[str, int], dice: list[int], player_id: str | None = None
+    ) -> dict:
+        player_id = player_id or self.player_id
+        state = self.game.initialize(participants(2))
+        state["scorecards"][player_id] = dict(card)
+        state["turns_completed_by_player"][player_id] = len(card)
+        state["turn_player_id"] = player_id
+        state["dice"] = list(dice)
+        state["rolls_used"] = 1
+        state["flow"]["phase"] = "rolling_or_scoring"
+        return state
+
+    def test_first_yahtzee_scores_50_without_bonus(self):
+        state = self.rolled_state({}, [6, 6, 6, 6, 6])
+        public = self.game.public_state(deepcopy(state), participants(2))
+        self.assertEqual(public["score_previews"]["yahtzee"], 50)
+        self.assertEqual(public["pending_yahtzee_bonus"], 0)
+
+        result = self.game.apply_action(
+            state, {"action": "score", "category": "yahtzee"}, self.actor
+        )
+        self.assertEqual(result.state["scorecards"][self.player_id]["yahtzee"], 50)
+        self.assertEqual(result.state["yahtzee_bonus_counts"][self.player_id], 0)
+
+    def test_second_and_third_eligible_yahtzees_each_add_100(self):
+        state = self.rolled_state({"yahtzee": 50}, [6, 6, 6, 6, 6])
+        second_preview = self.game.public_state(deepcopy(state), participants(2))
+        self.assertEqual(second_preview["score_previews"], {"sixes": 30})
+        self.assertEqual(second_preview["pending_yahtzee_bonus"], YAHTZEE_BONUS_SCORE)
+        state = self.game.apply_action(
+            state, {"action": "score", "category": "sixes"}, self.actor
+        ).state
+        self.assertEqual(state["yahtzee_bonus_counts"][self.player_id], 1)
+
+        state["turn_player_id"] = self.player_id
+        state["dice"] = [6, 6, 6, 6, 6]
+        state["rolls_used"] = 1
+        state["flow"]["phase"] = "rolling_or_scoring"
+        third_preview = self.game.public_state(deepcopy(state), participants(2))
+        self.assertEqual(third_preview["score_previews"]["full_house"], 25)
+        state = self.game.apply_action(
+            state, {"action": "score", "category": "full_house"}, self.actor
+        ).state
+        self.assertEqual(state["yahtzee_bonus_counts"][self.player_id], 2)
+        self.assertEqual(
+            self.game._totals_by_player(state)[self.player_id]["yahtzee_bonus"], 200
+        )
+
+    def test_zero_in_yahtzee_box_has_joker_but_no_bonus_per_hasbro(self):
+        state = self.rolled_state({"yahtzee": 0}, [4, 4, 4, 4, 4])
+        public = self.game.public_state(deepcopy(state), participants(2))
+        self.assertTrue(public["joker_active"])
+        self.assertEqual(public["pending_yahtzee_bonus"], 0)
+        self.assertEqual(public["score_previews"], {"fours": 20})
+
+        result = self.game.apply_action(
+            state, {"action": "score", "category": "fours"}, self.actor
+        )
+        self.assertEqual(result.state["scorecards"][self.player_id]["fours"], 20)
+        self.assertEqual(result.state["yahtzee_bonus_counts"][self.player_id], 0)
+
+    def test_joker_forces_open_matching_upper_and_cannot_be_scratched(self):
+        state = self.rolled_state({"yahtzee": 50}, [4, 4, 4, 4, 4])
+        options = self.game._legal_score_options(state, self.player_id)
+        self.assertEqual(options, {"fours": 20})
+        with self.assertRaisesRegex(ValueError, "优先填匹配上栏"):
+            self.game.validate_action(
+                state, {"action": "score", "category": "full_house"}, self.actor
+            )
+        with self.assertRaisesRegex(ValueError, "不能主动划掉"):
+            self.game.validate_action(
+                state,
+                {"action": "score", "category": "fours", "zero": True},
+                self.actor,
+            )
+
+    def test_joker_lower_fixed_scores_and_dice_totals(self):
+        state = self.rolled_state(
+            {"yahtzee": 50, "fives": 15}, [5, 5, 5, 5, 5]
+        )
+        options = self.game._legal_score_options(state, self.player_id)
+        self.assertEqual(options["full_house"], 25)
+        self.assertEqual(options["small_straight"], 30)
+        self.assertEqual(options["large_straight"], 40)
+        self.assertEqual(options["three_of_a_kind"], 25)
+        self.assertEqual(options["four_of_a_kind"], 25)
+        self.assertEqual(options["chance"], 25)
+
+    def test_joker_uses_zero_in_open_upper_only_after_lower_is_full(self):
+        lower_card = {category: 0 for category in CATEGORIES[6:]}
+        lower_card["yahtzee"] = 50
+        state = self.rolled_state(
+            {**lower_card, "threes": 9}, [3, 3, 3, 3, 3]
+        )
+        self.assertEqual(
+            self.game._legal_score_options(state, self.player_id),
+            {"ones": 0, "twos": 0, "fours": 0, "fives": 0, "sixes": 0},
+        )
+        result = self.game.apply_action(
+            state, {"action": "score", "category": "ones"}, self.actor
+        )
+        self.assertEqual(result.state["scorecards"][self.player_id]["ones"], 0)
+        self.assertEqual(result.state["yahtzee_bonus_counts"][self.player_id], 1)
+
+    def test_legacy_state_without_bonus_field_defaults_to_zero_and_upgrades_on_score(self):
+        state = self.rolled_state({"yahtzee": 50}, [2, 2, 2, 2, 2])
+        del state["yahtzee_bonus_counts"]
+        self.assertEqual(
+            self.game._totals_by_player(state)[self.player_id]["yahtzee_bonus"], 0
+        )
+        result = self.game.apply_action(
+            state, {"action": "score", "category": "twos"}, self.actor
+        )
+        self.assertEqual(result.state["yahtzee_bonus_counts"][self.player_id], 1)
+
+    def test_npc_legal_actions_and_previews_share_authoritative_joker_options(self):
+        npc_player_id = "ai-1"
+        npc_actor = participants(2)[1]
+        state = self.rolled_state(
+            {"yahtzee": 50, "threes": 9},
+            [3, 3, 3, 3, 3],
+            player_id=npc_player_id,
+        )
+        state["rolls_used"] = 3
+        public = self.game.public_state(deepcopy(state), participants(2))
+        npc_actions = self.game.npc_legal_actions(state, npc_actor, participants(2))
+        action_categories = {
+            action["category"] for action in npc_actions if action["action"] == "score"
+        }
+        self.assertEqual(action_categories, set(public["score_previews"]))
+        self.assertTrue(action_categories)
+        for action in npc_actions:
+            self.game.validate_action(deepcopy(state), action, npc_actor)
+            self.assertEqual(
+                public["score_previews"][action["category"]],
+                self.game._legal_score_options(state, npc_player_id)[action["category"]],
+            )
 
 
 class YahtzeeFrameworkTests(unittest.TestCase):
@@ -150,6 +309,74 @@ class YahtzeeFrameworkTests(unittest.TestCase):
         self.assertEqual(room["board_state"]["held_mask"], [True, False, True, False, True])
         self.assertEqual(len(room["board_state"]["dice_rolls"]), 2)
         self.assertEqual(room["current_player_id"], "human-1")
+
+    def test_multiple_yahtzee_bonuses_survive_reload_and_enter_live_totals(self):
+        self.game._rng = ConstantRng(6)
+        room = self.create()
+
+        room = framework.play_move(
+            room["room_id"], "human", "human-1", {"action": "roll"}
+        )
+        room = framework.play_move(
+            room["room_id"],
+            "human",
+            "human-1",
+            {"action": "score", "category": "yahtzee"},
+        )
+        self.assertEqual(room["board_state"]["scorecards"]["human-1"]["yahtzee"], 50)
+
+        room = framework.play_move(
+            room["room_id"], "ai", "ai-1", {"action": "roll"}
+        )
+        room = framework.play_move(
+            room["room_id"],
+            "ai",
+            "ai-1",
+            {"action": "score", "category": "ones", "zero": True},
+        )
+        room = framework.play_move(
+            room["room_id"], "human", "human-1", {"action": "roll"}
+        )
+        projected = framework.project_room_for_viewer(room, "human-1")["board_state"]
+        self.assertEqual(projected["score_previews"], {"sixes": 30})
+        self.assertEqual(projected["pending_yahtzee_bonus"], 100)
+        room = framework.play_move(
+            room["room_id"],
+            "human",
+            "human-1",
+            {"action": "score", "category": "sixes"},
+        )
+
+        reloaded = framework.get_room(room["room_id"])
+        self.assertEqual(reloaded["board_state"]["yahtzee_bonus_counts"]["human-1"], 1)
+        restored_game = Yahtzee(ConstantRng(6))
+        totals = restored_game._totals_by_player(reloaded["board_state"])["human-1"]
+        self.assertEqual(totals["yahtzee_bonus"], 100)
+        self.assertEqual(totals["total"], 180)
+
+        room = framework.play_move(
+            reloaded["room_id"], "ai", "ai-1", {"action": "roll"}
+        )
+        room = framework.play_move(
+            room["room_id"],
+            "ai",
+            "ai-1",
+            {"action": "score", "category": "twos", "zero": True},
+        )
+        room = framework.play_move(
+            room["room_id"], "human", "human-1", {"action": "roll"}
+        )
+        room = framework.play_move(
+            room["room_id"],
+            "human",
+            "human-1",
+            {"action": "score", "category": "chance"},
+        )
+        reloaded = framework.get_room(room["room_id"])
+        self.assertEqual(reloaded["board_state"]["yahtzee_bonus_counts"]["human-1"], 2)
+        totals = self.game._totals_by_player(reloaded["board_state"])["human-1"]
+        self.assertEqual(totals["yahtzee_bonus"], 200)
+        self.assertEqual(totals["total"], 310)
 
     def test_two_through_six_players_take_one_turn_each_per_round(self):
         for count in range(2, 7):
@@ -336,6 +563,21 @@ class YahtzeeFrameworkTests(unittest.TestCase):
             [placement["player_id"] for placement in result["placements"]],
             ["human-1", "ai-1", "ai-2"],
         )
+
+    def test_yahtzee_bonus_is_in_terminal_grand_total_and_placements(self):
+        state = self.game.initialize(participants(2))
+        state["scorecards"] = {
+            "human-1": {
+                category: (50 if category == "yahtzee" else 0)
+                for category in CATEGORIES
+            },
+            "ai-1": {category: 0 for category in CATEGORIES},
+        }
+        state["yahtzee_bonus_counts"]["human-1"] = 2
+        result = self.game.result_for(state, participants(2))
+        self.assertEqual(result["totals_by_player"]["human-1"]["yahtzee_bonus"], 200)
+        self.assertEqual(result["totals_by_player"]["human-1"]["total"], 250)
+        self.assertEqual(result["placements"][0]["total"], 250)
 
 
 if __name__ == "__main__":

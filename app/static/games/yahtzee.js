@@ -74,7 +74,10 @@
     });
     const filler = documentRef.createElement("td");
     filler.className = "yahtzee-score-action";
-    filler.textContent = key === "upper_bonus" ? "63 → +35" : "";
+    filler.textContent = {
+      upper_bonus: "63 → +35",
+      yahtzee_bonus: "每次 +100",
+    }[key] || "";
     row.appendChild(filler);
     body.appendChild(row);
   }
@@ -101,6 +104,8 @@
     const dice = Array.isArray(state.dice) ? state.dice : [];
     const rollsUsed = Number(state.rolls_used || 0);
     const maxRolls = Number(state.max_rolls || 3);
+    const jokerActive = Boolean(state.joker_active);
+    const pendingYahtzeeBonus = Number(state.pending_yahtzee_bonus || 0);
     const humanCanMove = Boolean(context.canMove);
     const canSelectDice = humanCanMove && dice.length === 5 && rollsUsed < maxRolls;
     const heldMask = Array.from(
@@ -175,9 +180,11 @@
     scratchLabel.className = "yahtzee-scratch-toggle";
     const scratch = documentRef.createElement("input");
     scratch.type = "checkbox";
-    scratch.disabled = !humanCanMove || dice.length !== 5;
+    scratch.disabled = !humanCanMove || dice.length !== 5 || jokerActive;
     const scratchText = documentRef.createElement("span");
-    scratchText.textContent = "划掉类别，记 0 分";
+    scratchText.textContent = jokerActive
+      ? "Joker 回合按规则计分"
+      : "划掉类别，记 0 分";
     scratchLabel.append(scratch, scratchText);
     rollActions.append(rollButton, scratchLabel);
     rollPanel.append(turnCopy, diceTray, rollActions);
@@ -191,6 +198,14 @@
     const scoreHint = documentRef.createElement("span");
     scoreHint.textContent = "— 未填 · 数字为已填得分 · 右栏为本轮预估";
     scoreHeading.append(scoreTitle, scoreHint);
+    let jokerNotice = null;
+    if (jokerActive) {
+      jokerNotice = documentRef.createElement("p");
+      jokerNotice.className = "yahtzee-joker-notice";
+      jokerNotice.textContent = pendingYahtzeeBonus
+        ? `重复快艇：本次另加 ${pendingYahtzeeBonus} 分；Joker 已限定可填格。`
+        : "Joker：本次没有重复快艇奖励；已限定可填格。";
+    }
 
     const scroller = documentRef.createElement("div");
     scroller.className = "yahtzee-scorecard-scroll";
@@ -281,10 +296,13 @@
     const totals = state.totals_by_player || {};
     appendScoreSummary(documentRef, body, "上半区小计", "upper_subtotal", participants, totals);
     appendScoreSummary(documentRef, body, "上半区奖励", "upper_bonus", participants, totals);
+    appendScoreSummary(documentRef, body, "重复快艇奖励", "yahtzee_bonus", participants, totals);
     appendScoreSummary(documentRef, body, "总分", "total", participants, totals);
     table.appendChild(body);
     scroller.appendChild(table);
-    scoreSection.append(scoreHeading, scroller);
+    scoreSection.append(scoreHeading);
+    if (jokerNotice) scoreSection.append(jokerNotice);
+    scoreSection.append(scroller);
     root.append(rollPanel, scoreSection);
     board.appendChild(root);
   }

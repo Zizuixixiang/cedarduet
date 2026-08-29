@@ -518,7 +518,8 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 
 
 快艇骰子支持 2–6 人与系统 NPC，使用独立 `yahtzee.js` renderer 展示五枚骰子与计分卡；
-每回合最多三掷并可保留骰子，第一版不开放筹码局，也不实现重复快艇 bonus/Joker。
+每回合最多三掷并可保留骰子，实现 Hasbro 重复快艇每次 +100 与 Joker 强制计分顺序，
+奖励随房间持久化并计入终局总分；不开放筹码局。
 
 21点使用独立 `blackjack.js` + `blackjack.css` renderer。目录加载走通用
 `DuelGameUI` registry，renderer 自己幂等加载样式，首页不写死资源；绿色木边牌桌、

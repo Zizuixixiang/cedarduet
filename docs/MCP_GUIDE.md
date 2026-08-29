@@ -325,13 +325,17 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 
 类别为 `ones/twos/threes/fours/fives/sixes`、`three_of_a_kind`、
 `four_of_a_kind`、`full_house`、`small_straight`、`large_straight`、`yahtzee`、
-`chance`。不符合组合时自动记 0；即使当前本可得分，也可传 `zero:true` 明确划掉任意
-未用类别。公开 `board_state` 包含全员 `scorecards`、`totals_by_player`、当前 `dice`、
-`held_mask`、`rolls_used` 和未用类别的 `score_previews`。NPC 的权威合法行动只包含
-有效保留方案和自己的未用类别；第三次掷骰后只剩计分动作。
+`chance`。一般回合不符合组合时自动记 0；即使当前本可得分，也可传
+`zero:true` 明确划掉任意未用类别。公开 `board_state` 包含全员 `scorecards`、
+`totals_by_player`、当前 `dice`、`held_mask`、`rolls_used` 和权威
+`score_previews`。NPC 只从规则引擎给出的保留方案和计分动作中选择；第三次
+掷骰后只剩计分动作。
 
-上半区 63 分加 35 分。第一版没有重复快艇 bonus 和 Joker。全员填完 13 类后按总分
-排名；最高分并列即 `draw=true`，`tied_player_ids` 按稳定座位顺序返回。
+上半区 63 分加 35 分。快艇格已记 50 后，每个重复快艇另加 100 分并累计进总分。
+此时启用 Joker：匹配点数的上栏格未填就必须优先填；已填才能选下栏，葫芦/小顺/
+大顺固定为 25/30/40，三条、四条和机会按骰点总和。快艇格已记 0 时不得 +100，
+但仍按 Joker 规则填格。Joker 回合不能主动划掉有分的强制选项。全员填完 13 类后按
+含奖励的总分排名；最高分并列即 `draw=true`，`tied_player_ids` 按稳定座位顺序返回。
 
 ## 21点 `blackjack`
 
