@@ -1183,12 +1183,14 @@ function selectMove(movePayload) {
 
 function updateMoveConfirmation() {
   const ready = Boolean(pendingMove && canHumanMove());
-  $("confirmMoveButton").disabled = !ready;
-  $("confirmMoveButton").textContent = "落子";
+  const confirmButton = $("confirmMoveButton");
+  confirmButton.disabled = !ready;
+  confirmButton.classList.toggle("ready-to-submit", ready);
+  confirmButton.textContent = "落子";
   if (isTerminal(room)) {
     $("selectionHint").textContent = roomTurnText(room);
   } else {
-    const readyText = "已选中落点，确认后提交";
+    const readyText = "已选中落点，可以落子";
     const waitingText = "请先在棋盘上选择落点";
     $("selectionHint").textContent = ready
       ? readyText
@@ -2060,6 +2062,7 @@ function renderTimeline(timeline = []) {
 
 function renderPlayers(timeline = []) {
   const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
+
   const viewerPlayerId = viewerPlayerIdFor(room);
   const viewerSpeechEvent = viewerPlayerId
     ? latestSpeechEvent(timeline, {playerId: viewerPlayerId})
@@ -2067,8 +2070,7 @@ function renderPlayers(timeline = []) {
   applyParticipantLayout(room);
   $("opponentRow").classList.toggle("hidden", multiplayer);
   $("humanRow").classList.toggle("hidden", multiplayer);
-  $("viewerParticipantSlot").classList.toggle("hidden", !multiplayer);
-  const aiName = participantName("ai");
+  $("viewerParticipantSlot").classList.toggle("hidden", !multiplayer);  const aiName = participantName("ai");
   const humanName = participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
@@ -2093,10 +2095,10 @@ function renderPlayers(timeline = []) {
   });
   renderSpeechBubble({
     bubble: $("sharedSpeech"),
+
     event: multiplayer && viewerPlayerId
       ? latestSpeechEvent(timeline, {excludePlayerId: viewerPlayerId})
-      : null,
-    textTarget: $("sharedSpeechText"),
+      : null,    textTarget: $("sharedSpeechText"),
     nameTarget: $("sharedSpeechName"),
     avatarTarget: $("sharedSpeechAvatar"),
     reserveSpace: true,
@@ -2131,6 +2133,7 @@ function speechSenderRole(event) {
 
 function speechSenderPlayerId(event) {
   if (!event) return "";
+
   if (event.sender_player_id) return event.sender_player_id;
   return typeof event.sender === "object" && event.sender
     ? (event.sender.player_id || "")
@@ -2148,8 +2151,7 @@ function latestSpeechEvent(timeline = [], filter = null) {
     && (
       !options.excludePlayerId
       || speechSenderPlayerId(event) !== options.excludePlayerId
-    )
-  )) || null;
+    )  )) || null;
 }
 
 function renderSpeechBubble({
@@ -2219,10 +2221,9 @@ function tableParticipantsFor(targetRoom) {
     : [];
   const viewer = viewerParticipantFor(targetRoom);
   if (!viewer || participants.length <= 2) return participants;
-  const others = participants.filter(
+  return participants.filter(
     (item) => item.player_id !== viewer.player_id
   );
-  return participants.length >= 5 ? others : [...others, viewer];
 }
 
 function createParticipantBadge(participant, targetRoom) {
@@ -2283,7 +2284,6 @@ function renderParticipantRoster(targetRoom) {
     ? targetRoom.participants
     : [];
   const tableParticipants = tableParticipantsFor(targetRoom);
-  const viewer = viewerParticipantFor(targetRoom);
   roster.replaceChildren();
   viewerSlot.replaceChildren();
   [...roster.classList]
@@ -2291,16 +2291,11 @@ function renderParticipantRoster(targetRoom) {
     .forEach((name) => roster.classList.remove(name));
   roster.classList.add(`count-${participants.length}`);
   roster.classList.toggle("hidden", participants.length <= 2);
-  viewerSlot.classList.toggle(
-    "hidden", participants.length < 5 || !viewer
-  );
+  viewerSlot.classList.toggle("hidden", true);
   if (participants.length <= 2) return;
   tableParticipants.forEach((participant) => {
     roster.appendChild(createParticipantBadge(participant, targetRoom));
   });
-  if (participants.length >= 5 && viewer) {
-    viewerSlot.appendChild(createParticipantBadge(viewer, targetRoom));
-  }
 }
 
 function renderPrivateState(targetRoom) {

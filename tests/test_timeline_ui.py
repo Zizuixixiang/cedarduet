@@ -441,8 +441,16 @@ assert.equal(timelineEventKind("result"), "result");
 const assert = require("node:assert/strict");
 let room = {{status: "finished", turn: "human", ai_player_id: "ai-1"}};
 let pendingMove = null;
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
 const elements = {{
-  confirmMoveButton: {{disabled: false}},
+  confirmMoveButton: {{disabled: false, classList: new ClassList()}},
   selectionHint: {{textContent: ""}},
 }};
 const $ = (id) => elements[id];
@@ -452,11 +460,13 @@ const turnLabel = () => "轮到你";
 assert.equal(roomTurnText(room), "对局已结束");
 updateMoveConfirmation();
 assert.equal(elements.selectionHint.textContent, "对局已结束");
+assert.equal(elements.confirmMoveButton.classList.contains("ready-to-submit"), false);
 assert.doesNotMatch(elements.selectionHint.textContent, /等待|轮到/);
 room = {{status: "archived", turn: "ai", ai_player_id: "ai-1"}};
 assert.equal(roomTurnText(room), "对局已归档");
 updateMoveConfirmation();
 assert.equal(elements.selectionHint.textContent, "对局已归档");
+assert.equal(elements.confirmMoveButton.classList.contains("ready-to-submit"), false);
 assert.doesNotMatch(elements.selectionHint.textContent, /等待|轮到/);
 """
         completed = subprocess.run(
