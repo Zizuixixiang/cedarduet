@@ -93,6 +93,7 @@ class Yahtzee(GamePlugin):
     supports_npcs = True
     supports_stakes = False
     supports_multiplayer_stakes = False
+    mcp_immediate_public_events = True
     rules_text = (
         "【目标】\n"
         "完成 13 个计分类后取得最高总分。游戏支持 2–6 人，使用 5 枚六面骰。\n\n"
@@ -475,6 +476,39 @@ class Yahtzee(GamePlugin):
         if move["action"] == "roll":
             return self._apply_roll(state, move, actor)
         return self._apply_score(state, move, actor)
+
+    def progress_after_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        actor: dict[str, Any],
+        participants: list[dict[str, Any]],
+        applied: dict[str, Any] | MoveResult,
+    ) -> dict[str, Any] | MoveResult:
+        del state, actor, participants
+        if not isinstance(applied, MoveResult):
+            return applied
+        if move.get("action") == "roll":
+            delta = {
+                "action": "roll",
+                "round": int(applied.state["flow"]["round_number"]),
+                "roll_number": int(applied.state["rolls_used"]),
+                "held_mask": list(applied.state["held_mask"]),
+                "dice": list(applied.state["dice"]),
+            }
+        else:
+            scoring = applied.state.get("last_scoring")
+            if not isinstance(scoring, dict):
+                return applied
+            delta = {
+                key: deepcopy(scoring[key])
+                for key in (
+                    "action", "round", "category", "category_label", "score",
+                    "scratched", "joker", "yahtzee_bonus",
+                )
+            }
+        applied.public_event = {"yahtzee_delta": delta}
+        return applied
 
     @classmethod
     def _terminal_result(cls, state: dict[str, Any]) -> dict[str, Any]:

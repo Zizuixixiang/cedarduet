@@ -275,9 +275,20 @@ class BanqiFrameworkTests(unittest.TestCase):
                 room["room_id"], viewer_player_id="ai-event"
             )
             move_event = next(event for event in timeline if event["event_type"] == "move")
+            result_event = next(
+                event for event in timeline if event["event_type"] == "result"
+            )
             self.assertIn(Banqi._piece_label(flipped_identity), move_event["move_label"])
             self.assertEqual(move_event["move"], flip(0, 0))
             self.assertNotIn("board", json.dumps(move_event, ensure_ascii=False))
+            self.assertEqual(
+                result_event["move"]["banqi_delta"]["piece"],
+                flipped_identity,
+            )
+            self.assertEqual(
+                result_event["move"]["banqi_delta"]["actor_color"],
+                flipped_identity.split(":", 1)[0],
+            )
 
     def test_two_player_stake_settles_on_authoritative_capture(self):
         game = Banqi(rng=random.Random(1))
@@ -301,6 +312,24 @@ class BanqiFrameworkTests(unittest.TestCase):
             )
         self.assertEqual(room["status"], "finished")
         self.assertEqual(room["winner_player_id"], "human-chip")
+        capture_event = next(
+            item
+            for item in framework.list_timeline(
+                room["room_id"], viewer_player_id="ai-chip"
+            )
+            if item["event_type"] == "result"
+            and isinstance(item.get("move"), dict)
+            and "banqi_delta" in item["move"]
+        )
+        self.assertEqual(capture_event["move"]["banqi_delta"], {
+            "action": "move",
+            "from_row": 0,
+            "from_col": 0,
+            "to_row": 0,
+            "to_col": 1,
+            "piece": "r:r",
+            "captured": "b:p",
+        })
         human_settlements = [
             item for item in chips.list_ledger("human", "human-chip")
             if item["transaction_type"] == "duel_win"

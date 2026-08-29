@@ -212,6 +212,7 @@ class McpPlayBody(BaseModel):
     mode: Literal["human_first", "ai_first"] | None = None
     move: dict[str, Any] | None = None
     wait: bool = False
+    full_state: bool = False
     message: str | None = Field(default=None, max_length=500)
     include_terminal: bool = False
     limit: int | None = Field(default=None, ge=1, le=100)

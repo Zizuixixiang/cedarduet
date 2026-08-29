@@ -99,6 +99,24 @@ class Xiangqi(GamePlugin):
             raise ValueError("象棋固定需要 1 个人类和 1 只真实绑定小机")
         return self.initial_state()
 
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_snapshot_state(
+            public_state, viewer, participants
+        )
+        snapshot["legal_moves"] = [
+            {
+                key: move[key]
+                for key in ("from_row", "from_col", "to_row", "to_col")
+            }
+            for move in snapshot.get("legal_moves", [])
+        ]
+        return snapshot
+
     def state_from_fen(self, fen: str) -> dict[str, Any]:
         """Build a test/admin position through the authoritative engine."""
         try:

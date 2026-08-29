@@ -199,6 +199,9 @@ class AeroplaneChessRuleTests(unittest.TestCase):
             self.roll(game, state, actor)
             self.move(game, state, actor, plane_index)
         penalty = self.roll(game, state, actor)
+        penalty = game.progress_after_action(
+            state, {"action": "roll"}, actor, seats, penalty
+        )
         self.assertFalse(penalty.retain_turn)
         self.assertEqual(state["flow"]["phase"], "awaiting_roll")
         self.assertEqual(state["consecutive_sixes"], 0)
@@ -208,6 +211,14 @@ class AeroplaneChessRuleTests(unittest.TestCase):
         )
         self.assertEqual(
             state["last_action"]["returned_plane_ids"], ["red-0", "red-1"]
+        )
+        self.assertEqual(
+            penalty.public_event["aeroplane_delta"]["penalty"],
+            "third_consecutive_six",
+        )
+        self.assertEqual(
+            penalty.public_event["aeroplane_delta"]["returned_plane_ids"],
+            ["red-0", "red-1"],
         )
         self.assertTrue(all(
             self.plane(state, actor["player_id"], index)["zone"] == "airport"
@@ -248,10 +259,23 @@ class AeroplaneChessRuleTests(unittest.TestCase):
             [item["kind"] for item in legal["landings"]],
             ["dice", "jump", "shortcut"],
         )
-        self.move(game, state, actor)
+        moved = self.move(game, state, actor)
+        moved = game.progress_after_action(
+            state,
+            {"action": "move", "plane_id": "red-0", "plane_index": 0},
+            actor,
+            seats,
+            moved,
+        )
         self.assertEqual(
             self.plane(state, actor["player_id"])["route_step"],
             SHORTCUT_TO_STEP,
+        )
+        delta = moved.public_event["aeroplane_delta"]
+        self.assertEqual(delta["to"]["route_step"], SHORTCUT_TO_STEP)
+        self.assertEqual(
+            [item["kind"] for item in delta["landings"]],
+            ["dice", "jump", "shortcut"],
         )
 
     def test_direct_shortcut_does_not_add_an_unrequested_second_jump(self):

@@ -9,8 +9,34 @@ from unittest.mock import patch
 import httpx
 
 from app import chips, database, framework
-from app.games import get_game
+from app.games import GAMES, get_game
 from app import main as main_module
+
+
+class ConstantDiceRng:
+    def __init__(self, value):
+        self.value = value
+
+    def randint(self, minimum, maximum):
+        if not minimum <= self.value <= maximum:
+            raise AssertionError("测试骰点越界")
+        return self.value
+
+
+class StackedShuffleRng:
+    def __init__(self, draw_ranks):
+        self.draw_ranks = list(draw_ranks)
+
+    def shuffle(self, cards):
+        selected = []
+        remaining = list(cards)
+        for rank in self.draw_ranks:
+            index = next(
+                index for index, card in enumerate(remaining)
+                if card["rank"] == rank
+            )
+            selected.append(remaining.pop(index))
+        cards[:] = remaining + list(reversed(selected))
 
 
 class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
@@ -87,6 +113,21 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 (room_id, player_id),
             ).fetchone()
             return row["last_event_id"]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def bootstrap_claimed(room_id, player_id):
+        conn = database.connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT mcp_bootstrapped FROM room_event_cursors
+                WHERE room_id = ? AND player_id = ?
+                """,
+                (room_id, player_id),
+            ).fetchone()
+            return bool(row["mcp_bootstrapped"])
         finally:
             conn.close()
 
@@ -167,6 +208,162 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("bootstrap", delta)
         self.assertNotIn("events", delta)
 
+    async def test_full_state_is_repeatable_compact_and_complete_for_all_games(self):
+        layout_keys = {
+            "aeroplane_chess": "planes",
+            "banqi": "board",
+            "blackjack": "players",
+            "tictactoe": "board",
+            "gomoku": "board",
+            "gandengyan": "current_trick",
+            "othello": "board",
+            "connect4": "board",
+            "checkers": "board",
+            "chess": "board",
+            "chinese_checkers": "pieces",
+            "dots_boxes": "horizontal_edges",
+            "liars_dice": "dice_counts",
+            "yahtzee": "scorecards",
+            "uno": "hand_counts",
+            "jungle": "board",
+            "xiangqi": "board",
+        }
+        for index, (game_type, layout_key) in enumerate(layout_keys.items()):
+            with self.subTest(game_type=game_type):
+                ai, human = f"ai-snapshot-{index}", f"human-snapshot-{index}"
+                bootstrap = await self.new_room(game_type, ai=ai, human=human)
+                room = bootstrap["room"]
+                request = {
+                    "action": "state", "player_id": ai,
+                    "room_id": room["room_id"], "full_state": True,
+                }
+                first = await self.client.post("/mcp/play", json=request)
+                second = await self.client.post("/mcp/play", json=request)
+                self.assertEqual(first.status_code, 200, first.text)
+                self.assertEqual(second.status_code, 200, second.text)
+                payload = first.json()
+                self.assertTrue(payload["full_state"])
+                self.assertNotIn("bootstrap", payload)
+                self.assertEqual(payload["snapshot"], second.json()["snapshot"])
+                snapshot = payload["snapshot"]
+                self.assertEqual(snapshot["room_id"], room["room_id"])
+                self.assertEqual(snapshot["game"], game_type)
+                self.assertEqual(snapshot["revision"], room["revision"])
+                self.assertEqual(snapshot["status"], room["status"])
+                self.assertEqual(
+                    snapshot["current_actor"]["player_id"],
+                    room["current_actor"]["player_id"],
+                )
+                self.assertEqual(len(snapshot["participants"]), 2)
+                self.assertEqual(
+                    snapshot["board_state"][layout_key],
+                    room["board_state"][layout_key],
+                )
+                self.assertEqual(snapshot["private_state"], room["private_state"])
+                for key in (
+                    "rules_text", "move_format", "chip_balances",
+                    "action_history", "move_history", "dice_rolls",
+                ):
+                    self.assertNotIn(key, snapshot)
+                    self.assertNotIn(key, snapshot["board_state"])
+                snapshot_size = len(json.dumps(payload, ensure_ascii=False))
+                bootstrap_size = len(json.dumps(bootstrap, ensure_ascii=False))
+                self.assertLess(snapshot_size, bootstrap_size * 0.65)
+
+                board = snapshot["board_state"]
+                if game_type == "uno":
+                    self.assertNotIn("cards", board)
+                    self.assertIn("hand", snapshot["private_state"])
+                elif game_type == "gandengyan":
+                    self.assertNotIn("cards", board)
+                    self.assertIn("hand", snapshot["private_state"])
+                elif game_type == "liars_dice":
+                    self.assertNotIn("dice_by_player", board)
+                    self.assertIn("dice", snapshot["private_state"])
+                elif game_type == "blackjack":
+                    self.assertNotIn("card_id", json.dumps(board))
+                    self.assertEqual(board["dealer"]["hand"][1], {"hidden": True})
+                elif game_type == "banqi":
+                    self.assertEqual(
+                        {cell for row in board["board"] for cell in row},
+                        {"hidden"},
+                    )
+                elif game_type == "aeroplane_chess":
+                    self.assertNotIn("path_mappings", board)
+                    self.assertIn("legal_actions", board)
+                elif game_type == "chess":
+                    self.assertNotIn("legal_moves", board)
+                    self.assertEqual(
+                        board["legal_actions"],
+                        room["board_state"]["legal_actions"],
+                    )
+                elif game_type == "chinese_checkers":
+                    self.assertNotIn("nodes", board)
+                    self.assertNotIn("camps", board)
+                    self.assertTrue(all(
+                        set(move) <= {"from", "to", "kind"}
+                        for move in board["legal_moves"]
+                    ))
+                elif game_type == "xiangqi":
+                    self.assertTrue(all(
+                        set(move) == {
+                            "from_row", "from_col", "to_row", "to_col",
+                        }
+                        for move in board["legal_moves"]
+                    ))
+
+    async def test_full_state_does_not_claim_bootstrap_or_consume_events(self):
+        room = framework.create_room(
+            "uno", "human_first", "human", "human-resync", "ai-resync"
+        )
+        framework.post_message(room["room_id"], "human", "human-resync", "尚未读")
+        cursor_before = self.event_cursor(room["room_id"], "ai-resync")
+        self.assertFalse(self.bootstrap_claimed(room["room_id"], "ai-resync"))
+        request = {
+            "action": "state", "player_id": "ai-resync",
+            "room_id": room["room_id"], "full_state": True,
+        }
+        for repeat in range(2):
+            response = await self.client.post(
+                "/mcp/play", json={**request, "wait": bool(repeat)}
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertTrue(payload["full_state"])
+            self.assertNotIn("bootstrap", payload)
+            self.assertEqual(len(payload["snapshot"]["private_state"]["hand"]), 7)
+            self.assertNotIn("cards", payload["snapshot"]["board_state"])
+            self.assertEqual(
+                self.event_cursor(room["room_id"], "ai-resync"), cursor_before
+            )
+            self.assertFalse(self.bootstrap_claimed(room["room_id"], "ai-resync"))
+
+        bootstrap = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-resync",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assertTrue(bootstrap.json()["bootstrap"])
+        self.assertEqual(bootstrap.json()["events"], [{
+            "name": "human-resync", "message": "尚未读",
+        }])
+        self.assertTrue(self.bootstrap_claimed(room["room_id"], "ai-resync"))
+
+        after = await self.client.post("/mcp/play", json=request)
+        self.assertTrue(after.json()["full_state"])
+        self.assertTrue(self.bootstrap_claimed(room["room_id"], "ai-resync"))
+        compact = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "state", "player_id": "ai-resync",
+                "room_id": room["room_id"],
+            },
+        )
+        self.assert_compact_delta(compact.json())
+        self.assertNotIn("bootstrap", compact.json())
+
     async def test_still_waiting_is_minimal(self):
         started = await self.new_room()
         room_id = started["room"]["room_id"]
@@ -245,7 +442,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             (root / "docs" / "MCP_GUIDE.md").read_text(encoding="utf-8"),
         )
 
-    async def test_all_public_board_games_return_generic_minimal_move_ack(self):
+    async def test_all_deterministic_board_games_return_generic_minimal_move_ack(self):
         cases = {
             "tictactoe": {"row": 0, "col": 0},
             "gomoku": {"row": 7, "col": 7},
@@ -256,6 +453,10 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             },
             "dots_boxes": {"orientation": "h", "row": 0, "col": 0},
             "jungle": {"from_row": 6, "from_col": 0, "to_row": 5, "to_col": 0},
+            "chess": {
+                "from_row": 6, "from_col": 4, "to_row": 4, "to_col": 4
+            },
+            "chinese_checkers": None,
             "xiangqi": {
                 "from_row": 9, "from_col": 0, "to_row": 8, "to_col": 0
             },
@@ -264,6 +465,11 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(game_type=game_type):
                 ai, human = f"ai-{index}", f"human-{index}"
                 started = await self.new_room(game_type, ai=ai, human=human)
+                if move is None:
+                    legal = started["room"]["board_state"]["legal_moves"][0]
+                    move = {
+                        key: legal[key] for key in ("from", "to", "kind")
+                    }
                 response = await self.client.post(
                     "/mcp/play",
                     json={
@@ -273,6 +479,187 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assert_compact_delta(response.json())
+
+    async def test_random_and_automatic_results_are_immediate_public_deltas(self):
+        banqi = await self.new_room(
+            "banqi", ai="ai-banqi-delta", human="human-banqi-delta"
+        )
+        flip = banqi["room"]["board_state"]["legal_actions"][0]
+        response = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-banqi-delta",
+                "room_id": banqi["room"]["room_id"], "move": flip,
+            },
+        )
+        banqi_delta = response.json()["events"][0]["banqi_delta"]
+        self.assertEqual(banqi_delta["action"], "flip")
+        self.assertRegex(banqi_delta["piece"], r"^[rb]:[kabrncp]$")
+        self.assertNotEqual(banqi_delta["piece"], "hidden")
+
+        aeroplane_game = GAMES["aeroplane_chess"]
+        with patch.object(aeroplane_game, "_rng", ConstantDiceRng(6)):
+            aeroplane = await self.new_room(
+                "aeroplane_chess",
+                ai="ai-aeroplane-delta", human="human-aeroplane-delta",
+            )
+            rolled = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-aeroplane-delta",
+                    "room_id": aeroplane["room"]["room_id"],
+                    "move": {"action": "roll"},
+                },
+            )
+            roll_delta = rolled.json()["events"][0]["aeroplane_delta"]
+            self.assertEqual(roll_delta["value"], 6)
+            self.assertEqual(roll_delta["consecutive_sixes"], 1)
+            self.assertFalse(roll_delta["auto_pass"])
+            self.assertEqual(len(roll_delta["movable_plane_ids"]), 4)
+            moved = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-aeroplane-delta",
+                    "room_id": aeroplane["room"]["room_id"],
+                    "move": {
+                        "action": "move",
+                        "plane_id": roll_delta["movable_plane_ids"][0],
+                        "plane_index": 0,
+                    },
+                },
+            )
+            plane_delta = moved.json()["events"][0]["aeroplane_delta"]
+            self.assertEqual(plane_delta["from"]["zone"], "airport")
+            self.assertEqual(plane_delta["to"]["zone"], "launch")
+            self.assertIn("capture_events", plane_delta)
+            self.assertIn("reached_home", plane_delta)
+
+        yahtzee_game = GAMES["yahtzee"]
+        with patch.object(yahtzee_game, "_rng", ConstantDiceRng(6)):
+            yahtzee = await self.new_room(
+                "yahtzee", ai="ai-yahtzee-delta", human="human-yahtzee-delta"
+            )
+            rolled = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-yahtzee-delta",
+                    "room_id": yahtzee["room"]["room_id"],
+                    "move": {"action": "roll"},
+                },
+            )
+            roll_delta = rolled.json()["events"][0]["yahtzee_delta"]
+            self.assertEqual(roll_delta["dice"], [6] * 5)
+            self.assertEqual(roll_delta["roll_number"], 1)
+            scored = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-yahtzee-delta",
+                    "room_id": yahtzee["room"]["room_id"],
+                    "move": {"action": "score", "category": "yahtzee"},
+                },
+            )
+            score_delta = scored.json()["events"][0]["yahtzee_delta"]
+            self.assertEqual(score_delta["score"], 50)
+            self.assertEqual(score_delta["yahtzee_bonus"], 0)
+
+        uno = await self.new_room(
+            "uno", ai="ai-uno-delta", human="human-uno-delta"
+        )
+        own_uno_ids = {
+            card["id"] for card in uno["room"]["private_state"]["hand"]
+        }
+        drawn = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-uno-delta",
+                "room_id": uno["room"]["room_id"],
+                "move": {"action": "draw"},
+            },
+        )
+        uno_delta = drawn.json()["events"][0]["uno_delta"]
+        self.assertEqual(uno_delta["action"], "draw")
+        self.assertIn("hand_counts", uno_delta)
+        self.assertIn("deck_count", uno_delta)
+        encoded_uno = json.dumps(uno_delta, ensure_ascii=False)
+        self.assertNotIn("card_id", encoded_uno)
+        self.assertTrue(all(card_id not in encoded_uno for card_id in own_uno_ids))
+
+        gandengyan = await self.new_room(
+            "gandengyan",
+            ai="ai-gdy-delta", human="human-gdy-delta",
+        )
+        hand = gandengyan["room"]["private_state"]["hand"]
+        play = next(
+            action
+            for action in gandengyan["room"]["private_state"]["legal_actions"]
+            if action["action"] == "play"
+        )
+        played = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-gdy-delta",
+                "room_id": gandengyan["room"]["room_id"], "move": play,
+            },
+        )
+        gdy_delta = played.json()["events"][0]["gandengyan_delta"]
+        self.assertEqual(gdy_delta["action"], "play")
+        self.assertEqual(
+            {card["id"] for card in gdy_delta["cards"]}, set(play["card_ids"])
+        )
+        self.assertIn("multiplier", gdy_delta)
+        unplayed_ids = {card["id"] for card in hand} - set(play["card_ids"])
+        encoded_gdy = json.dumps(gdy_delta, ensure_ascii=False)
+        self.assertTrue(all(card_id not in encoded_gdy for card_id in unplayed_ids))
+
+        blackjack_game = GAMES["blackjack"]
+        scripted = StackedShuffleRng(["9", "5", "10", "8", "6", "6", "2"])
+        with patch.object(blackjack_game, "_rng", scripted):
+            blackjack = await self.new_room(
+                "blackjack", ai="ai-bj-delta", human="human-bj-delta"
+            )
+            hit = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-bj-delta",
+                    "room_id": blackjack["room"]["room_id"],
+                    "move": {"action": "hit"},
+                },
+            )
+            hit_delta = hit.json()["events"][0]["blackjack_delta"]
+            self.assertEqual(hit_delta["new_card"]["rank"], "2")
+            self.assertNotIn("dealer", hit_delta)
+            stood = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "move", "player_id": "ai-bj-delta",
+                    "room_id": blackjack["room"]["room_id"],
+                    "move": {"action": "stand"},
+                },
+            )
+            stand_delta = stood.json()["events"][0]["blackjack_delta"]
+            self.assertNotIn("dealer", stand_delta)
+            framework.play_move(
+                blackjack["room"]["room_id"],
+                "human", "human-bj-delta", {"action": "stand"},
+            )
+            terminal = await self.client.post(
+                "/mcp/play",
+                json={
+                    "action": "state", "player_id": "ai-bj-delta",
+                    "room_id": blackjack["room"]["room_id"],
+                },
+            )
+            terminal_delta = next(
+                event["blackjack_delta"]
+                for event in terminal.json()["events"]
+                if "blackjack_delta" in event
+            )
+            self.assertFalse(terminal_delta["dealer"]["hole_hidden"])
+            self.assertGreaterEqual(len(terminal_delta["dealer"]["hand"]), 2)
+            self.assertEqual(
+                set(terminal_delta["outcomes_by_player"]),
+                {"ai-bj-delta", "human-bj-delta"},
+            )
 
     async def test_terminal_move_and_resign_include_settlement_and_balances(self):
         invited = framework.create_room(

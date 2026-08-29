@@ -131,9 +131,27 @@ class YahtzeeJokerRuleTests(unittest.TestCase):
         second_preview = self.game.public_state(deepcopy(state), participants(2))
         self.assertEqual(second_preview["score_previews"], {"sixes": 30})
         self.assertEqual(second_preview["pending_yahtzee_bonus"], YAHTZEE_BONUS_SCORE)
-        state = self.game.apply_action(
+        second = self.game.apply_action(
             state, {"action": "score", "category": "sixes"}, self.actor
-        ).state
+        )
+        second = self.game.progress_after_action(
+            state,
+            {"action": "score", "category": "sixes"},
+            self.actor,
+            participants(2),
+            second,
+        )
+        self.assertEqual(second.public_event["yahtzee_delta"], {
+            "action": "score",
+            "round": 1,
+            "category": "sixes",
+            "category_label": "六点",
+            "score": 30,
+            "scratched": False,
+            "joker": True,
+            "yahtzee_bonus": 100,
+        })
+        state = second.state
         self.assertEqual(state["yahtzee_bonus_counts"][self.player_id], 1)
 
         state["turn_player_id"] = self.player_id

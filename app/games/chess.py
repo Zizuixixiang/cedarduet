@@ -143,6 +143,20 @@ class Chess(GamePlugin):
         projected.pop("position_history", None)
         return projected
 
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_snapshot_state(
+            public_state, viewer, participants
+        )
+        snapshot.pop("starting_fen", None)
+        # legal_actions is the compact submit-ready form of legal_moves.
+        snapshot.pop("legal_moves", None)
+        return snapshot
+
     def initial_state(self) -> dict[str, Any]:
         try:
             engine = engine_state(STANDARD_FEN, [])
