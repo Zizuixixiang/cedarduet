@@ -59,6 +59,18 @@ class DummyNpcMultiplayer(GamePlugin):
             "legal_actions": [{"action": "step"}, {"action": "finish"}],
         }
 
+    def participant_summary(self, state, participant, participants):
+        del participant, participants
+        return {"action_count": len(state["actions"])}
+
+    def project_event(self, event, viewer, participants):
+        del viewer, participants
+        move = event.get("move")
+        if isinstance(move, dict):
+            move.pop("secret", None)
+            event["move_label"] = str(move.get("action") or "")
+        return event
+
     def npc_compact_rules(self, state, actor, participants):
         return "每回合只能从权威合法行动中选择 step 或 finish。"
 

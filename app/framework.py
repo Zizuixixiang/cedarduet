@@ -440,7 +440,11 @@ def _timeline_entry(row, room: dict) -> dict:
 
 
 def list_timeline(
-    room_id: str, limit: int = 200, viewer_player_id: str | None = None
+    room_id: str,
+    limit: int = 200,
+    viewer_player_id: str | None = None,
+    *,
+    public_only: bool = False,
 ) -> list[dict]:
     room_id = _room_id(room_id)
     conn = connect()
@@ -454,14 +458,34 @@ def list_timeline(
         if viewer_player_id is not None:
             viewer_player_id = _player_id(viewer_player_id)
             _assert_participant(room, viewer_player_id)
+        if public_only and viewer_player_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM room_messages
+                WHERE room_id = ? AND visible_to_json IS NULL
+                ORDER BY id DESC
+                """,
+                (room_id,),
+            )
+            projected = []
+            for row in rows:
+                entry = _project_event_for_viewer(
+                    room, _timeline_entry(row, room), viewer_player_id
+                )
+                if entry is not None:
+                    projected.append(entry)
+                    if len(projected) >= limit:
+                        break
+            return list(reversed(projected))
         visibility_clause = (
-            "AND visible_to_json IS NULL" if viewer_player_id is None
+            "AND visible_to_json IS NULL"
+            if public_only or viewer_player_id is None
             else "AND (visible_to_json IS NULL OR EXISTS ("
             "SELECT 1 FROM json_each(visible_to_json) WHERE json_each.value = ?))"
         )
         params: tuple = (
             (room_id, limit)
-            if viewer_player_id is None
+            if public_only or viewer_player_id is None
             else (room_id, _player_id(viewer_player_id), limit)
         )
         rows = conn.execute(

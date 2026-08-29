@@ -29,8 +29,14 @@ def provider_request() -> NpcDecisionRequest:
     return NpcDecisionRequest(
         persona={"id": "quiet", "display_name": "测试", "persona": "简短人设"},
         game_rules="精简规则",
+        participants=[{
+            "player_id": "npc:quiet", "display_name": "测试", "seat_index": 0,
+            "participant_kind": "system_npc", "activity_state": "active",
+            "participant_summary": {},
+        }],
         public_state={"round": 2},
         private_state={"hand": ["mine"]},
+        recent_public_events=[],
         public_actions=[{"actor": "human-1", "action": "pass"}],
         legal_actions=[{"action_id": "a_step", "action": {"action": "step"}}],
     )
@@ -50,6 +56,9 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "己方私有信息、公共局面和其他玩家已公开行动",
             "允许依据公开信息正常推理和估计",
             "不得把对手隐藏状态当作已知事实",
+            "不得以真实披露为目的直接报出自己的完整或具体隐藏牌、骰子及其他私有状态",
+            "允许为了策略进行虚张声势、试探、模糊表达或真假难辨的误导",
+            "不禁止吹牛骰子等玩法中的正常诈唬",
             "只能从权威合法行动列表选择",
             "人设只影响合理行动之间的选择、风险偏好和交流方式",
             "不得为了维持性格故意走明显坏棋",
@@ -68,6 +77,9 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             compact = "".join(document.split())
             self.assertIn("公开信息正常推理", compact)
             self.assertIn("不得把对手隐藏状态当作已知事实", compact)
+            self.assertIn("不得以真实披露为目的直接报出自己的", compact)
+            self.assertIn("虚张声势", compact)
+            self.assertIn("正常诈唬不受禁止", compact)
             self.assertIn("不得为了维持性格故意走明显坏棋", compact)
 
     async def test_disabled_is_default_and_exposes_no_configuration_secret(self):
@@ -116,8 +128,9 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item["role"] for item in messages], ["system", "user"])
         sent = json.loads(messages[1]["content"])
         self.assertEqual(set(sent), {
-            "persona", "game_rules", "public_state", "private_state",
-            "public_actions", "legal_actions",
+            "persona", "game_rules", "participants", "public_state",
+            "private_state", "recent_public_events", "public_actions",
+            "legal_actions",
         })
         serialized = json.dumps(captured, ensure_ascii=False)
         self.assertNotIn("never-log-this-key", messages[1]["content"])
@@ -282,14 +295,48 @@ class NpcControllerTests(unittest.IsolatedAsyncioTestCase):
             enforce_trusted_pair=True,
         )
         room = framework.play_move(
-            room["room_id"], "human", "human-1", {"action": "step"}
+            room["room_id"], "human", "human-1",
+            {"action": "step", "secret": "human-move-secret"},
+            message="人类公开发言",
         )
         return framework.play_move(
-            room["room_id"], "ai", "ai-1", {"action": "step"}
+            room["room_id"], "ai", "ai-1", {"action": "step"},
+            message="小机公开发言",
         )
 
     async def test_context_is_viewer_safe_and_invalid_output_falls_back_once(self):
         room = self.room_at_first_npc()
+        framework.post_message(
+            room["room_id"], "human", "human-1", "房间公开聊天"
+        )
+        framework.post_message(
+            room["room_id"], "human", "human-1", "给当前 NPC 的私聊",
+            visible_to_player_ids={"npc:quiet"},
+        )
+        framework.post_message(
+            room["room_id"], "human", "human-1", "当前 NPC 不可见的事件",
+            visible_to_player_ids={"npc:bright"},
+        )
+        with database.write_transaction() as conn:
+            conn.execute(
+                """
+                UPDATE room_participants
+                SET active = 0, activity_state = 'eliminated'
+                WHERE room_id = ? AND player_id = ?
+                """,
+                (room["room_id"], "npc:bright"),
+            )
+        conn = database.connect()
+        try:
+            cursor_before = conn.execute(
+                """
+                SELECT last_event_id FROM room_event_cursors
+                WHERE room_id = ? AND player_id = ?
+                """,
+                (room["room_id"], "npc:quiet"),
+            ).fetchone()[0]
+        finally:
+            conn.close()
         provider = ScriptedProvider(["invalid", "invalid"])
         result = await run_current_npc_turn(room["room_id"], provider=provider)
         self.assertEqual(result.status, "applied")
@@ -299,14 +346,59 @@ class NpcControllerTests(unittest.IsolatedAsyncioTestCase):
         sent = json.dumps(request.messages(), ensure_ascii=False)
         self.assertIn("private:npc:quiet", sent)
         for hidden in (
-            "private:human-1", "private:ai-1", "private:npc:bright"
+            "private:human-1", "private:ai-1", "private:npc:bright",
+            "human-move-secret", "给当前 NPC 的私聊", "当前 NPC 不可见的事件",
         ):
             self.assertNotIn(hidden, sent)
+        self.assertEqual(request.private_state["hand"], ["private:npc:quiet"])
+        directory = {item["player_id"]: item for item in request.participants}
+        self.assertEqual(
+            [item["player_id"] for item in request.participants],
+            ["human-1", "ai-1", "npc:quiet", "npc:bright"],
+        )
+        self.assertEqual(
+            (directory["human-1"]["display_name"],
+             directory["human-1"]["seat_index"],
+             directory["human-1"]["participant_kind"]),
+            ("人类", 0, "human"),
+        )
+        self.assertEqual(
+            (directory["ai-1"]["display_name"],
+             directory["ai-1"]["seat_index"],
+             directory["ai-1"]["participant_kind"]),
+            ("小机", 1, "bound_machine"),
+        )
+        self.assertEqual(directory["npc:bright"]["activity_state"], "eliminated")
+        self.assertTrue(all(
+            item["participant_summary"] == {"action_count": 2}
+            for item in request.participants
+        ))
+        events = request.recent_public_events
+        self.assertEqual(
+            [item["event_type"] for item in events],
+            ["move", "move", "message"],
+        )
+        self.assertEqual(
+            [item["actor"]["player_id"] for item in events],
+            ["human-1", "ai-1", "human-1"],
+        )
+        self.assertEqual(
+            [item["actor"]["display_name"] for item in events],
+            ["人类", "小机", "人类"],
+        )
+        self.assertEqual(
+            [item["actor"]["seat_index"] for item in events], [0, 1, 0]
+        )
+        self.assertEqual(events[0]["text"], "人类公开发言")
+        self.assertEqual(events[0]["move"], {"action": "step"})
+        self.assertEqual(events[1]["text"], "小机公开发言")
+        self.assertEqual(events[2]["text"], "房间公开聊天")
         self.assertEqual(
             set(json.loads(request.messages()[1]["content"])),
             {
-                "persona", "game_rules", "public_state", "private_state",
-                "public_actions", "legal_actions",
+                "persona", "game_rules", "participants", "public_state",
+                "private_state", "recent_public_events", "public_actions",
+                "legal_actions",
             },
         )
         restored = framework.get_room(room["room_id"])
@@ -320,6 +412,39 @@ class NpcControllerTests(unittest.IsolatedAsyncioTestCase):
             conn.close()
         self.assertEqual(stored["status"], "completed")
         self.assertNotIn("private:", stored["decision_json"])
+        cursor_after = database.connect()
+        try:
+            self.assertEqual(
+                cursor_after.execute(
+                    """
+                    SELECT last_event_id FROM room_event_cursors
+                    WHERE room_id = ? AND player_id = ?
+                    """,
+                    (room["room_id"], "npc:quiet"),
+                ).fetchone()[0],
+                cursor_before,
+            )
+        finally:
+            cursor_after.close()
+
+    async def test_context_keeps_only_latest_twenty_public_events_in_order(self):
+        room = self.room_at_first_npc()
+        for index in range(1, 23):
+            framework.post_message(
+                room["room_id"], "human", "human-1", f"公开消息 {index:02d}"
+            )
+        provider = ScriptedProvider()
+        await run_current_npc_turn(room["room_id"], provider=provider)
+        events = provider.requests[0].recent_public_events
+        self.assertEqual(len(events), 20)
+        self.assertEqual(
+            [item["text"] for item in events],
+            [f"公开消息 {index:02d}" for index in range(3, 23)],
+        )
+        self.assertEqual(
+            [item["sequence"] for item in events],
+            sorted(item["sequence"] for item in events),
+        )
 
     async def test_retry_once_can_recover_with_a_valid_action(self):
         room = self.room_at_first_npc()

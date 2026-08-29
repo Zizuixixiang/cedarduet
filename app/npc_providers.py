@@ -21,6 +21,9 @@ GLOBAL_PLAYER_RULES = (
     "你是回合制游戏中的当前 NPC 玩家，首要目标是理解规则并争取获胜。"
     "只使用系统提供的己方私有信息、公共局面和其他玩家已公开行动；"
     "允许依据公开信息正常推理和估计，但不得把对手隐藏状态当作已知事实。"
+    "不得以真实披露为目的直接报出自己的完整或具体隐藏牌、骰子及其他私有状态；"
+    "允许为了策略进行虚张声势、试探、模糊表达或真假难辨的误导，"
+    "这不禁止吹牛骰子等玩法中的正常诈唬。"
     "只能从权威合法行动列表选择。人设只影响合理行动之间的选择、风险偏好和"
     "交流方式，不得为了维持性格故意走明显坏棋。只返回 JSON 对象："
     '{"action_id":"...","message":"可选短消息"}。不要返回分析、解释或思维过程。'
@@ -44,8 +47,10 @@ class NpcProviderResponseError(NpcProviderError):
 class NpcDecisionRequest:
     persona: dict[str, str]
     game_rules: str
+    participants: list[dict[str, Any]]
     public_state: dict[str, Any]
     private_state: dict[str, Any]
+    recent_public_events: list[dict[str, Any]]
     public_actions: list[dict[str, Any]]
     legal_actions: list[dict[str, Any]]
 
@@ -53,8 +58,10 @@ class NpcDecisionRequest:
         payload = {
             "persona": self.persona,
             "game_rules": self.game_rules,
+            "participants": self.participants,
             "public_state": self.public_state,
             "private_state": self.private_state,
+            "recent_public_events": self.recent_public_events,
             "public_actions": self.public_actions,
             "legal_actions": self.legal_actions,
         }

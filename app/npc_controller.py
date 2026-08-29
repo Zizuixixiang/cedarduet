@@ -10,7 +10,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from .database import connect, decode_room
-from .framework import DuelError, _decorate, _room_id, play_move
+from .framework import (
+    DuelError,
+    _decorate,
+    _room_id,
+    list_timeline,
+    play_move,
+    project_room_for_viewer,
+)
 from .games import get_game
 from .npc_personas import PersonaConfigError, get_persona
 from .npc_providers import (
@@ -57,6 +64,69 @@ def _action_id(action: dict[str, Any]) -> str:
     return "a_" + hashlib.sha256(canonical).hexdigest()[:20]
 
 
+def _participant_directory(projected_room: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "player_id": participant["player_id"],
+            "display_name": participant["display_name"],
+            "seat_index": participant["seat_index"],
+            "participant_kind": participant["participant_kind"],
+            "activity_state": participant.get("activity_state", "active"),
+            "participant_summary": deepcopy(participant.get("game_metadata", {})),
+        }
+        for participant in sorted(
+            projected_room["participants"], key=lambda item: item["seat_index"]
+        )
+    ]
+
+
+def _compact_public_events(
+    events: list[dict[str, Any]], participants: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    participant_by_id = {item["player_id"]: item for item in participants}
+    compact: list[dict[str, Any]] = []
+    for event in events:
+        sender = event.get("sender")
+        if not isinstance(sender, dict):
+            raise DuelError("NPC 公共事件缺少行动者")
+        player_id = sender.get("player_id")
+        participant = participant_by_id.get(player_id)
+        if participant is not None:
+            actor = {
+                key: participant[key]
+                for key in (
+                    "player_id", "display_name", "seat_index", "participant_kind"
+                )
+            }
+        elif player_id == "system":
+            actor = {
+                "player_id": "system",
+                "display_name": str(sender.get("name") or "双弈裁判"),
+                "seat_index": None,
+                "participant_kind": "system",
+            }
+        else:
+            raise DuelError("NPC 公共事件行动者不属于房间")
+        item: dict[str, Any] = {
+            "sequence": event["sequence"],
+            "created_at": event["created_at"],
+            "event_type": event["event_type"],
+            "actor": actor,
+        }
+        text = event.get("text")
+        if isinstance(text, str) and text:
+            item["text"] = text
+        if event["event_type"] == "move":
+            move_label = event.get("move_label")
+            if isinstance(move_label, str) and move_label:
+                item["move_label"] = move_label
+            move = event.get("move")
+            if isinstance(move, dict):
+                item["move"] = deepcopy(move)
+        compact.append(item)
+    return compact
+
+
 def _decision_request(
     room: dict[str, Any], npc_player_id: str
 ) -> tuple[NpcDecisionRequest, dict[str, dict[str, Any]]]:
@@ -74,9 +144,15 @@ def _decision_request(
         persona = get_persona(actor["npc_persona_id"])
         participants = deepcopy(room["participants"])
         state = deepcopy(room["board_state"])
-        public_state = game.public_state(deepcopy(state), participants)
-        private_state = game.private_state(
-            deepcopy(state), deepcopy(actor), participants
+        projected_room = project_room_for_viewer(room, npc_player_id)
+        participant_directory = _participant_directory(projected_room)
+        public_state = deepcopy(projected_room["board_state"])
+        private_state = deepcopy(projected_room["private_state"])
+        recent_public_events = _compact_public_events(
+            list_timeline(
+                room["room_id"], 20, npc_player_id, public_only=True
+            ),
+            participant_directory,
         )
         public_actions = game.npc_public_actions(
             deepcopy(state), deepcopy(actor), participants
@@ -115,8 +191,10 @@ def _decision_request(
         NpcDecisionRequest(
             persona=persona.model_context(),
             game_rules=game_rules.strip(),
+            participants=participant_directory,
             public_state=public_state,
             private_state=private_state,
+            recent_public_events=recent_public_events,
             public_actions=public_actions,
             legal_actions=exposed_actions,
         ),
