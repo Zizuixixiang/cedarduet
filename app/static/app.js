@@ -17,6 +17,21 @@ let machineWalletRequest = 0;
 let registeredGameUIStateKey = null;
 let registeredGameUIState = Object.create(null);
 
+window.DuelGameUI = window.DuelGameUI || (() => {
+  const renderers = new Map();
+  return {
+    register(gameType, renderer) {
+      if (!gameType || !renderer || typeof renderer.renderBoard !== "function") {
+        throw new TypeError("游戏 renderer 必须提供 renderBoard(context)");
+      }
+      renderers.set(String(gameType), renderer);
+    },
+    get(gameType) {
+      return renderers.get(String(gameType)) || null;
+    },
+  };
+})();
+
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
 const WAIT_HINT_FOREVER = "forever";
 const LEGACY_GAME_UI_TYPES = new Set([
@@ -33,6 +48,7 @@ const GAME_GLYPHS = {
   liars_dice: "骰",
   jungle: "兽",
   xiangqi: "象",
+  banqi: "暗",
 };
 const JUNGLE_SYMBOLS = {
   R: "鼠", C: "猫", D: "狗", W: "狼",
@@ -2260,7 +2276,25 @@ function renderBoard(timeline = currentTimeline) {
   board.classList.toggle("large", Math.max(rows, cols) > 3);
   board.classList.add(room.game_type);
   board.setAttribute("aria-label", `${room.game_name}棋盘`);
-  if (room.game_type === "dots_boxes") {
+  const extensionRenderer = window.DuelGameUI.get(room.game_type);
+  if (extensionRenderer) {
+    extensionRenderer.renderBoard({
+      board,
+      state,
+      room,
+      timeline,
+      canMove: canHumanMove(),
+      pendingMove,
+      setPendingMove(movePayload) {
+        pendingMove = {...movePayload};
+        renderBoard();
+      },
+      clearPendingMove() {
+        pendingMove = null;
+        renderBoard();
+      },
+    });
+  } else if (room.game_type === "dots_boxes") {
     renderDotsBoard(board, state);
   } else if (room.game_type === "jungle") {
     renderJungleBoard(board, state);

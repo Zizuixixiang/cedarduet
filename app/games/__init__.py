@@ -1,3 +1,4 @@
+from .banqi import Banqi
 from .connect4 import Connect4
 from .checkers import Checkers
 from .dots_boxes import DotsBoxes
@@ -11,6 +12,7 @@ from .xiangqi import Xiangqi
 GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 
 GAMES = {
+    Banqi.game_type: Banqi(),
     TicTacToe.game_type: TicTacToe(),
     Gomoku.game_type: Gomoku(),
     Othello.game_type: Othello(),

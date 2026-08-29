@@ -442,6 +442,11 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 `window.DuelGameUI.register('checkers', renderer)` 扩展口注册；它只消费服务端的
 `legal_moves`、`forced_piece` 与 `last_move`，不在公共 `app.js` 中复制规则。
 
+
+翻翻棋使用 8×4 暗棋盘，32 枚中国象棋棋子随机持久化；未翻棋子只公开统一背面，
+翻开后才公开身份。网页 renderer 位于 `app/static/games/banqi.js`，只消费服务端
+`legal_actions` 与公开棋盘，不在客户端推导暗子或合法性。
+
 ## 筹码中心
 
 独立页面：

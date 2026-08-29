@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.0">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.1">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -100,6 +100,7 @@
                     <option value="dice">骰</option>
                   </select>
                   <select id="gameType" aria-label="具体游戏">
+                    <option value="banqi">翻翻棋 / 2人</option>
                     <option value="checkers">西洋跳棋 / 2人</option>
                     <option value="jungle">斗兽棋 / 2人</option>
                     <option value="othello">黑白棋 / 2人</option>
@@ -368,9 +369,10 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
-  <script src="/static/game_ui_registry.js?v=0.9.0"></script>
+  <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/checkers.js?v=0.1.0"></script>
-  <!-- Additional explicit renderers may be added here before app.js; others autoload from catalog. -->
-  <script src="/static/app.js?v=0.9.0"></script>
+  <script src="/static/games/banqi.js?v=0.1.0"></script>
+  <!-- Additional renderers autoload from catalog. -->
+  <script src="/static/app.js?v=0.9.1"></script>
 </body>
 </html>
