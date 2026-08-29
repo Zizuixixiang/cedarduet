@@ -395,7 +395,9 @@ footer {
   box-sizing: border-box;
   padding: 3px;
   object-fit: contain;
+  opacity: 0;
 }
+.exchange-art.has-image img { opacity: 1; }
 .exchange-art.has-image .exchange-art-fallback { visibility: hidden; }
 .exchange-copy { min-width: 0; padding: 9px 8px; }
 .exchange-copy strong { display: block; font-size: 0.78rem; overflow-wrap: anywhere; }

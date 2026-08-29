@@ -192,6 +192,8 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".exchange-catalog, .exchange-form-grid", styles)
         self.assertIn(".exchange-art img", styles)
         self.assertIn("object-fit: contain", styles)
+        self.assertIn("opacity: 0", styles)
+        self.assertIn(".exchange-art.has-image img { opacity: 1; }", styles)
         self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
         self.assertIn("/static/chips.css?v=1.3.0", HTML)
         self.assertIn("/static/chips.js?v=1.3.0", HTML)
@@ -256,7 +258,9 @@ renderExchangeArt(loaded, {{
 }});
 assert.equal(loaded.children[0].textContent, "☀");
 assert.equal(loaded.children[1].src, "/static/assets/exchange-shop/items/good_life.png?v=20260829");
-assert.equal(loaded.children[1].hidden, true);
+assert.equal(loaded.children[1].loading, "lazy");
+assert.equal(loaded.children[1].hidden, false);
+assert.equal(loaded.classList.contains("has-image"), false);
 loaded.children[1].listeners.load();
 assert.equal(loaded.children[1].hidden, false);
 assert.equal(loaded.classList.contains("has-image"), true);

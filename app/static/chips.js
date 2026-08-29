@@ -908,9 +908,7 @@ function renderExchangeArt(art, item) {
   image.alt = "";
   image.loading = "lazy";
   image.decoding = "async";
-  image.hidden = true;
   image.addEventListener("load", () => {
-    image.hidden = false;
     art.classList.add("has-image");
   });
   image.addEventListener("error", () => {
