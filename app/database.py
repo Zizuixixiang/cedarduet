@@ -426,6 +426,12 @@ def init_db() -> None:
         from .exchanges import init_exchanges_schema
 
         init_exchanges_schema(conn)
+        # The revision cursor must exist before backfills on upgrades where the
+        # notification table is already present. Creating it alone cannot derive
+        # historical unread rows on a first install.
+        from .notifications import init_notification_subject_states_schema
+
+        init_notification_subject_states_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         try:
             backfill_authoritative_matches(conn)

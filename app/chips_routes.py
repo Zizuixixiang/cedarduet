@@ -45,7 +45,7 @@ from .models import (
     LoanDecisionBody,
     LoanRepaymentBody,
 )
-from .notifications import ack_explicit_achievement_unlocks, unread_summary
+from .notifications import ack_explicit_achievement_unlocks, unread_state
 
 ROOT = Path(__file__).resolve().parent
 CHIPS_HTML = (ROOT / "static" / "chips.html").read_text(encoding="utf-8")
@@ -135,11 +135,12 @@ def create_chips_router(
         loans = list_loans("human", human_id, bound_counterparty_ids=machine_ids)
         achievements = get_achievements("human", human_id)
         exchange = named_exchange_payload(human_id, machines)
+        notification_state = unread_state("human", human_id)
         return {
             "ok": True,
             "human_name": human_name,
             "wallet": get_wallet("human", human_id),
-            "unread": unread_summary("human", human_id),
+            **notification_state,
             "machines": machines,
             "ledger": list_ledger("human", human_id),
             "loans": loans,
@@ -210,6 +211,7 @@ def create_chips_router(
             ),
             "ledger": list_ledger("human", human_id),
             "achievements": get_achievements("human", human_id),
+            **unread_state("human", human_id),
             **({"unlocks": unlocks} if unlocks else {}),
         }
 
@@ -232,6 +234,7 @@ def create_chips_router(
             ),
             "ledger": list_ledger("human", human_id),
             "achievements": get_achievements("human", human_id),
+            **unread_state("human", human_id),
             **({"unlocks": unlocks} if unlocks else {}),
         }
 
@@ -243,6 +246,7 @@ def create_chips_router(
             "wallet": get_wallet("human", human_id),
             "ledger": list_ledger("human", human_id),
             "achievements": get_achievements("human", human_id),
+            **unread_state("human", human_id),
         }
 
     def human_exchange_payload(
@@ -255,6 +259,7 @@ def create_chips_router(
             "exchange": named_exchange_payload(human_id, machines),
             "wallet": get_wallet("human", human_id),
             "ledger": list_ledger("human", human_id),
+            **unread_state("human", human_id),
         }
 
     def current_exchange_for_human(

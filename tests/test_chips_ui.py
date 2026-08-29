@@ -38,6 +38,17 @@ def function_source(name: str) -> str:
     return SCRIPT[start:] if end < 0 else SCRIPT[start:end]
 
 
+def async_function_source(name: str) -> str:
+    start = SCRIPT.index(f"async function {name}(")
+    candidates = [
+        position
+        for marker in ("\nfunction ", "\nasync function ")
+        if (position := SCRIPT.find(marker, start + 1)) >= 0
+    ]
+    end = min(candidates) if candidates else len(SCRIPT)
+    return SCRIPT[start:end]
+
+
 class ChipCenterStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -482,6 +493,7 @@ assert.equal(
         functions = "\n".join(
             (
                 function_source("activateModuleTab"),
+                function_source("unreadCategoryForPanel"),
                 function_source("handleModuleTabKeydown"),
                 function_source("initModuleTabs"),
             )
@@ -514,12 +526,126 @@ const panels = tabs.map((tab) => new Element(tab.dataset.panel));
 const document = {{
   querySelectorAll(selector) {{ return selector.includes("tabpanel") ? panels : tabs; }},
 }};
+const acked = [];
+function ackUnreadCategory(category) {{ acked.push(category); }}
 {functions}
 initModuleTabs();
 assert.deepEqual(panels.map((panel) => panel.hidden), [false, true, true, true, true]);
 tabs[2].listeners.click();
 assert.deepEqual(tabs.map((tab) => tab.attributes["aria-selected"]), ["false", "false", "true", "false", "false"]);
 assert.deepEqual(panels.map((panel) => panel.hidden), [true, true, false, true, true]);
+assert.deepEqual(acked, ["exchange"]);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_shop_click_before_summary_load_still_clears_exchange_unread(self):
+        functions = "\n".join(
+            (
+                async_function_source("ackUnreadCategory"),
+                function_source("unreadCategoryForPanel"),
+                function_source("visibleUnreadCategory"),
+                function_source("ackVisibleUnreadCategory"),
+                function_source("activateModuleTab"),
+            )
+        )
+        harness = f"""
+import assert from "node:assert/strict";
+let summary = null;
+const pendingUnreadAcks = new Map();
+const deferredUnreadAcks = new Set();
+const calls = [];
+let published = 0;
+const document = {{
+  hidden: false,
+  querySelectorAll(selector) {{
+    return selector.includes("tabpanel") ? [panel] : [shop];
+  }},
+  querySelector() {{ return shop; }},
+}};
+const panel = {{id: "panel-shop", hidden: true}};
+const shop = {{
+  dataset: {{panel: "panel-shop"}}, tabIndex: -1,
+  setAttribute(name, value) {{ this[name] = value; }},
+  focus() {{}},
+}};
+async function requestJson(url, options) {{
+  calls.push({{url, options}});
+  return {{
+    ok: true, unread_revision: 2,
+    unread: {{total: 0, categories: {{game: 0, loan: 0, exchange: 0, achievement: 0}}}},
+  }};
+}}
+function publishUnreadChange() {{ published += 1; }}
+{functions}
+activateModuleTab(shop);
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(summary, null);
+assert.equal(calls.length, 0);
+summary = {{
+  unread: {{total: 1, categories: {{game: 0, loan: 0, exchange: 1, achievement: 0}}}},
+}};
+ackVisibleUnreadCategory();
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(calls.length, 1);
+assert.equal(calls[0].url, "/api/notifications/read");
+assert.deepEqual(JSON.parse(calls[0].options.body), {{category: "exchange"}});
+assert.equal(published, 1);
+"""
+        completed = subprocess.run(
+            [NODE, "--input-type=module", "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_versioned_unread_state_rejects_late_stale_response(self):
+        apply_state = function_source("applyUnreadState")
+        harness = f"""
+const assert = require("node:assert/strict");
+let latestUnreadRevision = -1;
+let latestUnreadSummary = null;
+let summary = {{unread: null}};
+let renders = 0;
+function renderUnreadBadges() {{ renders += 1; }}
+{apply_state}
+const newest = {{
+  unread_revision: 8,
+  unread: {{
+    total: 2,
+    categories: {{game: 0, loan: 2, exchange: 0, achievement: 0}},
+  }},
+}};
+const stale = {{
+  unread_revision: 7,
+  unread: {{
+    total: 3,
+    categories: {{game: 0, loan: 2, exchange: 1, achievement: 0}},
+  }},
+}};
+assert.equal(applyUnreadState(newest), true);
+assert.equal(applyUnreadState(stale), false);
+assert.equal(latestUnreadRevision, 8);
+assert.deepEqual(summary.unread.categories, newest.unread.categories);
+assert.equal(summary.unread.categories.exchange, 0);
+assert.equal(summary.unread.categories.loan, 2);
+assert.equal(renders, 1);
 """
         completed = subprocess.run(
             [NODE, "-e", harness],
@@ -605,8 +731,18 @@ const document = {{
   getElementById(id) {{ return elements[id]; }},
   createElement() {{ return new Element(); }},
   querySelectorAll(selector) {{ return selector.includes("tabpanel") ? panels : tabs; }},
+  querySelector(selector) {{
+    return selector.includes('aria-selected="true"')
+      ? tabs.find((tab) => tab.attributes["aria-selected"] === "true")
+      : null;
+  }},
+  addEventListener() {{}},
 }};
-const window = {{location: {{pathname: "/chips"}}}};
+const window = {{
+  location: {{pathname: "/chips"}},
+  addEventListener() {{}},
+  localStorage: {{setItem() {{}}}},
+}};
 const humanWallet = {{
   balance: 310, checked_in_today: false, bankruptcy_active: false,
   bankruptcy_badge: null, bankruptcy_count: 0, can_declare_bankruptcy: false,

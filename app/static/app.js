@@ -17,8 +17,14 @@ let machineWalletRequest = 0;
 let registeredGameUIStateKey = null;
 let registeredGameUIState = Object.create(null);
 
+let latestUnreadRevision = -1;
+let latestUnreadSummary = null;
+const pendingUnreadAcks = new Map();
+const deferredUnreadAcks = new Set();
+
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
 const WAIT_HINT_FOREVER = "forever";
+const UNREAD_SYNC_STORAGE_KEY = "duel:unread-sync";
 const LEGACY_GAME_UI_TYPES = new Set([
   "tictactoe", "gomoku", "othello", "connect4",
   "dots_boxes", "liars_dice", "jungle", "xiangqi",
@@ -74,6 +80,7 @@ async function request(path, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || data.error || "请求失败");
+  applyHumanUnreadState(data);
   return data;
 }
 
@@ -98,6 +105,48 @@ async function loadCatalogGameRenderers(games) {
   ));
 }
 
+function applyHumanUnreadState(payload) {
+  if (!payload?.unread?.categories) return false;
+  const revision = Number(payload.unread_revision);
+  const hasRevision = Number.isSafeInteger(revision) && revision >= 0;
+  if (!hasRevision && latestUnreadRevision >= 0) return false;
+  if (hasRevision && revision < latestUnreadRevision) return false;
+  if (hasRevision) latestUnreadRevision = revision;
+  latestUnreadSummary = payload.unread;
+  if (identity) {
+    identity.unread = latestUnreadSummary;
+    if (hasRevision) identity.unread_revision = revision;
+    renderUnreadBadges(identity.unread);
+  }
+  return true;
+}
+
+function syncUnreadStateToIdentity() {
+  if (!identity || !latestUnreadSummary) return;
+  identity.unread = latestUnreadSummary;
+  if (latestUnreadRevision >= 0) identity.unread_revision = latestUnreadRevision;
+}
+
+function publishUnreadChange() {
+  try {
+    window.localStorage.setItem(
+      UNREAD_SYNC_STORAGE_KEY,
+      `${latestUnreadRevision}:${Date.now()}:${Math.random()}`,
+    );
+  } catch (_error) {
+    // Storage can be unavailable in hardened browsers; the server remains canonical.
+  }
+}
+
+async function refreshHumanUnreadState() {
+  if (document.hidden) return;
+  try {
+    await request("/api/notifications/unread");
+  } catch (_error) {
+    // A later focus, visibility change, or explicit visit retries the refresh.
+  }
+}
+
 function unreadCount(summary, category) {
   return Number(summary?.categories?.[category] || 0);
 }
@@ -120,20 +169,33 @@ function renderUnreadBadges(unread) {
 }
 
 async function ackHumanNotifications(category, referenceId = null) {
-  if (!identity || document.hidden) return;
-  try {
-    const data = await request("/api/notifications/read", {
-      method: "POST",
-      body: JSON.stringify({
-        category,
-        ...(referenceId ? {reference_id: referenceId} : {}),
-      }),
-    });
-    identity.unread = data.unread;
-    renderUnreadBadges(identity.unread);
-  } catch (_error) {
-    // A transient ack failure must not block the room UI.
+  const ackKey = `${category}:${referenceId || "*"}`;
+  if (!identity) return;
+  if (document.hidden) {
+    deferredUnreadAcks.add(ackKey);
+    return;
   }
+  if (pendingUnreadAcks.has(ackKey)) return pendingUnreadAcks.get(ackKey);
+  const pending = (async () => {
+    try {
+      await request("/api/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({
+          category,
+          ...(referenceId ? {reference_id: referenceId} : {}),
+        }),
+      });
+      deferredUnreadAcks.delete(ackKey);
+      publishUnreadChange();
+    } catch (_error) {
+      // A transient ack failure must not block the room UI.
+      deferredUnreadAcks.add(ackKey);
+    } finally {
+      pendingUnreadAcks.delete(ackKey);
+    }
+  })();
+  pendingUnreadAcks.set(ackKey, pending);
+  return pending;
 }
 
 function showView(id) {
@@ -582,9 +644,11 @@ async function respondToInvitation(roomId, decision) {
     });
     if (decision === "accept" && data.room) {
       renderGame(data.room, data.message, data.timeline);
+      await ackHumanNotifications("game", roomId);
       startRoomPolling();
       return;
     }
+    await ackHumanNotifications("game", roomId);
     await loadIdentity({quiet: true});
     toast(data.message);
   } catch (error) {
@@ -1176,11 +1240,12 @@ async function loadIdentity({quiet = false} = {}) {
       return;
     }
     identity = data;
+    syncUnreadStateToIdentity();
     await loadCatalogGameRenderers(data.games || []);
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
     renderHumanChipBalance(data.wallet.balance);
-    renderUnreadBadges(data.unread);
+    renderUnreadBadges(identity.unread);
     syncGameTypeOptions(data.games || []);
     syncMachinePicker(data.machines || []);
     renderPendingInvitations(data.pending_invitations || []);
@@ -2750,10 +2815,17 @@ function renderGame(nextRoom, message = "", timeline = []) {
 
 async function refreshRoom({quiet = false} = {}) {
   if (!room) return;
+  const previousRevision = room.revision;
+  const previousStatus = room.status;
   try {
     const data = await request(`/api/rooms/${room.room_id}`);
+    const visibleStateChanged = (
+      data.room.revision !== previousRevision || data.room.status !== previousStatus
+    );
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
-    if (!quiet) await ackHumanNotifications("game", room.room_id);
+    if (!quiet || visibleStateChanged) {
+      await ackHumanNotifications("game", data.room.room_id);
+    }
     if (["finished", "archived"].includes(room.status)) stopPolling();
   } catch (error) {
     if (!quiet) showNotice(error.message, true);
@@ -3022,6 +3094,19 @@ window.addEventListener("keydown", (event) => {
     closeRules();
     closeHistory();
   }
+});
+window.addEventListener("storage", (event) => {
+  if (event.key === UNREAD_SYNC_STORAGE_KEY) void refreshHumanUnreadState();
+});
+window.addEventListener("focus", () => void refreshHumanUnreadState());
+window.addEventListener("pageshow", () => void refreshHumanUnreadState());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  void refreshHumanUnreadState().then(() => {
+    if (!identity || document.hidden || !deferredUnreadAcks.size) return;
+    if (room) void refreshRoom();
+    else void loadIdentity();
+  });
 });
 
 $("chipBalanceLink").href = apiPath("/chips");

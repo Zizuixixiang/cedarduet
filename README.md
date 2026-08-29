@@ -372,6 +372,7 @@ POST /api/rooms/{room_id}/leave
 POST /api/rooms/{room_id}/invitation
 POST /api/rooms/{room_id}/retention
 POST /api/rooms/{room_id}/delete
+GET  /api/notifications/unread
 POST /api/notifications/read
 GET  /api/chips
 GET  /api/chips/machines/{machine_id}
@@ -389,6 +390,9 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 绝不自动清除。网页只在房间列表/详情确实可见，或用户实际切到欠条、互动商店、成就
 tab 后，才调用 `POST /api/notifications/read`；请求体只允许 `category` 与可选的
 `reference_id`，主体始终取可信 `X-Duel-Human-Player`，不能由 body 自报。
+人类端未读响应同时携带单调递增的 `unread_revision`；浏览器用它丢弃乱序旧响应，并在
+同源标签页完成已读后通过 `GET /api/notifications/unread` 拉取权威快照。重复已读不会推进
+版本，切换后台期间跳过的清除会在页面重新可见后重试。
 
 ## 未读通知
 

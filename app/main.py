@@ -79,9 +79,10 @@ from .models import (
 from .notifications import (
     ack_explicit_achievement_unlocks,
     ack_notifications,
+    ack_notifications_with_state,
     attach_mcp_unread,
     consume_notifications,
-    unread_summary,
+    unread_state,
 )
 from .npc_personas import PersonaConfigError, resolve_avatar_file, select_personas
 from .npc_providers import npc_provider_capabilities
@@ -1004,6 +1005,7 @@ async def human_whoami(request: Request):
     )
     pending_invitations = list_human_pending_invitations(human_player_id)
     rooms = list_human_rooms(human_player_id, ai_names)
+    notification_state = unread_state("human", human_player_id)
     return {
         "ok": True,
         "bound": True,
@@ -1014,9 +1016,18 @@ async def human_whoami(request: Request):
         "games": game_catalog(),
         "npc_provider": npc_provider_capabilities(),
         "wallet": get_wallet("human", human_player_id),
-        "unread": unread_summary("human", human_player_id),
+        **notification_state,
         "pending_invitations": pending_invitations,
         "rooms": rooms,
+    }
+
+
+@app.get("/api/notifications/unread")
+async def human_unread_notifications(request: Request):
+    human_player_id = trusted_human_player(request)
+    return {
+        "ok": True,
+        **unread_state("human", human_player_id),
     }
 
 
@@ -1025,7 +1036,7 @@ async def human_read_notifications(
     request: Request, body: NotificationAckBody
 ):
     human_player_id = trusted_human_player(request)
-    count = ack_notifications(
+    count, notification_state = ack_notifications_with_state(
         "human",
         human_player_id,
         body.category,
@@ -1035,7 +1046,7 @@ async def human_read_notifications(
         "ok": True,
         "category": body.category,
         "read": count,
-        "unread": unread_summary("human", human_player_id),
+        **notification_state,
     }
 
 

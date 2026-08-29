@@ -6,6 +6,12 @@ let currentSubject = {type: "human", id: null, name: "我"};
 let subjectRequestSequence = 0;
 let currentExchange = null;
 let currentLoanView = null;
+let latestUnreadRevision = -1;
+let latestUnreadSummary = null;
+const pendingUnreadAcks = new Map();
+const deferredUnreadAcks = new Set();
+
+const UNREAD_SYNC_STORAGE_KEY = "duel:unread-sync";
 
 function apiPath(path) {
   const pathname = window.location.pathname;
@@ -20,13 +26,57 @@ async function requestJson(url, options = {}) {
   const response = await fetch(apiPath(url), {
     credentials: "same-origin",
     headers: {"Content-Type": "application/json", ...(options.headers || {})},
+    cache: "no-store",
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.message || `请求失败（${response.status}）`);
   }
+  applyUnreadState(payload);
   return payload;
+}
+
+function applyUnreadState(payload) {
+  if (!payload?.unread?.categories) return false;
+  const revision = Number(payload.unread_revision);
+  const hasRevision = Number.isSafeInteger(revision) && revision >= 0;
+  if (!hasRevision && latestUnreadRevision >= 0) return false;
+  if (hasRevision && revision < latestUnreadRevision) return false;
+  if (hasRevision) latestUnreadRevision = revision;
+  latestUnreadSummary = payload.unread;
+  if (summary) {
+    summary.unread = latestUnreadSummary;
+    if (hasRevision) summary.unread_revision = revision;
+    renderUnreadBadges();
+  }
+  return true;
+}
+
+function syncUnreadStateToSummary() {
+  if (!summary || !latestUnreadSummary) return;
+  summary.unread = latestUnreadSummary;
+  if (latestUnreadRevision >= 0) summary.unread_revision = latestUnreadRevision;
+}
+
+function publishUnreadChange() {
+  try {
+    window.localStorage.setItem(
+      UNREAD_SYNC_STORAGE_KEY,
+      `${latestUnreadRevision}:${Date.now()}:${Math.random()}`,
+    );
+  } catch (_error) {
+    // Storage can be unavailable in hardened browsers; the server remains canonical.
+  }
+}
+
+async function refreshUnreadState() {
+  if (document.hidden) return;
+  try {
+    await requestJson("/api/notifications/unread");
+  } catch (_error) {
+    // A later focus, visibility change, or explicit visit retries the refresh.
+  }
 }
 
 function unreadCount(category) {
@@ -50,17 +100,31 @@ function renderUnreadBadges() {
 }
 
 async function ackUnreadCategory(category) {
-  if (!summary || document.hidden) return;
-  try {
-    const payload = await requestJson("/api/notifications/read", {
-      method: "POST",
-      body: JSON.stringify({category}),
-    });
-    summary.unread = payload.unread;
-    renderUnreadBadges();
-  } catch (_error) {
-    // Keep the selected module usable; a later visit retries the explicit ack.
+  if (!summary) return false;
+  if (document.hidden) {
+    deferredUnreadAcks.add(category);
+    return false;
   }
+  if (pendingUnreadAcks.has(category)) return pendingUnreadAcks.get(category);
+  const pending = (async () => {
+    try {
+      await requestJson("/api/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({category}),
+      });
+      deferredUnreadAcks.delete(category);
+      publishUnreadChange();
+      return true;
+    } catch (_error) {
+      // Keep the selected module usable; a later visit retries the explicit ack.
+      deferredUnreadAcks.add(category);
+      return false;
+    } finally {
+      pendingUnreadAcks.delete(category);
+    }
+  })();
+  pendingUnreadAcks.set(category, pending);
+  return pending;
 }
 
 function showNotice(message, isError = false) {
@@ -169,14 +233,26 @@ function activateModuleTab(selectedTab, moveFocus = false) {
     panel.hidden = panel.id !== selectedTab.dataset.panel;
   }
   if (moveFocus) selectedTab.focus();
-  const category = {
+  const category = unreadCategoryForPanel(selectedTab.dataset.panel);
+  if (category) void ackUnreadCategory(category);
+}
+
+function unreadCategoryForPanel(panelId) {
+  return {
     "panel-achievements": "achievement",
     "panel-shop": "exchange",
     "panel-loans": "loan",
-  }[selectedTab.dataset.panel];
-  if (category && typeof ackUnreadCategory === "function") {
-    void ackUnreadCategory(category);
-  }
+  }[panelId] || null;
+}
+
+function visibleUnreadCategory() {
+  const selected = document.querySelector('[role="tab"][data-panel][aria-selected="true"]');
+  return selected ? unreadCategoryForPanel(selected.dataset.panel) : null;
+}
+
+function ackVisibleUnreadCategory() {
+  const category = visibleUnreadCategory();
+  if (category) void ackUnreadCategory(category);
 }
 
 function handleModuleTabKeydown(event) {
@@ -1090,6 +1166,7 @@ async function runExchangeAction(item, action) {
 async function loadSummary() {
   try {
     summary = await requestJson("/api/chips");
+    syncUnreadStateToSummary();
     renderUnreadBadges();
     renderMachines(summary.machines);
     renderSubject(
@@ -1100,6 +1177,7 @@ async function loadSummary() {
       summary.loans,
       summary.exchange,
     );
+    ackVisibleUnreadCategory();
   } catch (error) {
     showNotice(error.message, true);
     $("subjectSelect").disabled = true;
@@ -1336,4 +1414,18 @@ initModuleTabs();
 initExchangeTabs();
 initLoanViews();
 initCreateForms();
+window.addEventListener("storage", (event) => {
+  if (event.key === UNREAD_SYNC_STORAGE_KEY) void refreshUnreadState();
+});
+window.addEventListener("focus", () => void refreshUnreadState());
+window.addEventListener("pageshow", () => void refreshUnreadState());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  void refreshUnreadState().then(() => {
+    const category = visibleUnreadCategory();
+    if (category && deferredUnreadAcks.has(category)) {
+      void ackUnreadCategory(category);
+    }
+  });
+});
 loadSummary();

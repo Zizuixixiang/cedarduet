@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS notifications (
 )
 """
 
+NOTIFICATION_SUBJECT_STATES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS notification_subject_states (
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('human', 'ai')),
+    subject_id TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    PRIMARY KEY (subject_type, subject_id)
+)
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -63,6 +72,7 @@ def _validate_category(category: str) -> None:
 def init_notifications_schema(conn: sqlite3.Connection) -> None:
     """Create the additive schema without deriving historical notifications."""
     conn.execute(NOTIFICATIONS_SCHEMA)
+    init_notification_subject_states_schema(conn)
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_notifications_subject_unread
@@ -75,6 +85,11 @@ def init_notifications_schema(conn: sqlite3.Connection) -> None:
         ON notifications(subject_type, subject_id, category, reference_id, read_at)
         """
     )
+
+
+def init_notification_subject_states_schema(conn: sqlite3.Connection) -> None:
+    """Create only the revision cursor table, safe before historical backfills."""
+    conn.execute(NOTIFICATION_SUBJECT_STATES_SCHEMA)
 
 
 def create_notification(
@@ -120,7 +135,24 @@ def create_notification(
             created_at or _now(),
         ),
     ).rowcount
+    if inserted:
+        _bump_subject_revision(conn, subject_type, subject_id)
     return bool(inserted)
+
+
+def _bump_subject_revision(
+    conn: sqlite3.Connection, subject_type: SubjectType, subject_id: str
+) -> None:
+    """Advance the monotonic cursor used to reject stale browser responses."""
+    conn.execute(
+        """
+        INSERT INTO notification_subject_states (subject_type, subject_id, revision)
+        VALUES (?, ?, 1)
+        ON CONFLICT(subject_type, subject_id) DO UPDATE
+        SET revision = notification_subject_states.revision + 1
+        """,
+        (subject_type, subject_id),
+    )
 
 
 def mark_notifications_read(
@@ -154,6 +186,8 @@ def mark_notifications_read(
         f"UPDATE notifications SET read_at = ? WHERE {' AND '.join(clauses)}",
         [params[-1], *params[:-1]],
     )
+    if cursor.rowcount:
+        _bump_subject_revision(conn, subject_type, subject_id)
     return cursor.rowcount
 
 
@@ -174,6 +208,27 @@ def ack_notifications(
             reference_id=reference_id,
             event_keys=event_keys,
         )
+
+
+def ack_notifications_with_state(
+    subject_type: SubjectType,
+    subject_id: str,
+    category: Category,
+    *,
+    reference_id: str | None = None,
+    event_keys: list[str] | tuple[str, ...] | None = None,
+) -> tuple[int, dict]:
+    """Acknowledge and return the resulting versioned state atomically."""
+    with write_transaction() as conn:
+        count = mark_notifications_read(
+            conn,
+            subject_type,
+            subject_id,
+            category,
+            reference_id=reference_id,
+            event_keys=event_keys,
+        )
+        return count, unread_state(subject_type, subject_id, conn=conn)
 
 
 def ack_explicit_achievement_unlocks(
@@ -199,26 +254,52 @@ def unread_summary(
     conn: sqlite3.Connection | None = None,
 ) -> dict:
     """Return counts only; reading a summary never acknowledges anything."""
+    return unread_state(subject_type, subject_id, conn=conn)["unread"]
+
+
+def unread_state(
+    subject_type: SubjectType,
+    subject_id: str,
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Return one atomic count snapshot plus its monotonic subject revision."""
     _validate_subject(subject_type, subject_id)
     owns_connection = conn is None
     if conn is None:
         conn = connect()
     try:
-        rows = conn.execute(
+        row = conn.execute(
             """
-            SELECT category, COUNT(*) AS count
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(category = 'game'), 0) AS game_count,
+                COALESCE(SUM(category = 'loan'), 0) AS loan_count,
+                COALESCE(SUM(category = 'exchange'), 0) AS exchange_count,
+                COALESCE(SUM(category = 'achievement'), 0) AS achievement_count,
+                COALESCE((
+                    SELECT revision
+                    FROM notification_subject_states
+                    WHERE subject_type = ? AND subject_id = ?
+                ), 0) AS revision
             FROM notifications
             WHERE subject_type = ? AND subject_id = ? AND read_at IS NULL
-            GROUP BY category
             """,
-            (subject_type, subject_id),
-        ).fetchall()
+            (subject_type, subject_id, subject_type, subject_id),
+        ).fetchone()
     finally:
         if owns_connection:
             conn.close()
-    found = {row["category"]: row["count"] for row in rows}
-    categories = {category: int(found.get(category, 0)) for category in CATEGORIES}
-    return {"total": sum(categories.values()), "categories": categories}
+    categories = {
+        "game": int(row["game_count"]),
+        "loan": int(row["loan_count"]),
+        "exchange": int(row["exchange_count"]),
+        "achievement": int(row["achievement_count"]),
+    }
+    return {
+        "unread": {"total": int(row["total"]), "categories": categories},
+        "unread_revision": int(row["revision"]),
+    }
 
 
 def consume_notifications(
@@ -255,9 +336,12 @@ def consume_notifications(
             [*params, safe_limit],
         ).fetchall()
         if total:
-            conn.execute(
-                f"UPDATE notifications SET read_at = ? WHERE {where}",
-                [_now(), *params],
+            mark_notifications_read(
+                conn,
+                subject_type,
+                subject_id,
+                category,
+                reference_id=reference_id,
             )
         notices = [
             {

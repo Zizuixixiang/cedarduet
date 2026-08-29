@@ -59,6 +59,12 @@ class NotificationStoreTests(unittest.TestCase):
             columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(notifications)")
             }
+            state_columns = {
+                row["name"]
+                for row in conn.execute(
+                    "PRAGMA table_info(notification_subject_states)"
+                )
+            }
         finally:
             conn.close()
         self.assertEqual(
@@ -67,6 +73,9 @@ class NotificationStoreTests(unittest.TestCase):
                 "id", "subject_type", "subject_id", "category", "event_type",
                 "reference_id", "event_key", "summary", "created_at", "read_at",
             },
+        )
+        self.assertEqual(
+            state_columns, {"subject_type", "subject_id", "revision"}
         )
 
         with database.write_transaction() as conn:
@@ -90,10 +99,16 @@ class NotificationStoreTests(unittest.TestCase):
             "game": 0, "loan": 1, "exchange": 0, "achievement": 0,
         })
         self.assertEqual(notifications.unread_summary("human", "same-id"), first)
+        self.assertEqual(
+            notifications.unread_state("human", "same-id")["unread_revision"], 1
+        )
         self.assertEqual(len(self.rows()), 3)
 
         notifications.ack_notifications("human", "same-id", "loan")
         self.assertEqual(notifications.unread_summary("human", "same-id")["total"], 0)
+        self.assertEqual(
+            notifications.unread_state("human", "same-id")["unread_revision"], 2
+        )
         with database.write_transaction() as conn:
             inserted = notifications.create_notification(
                 conn, "human", "same-id", "loan", "created", "loan-1",
@@ -101,6 +116,9 @@ class NotificationStoreTests(unittest.TestCase):
             )
         self.assertFalse(inserted)
         self.assertEqual(notifications.unread_summary("human", "same-id")["total"], 0)
+        self.assertEqual(
+            notifications.unread_state("human", "same-id")["unread_revision"], 2
+        )
         self.assertEqual(notifications.unread_summary("ai", "same-id")["total"], 1)
         self.assertEqual(
             notifications.unread_summary("human", "other-human")["total"], 1
@@ -538,6 +556,114 @@ class NotificationApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(acked.json()["read"], 1)
         self.assertEqual(acked.json()["unread"]["total"], 0)
 
+    async def test_human_ack_is_versioned_type_isolated_and_does_not_revive(self):
+        for category in ("game", "loan", "exchange", "achievement"):
+            self.seed(
+                "human", "api-human", category, f"{category}-api", category
+            )
+        self.seed("ai", "api-human", "exchange", "exchange-ai", "ai")
+
+        before = await self.client.get(
+            "/api/notifications/unread", headers=self.headers()
+        )
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertEqual(before.json()["unread_revision"], 4)
+        self.assertEqual(
+            before.json()["unread"]["categories"],
+            {"game": 1, "loan": 1, "exchange": 1, "achievement": 1},
+        )
+
+        acked = await self.client.post(
+            "/api/notifications/read",
+            headers=self.headers(),
+            json={"category": "exchange"},
+        )
+        self.assertEqual(acked.status_code, 200, acked.text)
+        self.assertEqual(acked.json()["read"], 1)
+        self.assertEqual(acked.json()["unread_revision"], 5)
+        self.assertEqual(
+            acked.json()["unread"]["categories"],
+            {"game": 1, "loan": 1, "exchange": 0, "achievement": 1},
+        )
+        self.assertEqual(
+            notifications.unread_summary("ai", "api-human")["categories"]["exchange"],
+            1,
+        )
+
+        repeated = await self.client.post(
+            "/api/notifications/read",
+            headers=self.headers(),
+            json={"category": "exchange"},
+        )
+        refreshed = await self.client.get(
+            "/api/notifications/unread", headers=self.headers()
+        )
+        chips = await self.client.get("/api/chips", headers=self.headers())
+        for response in (repeated, refreshed, chips):
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["unread_revision"], 5)
+            self.assertEqual(
+                response.json()["unread"]["categories"]["exchange"], 0
+            )
+
+    async def test_human_exchange_visit_clears_unread_but_not_pending_work(self):
+        created = exchanges.create_exchange_request(
+            "ai",
+            "api-ai",
+            "api-human",
+            item_key="hug",
+            request_note="测试互动商店未读",
+            chip_amount=5,
+            custom_title=None,
+            idempotency_key="api-exchange-unread-create",
+            pair_is_bound=True,
+        )
+        before = await self.client.get("/api/chips", headers=self.headers())
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertEqual(before.json()["unread"]["categories"]["exchange"], 1)
+        self.assertEqual(before.json()["exchange"]["pending_count"], 1)
+        self.assertEqual(
+            before.json()["exchange"]["pending_for_me"][0]["request_id"],
+            created["request_id"],
+        )
+
+        acked = await self.client.post(
+            "/api/notifications/read",
+            headers=self.headers(),
+            json={"category": "exchange"},
+        )
+        refreshed = await self.client.get("/api/chips", headers=self.headers())
+        self.assertEqual(acked.status_code, 200, acked.text)
+        self.assertEqual(acked.json()["read"], 1)
+        self.assertEqual(refreshed.json()["unread"]["categories"]["exchange"], 0)
+        self.assertEqual(refreshed.json()["exchange"]["pending_count"], 1)
+        self.assertEqual(
+            refreshed.json()["unread_revision"], acked.json()["unread_revision"]
+        )
+
+        second = exchanges.create_exchange_request(
+            "ai",
+            "api-ai",
+            "api-human",
+            item_key="hug",
+            request_note="测试业务动作同步未读",
+            chip_amount=5,
+            custom_title=None,
+            idempotency_key="api-exchange-action-create",
+            pair_is_bound=True,
+        )
+        confirmed = await self.client.post(
+            f"/api/chips/exchanges/{second['request_id']}/confirm",
+            headers=self.headers(),
+            json={"idempotency_key": "api-exchange-action-confirm"},
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["unread"]["categories"]["exchange"], 0)
+        self.assertEqual(confirmed.json()["exchange"]["pending_count"], 1)
+        self.assertGreater(
+            confirmed.json()["unread_revision"], refreshed.json()["unread_revision"]
+        )
+
     async def test_mcp_summary_hints_and_category_lists_consume_atomically(self):
         self.seed("ai", "mcp-ai", "loan", "loan-mcp", "loan")
         self.seed("ai", "mcp-ai", "exchange", "exchange-mcp", "exchange")
@@ -653,13 +779,22 @@ class NotificationFrontendTests(unittest.TestCase):
         self.assertIn('request("/api/notifications/read"', app_js)
         self.assertIn('requestJson("/api/notifications/read"', chips_js)
         self.assertIn('if (!quiet) await ackHumanNotifications("game")', app_js)
-        self.assertIn('if (!quiet) await ackHumanNotifications("game", room.room_id)', app_js)
-        self.assertIn("if (!identity || document.hidden) return", app_js)
-        self.assertIn("if (!summary || document.hidden", chips_js)
-        self.assertIn("void ackUnreadCategory(category)", chips_js)
+        self.assertIn('await ackHumanNotifications("game", roomId)', app_js)
+        self.assertIn("if (!quiet || visibleStateChanged)", app_js)
+        self.assertIn("if (!identity) return", app_js)
+        self.assertIn("if (document.hidden)", app_js)
+        self.assertIn("if (!summary) return false", chips_js)
+        self.assertIn("deferredUnreadAcks.add(category)", chips_js)
+        self.assertIn("if (category) void ackUnreadCategory(category)", chips_js)
+        self.assertIn('window.addEventListener("storage"', app_js)
+        self.assertIn('window.addEventListener("storage"', chips_js)
+        self.assertIn('document.addEventListener("visibilitychange"', app_js)
+        self.assertIn('document.addEventListener("visibilitychange"', chips_js)
+        self.assertIn("revision < latestUnreadRevision", app_js)
+        self.assertIn("revision < latestUnreadRevision", chips_js)
         load_summary = chips_js[
             chips_js.index("async function loadSummary()"):
             chips_js.index("async function runHumanAction(")
         ]
-        self.assertNotIn("ackUnreadCategory", load_summary)
+        self.assertIn("ackVisibleUnreadCategory", load_summary)
         self.assertNotIn("还价", chips_html + chips_js)
