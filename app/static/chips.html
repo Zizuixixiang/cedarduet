@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8d9f1">
   <title>筹码中心 · Duel</title>
-  <link rel="stylesheet" href="/static/chips.css?v=1.2.2">
+  <link rel="stylesheet" href="/static/chips.css?v=1.3.0">
+
 </head>
 <body>
   <main class="chip-shell">
@@ -189,29 +190,41 @@
               <p id="socialDescription">借款提案、协商与还款</p>
             </div>
           </div>
-          <form id="loanCreateForm" class="loan-form" autocomplete="off" novalidate>
-            <h3>我要借款</h3>
-            <p>只有借款人能发起。提案 3 天未接受会过期。</p>
-            <div class="loan-form-grid">
-              <label>向谁借<select id="loanMachineSelect" required disabled></select></label>
-              <label>本金（正整数）<input id="loanPrincipal" type="number" min="1" step="1" required></label>
-              <label>日利率（%）<input id="loanRate" type="text" inputmode="decimal" value="0" required></label>
-              <label>到期日（上海时区）<input id="loanDueDate" type="date" required></label>
+          <div class="loan-view-switch" aria-label="欠条内容切换">
+            <button id="loanViewCreateButton" class="loan-view-option" type="button"
+              data-loan-view="create" aria-pressed="true">发起借款</button>
+            <button id="loanViewListButton" class="loan-view-option" type="button"
+              data-loan-view="list" aria-pressed="false">
+              我的欠条 <span id="loanCount" class="loan-view-count">0</span>
+            </button>
+          </div>
+          <section id="loanViewCreate" class="loan-view">
+            <form id="loanCreateForm" class="loan-form" autocomplete="off" novalidate>
+              <div class="loan-form-grid">
+                <label>向谁借<select id="loanMachineSelect" required disabled></select></label>
+                <label>申请本金<input id="loanPrincipal" type="number" min="1" step="1" required></label>
+                <label>日利率（%）<input id="loanRate" type="text" inputmode="decimal" value="0" required></label>
+                <label>到期日（上海时区）<input id="loanDueDate" type="date" required></label>
+              </div>
+              <label class="cap-choice">
+                <input id="loanCapEnabled" type="checkbox" checked>
+                <span>利息封顶保护（累计利息最多等于本金）</span>
+              </label>
+              <p id="loanCapWarning" class="loan-warning hidden">关闭后将按约定单利持续累计至还清，没有本金倍数保护。</p>
+              <p id="loanFormError" class="form-error hidden" role="alert" aria-live="assertive"></p>
+              <button id="loanCreateButton" class="button primary" type="submit">发送借款提案</button>
+              <p class="loan-create-hint">提案发出后 3 天内有效。</p>
+            </form>
+          </section>
+          <section id="loanViewList" class="loan-view" hidden>
+            <div id="loanList" class="loan-list" aria-live="polite">
+              <p class="loan-empty">正在读取欠条…</p>
             </div>
-            <label class="cap-choice">
-              <input id="loanCapEnabled" type="checkbox" checked>
-              <span>开启利息封顶保护（终身计收利息最多等于原始本金）</span>
-            </label>
-            <p id="loanCapWarning" class="loan-warning hidden">关闭后将按约定单利持续累计至还清，没有本金倍数保护。</p>
-            <p id="loanFormError" class="form-error hidden" role="alert" aria-live="assertive"></p>
-            <button id="loanCreateButton" class="button primary" type="submit">发送借款提案</button>
-          </form>
-          <div class="loan-list-heading">
-            <h3>欠条与协商</h3><span id="loanCount" class="panel-state">0 张</span>
-          </div>
-          <div id="loanList" class="loan-list" aria-live="polite">
-            <p class="loan-empty">正在读取欠条…</p>
-          </div>
+            <details class="loan-interest-note">
+              <summary>计息说明</summary>
+              <p>利息按剩余本金与实际经过时间累计，余数结转后向下取整；逾期仍按原日利率计息。</p>
+            </details>
+          </section>
         </section>
 
         <section id="panel-ledger" class="module-card module-panel ledger-card" role="tabpanel"
@@ -231,6 +244,7 @@
     </section>
 
   </main>
-  <script src="/static/chips.js?v=1.2.2"></script>
+  <script src="/static/chips.js?v=1.3.0"></script>
+
 </body>
 </html>

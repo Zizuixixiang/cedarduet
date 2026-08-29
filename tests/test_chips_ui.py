@@ -113,6 +113,8 @@ class ChipCenterStructureTests(unittest.TestCase):
         for element_id in (
             "loanCreateForm", "loanMachineSelect", "loanPrincipal", "loanRate",
             "loanDueDate", "loanCapEnabled", "loanCapWarning", "loanList",
+            "loanViewCreateButton", "loanViewListButton", "loanViewCreate",
+            "loanViewList", "loanCount",
         ):
             self.attributes_for_id(element_id)
         for element_id in (
@@ -146,6 +148,24 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("daily_rate_micro_percent", SCRIPT)
         self.assertNotIn('reward.textContent = `+${achievement.reward}`;', SCRIPT.split("if (achievement.reward > 0)")[0])
 
+    def test_loan_module_has_exactly_two_flat_views(self):
+        loan_buttons = [
+            attrs for _, attrs in self.elements if "data-loan-view" in attrs
+        ]
+        self.assertEqual(
+            [attrs["data-loan-view"] for attrs in loan_buttons],
+            ["create", "list"],
+        )
+        self.assertEqual(
+            [attrs["aria-pressed"] for attrs in loan_buttons],
+            ["true", "false"],
+        )
+        self.assertNotIn("hidden", self.attributes_for_id("loanViewCreate"))
+        self.assertIn("hidden", self.attributes_for_id("loanViewList"))
+        self.assertNotIn("欠条与协商", HTML)
+        self.assertNotIn("我要借款", HTML)
+        self.assertEqual(HTML.count("计息说明"), 1)
+
     def test_exchange_has_exactly_three_compact_views_and_only_incoming_badge(self):
         exchange_buttons = [
             attrs for _, attrs in self.elements if "data-exchange-view" in attrs
@@ -173,8 +193,8 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".exchange-art img", styles)
         self.assertIn("object-fit: contain", styles)
         self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
-        self.assertIn("/static/chips.css?v=1.2.2", HTML)
-        self.assertIn("/static/chips.js?v=1.2.2", HTML)
+        self.assertIn("/static/chips.css?v=1.3.0", HTML)
+        self.assertIn("/static/chips.js?v=1.3.0", HTML)
         self.assertIn(".exchange-request-summary", styles)
         self.assertIn(".exchange-request-detail", styles)
         self.assertIn(".exchange-request-time", styles)
@@ -190,6 +210,7 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn("white-space: nowrap", form_actions)
         self.assertIn("flex-wrap: nowrap", request_actions)
         self.assertIn("white-space: nowrap", request_actions)
+
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
@@ -399,6 +420,7 @@ const ids = [
   "socialTitle", "socialDescription", "loanCreateForm", "loanMachineSelect",
   "loanPrincipal", "loanRate", "loanDueDate", "loanCapEnabled",
   "loanCapWarning", "loanCreateButton", "loanCount", "loanList",
+  "loanViewCreateButton", "loanViewListButton", "loanViewCreate", "loanViewList",
   "ledgerDescription", "ledgerList",
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
@@ -522,7 +544,53 @@ assert.equal(elements.bankruptcyButton.classList.contains("hidden"), false);
 
 @unittest.skipUnless(NODE and JSDOM, "node and jsdom are required for DOM form tests")
 class ChipCenterDomFormTests(unittest.TestCase):
-    def run_dom(self, assertions: str, pathname: str = "/duel/chips") -> None:
+    @staticmethod
+    def loan_fixture(status: str, **overrides) -> dict:
+        fixture = {
+            "loan_id": f"loan-{status}",
+            "status": status,
+            "direction": "borrowing",
+            "borrower": {"type": "human", "id": "human-1"},
+            "lender": {"type": "ai", "id": "ai-1"},
+            "human_id": "human-1",
+            "ai_id": "ai-1",
+            "counterparty_id": "ai-1",
+            "revision": 1,
+            "accepted_revision": None,
+            "counter_count": 0,
+            "awaiting": None,
+            "principal": 10,
+            "remaining_principal": 10,
+            "daily_rate_micro_percent": 125000,
+            "daily_rate_percent": "0.125",
+            "accrued_interest": 0,
+            "interest_paid": 0,
+            "lifetime_interest": 0,
+            "principal_paid": 0,
+            "total_repaid": 0,
+            "total_due": 10,
+            "due_date": "2026-09-05",
+            "overdue_days": 0,
+            "interest_cap_enabled": True,
+            "interest_cap_amount": 10,
+            "interest_cap_reached": False,
+            "proposal_expires_at": None,
+            "accepted_at": None,
+            "repaid_at": None,
+            "created_at": "2026-08-29T02:00:00+00:00",
+            "updated_at": "2026-08-29T03:00:00+00:00",
+            "allowed_actions": [],
+        }
+        fixture.update(overrides)
+        return fixture
+
+    def run_dom(
+        self,
+        assertions: str,
+        pathname: str = "/duel/chips",
+        loans: list[dict] | None = None,
+    ) -> None:
+        loan_payload = json.dumps(loans or [], ensure_ascii=False)
         harness = f"""
 const assert = require("node:assert/strict");
 const {{JSDOM}} = require("jsdom");
@@ -581,7 +649,8 @@ async function main() {{
   const basePayload = {{
     ok: true, human_name: "测试人类", wallet,
     machines: [{{id: "ai-1", name: "Sirius"}}, {{id: "ai-2", name: "Nova"}}],
-    ledger: [], loans: [], exchange,
+    ledger: [], loans: {loan_payload}, exchange,
+
     achievements: {{summary: {{unlocked: 0, total: 0, hidden_unlocked: 0}}, sections: []}},
   }};
   const calls = [];
@@ -701,6 +770,8 @@ main().catch((error) => {{
 
     def test_valid_loan_form_requests_existing_post_endpoint(self):
         self.run_dom(r"""
+  assert.equal(document.getElementById("loanViewCreate").hidden, false);
+  assert.equal(document.getElementById("loanViewList").hidden, true);
   document.getElementById("loanPrincipal").value = "30";
   document.getElementById("loanRate").value = "0.125";
   const form = document.getElementById("loanCreateForm");
@@ -715,6 +786,124 @@ main().catch((error) => {{
   assert.equal(body.interest_cap_enabled, true);
   assert.match(body.due_date, /^\d{4}-\d{2}-\d{2}$/);
 """)
+
+    def test_loan_views_default_to_records_and_preserve_manual_choice(self):
+        proposal = self.loan_fixture(
+            "negotiating",
+            awaiting={"type": "ai", "id": "ai-1", "you": False},
+            proposal_expires_at="2026-09-01T02:00:00+00:00",
+            allowed_actions=["withdraw"],
+        )
+        self.run_dom(r"""
+  const createView = document.getElementById("loanViewCreate");
+  const listView = document.getElementById("loanViewList");
+  const createButton = document.getElementById("loanViewCreateButton");
+  const listButton = document.getElementById("loanViewListButton");
+  assert.equal(createView.hidden, true);
+  assert.equal(listView.hidden, false);
+  assert.equal(createButton.getAttribute("aria-pressed"), "false");
+  assert.equal(listButton.getAttribute("aria-pressed"), "true");
+  assert.equal(document.getElementById("loanCount").textContent, "1");
+
+  createButton.click();
+  assert.equal(createView.hidden, false);
+  assert.equal(listView.hidden, true);
+  document.getElementById("loanPrincipal").value = "20";
+  document.getElementById("loanCreateForm").requestSubmit(document.getElementById("loanCreateButton"));
+  await waitFor(() => calls.some((call) => call.url.endsWith("/api/chips/loans") && call.options.method === "POST"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(createView.hidden, false);
+  assert.equal(listView.hidden, true);
+
+  listButton.click();
+  assert.equal(createView.hidden, true);
+  assert.equal(listView.hidden, false);
+""", loans=[proposal])
+
+    def test_loan_cards_are_status_specific_and_keep_actions(self):
+        proposal = self.loan_fixture(
+            "negotiating",
+            loan_id="loan-secret-id",
+            revision=2,
+            counter_count=1,
+            awaiting={"type": "human", "id": "human-1", "you": True},
+            proposal_expires_at="2026-09-01T02:00:00+00:00",
+            allowed_actions=["reject", "accept", "counter", "withdraw"],
+        )
+        active = self.loan_fixture(
+            "active",
+            loan_id="loan-active-secret",
+            revision=2,
+            accepted_revision=2,
+            counter_count=1,
+            remaining_principal=7,
+            accrued_interest=2,
+            interest_paid=1,
+            principal_paid=3,
+            total_repaid=4,
+            total_due=999,
+            allowed_actions=["repay"],
+        )
+        repaid = self.loan_fixture(
+            "repaid",
+            remaining_principal=0,
+            principal_paid=10,
+            interest_paid=2,
+            total_repaid=12,
+            total_due=0,
+            repaid_at="2026-08-30T04:00:00+00:00",
+        )
+        rejected = self.loan_fixture("rejected")
+        self.run_dom(r"""
+  const proposal = document.querySelector('[data-loan-status="negotiating"]');
+  assert.match(proposal.querySelector("h4").textContent, /向 Sirius 借 10/);
+  assert.match(proposal.textContent, /等待你回应/);
+  assert.match(proposal.textContent, /第 2 版方案 · 已改条件 1 次/);
+  assert.match(proposal.textContent, /申请本金/);
+  assert.match(proposal.textContent, /提案失效/);
+  assert.doesNotMatch(proposal.textContent, /剩余本金|当前利息|累计利息|已还总额|当前应还|已还次数/);
+  assert.doesNotMatch(proposal.textContent, /loan-secret-id/);
+  assert.deepEqual(
+    Array.from(proposal.querySelectorAll(".loan-actions button"), (button) => button.textContent),
+    ["拒绝", "接受", "改条件", "撤销"],
+  );
+
+  const active = document.querySelector('[data-loan-status="active"]');
+  assert.equal(active.querySelector(".loan-current-due strong").textContent, "9");
+  assert.deepEqual(
+    Array.from(active.querySelectorAll(".loan-debt-split > div"), (item) => item.textContent),
+    ["剩余本金7", "当前利息2"],
+  );
+  assert.match(active.textContent, /日利率0.125%/);
+  assert.match(active.textContent, /利息封顶已开启 · 上限 10/);
+  assert.match(active.textContent, /已还总额4/);
+  assert.doesNotMatch(active.textContent, /loan-active-secret/);
+  assert.deepEqual(
+    Array.from(active.querySelectorAll(".loan-actions button"), (button) => button.textContent),
+    ["还款"],
+  );
+  active.querySelector(".loan-actions button").click();
+  const repayForm = active.querySelector(".loan-repay-form");
+  assert.equal(repayForm.querySelector("input").max, "9");
+  repayForm.querySelector("input").value = "3";
+  repayForm.requestSubmit(repayForm.querySelector("button"));
+  await waitFor(() => calls.some((call) => call.url.endsWith("/api/chips/loans/loan-active-secret/repay")));
+  const repayCall = calls.find((call) => call.url.endsWith("/api/chips/loans/loan-active-secret/repay"));
+  assert.equal(JSON.parse(repayCall.options.body).amount, 3);
+
+  proposal.querySelectorAll(".loan-actions button")[1].click();
+  await waitFor(() => calls.some((call) => call.url.endsWith("/api/chips/loans/loan-secret-id/accept")));
+  const acceptCall = calls.find((call) => call.url.endsWith("/api/chips/loans/loan-secret-id/accept"));
+  assert.equal(JSON.parse(acceptCall.options.body).revision, 2);
+
+  const repaid = document.querySelector('[data-loan-status="repaid"]');
+  assert.match(repaid.textContent, /已还清/);
+  assert.match(repaid.textContent, /实际已还总额 12 枚/);
+  const rejected = document.querySelector('[data-loan-status="rejected"]');
+  assert.match(rejected.textContent, /已拒绝/);
+  assert.match(rejected.textContent, /申请于/);
+  assert.doesNotMatch(rejected.textContent, /剩余本金|当前利息|当前应还/);
+""", loans=[proposal, active, repaid, rejected])
 
     def test_invalid_forms_show_visible_chinese_errors_without_post(self):
         self.run_dom(r"""

@@ -5,6 +5,7 @@ let summary = null;
 let currentSubject = {type: "human", id: null, name: "我"};
 let subjectRequestSequence = 0;
 let currentExchange = null;
+let currentLoanView = null;
 
 function apiPath(path) {
   const pathname = window.location.pathname;
@@ -215,6 +216,36 @@ function initExchangeTabs() {
   for (const button of buttons) {
     button.addEventListener("click", () => activateExchangeView(button));
   }
+}
+
+function showLoanView(view, readOnly = currentSubject.type === "ai") {
+  const selected = view === "list" ? "list" : "create";
+  const createButton = $("loanViewCreateButton");
+  const listButton = $("loanViewListButton");
+  createButton.setAttribute("aria-pressed", String(selected === "create"));
+  listButton.setAttribute("aria-pressed", String(selected === "list"));
+  createButton.disabled = readOnly;
+  createButton.title = readOnly ? "切回“我”后可发起借款" : "";
+  $("loanViewCreate").hidden = selected !== "create";
+  $("loanViewList").hidden = selected !== "list";
+}
+
+function syncLoanView(loans, readOnly = currentSubject.type === "ai") {
+  if (currentLoanView === null) {
+    currentLoanView = loans.length ? "list" : "create";
+  }
+  showLoanView(readOnly ? "list" : currentLoanView, readOnly);
+}
+
+function initLoanViews() {
+  $("loanViewCreateButton").addEventListener("click", () => {
+    currentLoanView = "create";
+    showLoanView(currentLoanView, false);
+  });
+  $("loanViewListButton").addEventListener("click", () => {
+    currentLoanView = "list";
+    showLoanView(currentLoanView, currentSubject.type === "ai");
+  });
 }
 
 function bankruptcyText(wallet) {
@@ -440,6 +471,173 @@ function appendLoanTerm(list, label, value, className = "") {
   list.append(wrapper);
 }
 
+function nonNegativeLoanAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)) : 0;
+}
+
+function currentLoanDue(loan) {
+  return nonNegativeLoanAmount(loan.remaining_principal)
+    + nonNegativeLoanAmount(loan.accrued_interest);
+}
+
+function loanCounterpartyName(loan) {
+  return summary?.machines?.find((item) => item.id === loan.ai_id)?.name || "对方小机";
+}
+
+function loanNaturalTitle(loan) {
+  const name = loanCounterpartyName(loan);
+  const principal = nonNegativeLoanAmount(loan.principal);
+  return loan.direction === "lending"
+    ? `${name} 向你借 ${principal}`
+    : `向 ${name} 借 ${principal}`;
+}
+
+function loanCapDescription(loan) {
+  if (!loan.interest_cap_enabled) return "未封顶";
+  const prefix = loan.interest_cap_reached ? "已触达上限" : "已开启";
+  return `${prefix} · 上限 ${nonNegativeLoanAmount(loan.interest_cap_amount)}`;
+}
+
+function appendLoanHeader(card, loan) {
+  const title = document.createElement("div");
+  title.className = "loan-title-row";
+  const heading = document.createElement("h4");
+  heading.textContent = loanNaturalTitle(loan);
+  const status = document.createElement("span");
+  status.className = "loan-status";
+  status.textContent = loanStatusLabels[loan.status] || loan.status;
+  title.append(heading, status);
+  card.append(title);
+}
+
+function appendLoanCounterMeta(card, loan) {
+  const count = nonNegativeLoanAmount(loan.counter_count);
+  if (!count) return;
+  const meta = document.createElement("p");
+  meta.className = "loan-counter-meta";
+  const revision = nonNegativeLoanAmount(loan.accepted_revision || loan.revision) || count + 1;
+  meta.textContent = `第 ${revision} 版方案 · 已改条件 ${count} 次`;
+  card.append(meta);
+}
+
+function renderNegotiatingLoan(loan, card) {
+  const waiting = document.createElement("p");
+  waiting.className = `loan-waiting${loan.awaiting?.you ? " waiting-you" : ""}`;
+  waiting.textContent = loan.awaiting?.you
+    ? "等待你回应"
+    : `等待 ${loan.awaiting?.type === "ai" ? loanCounterpartyName(loan) : "对方"} 回应`;
+  card.append(waiting);
+  appendLoanCounterMeta(card, loan);
+
+  const terms = document.createElement("dl");
+  terms.className = "loan-proposal-details";
+  appendLoanTerm(terms, "申请本金", nonNegativeLoanAmount(loan.principal));
+  appendLoanTerm(terms, "日利率", `${loan.daily_rate_percent}%`);
+  appendLoanTerm(terms, "到期日", loan.due_date);
+  appendLoanTerm(terms, "利息上限", loan.interest_cap_enabled
+    ? nonNegativeLoanAmount(loan.interest_cap_amount)
+    : "不封顶", loan.interest_cap_enabled ? "" : "loan-cap-off");
+  appendLoanTerm(
+    terms,
+    "提案失效",
+    loan.proposal_expires_at ? formatLedgerCreatedAt(loan.proposal_expires_at) : "—",
+  );
+  card.append(terms);
+}
+
+function renderCurrentLoan(loan, card) {
+  const due = document.createElement("div");
+  due.className = "loan-current-due";
+  const dueLabel = document.createElement("span");
+  dueLabel.textContent = "当前应还";
+  const dueAmount = document.createElement("strong");
+  dueAmount.textContent = String(currentLoanDue(loan));
+  const dueUnit = document.createElement("small");
+  dueUnit.textContent = "枚";
+  due.append(dueLabel, dueAmount, dueUnit);
+  card.append(due);
+
+  const split = document.createElement("div");
+  split.className = "loan-debt-split";
+  for (const [labelText, amount] of [
+    ["剩余本金", loan.remaining_principal],
+    ["当前利息", loan.accrued_interest],
+  ]) {
+    const item = document.createElement("div");
+    const label = document.createElement("span");
+    const value = document.createElement("strong");
+    label.textContent = labelText;
+    value.textContent = String(nonNegativeLoanAmount(amount));
+    item.append(label, value);
+    split.append(item);
+  }
+  card.append(split);
+
+  if (loan.status === "overdue") {
+    const overdue = document.createElement("p");
+    overdue.className = "loan-overdue-callout";
+    overdue.textContent = `已逾期 ${nonNegativeLoanAmount(loan.overdue_days)} 天`;
+    card.append(overdue);
+  }
+
+  const terms = document.createElement("dl");
+  terms.className = "loan-compact-terms";
+  appendLoanTerm(terms, "日利率", `${loan.daily_rate_percent}%`);
+  appendLoanTerm(
+    terms,
+    "到期情况",
+    loan.status === "overdue"
+      ? `${loan.due_date} · 逾期 ${nonNegativeLoanAmount(loan.overdue_days)} 天`
+      : loan.due_date,
+  );
+  appendLoanTerm(
+    terms,
+    "利息封顶",
+    loanCapDescription(loan),
+    loan.interest_cap_enabled ? "" : "loan-cap-off",
+  );
+  const totalRepaid = nonNegativeLoanAmount(loan.total_repaid);
+  if (totalRepaid > 0) appendLoanTerm(terms, "已还总额", totalRepaid);
+  card.append(terms);
+  appendLoanCounterMeta(card, loan);
+}
+
+function renderRepaidLoan(loan, card) {
+  const summaryBox = document.createElement("div");
+  summaryBox.className = "loan-repaid-summary";
+  const state = document.createElement("strong");
+  state.textContent = "已还清";
+  const amount = document.createElement("p");
+  amount.textContent = `实际已还总额 ${nonNegativeLoanAmount(loan.total_repaid)} 枚`;
+  summaryBox.append(state, amount);
+  card.append(summaryBox);
+
+  const terms = document.createElement("p");
+  terms.className = "loan-repaid-terms";
+  terms.textContent = `本金 ${nonNegativeLoanAmount(loan.principal)} · 日利率 ${loan.daily_rate_percent}% · 到期日 ${loan.due_date}`;
+  card.append(terms);
+  if (loan.repaid_at) {
+    const date = document.createElement("p");
+    date.className = "loan-key-date";
+    date.textContent = `还清于 ${formatLedgerCreatedAt(loan.repaid_at)}`;
+    card.append(date);
+  }
+  appendLoanCounterMeta(card, loan);
+}
+
+function renderHistoricalLoan(loan, card) {
+  const labels = {rejected: "拒绝", withdrawn: "撤销", expired: "失效"};
+  const meta = document.createElement("p");
+  meta.className = "loan-history-meta";
+  const created = loan.created_at ? `申请于 ${formatLedgerCreatedAt(loan.created_at)}` : "";
+  const closed = loan.updated_at
+    ? `${labels[loan.status] || "结束"}于 ${formatLedgerCreatedAt(loan.updated_at)}`
+    : "";
+  meta.textContent = [created, closed].filter(Boolean).join(" · ");
+  card.append(meta);
+}
+
 function microPercentFromInput(value) {
   const match = String(value).trim().match(/^(\d+)(?:\.(\d{1,6}))?$/);
   if (!match) throw new Error("日利率最多保留 6 位小数，且不能为负");
@@ -550,7 +748,7 @@ function renderLoanCounterForm(loan, actionBox) {
   const submit = document.createElement("button");
   submit.className = "button primary";
   submit.type = "submit";
-  submit.textContent = "提交新 revision";
+  submit.textContent = "提交改条件";
   form.append(grid, cap, submit);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -588,9 +786,10 @@ function renderLoanActions(loan, card) {
         const form = document.createElement("form");
         form.className = "loan-repay-form";
         const label = document.createElement("label");
-        label.textContent = `还款额（最多 ${loan.total_due}）`;
+        const totalDue = currentLoanDue(loan);
+        label.textContent = `还款额（最多 ${totalDue}）`;
         const input = document.createElement("input");
-        input.type = "number"; input.min = "1"; input.max = String(loan.total_due);
+        input.type = "number"; input.min = "1"; input.max = String(totalDue);
         input.step = "1"; input.required = true;
         const submit = document.createElement("button");
         submit.type = "submit"; submit.className = "button primary";
@@ -620,7 +819,8 @@ function renderLoans(loans) {
   const count = $("loanCount");
   if (!container || !count) return;
   container.replaceChildren();
-  count.textContent = `${loans.length} 张`;
+  count.textContent = String(loans.length);
+  syncLoanView(loans);
   if (!loans.length) {
     const empty = document.createElement("p");
     empty.className = "loan-empty";
@@ -631,43 +831,14 @@ function renderLoans(loans) {
   for (const loan of loans) {
     const card = document.createElement("article");
     card.className = `loan-item ${loan.status}`;
-    const title = document.createElement("div");
-    title.className = "loan-title-row";
-    const heading = document.createElement("h4");
-    const direction = loan.borrower.type === "human"
-      ? "人类借款 / 小机出借" : "小机借款 / 人类出借";
-    heading.textContent = `${direction} · ${machineName(loan.ai_id)} · ${loan.loan_id}`;
-    const status = document.createElement("span");
-    status.className = "loan-status";
-    status.textContent = loanStatusLabels[loan.status] || loan.status;
-    title.append(heading, status); card.append(title);
-    if (loan.awaiting) {
-      const waiting = document.createElement("p");
-      waiting.className = "loan-waiting";
-      waiting.textContent = loan.awaiting.you ? "当前等你回应" : "当前等对方回应";
-      card.append(waiting);
-    }
-    const terms = document.createElement("dl");
-    terms.className = "loan-terms";
-    appendLoanTerm(terms, "revision / 改条件", `${loan.revision} / ${loan.counter_count} 次`);
-    appendLoanTerm(terms, "本金 / 剩余本金", `${loan.principal} / ${loan.remaining_principal}`);
-    appendLoanTerm(terms, "日利率", `${loan.daily_rate_percent}%`);
-    appendLoanTerm(terms, "累计 / 已还利息", `${loan.lifetime_interest} / ${loan.interest_paid}`);
-    appendLoanTerm(terms, "已还总额 / 当前应还", `${loan.total_repaid} / ${loan.total_due}`);
-    appendLoanTerm(terms, "到期日 / 逾期", `${loan.due_date} / ${loan.overdue_days} 天`);
-    appendLoanTerm(
-      terms, "利息封顶",
-      loan.interest_cap_enabled
-        ? `${loan.interest_cap_reached ? "已触达" : "开启"}（上限 ${loan.interest_cap_amount}）`
-        : "关闭：持续单利累计",
-      loan.interest_cap_enabled ? "" : "loan-cap-off",
-    );
-    appendLoanTerm(terms, "协商有效期", loan.proposal_expires_at ? formatLedgerCreatedAt(loan.proposal_expires_at) : "—");
-    card.append(terms);
-    const note = document.createElement("p");
-    note.className = "loan-form-note";
-    note.textContent = "利息按剩余本金与实际秒数累计，携带余数后统一向下取整；逾期仍按原利率计息。";
-    card.append(note);
+    card.dataset.loanStatus = loan.status;
+    appendLoanHeader(card, loan);
+    if (loan.status === "negotiating") renderNegotiatingLoan(loan, card);
+    else if (loan.status === "active" || loan.status === "overdue") {
+      renderCurrentLoan(loan, card);
+    } else if (loan.status === "repaid") renderRepaidLoan(loan, card);
+    else renderHistoricalLoan(loan, card);
+
     renderLoanActions(loan, card);
     container.append(card);
   }
@@ -1162,5 +1333,6 @@ function initCreateForms() {
 
 initModuleTabs();
 initExchangeTabs();
+initLoanViews();
 initCreateForms();
 loadSummary();
