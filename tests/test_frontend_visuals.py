@@ -109,17 +109,28 @@ class FrontendBoardVisualTests(unittest.TestCase):
         )
         self.assertIn('value="xiangqi"', HTML)
 
-    def test_xiangqi_last_move_and_history_use_authoritative_payloads(self):
+    def test_xiangqi_last_move_target_and_history_use_authoritative_payloads(self):
         last_move = function_source("authoritativeLastMove")
         marker = function_source("renderLastMoveMarker")
         timeline = function_source("renderTimeline")
         self.assertIn('["jungle", "xiangqi"]', last_move)
-        self.assertIn("fromRow = move.from_row", last_move)
-        self.assertIn('origin.classList.add("last-move-origin")', marker)
         self.assertIn('target.classList.add("last-move-target")', marker)
         self.assertIn("event.move_label", timeline)
         self.assertNotIn("XIANGQI_SYMBOLS", timeline)
-        self.assertIn(".board.xiangqi .cell.last-move-origin", STYLES)
+
+    def test_only_current_human_turn_gets_stronger_turn_prompts(self):
+        render_game = function_source("renderGame")
+        notice = function_source("showNotice")
+        self.assertIn("#turn.my-turn", STYLES)
+        self.assertIn("#gameMessage.my-turn", STYLES)
+        self.assertIn("const humanCanMove = canHumanMove()", render_game)
+        self.assertIn('classList.toggle("my-turn", humanCanMove)', render_game)
+        self.assertIn('humanCanMove ? "现在轮到你落子" : ""', render_game)
+        self.assertIn("humanCanMove && !isTerminal(room)", render_game)
+        self.assertIn(
+            'classList.toggle("my-turn", Boolean(emphasize) && !error)',
+            notice,
+        )
 
     def test_multiplayer_roster_is_compact_and_seat_colored(self):
         self.assertIn(".room-participant {", STYLES)
@@ -345,6 +356,39 @@ for (const [count, layout] of expected) {{
 """
         self.run_node(harness)
 
+    def test_notice_emphasis_is_limited_to_a_successful_human_turn(self):
+        notice = function_source("showNotice")
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+const elements = {{
+  gameMessage: {{textContent: "", classList: new ClassList()}},
+  notice: {{textContent: "", classList: new ClassList()}},
+}};
+const $ = (id) => elements[id];
+let room = {{room_id: "ROOM-XQ"}};
+{notice}
+showNotice("现在轮到你落子", false, true);
+assert.equal(elements.gameMessage.classList.contains("my-turn"), true);
+assert.equal(elements.gameMessage.classList.contains("error"), false);
+showNotice("等待小机落子", false, false);
+assert.equal(elements.gameMessage.classList.contains("my-turn"), false);
+showNotice("落子失败", true, true);
+assert.equal(elements.gameMessage.classList.contains("my-turn"), false);
+assert.equal(elements.gameMessage.classList.contains("error"), true);
+room = null;
+showNotice("大厅提示");
+assert.equal(elements.notice.classList.contains("my-turn"), false);
+"""
+        self.run_node(harness)
+
     def test_xiangqi_interaction_rotation_disabling_and_true_coordinates(self):
         functions = "\n".join((
             function_source("canHumanMove"),
@@ -514,9 +558,7 @@ room.board_state.last_move = {{
 blackBoard = new Element("board");
 renderXiangqiBoard(blackBoard, blackState);
 renderLastMoveMarker(blackBoard, []);
-assert.equal(cellAt(blackBoard, 0, 0).classList.contains("last-move-origin"), true);
 assert.equal(cellAt(blackBoard, 1, 0).classList.contains("last-move-target"), true);
-assert.match(cellAt(blackBoard, 0, 0).ariaLabel, /上一手起点/);
 assert.match(cellAt(blackBoard, 1, 0).ariaLabel, /上一手终点/);
 
 blackState.in_check = true;

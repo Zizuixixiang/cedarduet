@@ -940,6 +940,32 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   white-space: nowrap;
   font-size: 13px;
 }
+#turn.my-turn {
+  padding: 3px 9px;
+  overflow: visible;
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .2);
+  border: 2px solid rgba(204, 112, 132, .55);
+  box-shadow: 2px 2px 0 rgba(134, 120, 160, .22);
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+#gameMessage.my-turn {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 7px 12px;
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .14);
+  border-left: 4px solid var(--pink);
+  box-shadow: inset 0 0 0 1px rgba(230, 168, 177, .28);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  line-height: 1.45;
+  text-align: center;
+}
 .room-number-value {
   max-width: 148px;
   font-variant-numeric: tabular-nums;
@@ -1487,10 +1513,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
-}
-.board.xiangqi .cell.last-move-origin {
-  background: rgba(190, 177, 209, .28);
-  box-shadow: inset 0 0 0 2px rgba(134, 120, 160, .68);
 }
 .board.xiangqi .cell.last-move-target { background: rgba(230, 168, 177, .26); }
 .board.xiangqi .last-move-marker {
@@ -2450,6 +2472,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-meta-item { gap: 3px; }
   .game-meta-label { font-size: 9px; }
   .game-meta strong { font-size: 12px; }
+  #turn.my-turn { padding: 3px 7px; font-size: 14px; }
+  #gameMessage.my-turn { padding: 6px 9px; font-size: 13px; }
   .room-number-item { flex: 0 1 auto; }
   .room-number-value { max-width: 86px; }
   .room-copy-button { min-width: 40px; min-height: 40px; padding: 3px 4px; }

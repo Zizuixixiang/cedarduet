@@ -73,10 +73,11 @@ function showView(id) {
   });
 }
 
-function showNotice(text, error = false) {
+function showNotice(text, error = false, emphasize = false) {
   const target = room ? $("gameMessage") : $("notice");
   target.textContent = text || "";
   target.classList.toggle("error", error);
+  target.classList.toggle("my-turn", Boolean(emphasize) && !error);
 }
 
 function toast(text) {
@@ -1770,23 +1771,17 @@ function authoritativeLastMove(targetRoom, timeline = []) {
 
   let row = move.row;
   let col = move.col;
-  let fromRow = null;
-  let fromCol = null;
   let orientation = null;
   if (["jungle", "xiangqi"].includes(targetRoom.game_type)) {
     row = move.to_row;
     col = move.to_col;
-    if (targetRoom.game_type === "xiangqi") {
-      fromRow = move.from_row;
-      fromCol = move.from_col;
-    }
   } else if (targetRoom.game_type === "dots_boxes") {
     orientation = move.orientation;
     if (!["h", "v"].includes(orientation)) return null;
   }
   if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
 
-  const normalized = {
+  return {
     row,
     col,
     orientation,
@@ -1794,11 +1789,6 @@ function authoritativeLastMove(targetRoom, timeline = []) {
       ? event.revision_at_send
       : targetRoom.revision,
   };
-  if (targetRoom.game_type === "xiangqi") {
-    normalized.fromRow = fromRow;
-    normalized.fromCol = fromCol;
-  }
-  return normalized;
 }
 
 function renderLastMoveMarker(board, timeline = []) {
@@ -1809,19 +1799,6 @@ function renderLastMoveMarker(board, timeline = []) {
     : `.cell[data-move-row="${move.row}"][data-move-col="${move.col}"]`;
   const target = board.querySelector(selector);
   if (!target) return;
-  if (
-    room.game_type === "xiangqi"
-    && Number.isInteger(move.fromRow)
-    && Number.isInteger(move.fromCol)
-  ) {
-    const origin = board.querySelector(
-      `.cell[data-move-row="${move.fromRow}"][data-move-col="${move.fromCol}"]`
-    );
-    if (origin) {
-      origin.classList.add("last-move-origin");
-      origin.ariaLabel = `${origin.ariaLabel || "棋盘位置"}，上一手起点`;
-    }
-  }
 
   const markerKey = [
     room.room_id,
@@ -2310,6 +2287,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   }
   room = nextRoom;
   currentTimeline = timeline;
+  const humanCanMove = canHumanMove();
   showView("gameView");
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
@@ -2324,6 +2302,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
       : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : ""));
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
+  $("turn").classList.toggle("my-turn", humanCanMove);
   $("roomStake").textContent = room.stake_label || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
   const roundText = authoritativeRoundText(room);
   $("roundText").textContent = roundText;
@@ -2340,7 +2319,9 @@ function renderGame(nextRoom, message = "", timeline = []) {
   showNotice(
     isTerminal(room)
       ? roomTurnText(room)
-      : (message || (canHumanMove() ? "轮到你落子。" : ""))
+      : (message || (humanCanMove ? "现在轮到你落子" : "")),
+    false,
+    humanCanMove && !isTerminal(room)
   );
   renderPlayers(timeline);
   renderParticipantRoster(room);
