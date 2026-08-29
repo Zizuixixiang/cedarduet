@@ -2100,20 +2100,22 @@ function renderTimeline(timeline = []) {
 
 function renderPlayers(timeline = []) {
   const multiplayer = Boolean(room && Array.isArray(room.participants) && room.participants.length > 2);
-
   const viewerPlayerId = viewerPlayerIdFor(room);
+  const viewerParticipant = viewerParticipantFor(room);
   const viewerSpeechEvent = viewerPlayerId
     ? latestSpeechEvent(timeline, {playerId: viewerPlayerId})
     : null;
   applyParticipantLayout(room);
   $("opponentRow").classList.toggle("hidden", multiplayer);
-  $("humanRow").classList.toggle("hidden", multiplayer);
-  $("viewerParticipantSlot").classList.toggle("hidden", !multiplayer);  const aiName = participantName("ai");
-  const humanName = participantName("human");
+  $("humanRow").classList.toggle("hidden", false);
+  $("viewerParticipantSlot").classList.toggle("hidden", true);
+  const aiName = participantName("ai");
+  const humanName = (viewerParticipant && viewerParticipant.display_name)
+    || participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
   $("aiAvatar").textContent = "🤖";
-  $("humanAvatar").textContent = "👤";
+  renderParticipantAvatar($("humanAvatar"), viewerParticipant);
 
   renderSpeechBubble({
     bubble: $("aiSpeech"),
@@ -2128,15 +2130,15 @@ function renderPlayers(timeline = []) {
   });
   renderSpeechBubble({
     bubble: $("viewerSpeech"),
-    event: multiplayer ? viewerSpeechEvent : null,
+    event: null,
     textTarget: $("viewerSpeechText"),
   });
   renderSpeechBubble({
     bubble: $("sharedSpeech"),
-
     event: multiplayer && viewerPlayerId
       ? latestSpeechEvent(timeline, {excludePlayerId: viewerPlayerId})
-      : null,    textTarget: $("sharedSpeechText"),
+      : null,
+    textTarget: $("sharedSpeechText"),
     nameTarget: $("sharedSpeechName"),
     avatarTarget: $("sharedSpeechAvatar"),
     reserveSpace: true,

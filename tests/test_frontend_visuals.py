@@ -299,8 +299,21 @@ class FrontendBoardVisualTests(unittest.TestCase):
         )
         players = function_source("renderPlayers")
         self.assertIn('participants.length > 2', players)
-
-        self.assertIn('classList.toggle("hidden", multiplayer)', players)
+        self.assertIn(
+            '$("opponentRow").classList.toggle("hidden", multiplayer)',
+            players,
+        )
+        self.assertIn(
+            '$("humanRow").classList.toggle("hidden", false)', players,
+        )
+        self.assertIn(
+            '$("viewerParticipantSlot").classList.toggle("hidden", true)',
+            players,
+        )
+        self.assertIn(
+            'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
+            players,
+        )
         self.assertEqual(players.count("renderSpeechBubble"), 4)
         self.assertIn("const viewerPlayerId = viewerPlayerIdFor(room)", players)
         self.assertIn('bubble: $("viewerSpeech")', players)
@@ -2040,23 +2053,43 @@ assert.ok(!bubble.classList.contains("seat-1"));
         self.run_node(harness)
 
 
-    def test_multiplayer_speech_routes_by_viewer_player_id(self):
+    def test_multiplayer_keeps_human_row_avatar_and_speech_by_viewer(self):
         functions = "\n".join((
+            function_source("participantAvatarFallback"),
+            function_source("renderParticipantAvatar"),
             function_source("renderPlayers"),
             function_source("speechSenderRole"),
             function_source("speechSenderPlayerId"),
             function_source("latestSpeechEvent"),
             function_source("viewerPlayerIdFor"),
+            function_source("viewerParticipantFor"),
         ))
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
-  constructor() {{ this.names = new Set(["hidden"]); }}
+  constructor(...names) {{ this.names = new Set(names); }}
   toggle(name, force) {{
     if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
     else this.names.delete(name);
   }}
   contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor(id = "") {{
+    this.id = id;
+    this.classList = new ClassList();
+    this.textContent = "";
+    this.children = [];
+    this.attributes = {{}};
+    this.src = "";
+  }}
+  replaceChildren(...children) {{
+    this.children = children;
+    this.textContent = "";
+  }}
+  setAttribute(name, value) {{ this.attributes[name] = value; }}
+  addEventListener() {{}}
+  remove() {{}}
 }}
 const elementIds = [
   "opponentRow", "humanRow", "viewerParticipantSlot", "aiName", "humanName",
@@ -2065,9 +2098,12 @@ const elementIds = [
   "sharedSpeechName", "sharedSpeechAvatar",
 ];
 const elements = Object.fromEntries(elementIds.map((id) => [
-  id, {{id, classList: new ClassList(), textContent: ""}},
+  id, new Element(id),
 ]));
+elements.humanRow.classList.toggle("hidden", true);
 const $ = (id) => elements[id];
+const document = {{createElement: () => new Element()}};
+const apiPath = (path) => `asset:${{path}}`;
 const calls = [];
 const renderSpeechBubble = (options) => calls.push(options);
 const applyParticipantLayout = () => {{}};
@@ -2075,10 +2111,13 @@ const participantName = (role) => role;
 let room = {{
   viewer: {{player_id: "viewer-1"}},
   participants: [
-    {{player_id: "viewer-1", role: "human"}},
-    {{player_id: "npc-1", role: "ai"}},
-    {{player_id: "npc-2", role: "ai"}},
-    {{player_id: "npc-3", role: "ai"}},
+    {{
+      player_id: "viewer-1", role: "human", display_name: "南山",
+      seat_index: 2, avatar_url: "/avatars/viewer.png",
+    }},
+    {{player_id: "npc-1", role: "ai", display_name: "北风", seat_index: 0}},
+    {{player_id: "npc-2", role: "ai", display_name: "流云", seat_index: 1}},
+    {{player_id: "npc-3", role: "ai", display_name: "星夜", seat_index: 3}},
   ],
 }};
 {functions}
@@ -2099,15 +2138,37 @@ const timeline = [
 renderPlayers(timeline);
 const shared = calls.find((call) => call.bubble.id === "sharedSpeech");
 const viewer = calls.find((call) => call.bubble.id === "viewerSpeech");
-const legacyHuman = calls.find((call) => call.bubble.id === "humanSpeech");
+const human = calls.find((call) => call.bubble.id === "humanSpeech");
 assert.equal(shared.event.text, "其他人的公开发言");
 assert.notEqual(speechSenderPlayerId(shared.event), "viewer-1");
-assert.equal(viewer.event.text, "我的公开发言");
-assert.equal(legacyHuman.event.text, "我的公开发言");
-assert.ok(!elements.viewerParticipantSlot.classList.contains("hidden"));
-assert.ok(elements.humanRow.classList.contains("hidden"));
+assert.equal(viewer.event, null);
+assert.equal(human.event.text, "我的公开发言");
+assert.ok(elements.opponentRow.classList.contains("hidden"));
+assert.ok(!elements.humanRow.classList.contains("hidden"));
+assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
+assert.equal(elements.humanName.textContent, "南山");
+assert.equal(elements.humanAvatar.children.length, 1);
+assert.equal(elements.humanAvatar.children[0].src, "asset:/avatars/viewer.png");
+assert.equal(elements.humanAvatar.attributes["aria-label"], "南山的头像");
+
+calls.length = 0;
+room = {{
+  viewer: {{player_id: "viewer-1"}},
+  participants: [
+    {{player_id: "viewer-1", role: "human", display_name: "南山", seat_index: 0}},
+    {{player_id: "machine-1", role: "ai", display_name: "紫机", seat_index: 1}},
+  ],
+}};
+renderPlayers([]);
+assert.ok(!elements.opponentRow.classList.contains("hidden"));
+assert.ok(!elements.humanRow.classList.contains("hidden"));
+assert.ok(elements.viewerParticipantSlot.classList.contains("hidden"));
+assert.equal(elements.humanName.textContent, "南山");
+assert.equal(elements.humanAvatar.children.length, 0);
+assert.equal(elements.humanAvatar.textContent, "南");
 """
         self.run_node(harness)
+
     def test_table_dom_and_narrow_screen_contracts_keep_board_usable(self):
         table = HTML[HTML.index('id="tableLayout"'):HTML.index('id="humanRow"')]
         self.assertIn('id="roomParticipants"', table)
@@ -2136,6 +2197,10 @@ assert.ok(elements.humanRow.classList.contains("hidden"));
         self.assertIn("max-width: 44%;", viewer_slot)
         self.assertIn("flex-basis: 190px;", viewer_slot)
         self.assertIn(".viewer-speech { max-width: 100%; flex: 1 1 0; }", mobile)
+        self.assertIn(
+            ".player-avatar img { width: 100%; height: 100%; object-fit: cover; }",
+            STYLES,
+        )
         self.assertIn(".room-number-item { flex: 0 1 auto; gap: 0; }", mobile)
         self.assertIn(
             ".room-copy-button { min-width: 40px; min-height: 40px; "

@@ -212,7 +212,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="aiAvatar"', html)
         self.assertIn('id="humanAvatar"', html)
         self.assertIn('aria-hidden="true">🤖</span>', html)
-        self.assertIn('aria-hidden="true">👤</span>', html)
+        self.assertIn(
+            'id="humanAvatar" class="player-avatar human-avatar" '
+            'aria-hidden="true"></span>',
+            html,
+        )
         self.assertIn('id="aiSpeech"', html)
         self.assertIn('id="humanSpeech"', html)
         self.assertIn('id="confirmMoveButton"', html)
@@ -297,7 +301,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("PLAYER_EMOJIS", script.text)
         self.assertNotIn("function emojiFor", script.text)
         self.assertIn('$("aiAvatar").textContent = "🤖"', script.text)
-        self.assertIn('$("humanAvatar").textContent = "👤"', script.text)
+        self.assertNotIn('$("humanAvatar").textContent = "👤"', script.text)
+        self.assertIn(
+            'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
+            script.text,
+        )
         self.assertIn(
             'const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint"',
             script.text,
