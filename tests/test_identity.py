@@ -98,7 +98,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 8)
+        self.assertEqual(len(payload["games"]), 9)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -111,6 +111,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "liars_dice": "dice",
                 "jungle": "board",
                 "xiangqi": "board",
+                "banqi": "board",
             },
         )
         self.assertEqual(
@@ -124,6 +125,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "liars_dice": "吹牛骰子",
                 "jungle": "斗兽棋",
                 "xiangqi": "象棋",
+                "banqi": "翻翻棋",
             },
         )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
@@ -215,7 +217,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "dots_boxes", "jungle", "xiangqi",
+            "connect4", "dots_boxes", "jungle", "xiangqi", "banqi",
         ):
             self.assertIn(f'value="{game_type}"', html)
         game_select = html[
@@ -236,8 +238,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             html,
         )
         self.assertNotIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.9.0", html)
-        self.assertIn("/static/styles.css?v=0.9.0", html)
+        self.assertIn("/static/app.js?v=0.9.1", html)
+        self.assertIn("/static/styles.css?v=0.9.1", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)

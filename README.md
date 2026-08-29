@@ -16,6 +16,7 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
 - `jungle`：7×9 斗兽棋
 - `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
+- `banqi`：4×8 翻翻棋 / 象棋暗棋，支持系统 NPC、信息隐藏与双人筹码局
 
 井字棋、五子棋、黑白棋、四子连珠、斗兽棋和象棋继续严格双人。点格棋权威声明
 `allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
@@ -61,6 +62,22 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 人类执黑时网页仅重排显示坐标，使己方位于下方，提交仍使用上述真实坐标。时间线
 直接展示服务端 `move_label`，不在客户端重复实现象棋记谱。
 
+### 翻翻棋规则与信息边界
+
+翻翻棋使用一副完整中国象棋 32 子，创建房间时随机洗牌并将真实排列一次性写入
+持久化 `board_state`，刷新、服务重启和重新读取房间都不会再次洗牌。棋盘为 8 行×4
+列；首位玩家第一次翻出的棋子颜色决定其阵营，另一方自动获得另一颜色。普通棋只走
+相邻一格，按“帅/将＞士＞象＞车＞马＞炮＞兵/卒”吃子，同级互吃；兵/卒可吃帅/将，
+帅/将不能吃兵/卒。炮只可走到相邻空位，吃子须同行或同列隔恰好一个炮架；炮架可以
+是明子或暗子，目标必须是已经翻开的敌子。
+
+一方所有棋子被吃光，或轮到行动时没有任何合法翻子、移动或吃子行动即判负。残局
+连续 40 手既未翻子也未吃子时判和；这是本项目明确采用的循环保护规则。Banqi 的
+`public_state.board` 对未翻位置只返回统一的 `"hidden"`，真实身份只在该格成功翻开后
+进入公共棋盘与事件文字，`private_state` 为空。服务端在公共状态中给出当前行动者的
+`legal_actions`；网页独立 renderer、系统 NPC 与绑定小机都只提交这些坐标行动，不在
+客户端或模型侧接触、重算暗子真值。
+
 ## 项目结构
 
 ```text
@@ -75,6 +92,7 @@ app/
   achievements.py      成就目录、可靠事实、进度与自动奖励
   chips_routes.py      筹码中心页面与 API
   games/               棋种插件
+  games/banqi.py        翻翻棋规则、随机持久状态与公开安全投影
   games/xiangqi.py     象棋 GamePlugin 与房间状态适配
   games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
   npc_personas.py      NPC 人设目录加载与严格校验
@@ -406,6 +424,11 @@ tab 后，才调用 `POST /api/notifications/read`；请求体只允许 `categor
 使用 `board_state.board/marks/legal_moves/turn_color/in_check/last_move`，落子仍提交
 `{move:{from_row,from_col,to_row,to_col},revision}`。因此前端无需、也不应自行推导
 马腿、象眼、炮架、九宫、过河或将帅安全规则。
+
+翻翻棋网页通过 `app/static/games/banqi.js` 向
+`window.DuelGameUI.register('banqi', renderer)` 注册独立棋盘 renderer。公共 `app.js`
+只负责扩展分发、revision 与统一提交确认；renderer 只消费服务端返回的背面占位、
+已翻棋子和 `legal_actions`，不会包含等级、炮架或暗子身份推导逻辑。
 
 ## 筹码中心
 
