@@ -404,6 +404,16 @@ footer {
   border: 2px solid var(--ink); border-radius: 2px; color: var(--ink); background: #fff;
 }
 .exchange-form textarea { min-height: 62px; resize: vertical; line-height: 1.4; }
+.form-error {
+  margin: 9px 0 0;
+  padding: 8px 9px;
+  border: 2px solid var(--warning);
+  color: var(--warning);
+  background: #fff0f0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
 .exchange-form-actions { display: flex; gap: 7px; margin-top: 10px; }
 .exchange-form-actions .button { flex: 1; }
 .exchange-request-group + .exchange-request-group { margin-top: 15px; padding-top: 13px; border-top: 2px dashed var(--line); }

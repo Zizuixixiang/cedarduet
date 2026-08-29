@@ -7,7 +7,12 @@ let subjectRequestSequence = 0;
 let currentExchange = null;
 
 function apiPath(path) {
-  return window.location.pathname.startsWith("/duel") ? `/duel${path}` : path;
+  const pathname = window.location.pathname;
+  const underDuel = pathname === "/duel" || pathname.startsWith("/duel/");
+  if (!underDuel || !path.startsWith("/") || path === "/duel" || path.startsWith("/duel/")) {
+    return path;
+  }
+  return `/duel${path}`;
 }
 
 async function requestJson(url, options = {}) {
@@ -28,6 +33,93 @@ function showNotice(message, isError = false) {
   notice.textContent = message;
   notice.classList.toggle("error", isError);
   notice.classList.remove("hidden");
+}
+
+function validationError(message, field = null) {
+  const error = new Error(message);
+  error.field = field;
+  return error;
+}
+
+function clearFormError(errorId, form) {
+  const errorBox = $(errorId);
+  errorBox.textContent = "";
+  errorBox.classList.add("hidden");
+  for (const field of form.querySelectorAll('[aria-invalid="true"]')) {
+    field.removeAttribute("aria-invalid");
+  }
+}
+
+function showFormError(errorId, error) {
+  const errorBox = $(errorId);
+  errorBox.textContent = error.message || "表单内容有误，请检查后重试";
+  errorBox.classList.remove("hidden");
+  if (error.field) {
+    error.field.setAttribute("aria-invalid", "true");
+    error.field.focus();
+  }
+}
+
+function selectedBoundMachine(select, label) {
+  if (!summary) throw validationError("筹码资料仍在加载，请稍候再试", select);
+  const machineId = String(select.value || "").trim();
+  if (!machineId) throw validationError(`请选择${label}`, select);
+  if (!summary.machines.some((machine) => machine.id === machineId)) {
+    throw validationError(`所选${label}不在当前账号的绑定清单中`, select);
+  }
+  return machineId;
+}
+
+function trimmedTextInput(field, label, minimum, maximum) {
+  const value = String(field.value || "").trim();
+  if (value.length < minimum || value.length > maximum) {
+    throw validationError(`${label}需为 ${minimum}-${maximum} 字`, field);
+  }
+  return value;
+}
+
+function positiveSafeIntegerField(field, label, maximum = null) {
+  let value;
+  try {
+    value = positiveSafeIntegerInput(field.value, label);
+  } catch (error) {
+    throw validationError(error.message, field);
+  }
+  if (maximum !== null && value > maximum) {
+    throw validationError(`${label}必须在 1-${maximum} 之间`, field);
+  }
+  return value;
+}
+
+function microPercentField(field) {
+  if (!String(field.value || "").trim()) {
+    throw validationError("请填写日利率；无利息请填 0", field);
+  }
+  try {
+    return microPercentFromInput(field.value);
+  } catch (error) {
+    throw validationError(error.message, field);
+  }
+}
+
+function dueDateField(field) {
+  const value = String(field.value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw validationError("请选择有效的到期日", field);
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw validationError("请选择有效的到期日", field);
+  }
+  const minimum = field.min || shanghaiDateOffset(1);
+  const maximum = field.max || shanghaiDateOffset(30);
+  if (value < minimum) {
+    throw validationError("到期日至少应为上海时区的次日", field);
+  }
+  if (value > maximum) {
+    throw validationError("到期日不得晚于 30 天后", field);
+  }
+  return value;
 }
 
 function activateModuleTab(selectedTab, moveFocus = false) {
@@ -116,8 +208,8 @@ function renderSubject(subject, wallet, ledger, achievements = null, loans = nul
     : "我的永久成就；奖励在解锁时自动到账";
   $("exchangeTitle").textContent = readOnly ? `与 ${subject.name} 的互动商店` : "互动商店";
   $("exchangeDescription").textContent = readOnly
-    ? `只显示你与 ${subject.name} 的申请；仍可确认由人类钱包付款的申请`
-    : "汇总全部绑定小机；用筹码换一个聊天里兑现的小约定";
+    ? `申请方承诺完成小约定、由对方支付筹码；这里仅显示你与 ${subject.name} 的双向申请`
+    : "你用自己承诺完成的小约定向绑定小机换筹码；小机也可按同一规则向你申请";
   $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的欠条` : "欠条";
   $("socialDescription").textContent = readOnly
     ? `你与 ${subject.name} 的欠条；人类只能执行自己角色允许的操作`
@@ -321,7 +413,8 @@ function positiveSafeIntegerInput(value, label) {
   const normalized = String(value).trim();
   if (!/^\d+$/.test(normalized)) throw new Error(`${label}必须是正整数`);
   const parsed = Number(normalized);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (parsed <= 0) throw new Error(`${label}必须是正整数`);
+  if (!Number.isSafeInteger(parsed)) {
     throw new Error(`${label}超过浏览器可安全提交的范围`);
   }
   return parsed;
@@ -567,8 +660,8 @@ function openExchangeForm(item) {
   }
   $("exchangeItemKey").value = item.key;
   $("exchangeFormSymbol").textContent = item.symbol || "♡";
-  $("exchangeFormTitle").textContent = item.title;
-  $("exchangeFormDescription").textContent = item.description;
+  $("exchangeFormTitle").textContent = `用「${item.title}」换筹码`;
+  $("exchangeFormDescription").textContent = `你承诺：${item.description} 对方确认后向你支付筹码。`;
   const custom = item.key === "custom";
   $("exchangeCustomTitleWrap").classList.toggle("hidden", !custom);
   $("exchangeCustomTitle").required = custom;
@@ -599,7 +692,7 @@ function renderExchangeArt(art, item) {
     art.classList.remove("has-image");
   });
   art.append(image);
-  image.src = item.image_key;
+  image.src = apiPath(item.image_key);
 }
 
 function renderExchangeCatalog(items) {
@@ -646,7 +739,7 @@ function renderExchangeRequest(item) {
   status.textContent = exchangeStatusLabels[item.status] || item.status;
   titleRow.append(title, status);
   const direction = item.initiator.type === "human"
-    ? "人类完成约定 · 小机付款" : "小机完成约定 · 人类付款";
+    ? "人类履约换筹码 · 小机付款" : "小机履约换筹码 · 人类付款";
   const meta = document.createElement("p");
   meta.className = "exchange-request-meta";
   meta.textContent = `${item.machine_name || machineName(item.ai_id)} · ${direction} · ${item.chip_amount} 枚`;
@@ -665,7 +758,7 @@ function renderExchangeRequest(item) {
   if (item.allowed_actions?.length) {
     const actions = document.createElement("div");
     actions.className = "exchange-actions";
-    const labels = {confirm: "确认发放", reject: "拒绝", withdraw: "撤回"};
+    const labels = {confirm: "确认并支付筹码", reject: "拒绝", withdraw: "撤回"};
     for (const action of item.allowed_actions) {
       const button = document.createElement("button");
       button.type = "button";
@@ -707,8 +800,8 @@ function renderExchange(exchange) {
   const badge = $("exchangePendingBadge");
   badge.textContent = String(pending.length);
   badge.classList.toggle("hidden", pending.length === 0);
-  renderExchangeList("exchangePendingList", pending, "没有需要你确认的申请。");
-  renderExchangeList("exchangeWaitingList", waiting, "没有等待小机处理的申请。");
+  renderExchangeList("exchangePendingList", pending, "没有需要你确认付款的申请。");
+  renderExchangeList("exchangeWaitingList", waiting, "没有等待小机确认付款的申请。");
   renderExchangeList("exchangeHistoryList", history, "还没有兑换记录。");
   syncExchangeTarget();
 }
@@ -839,24 +932,58 @@ $("checkInButton").addEventListener("click", () => runHumanAction("/api/chips/ch
 $("bankruptcyButton").addEventListener("click", () => runHumanAction("/api/chips/bankruptcy"));
 $("subjectSelect").addEventListener("change", (event) => selectSubject(event.target.value));
 
-$("exchangeCancelButton").addEventListener("click", () => {
-  $("exchangeCreateForm").classList.add("hidden");
-});
-$("exchangeCreateForm").addEventListener("submit", async (event) => {
+function validateExchangeCreateForm() {
+  const itemKeyField = $("exchangeItemKey");
+  const itemKey = String(itemKeyField.value || "").trim();
+  const item = currentExchange?.catalog?.find((entry) => entry.key === itemKey);
+  if (!item) throw validationError("请先从商店选择一个你愿意完成的小约定", itemKeyField);
+  const machineId = selectedBoundMachine($("exchangeMachineSelect"), "兑换目标小机");
+  const requestNote = trimmedTextInput($("exchangeRequestNote"), "完成方式 / 补充说明", 1, 120);
+  const chipAmount = positiveSafeIntegerField($("exchangeAmount"), "筹码数", 100);
+  const customTitle = itemKey === "custom"
+    ? trimmedTextInput($("exchangeCustomTitle"), "自定义小约定标题", 1, 30)
+    : null;
+  return {
+    machine_id: machineId,
+    item_key: itemKey,
+    request_note: requestNote,
+    chip_amount: chipAmount,
+    custom_title: customTitle,
+  };
+}
+
+function validateLoanCreateForm() {
+  const capField = $("loanCapEnabled");
+  if (!capField || capField.type !== "checkbox") {
+    throw validationError("无法读取利息封顶保护选项，请刷新页面后重试");
+  }
+  return {
+    machine_id: selectedBoundMachine($("loanMachineSelect"), "借款目标小机"),
+    principal: positiveSafeIntegerField($("loanPrincipal"), "本金"),
+    daily_rate_micro_percent: microPercentField($("loanRate")),
+    due_date: dueDateField($("loanDueDate")),
+    interest_cap_enabled: capField.checked,
+  };
+}
+
+async function handleExchangeCreateSubmit(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   const button = $("exchangeCreateButton");
+  clearFormError("exchangeFormError", form);
+  let body;
+  try {
+    body = validateExchangeCreateForm();
+  } catch (error) {
+    showFormError("exchangeFormError", error);
+    return;
+  }
   button.disabled = true;
   try {
-    const customTitle = $("exchangeItemKey").value === "custom"
-      ? $("exchangeCustomTitle").value.trim() : null;
     const payload = await requestJson("/api/chips/exchanges", {
       method: "POST",
       body: JSON.stringify({
-        machine_id: $("exchangeMachineSelect").value,
-        item_key: $("exchangeItemKey").value,
-        request_note: $("exchangeRequestNote").value.trim(),
-        chip_amount: positiveSafeIntegerInput($("exchangeAmount").value, "筹码数"),
-        custom_title: customTitle,
+        ...body,
         idempotency_key: newIdempotencyKey("web:exchange:create"),
       }),
     });
@@ -875,32 +1002,31 @@ $("exchangeCreateForm").addEventListener("submit", async (event) => {
     }
     showNotice(payload.message);
   } catch (error) {
+    showFormError("exchangeFormError", error);
     showNotice(error.message, true);
   } finally {
     button.disabled = false;
   }
-});
+}
 
-const loanDueDate = $("loanDueDate");
-loanDueDate.min = shanghaiDateOffset(1);
-loanDueDate.max = shanghaiDateOffset(30);
-loanDueDate.value = shanghaiDateOffset(7);
-$("loanCapEnabled").addEventListener("change", (event) => {
-  $("loanCapWarning").classList.toggle("hidden", event.target.checked);
-});
-$("loanCreateForm").addEventListener("submit", async (event) => {
+async function handleLoanCreateSubmit(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   const button = $("loanCreateButton");
+  clearFormError("loanFormError", form);
+  let body;
+  try {
+    body = validateLoanCreateForm();
+  } catch (error) {
+    showFormError("loanFormError", error);
+    return;
+  }
   button.disabled = true;
   try {
     const payload = await requestJson("/api/chips/loans", {
       method: "POST",
       body: JSON.stringify({
-        machine_id: $("loanMachineSelect").value,
-        principal: positiveSafeIntegerInput($("loanPrincipal").value, "本金"),
-        daily_rate_micro_percent: microPercentFromInput($("loanRate").value),
-        due_date: loanDueDate.value,
-        interest_cap_enabled: $("loanCapEnabled").checked,
+        ...body,
         idempotency_key: newIdempotencyKey("web:create-loan"),
       }),
     });
@@ -915,12 +1041,39 @@ $("loanCreateForm").addEventListener("submit", async (event) => {
     $("loanPrincipal").value = "";
     showNotice(payload.message);
   } catch (error) {
+    showFormError("loanFormError", error);
     showNotice(error.message, true);
   } finally {
     button.disabled = false;
   }
-});
+}
+
+function initCreateForms() {
+  const exchangeForm = $("exchangeCreateForm");
+  exchangeForm.noValidate = true;
+  exchangeForm.addEventListener("submit", handleExchangeCreateSubmit);
+  exchangeForm.addEventListener("input", () => clearFormError("exchangeFormError", exchangeForm));
+  exchangeForm.addEventListener("change", () => clearFormError("exchangeFormError", exchangeForm));
+  $("exchangeCancelButton").addEventListener("click", () => {
+    clearFormError("exchangeFormError", exchangeForm);
+    exchangeForm.classList.add("hidden");
+  });
+
+  const loanForm = $("loanCreateForm");
+  loanForm.noValidate = true;
+  loanForm.addEventListener("submit", handleLoanCreateSubmit);
+  loanForm.addEventListener("input", () => clearFormError("loanFormError", loanForm));
+  loanForm.addEventListener("change", () => clearFormError("loanFormError", loanForm));
+  $("loanCapEnabled").addEventListener("change", (event) => {
+    $("loanCapWarning").classList.toggle("hidden", event.target.checked);
+  });
+  const loanDueDate = $("loanDueDate");
+  loanDueDate.min = shanghaiDateOffset(1);
+  loanDueDate.max = shanghaiDateOffset(30);
+  loanDueDate.value = shanghaiDateOffset(7);
+}
 
 initModuleTabs();
 initExchangeTabs();
+initCreateForms();
 loadSummary();

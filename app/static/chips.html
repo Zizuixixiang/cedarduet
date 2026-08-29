@@ -106,10 +106,10 @@
             <span class="pixel-icon" aria-hidden="true">♡</span>
             <div>
               <h2 id="exchangeTitle">互动商店</h2>
-              <p id="exchangeDescription">用筹码换一个要在聊天里兑现的小约定</p>
+              <p id="exchangeDescription">申请方用自己承诺完成的小约定，向对方换筹码</p>
             </div>
           </div>
-          <p class="exchange-boundary">请在常用聊天中自行完成；双弈不保存互动内容，也不介入履约争议。</p>
+          <p class="exchange-boundary">对方确认后支付筹码；申请方请在常用聊天中完成约定。双弈不保存互动内容，也不介入履约争议。</p>
 
           <div class="exchange-tabs" role="tablist" aria-label="互动商店内容">
             <button id="exchange-tab-shop" class="exchange-tab" type="button"
@@ -126,25 +126,26 @@
             <div id="exchangeCatalog" class="exchange-catalog" aria-live="polite">
               <p class="exchange-empty">正在摆放商品…</p>
             </div>
-            <form id="exchangeCreateForm" class="exchange-form hidden" autocomplete="off">
+            <form id="exchangeCreateForm" class="exchange-form hidden" autocomplete="off" novalidate>
               <div class="exchange-form-heading">
                 <div><span id="exchangeFormSymbol" aria-hidden="true">♡</span></div>
-                <div><h3 id="exchangeFormTitle">发起兑换</h3><p id="exchangeFormDescription"></p></div>
+                <div><h3 id="exchangeFormTitle">用小约定换筹码</h3><p id="exchangeFormDescription"></p></div>
               </div>
               <input id="exchangeItemKey" type="hidden">
               <div class="exchange-form-grid">
-                <label>目标小机<select id="exchangeMachineSelect" required disabled></select></label>
-                <label>筹码数（1–100）<input id="exchangeAmount" type="number" min="1" max="100" step="1" required></label>
+                <label>向哪只小机换筹码<select id="exchangeMachineSelect" required disabled></select></label>
+                <label>希望对方支付的筹码数（1–100）<input id="exchangeAmount" type="number" min="1" max="100" step="1" required></label>
               </div>
-              <label id="exchangeCustomTitleWrap" class="hidden">自定义标题（1–30 字）
+              <label id="exchangeCustomTitleWrap" class="hidden">你承诺的小约定标题（1–30 字）
                 <input id="exchangeCustomTitle" type="text" minlength="1" maxlength="30">
               </label>
-              <label>本次说明（1–120 字）
+              <label>完成方式 / 补充说明（1–120 字）
                 <textarea id="exchangeRequestNote" minlength="1" maxlength="120" rows="3"
-                  placeholder="例如：我发一张今天窗外的照片" required></textarea>
+                  placeholder="例如：我会发一张今天窗外的照片" required></textarea>
               </label>
+              <p id="exchangeFormError" class="form-error hidden" role="alert" aria-live="assertive"></p>
               <div class="exchange-form-actions">
-                <button id="exchangeCreateButton" class="button primary" type="submit">发送申请</button>
+                <button id="exchangeCreateButton" class="button primary" type="submit">发送换筹码申请</button>
                 <button id="exchangeCancelButton" class="button ghost" type="button">取消</button>
               </div>
             </form>
@@ -184,7 +185,7 @@
               <p id="socialDescription">借款提案、协商与还款</p>
             </div>
           </div>
-          <form id="loanCreateForm" class="loan-form" autocomplete="off">
+          <form id="loanCreateForm" class="loan-form" autocomplete="off" novalidate>
             <h3>我要借款</h3>
             <p>只有借款人能发起。提案 3 天未接受会过期。</p>
             <div class="loan-form-grid">
@@ -198,6 +199,7 @@
               <span>开启利息封顶保护（终身计收利息最多等于原始本金）</span>
             </label>
             <p id="loanCapWarning" class="loan-warning hidden">关闭后将按约定单利持续累计至还清，没有本金倍数保护。</p>
+            <p id="loanFormError" class="form-error hidden" role="alert" aria-live="assertive"></p>
             <button id="loanCreateButton" class="button primary" type="submit">发送借款提案</button>
           </form>
           <div class="loan-list-heading">

@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -10,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "chips.html").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "app" / "static" / "chips.js").read_text(encoding="utf-8")
 NODE = shutil.which("node")
+JSDOM = bool(
+    NODE
+    and subprocess.run(
+        [NODE, "-e", "require('jsdom')"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    ).returncode == 0
+)
 
 
 class ChipMarkupParser(HTMLParser):
@@ -111,11 +122,21 @@ class ChipCenterStructureTests(unittest.TestCase):
         ):
             self.attributes_for_id(element_id)
         self.assertIn("互动商店", HTML)
-        self.assertIn("请在常用聊天中自行完成", HTML)
+        self.assertIn("申请方用自己承诺完成的小约定，向对方换筹码", HTML)
+        self.assertIn("申请方请在常用聊天中完成约定", HTML)
+        self.assertIn("发送换筹码申请", HTML)
+        self.assertIn("希望对方支付的筹码数", HTML)
         self.assertNotIn("筹备中", HTML)
         self.assertNotIn("不支持人民币充值", HTML)
+        self.assertIn('id="exchangeCreateForm" class="exchange-form hidden" autocomplete="off" novalidate', HTML)
+        self.assertIn('id="loanCreateForm" class="loan-form" autocomplete="off" novalidate', HTML)
+        self.assertIn('id="exchangeFormError"', HTML)
+        self.assertIn('id="loanFormError"', HTML)
         self.assertIn("function renderLoans(loans)", SCRIPT)
         self.assertIn("function renderExchange(exchange)", SCRIPT)
+        self.assertIn("function initCreateForms()", SCRIPT)
+        self.assertIn("function validateExchangeCreateForm()", SCRIPT)
+        self.assertIn("function validateLoanCreateForm()", SCRIPT)
         self.assertIn("daily_rate_micro_percent", SCRIPT)
         self.assertNotIn('reward.textContent = `+${achievement.reward}`;', SCRIPT.split("if (achievement.reward > 0)")[0])
 
@@ -152,8 +173,10 @@ class ChipCenterStructureTests(unittest.TestCase):
 class ChipCenterTabBehaviorTests(unittest.TestCase):
     def test_exchange_art_uses_image_path_and_keeps_symbol_fallback(self):
         renderer = function_source("renderExchangeArt")
+        path_helper = function_source("apiPath")
         harness = f"""
 const assert = require("node:assert/strict");
+const window = {{location: {{pathname: "/chips"}}}};
 class ClassList {{
   constructor() {{ this.values = new Set(); }}
   add(name) {{ this.values.add(name); }}
@@ -179,6 +202,7 @@ class Element {{
   }}
 }}
 const document = {{createElement(tag) {{ return new Element(tag); }}}};
+{path_helper}
 {renderer}
 
 const loaded = new Element("span");
@@ -471,6 +495,165 @@ assert.equal(elements.bankruptcyButton.classList.contains("hidden"), false);
             0,
             f"JavaScript assertion failed:\n{completed.stderr}",
         )
+
+
+@unittest.skipUnless(NODE and JSDOM, "node and jsdom are required for DOM form tests")
+class ChipCenterDomFormTests(unittest.TestCase):
+    def run_dom(self, assertions: str, pathname: str = "/duel/chips") -> None:
+        harness = f"""
+const assert = require("node:assert/strict");
+const {{JSDOM}} = require("jsdom");
+
+async function main() {{
+  const dom = new JSDOM({json.dumps(HTML)}, {{
+    url: `https://duel.test{pathname}`,
+    runScripts: "outside-only",
+  }});
+  const {{window}} = dom;
+  const document = window.document;
+  const catalog = [
+    {{
+      key: "good_life", title: "今天有好好生活",
+      description: "分享一件今天认真生活的小事。",
+      image_key: "/static/assets/exchange-shop/items/good_life.png?v=20260829",
+      symbol: "☀",
+    }},
+    {{
+      key: "custom", title: "自定义约定",
+      description: "写下你们都看得懂的小约定。",
+      image_key: "/static/assets/exchange-shop/items/custom.png?v=20260829",
+      symbol: "+",
+    }},
+  ];
+  const wallet = {{
+    balance: 200, checked_in_today: false, bankruptcy_active: false,
+    bankruptcy_badge: null, bankruptcy_count: 0, can_declare_bankruptcy: false,
+  }};
+  const exchange = {{
+    catalog, pending_for_me: [], waiting_for_other: [], history: [],
+  }};
+  const basePayload = {{
+    ok: true, human_name: "测试人类", wallet,
+    machines: [{{id: "ai-1", name: "测试小机"}}], ledger: [], loans: [], exchange,
+    achievements: {{summary: {{unlocked: 0, total: 0, hidden_unlocked: 0}}, sections: []}},
+  }};
+  const calls = [];
+  const response = (payload) => ({{
+    ok: true,
+    status: 200,
+    json: async () => JSON.parse(JSON.stringify(payload)),
+  }});
+  window.fetch = async (url, options = {{}}) => {{
+    calls.push({{url: String(url), options}});
+    if ((options.method || "GET") === "POST") {{
+      return response({{
+        ...basePayload,
+        message: String(url).endsWith("/loans") ? "借款提案已发给小机" : "兑换申请已发给小机",
+      }});
+    }}
+    return response(basePayload);
+  }};
+  window.eval({json.dumps(SCRIPT)});
+  const waitFor = async (predicate) => {{
+    for (let attempt = 0; attempt < 80; attempt += 1) {{
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }}
+    throw new Error("timed out waiting for DOM state");
+  }};
+  await waitFor(() => document.querySelector('[data-item-key="good_life"]'));
+  {assertions}
+}}
+
+main().catch((error) => {{
+  console.error(error);
+  process.exitCode = 1;
+}});
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "TZ": "Asia/Shanghai"},
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"DOM JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_valid_exchange_form_requests_existing_post_endpoint(self):
+        self.run_dom(r"""
+  document.querySelector('[data-item-key="good_life"]').click();
+  document.getElementById("exchangeAmount").value = "12";
+  document.getElementById("exchangeRequestNote").value = "我会发一张今天窗外的照片";
+  const form = document.getElementById("exchangeCreateForm");
+  form.requestSubmit(document.getElementById("exchangeCreateButton"));
+  await waitFor(() => calls.some((call) => call.url.endsWith("/api/chips/exchanges") && call.options.method === "POST"));
+  const call = calls.find((entry) => entry.url.endsWith("/api/chips/exchanges") && entry.options.method === "POST");
+  assert.equal(call.url, "/duel/api/chips/exchanges");
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(JSON.parse(call.options.body)).filter(([key]) => key !== "idempotency_key")),
+    {
+      machine_id: "ai-1", item_key: "good_life",
+      request_note: "我会发一张今天窗外的照片", chip_amount: 12, custom_title: null,
+    },
+  );
+""")
+
+    def test_valid_loan_form_requests_existing_post_endpoint(self):
+        self.run_dom(r"""
+  document.getElementById("loanPrincipal").value = "30";
+  document.getElementById("loanRate").value = "0.125";
+  const form = document.getElementById("loanCreateForm");
+  form.requestSubmit(document.getElementById("loanCreateButton"));
+  await waitFor(() => calls.some((call) => call.url.endsWith("/api/chips/loans") && call.options.method === "POST"));
+  const call = calls.find((entry) => entry.url.endsWith("/api/chips/loans") && entry.options.method === "POST");
+  assert.equal(call.url, "/duel/api/chips/loans");
+  const body = JSON.parse(call.options.body);
+  assert.equal(body.machine_id, "ai-1");
+  assert.equal(body.principal, 30);
+  assert.equal(body.daily_rate_micro_percent, 125000);
+  assert.equal(body.interest_cap_enabled, true);
+  assert.match(body.due_date, /^\d{4}-\d{2}-\d{2}$/);
+""")
+
+    def test_invalid_forms_show_visible_chinese_errors_without_post(self):
+        self.run_dom(r"""
+  document.querySelector('[data-item-key="custom"]').click();
+  document.getElementById("exchangeAmount").value = "5";
+  document.getElementById("exchangeRequestNote").value = "我会完成这个约定";
+  document.getElementById("exchangeCreateForm").requestSubmit(document.getElementById("exchangeCreateButton"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const exchangeError = document.getElementById("exchangeFormError");
+  assert.equal(exchangeError.classList.contains("hidden"), false);
+  assert.match(exchangeError.textContent, /自定义小约定标题需为 1-30 字/);
+  assert.equal(calls.filter((call) => call.options.method === "POST").length, 0);
+
+  document.getElementById("loanPrincipal").value = "0";
+  document.getElementById("loanCreateForm").requestSubmit(document.getElementById("loanCreateButton"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const loanError = document.getElementById("loanFormError");
+  assert.equal(loanError.classList.contains("hidden"), false);
+  assert.match(loanError.textContent, /本金必须是正整数/);
+  assert.equal(calls.filter((call) => call.options.method === "POST").length, 0);
+""")
+
+    def test_exchange_images_support_root_and_duel_prefixes(self):
+        for pathname, expected in (
+            ("/chips", "/static/assets/exchange-shop/items/good_life.png?v=20260829"),
+            ("/duel/chips", "/duel/static/assets/exchange-shop/items/good_life.png?v=20260829"),
+        ):
+            with self.subTest(pathname=pathname):
+                self.run_dom(
+                    f"""
+  const image = document.querySelector('[data-item-key="good_life"] img');
+  assert.equal(image.getAttribute("src"), {json.dumps(expected)});
+""",
+                    pathname=pathname,
+                )
 
 
 if __name__ == "__main__":

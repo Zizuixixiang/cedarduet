@@ -109,7 +109,7 @@ _CATALOG_ITEMS = (
     {
         "key": "kiss",
         "title": "亲亲赎回",
-        "description": "兑换一个只在你们之间生效的亲亲。",
+        "description": "在常用聊天里给对方一个只属于你们的亲亲。",
         "image_key": "/static/assets/exchange-shop/items/kiss.png?v=20260829",
         "audience": "common",
         "symbol": "♥",
