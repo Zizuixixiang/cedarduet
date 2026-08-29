@@ -111,6 +111,11 @@ class InvitationDecisionBody(StrictBody):
     decision: Literal["accept", "reject"]
 
 
+class NotificationAckBody(StrictBody):
+    category: Literal["game", "loan", "exchange", "achievement"]
+    reference_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class LoanTermsBody(StrictBody):
     principal: int = Field(gt=0)
     daily_rate_micro_percent: int = Field(ge=0, le=9_223_372_036_854_775_807)

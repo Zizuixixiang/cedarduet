@@ -10,7 +10,8 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 之后 `state` / `move` / `wait` 只返回最小控制状态与该 viewer 尚未读取的可见 `events`。
 事件形状为 `{"name": "显示名", "message"?: "...", "move"?: {...}}`；同一次落子
 的发言和行动不会拆开，也不会暴露 sequence、事件 revision、player ID、座位或 kind。
-普通 message、其他参与者的 move 和 round_result 只进入未读队列，不会唤醒尚未
+普通 message、其他参与者的 move 和 round_result 只进入房间增量事件游标（不是下文
+四类持久化未读通知），不会唤醒尚未
 获得行动权的小机，也不会被 `state wait=false` 提前消费。真正轮到该小机时，服务端
 一次返回它从上次消费以来全部可见事件；终局、归档、取消、本人离席、淘汰或失活也会提前
 返回必要增量，避免永远等不到回合。游标前进后，同一事件不会再次返回。轮到当前小机
@@ -19,6 +20,36 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 `DUEL_MCP_WAIT_SECONDS` 控制短心跳，默认 30 秒、允许 1–45 秒，不影响 NPC provider
 timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结束，不表示退出挂等；
 调用方处于挂等模式时应继续调用 `state wait=true`。
+
+## 四类持久化未读
+
+人类与绑定小机完全对称，只存在四类持久化未读：`game`（对局）、`loan`（借款）、
+`exchange`（兑换）、`achievement`（成就）。聊天仍随房间增量事件返回；普通落子、
+轮到谁、签到、流水和破产不会制造未读。
+
+任一 MCP 成功响应只在当前小机确有未读时附加紧凑计数与入口提示；没有未读时省略
+`unread` / `unread_hint`：
+
+```json
+{
+  "unread": {
+    "total": 2,
+    "categories": {"game": 1, "loan": 0, "exchange": 1, "achievement": 0}
+  },
+  "unread_hint": "对局（未读1）→rooms；兑换（未读1）→chips/exchange"
+}
+```
+
+只看到 summary 不会清除。看到提示后按固定入口读取：
+
+- 对局 → `{"action":"rooms","player_id":"ai-42"}`
+- 借款 → `action=chips, op=loans, loan_action=list`
+- 兑换 → `action=chips, op=exchange, exchange_action=list`
+- 成就 → `action=chips, op=achievements`
+
+这四个实际读取入口会返回该类别的短 `notices`，并在同一 SQLite 事务中标为已读。
+如果终局已经由当前 move/state/wait 响应返回，或解锁已经在当前响应的 `unlocks` 中返回，
+对应通知也会同步确认。系统 NPC 没有通知主体。
 
 ## 筹码、成就与权威重赛
 
@@ -34,9 +65,15 @@ timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结
 
 ### 小机互动兑换
 
-兑换只记录申请、审批和筹码转移；互动内容必须在双方常用聊天中完成，双弈不接收
-照片、语音、截图或聊天内容，也不判断实际履约。`player_id` 必须是当前小机，
+兑换只记录申请、审批和筹码转移；发起者先在双方常用聊天中完成约定并收取筹码，
+审批者随后确认并支付筹码。双弈不接收照片、语音、截图或聊天内容，也不判断实际履约。
+`player_id` 必须是当前小机，
 `opponent_id` 必须由可信聚合层覆盖为当前绑定人类。
+
+所有 `chips/exchange` 成功响应都返回稳定、短小的 `exchange_rule`。每张申请继续保留
+`initiator` / `payer`，并增加自然语言 `summary` 和固定角色映射：
+`direction={"agreement_provider":"initiator","chip_payer":"payer","chip_recipient":"initiator"}`。
+因此无需根据动作猜测谁履约、谁付款、谁收款。
 
 列小机专属与双方通用目录；人类专属商品不会返回：
 
@@ -78,12 +115,13 @@ timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结
 把 `exchange_action` 改为 `reject` 或 `withdraw` 即执行相应操作。确认时会重新校验
 绑定、付款方余额和 Asia/Shanghai 当日累计兑换支出上限（100 枚），并以稳定
 `request_id` 结算键原子写入双方 `exchange_out` / `exchange_in` 流水。普通 chips
-status、whoami、房间与对局响应不会携带兑换提醒。
+status、房间与对局响应不会携带兑换明细，但确有未读时会携带统一计数和入口提示。
 
 ### 小机欠条操作
 
-欠条只会出现在显式 `op=loans` 查询中；普通 chips status、房间、whoami 和对局响应
-不会附带借款或逾期字段。`opponent_id` 仍必须由可信聚合层覆盖为当前绑定人类。
+欠条只会出现在显式 `op=loans` 查询中；普通 chips status、房间和对局响应不会附带
+借款或逾期明细，只可能附加统一未读计数和入口提示。`opponent_id` 仍必须由可信聚合层
+覆盖为当前绑定人类。
 
 查询小机名下全部可审计欠条（包括解绑前已经生效的旧债）：
 
@@ -104,8 +142,8 @@ status、whoami、房间与对局响应不会携带兑换提醒。
 }
 ```
 
-小机收到人类提案后，可对当前 revision 接受、拒绝或还价。所有写操作都要提供稳定
-幂等键；还价必须提交全部新条款并生成下一 revision：
+小机收到人类提案后，可对当前 revision 接受、拒绝或改条件。所有写操作都要提供稳定
+幂等键；改条件必须提交全部新条款并生成下一 revision：
 
 ```json
 {
@@ -140,7 +178,7 @@ status、whoami、房间与对局响应不会携带兑换提醒。
 ```
 
 `reject` 和 `withdraw` 同样提交 `loan_id`、`loan_revision`、`idempotency_key`；只有
-当前收到方能拒绝，只有借款发起人能在生效前撤销。解绑后不能接受或还价，但生效
+当前收到方能拒绝，只有借款发起人能在生效前撤销。解绑后不能接受或改条件，但生效
 债务仍保留并可由真正借款人查询、偿还。到期日按 Asia/Shanghai 自然日，接受时会
 再次验证至少为次日且不超过 30 天；未接受 revision 3 天过期。
 

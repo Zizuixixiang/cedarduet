@@ -54,6 +54,7 @@ from .loans import (
     repay_loan,
 )
 from .exchanges import (
+    EXCHANGE_RULE_SUMMARY,
     close_exchange_request,
     compact_exchange_lists,
     confirm_exchange_request,
@@ -70,9 +71,17 @@ from .models import (
     McpPlayBody,
     MessageBody,
     MoveBody,
+    NotificationAckBody,
     ResignBody,
     RoomDeleteBody,
     RoomRetentionBody,
+)
+from .notifications import (
+    ack_explicit_achievement_unlocks,
+    ack_notifications,
+    attach_mcp_unread,
+    consume_notifications,
+    unread_summary,
 )
 from .npc_personas import PersonaConfigError, resolve_avatar_file, select_personas
 from .npc_providers import npc_provider_capabilities
@@ -233,6 +242,7 @@ def human_response(
     )
     if unlocks:
         payload["unlocks"] = unlocks
+        ack_explicit_achievement_unlocks("human", viewer_player_id, unlocks)
     # Web receives its projected shared timeline while its independent cursor is
     # advanced so long-poll visibility checks remain correct.
     read_new_room_events(room["room_id"], viewer_player_id)
@@ -454,7 +464,7 @@ def _mcp_chips(body: McpPlayBody) -> dict:
     )
     human_balance = get_wallet("human", human_player_id)["balance"]
     if op == "achievements":
-        return {
+        payload = {
             "ok": True,
             "status": "ok",
             "op": op,
@@ -464,6 +474,10 @@ def _mcp_chips(body: McpPlayBody) -> dict:
                 )
             ),
         }
+        notices = consume_notifications("ai", body.player_id, "achievement")
+        if notices:
+            payload["notices"] = notices
+        return payload
     if op == "check_in":
         result = claim_daily_check_in(
             "ai", body.player_id, bound_human_ids=[human_player_id]
@@ -529,6 +543,7 @@ def _mcp_exchange(body: McpPlayBody) -> dict:
             "status": "ok",
             "op": "exchange",
             "exchange_action": "catalog",
+            "exchange_rule": EXCHANGE_RULE_SUMMARY,
             "catalog": list_catalog("ai"),
         }
     if action == "list":
@@ -542,13 +557,18 @@ def _mcp_exchange(body: McpPlayBody) -> dict:
             bound_counterparty_ids={human_id},
             limit=limit,
         )
-        return {
+        payload = {
             "ok": True,
             "status": "ok",
             "op": "exchange",
             "exchange_action": "list",
+            "exchange_rule": EXCHANGE_RULE_SUMMARY,
             **compact_exchange_lists(listed),
         }
+        notices = consume_notifications("ai", body.player_id, "exchange")
+        if notices:
+            payload["notices"] = notices
+        return payload
     key = require(body.idempotency_key, "兑换写操作需要 idempotency_key")
     if action == "create":
         exchange_request = create_exchange_request(
@@ -588,6 +608,7 @@ def _mcp_exchange(body: McpPlayBody) -> dict:
         "status": "ok",
         "op": "exchange",
         "exchange_action": action,
+        "exchange_rule": EXCHANGE_RULE_SUMMARY,
         "request": exchange_request,
         "wallet": _compact_wallet(get_wallet("ai", body.player_id)),
         "bound_human_balance": get_wallet("human", human_id)["balance"],
@@ -603,7 +624,7 @@ def _mcp_loans(body: McpPlayBody) -> dict:
         limit = body.limit if body.limit is not None else 20
         if limit > 50:
             raise DuelError("chips/loans limit 最大为 50")
-        return {
+        payload = {
             "ok": True, "status": "ok", "op": "loans",
             "loan_action": "list",
             "loans": list_loans(
@@ -611,6 +632,10 @@ def _mcp_loans(body: McpPlayBody) -> dict:
                 bound_counterparty_ids=bound_ids, limit=limit,
             ),
         }
+        notices = consume_notifications("ai", body.player_id, "loan")
+        if notices:
+            payload["notices"] = notices
+        return payload
     key = require(body.idempotency_key, "借款写操作需要 idempotency_key")
     if action == "create":
         human = require(human_id, "小机发起借款需要可信上游注入绑定人类身份")
@@ -894,6 +919,8 @@ async def human_whoami(request: Request):
             **ai_names,
         },
     )
+    pending_invitations = list_human_pending_invitations(human_player_id)
+    rooms = list_human_rooms(human_player_id, ai_names)
     return {
         "ok": True,
         "bound": True,
@@ -903,8 +930,28 @@ async def human_whoami(request: Request):
         "games": game_catalog(),
         "npc_provider": npc_provider_capabilities(),
         "wallet": get_wallet("human", human_player_id),
-        "pending_invitations": list_human_pending_invitations(human_player_id),
-        "rooms": list_human_rooms(human_player_id, ai_names),
+        "unread": unread_summary("human", human_player_id),
+        "pending_invitations": pending_invitations,
+        "rooms": rooms,
+    }
+
+
+@app.post("/api/notifications/read")
+async def human_read_notifications(
+    request: Request, body: NotificationAckBody
+):
+    human_player_id = trusted_human_player(request)
+    count = ack_notifications(
+        "human",
+        human_player_id,
+        body.category,
+        reference_id=body.reference_id,
+    )
+    return {
+        "ok": True,
+        "category": body.category,
+        "read": count,
+        "unread": unread_summary("human", human_player_id),
     }
 
 
@@ -1248,8 +1295,7 @@ async def human_delete_room(
     }
 
 
-@app.post("/mcp/play")
-async def mcp_play(body: McpPlayBody):
+async def _mcp_play_impl(body: McpPlayBody):
     """MCP-friendly JSON action endpoint for the bound AI."""
     if body.player_id.startswith("npc:"):
         raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
@@ -1261,7 +1307,7 @@ async def mcp_play(body: McpPlayBody):
             limit=room_limit,
             offset=body.offset,
         )
-        return {
+        payload = {
             "ok": True,
             "status": "ok",
             "message": f"找到 {len(rooms)} 个该 AI 已参与或已被邀请的房间。",
@@ -1273,6 +1319,10 @@ async def mcp_play(body: McpPlayBody):
                 "returned": len(rooms),
             },
         }
+        notices = consume_notifications("ai", body.player_id, "game")
+        if notices:
+            payload["notices"] = notices
+        return payload
 
     if body.action == "chips":
         return _mcp_chips(body)
@@ -1567,3 +1617,26 @@ async def mcp_play(body: McpPlayBody):
             room["room_id"], body.player_id, baseline
         )
     return _move_delta_response(changed, body.player_id)
+
+
+def _ack_mcp_response_notifications(payload: dict, body: McpPlayBody) -> None:
+    """Avoid a second red dot for events explicitly delivered in this response."""
+    unlocks = payload.get("unlocks") or []
+    ack_explicit_achievement_unlocks("ai", body.player_id, unlocks)
+    room_status = payload.get("room_status")
+    if isinstance(payload.get("room"), dict):
+        room_status = payload["room"].get("status", room_status)
+    if payload.get("status") in {"finished", "archived"}:
+        room_status = payload["status"]
+    room_id = payload.get("room_id")
+    if room_id is None and isinstance(payload.get("room"), dict):
+        room_id = payload["room"].get("room_id")
+    if room_status in {"finished", "archived"} and room_id:
+        ack_notifications("ai", body.player_id, "game", reference_id=room_id)
+
+
+@app.post("/mcp/play")
+async def mcp_play(body: McpPlayBody):
+    payload = await _mcp_play_impl(body)
+    _ack_mcp_response_notifications(payload, body)
+    return attach_mcp_unread(payload, body.player_id)

@@ -67,6 +67,44 @@ async function request(path, options = {}) {
   return data;
 }
 
+function unreadCount(summary, category) {
+  return Number(summary?.categories?.[category] || 0);
+}
+
+function setUnreadBadge(elementId, count, label) {
+  const badge = $(elementId);
+  if (!badge) return;
+  badge.textContent = String(count);
+  badge.classList.toggle("hidden", count <= 0);
+  badge.setAttribute("aria-label", `${label}（未读${count}）`);
+}
+
+function renderUnreadBadges(unread) {
+  const game = unreadCount(unread, "game");
+  const chipCenter = unreadCount(unread, "loan")
+    + unreadCount(unread, "exchange")
+    + unreadCount(unread, "achievement");
+  setUnreadBadge("gameUnreadBadge", game, "对局");
+  setUnreadBadge("chipCenterUnreadBadge", chipCenter, "筹码中心");
+}
+
+async function ackHumanNotifications(category, referenceId = null) {
+  if (!identity || document.hidden) return;
+  try {
+    const data = await request("/api/notifications/read", {
+      method: "POST",
+      body: JSON.stringify({
+        category,
+        ...(referenceId ? {reference_id: referenceId} : {}),
+      }),
+    });
+    identity.unread = data.unread;
+    renderUnreadBadges(identity.unread);
+  } catch (_error) {
+    // A transient ack failure must not block the room UI.
+  }
+}
+
 function showView(id) {
   ["loadingView", "unboundView", "lobbyView", "gameView"].forEach((viewId) => {
     $(viewId).classList.toggle("hidden", viewId !== id);
@@ -1016,12 +1054,16 @@ async function loadIdentity({quiet = false} = {}) {
     $("pairLabel").textContent = data.identity_label;
     $("heroPair").textContent = data.identity_label;
     renderHumanChipBalance(data.wallet.balance);
+    renderUnreadBadges(data.unread);
     syncGameTypeOptions(data.games || []);
     syncMachinePicker(data.machines || []);
     renderPendingInvitations(data.pending_invitations || []);
     const incoming = new Set((data.pending_invitations || []).map((item) => item.room_id));
     renderRooms((data.rooms || []).filter((item) => !incoming.has(item.room_id)));
-    if (!room) showView("lobbyView");
+    if (!room) {
+      showView("lobbyView");
+      if (!quiet) await ackHumanNotifications("game");
+    }
     if (!quiet) showNotice("");
   } catch (error) {
     identity = null;
@@ -1074,13 +1116,14 @@ async function openRoom(roomId) {
   try {
     const data = await request(`/api/rooms/${roomId}`);
     renderGame(data.room, data.message, data.timeline);
+    await ackHumanNotifications("game", roomId);
     if (!isTerminal(data.room)) startRoomPolling();
   } catch (error) {
     showNotice(error.message, true);
   }
 }
 
-function backToLobby() {
+async function backToLobby() {
   room = null;
   selectedJungleCell = null;
   selectedXiangqiCell = null;
@@ -1090,7 +1133,8 @@ function backToLobby() {
   hideWaitModeModal();
   closeHistory();
   showView("lobbyView");
-  loadIdentity({quiet: true});
+  await loadIdentity({quiet: true});
+  await ackHumanNotifications("game");
 }
 
 function canHumanMove() {
@@ -2436,6 +2480,7 @@ async function refreshRoom({quiet = false} = {}) {
   try {
     const data = await request(`/api/rooms/${room.room_id}`);
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
+    if (!quiet) await ackHumanNotifications("game", room.room_id);
     if (["finished", "archived"].includes(room.status)) stopPolling();
   } catch (error) {
     if (!quiet) showNotice(error.message, true);

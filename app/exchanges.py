@@ -15,6 +15,7 @@ from typing import Literal
 from .chips import _apply_balance_change, _effective_date, _ensure_wallet
 from .database import write_transaction
 from .framework import DuelError
+from .notifications import create_notification, mark_notifications_read
 
 SubjectType = Literal["human", "ai"]
 
@@ -22,6 +23,9 @@ REQUEST_LIFETIME = timedelta(hours=72)
 MAX_PENDING_PER_PAIR = 3
 MAX_EXCHANGE_AMOUNT = 100
 MAX_DAILY_PAYER_SPEND = 100
+EXCHANGE_RULE_SUMMARY = (
+    "发起者先在常用聊天中完成约定并收取筹码；审批者确认后支付筹码"
+)
 IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_.-]{7,127}$")
 
 
@@ -117,7 +121,7 @@ _CATALOG_ITEMS = (
     {
         "key": "nickname",
         "title": "限定称呼",
-        "description": "约定一个限时或限场景的特别称呼。",
+        "description": "在约定期限内，用指定称呼叫对方。",
         "image_key": "/static/assets/exchange-shop/items/nickname.png?v=20260829",
         "audience": "common",
         "symbol": "#",
@@ -295,16 +299,77 @@ def _pair_is_bound(
     )
 
 
-def _expire_due(conn: sqlite3.Connection, now: datetime) -> None:
+def _pending_event_key(request_id: str) -> str:
+    return f"exchange:created:{request_id}"
+
+
+def _close_pending_notification(
+    conn: sqlite3.Connection, row: sqlite3.Row, *, now: datetime
+) -> None:
+    mark_notifications_read(
+        conn,
+        row["payer_type"],
+        row["payer_id"],
+        "exchange",
+        event_keys=[_pending_event_key(row["request_id"])],
+        read_at=_timestamp(now),
+    )
+
+
+def _notify_exchange_result(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    event_type: Literal["confirmed", "rejected", "expired"],
+    *,
+    now: datetime,
+) -> None:
+    summaries = {
+        "confirmed": f"兑换已确认：收到 {row['chip_amount']} 筹码",
+        "rejected": "兑换申请已被拒绝",
+        "expired": "兑换申请已过期",
+    }
+    create_notification(
+        conn,
+        row["initiator_type"],
+        row["initiator_id"],
+        "exchange",
+        event_type,
+        row["request_id"],
+        summaries[event_type],
+        event_key=f"exchange:{event_type}:{row['request_id']}",
+        created_at=_timestamp(now),
+    )
+
+
+def _expire_request(
+    conn: sqlite3.Connection, row: sqlite3.Row, *, now: datetime
+) -> bool:
+    if row["status"] != "pending":
+        return False
     stamp = _timestamp(now)
-    conn.execute(
+    updated = conn.execute(
         """
         UPDATE exchange_requests
         SET status = 'expired', closed_at = ?, updated_at = ?
-        WHERE status = 'pending' AND expires_at <= ?
+        WHERE request_id = ? AND status = 'pending'
         """,
-        (stamp, stamp, stamp),
-    )
+        (stamp, stamp, row["request_id"]),
+    ).rowcount
+    if not updated:
+        return False
+    _close_pending_notification(conn, row, now=now)
+    _notify_exchange_result(conn, row, "expired", now=now)
+    return True
+
+
+def _expire_due(conn: sqlite3.Connection, now: datetime) -> None:
+    stamp = _timestamp(now)
+    rows = conn.execute(
+        "SELECT * FROM exchange_requests WHERE status = 'pending' AND expires_at <= ?",
+        (stamp,),
+    ).fetchall()
+    for row in rows:
+        _expire_request(conn, row, now=now)
 
 
 def _new_request_id(conn: sqlite3.Connection) -> str:
@@ -377,16 +442,36 @@ def _request_payload(row: sqlite3.Row, viewer_type: SubjectType, viewer_id: str)
         "description": row["item_description"],
         "image_key": row["item_image_key"],
     }
+    display_title = row["custom_title"] or row["item_title"]
+    initiator = {"type": row["initiator_type"], "id": row["initiator_id"]}
+    payer = {"type": row["payer_type"], "id": row["payer_id"]}
+    initiator_label = (
+        "你" if viewer_is_initiator
+        else "人类" if row["initiator_type"] == "human" else "小机"
+    )
+    payer_label = (
+        "你" if viewer_is_payer
+        else "人类" if row["payer_type"] == "human" else "小机"
+    )
     return {
         "request_id": row["request_id"],
         "status": row["status"],
         "human_id": row["human_id"],
         "ai_id": row["ai_id"],
-        "initiator": {"type": row["initiator_type"], "id": row["initiator_id"]},
-        "payer": {"type": row["payer_type"], "id": row["payer_id"]},
+        "initiator": initiator,
+        "payer": payer,
+        "direction": {
+            "agreement_provider": "initiator",
+            "chip_payer": "payer",
+            "chip_recipient": "initiator",
+        },
+        "summary": (
+            f"{initiator_label}用「{display_title}」向{payer_label}换 "
+            f"{row['chip_amount']} 筹码"
+        ),
         "item": item,
         "custom_title": row["custom_title"],
-        "display_title": row["custom_title"] or row["item_title"],
+        "display_title": display_title,
         "request_note": row["request_note"],
         "chip_amount": row["chip_amount"],
         "awaiting_you": pending and viewer_is_payer,
@@ -477,9 +562,19 @@ def create_exchange_request(
         _record_operation(
             conn, initiator_type, initiator_id, key, "create", request_id, now
         )
-        return _request_payload(
-            _request_row(conn, request_id), initiator_type, initiator_id
+        created = _request_row(conn, request_id)
+        create_notification(
+            conn,
+            created["payer_type"],
+            created["payer_id"],
+            "exchange",
+            "created",
+            request_id,
+            f"兑换申请：需审批 {created['chip_amount']} 筹码",
+            event_key=_pending_event_key(request_id),
+            created_at=stamp,
         )
+        return _request_payload(created, initiator_type, initiator_id)
 
 
 def _daily_exchange_spend(
@@ -524,15 +619,7 @@ def confirm_exchange_request(
         if row["status"] != "pending":
             raise DuelError("这张兑换申请已不能确认", 409)
         if not _pair_is_bound(row, actor_type, bound_counterparty_id):
-            stamp = _timestamp(now)
-            conn.execute(
-                """
-                UPDATE exchange_requests
-                SET status = 'expired', closed_at = ?, updated_at = ?
-                WHERE request_id = ? AND status = 'pending'
-                """,
-                (stamp, stamp, request_id),
-            )
+            _expire_request(conn, row, now=now)
             unbound = True
         else:
             payer_wallet = _ensure_wallet(conn, row["payer_type"], row["payer_id"])
@@ -583,6 +670,8 @@ def confirm_exchange_request(
                 """,
                 (stamp, stamp, stamp, request_id),
             )
+            _close_pending_notification(conn, row, now=now)
+            _notify_exchange_result(conn, row, "confirmed", now=now)
             _record_operation(
                 conn, actor_type, actor_id, key, "confirm", request_id, now
             )
@@ -630,15 +719,7 @@ def close_exchange_request(
         if row["status"] != "pending":
             raise DuelError("这张兑换申请已不能处理", 409)
         if not _pair_is_bound(row, actor_type, bound_counterparty_id):
-            stamp = _timestamp(now)
-            conn.execute(
-                """
-                UPDATE exchange_requests
-                SET status = 'expired', closed_at = ?, updated_at = ?
-                WHERE request_id = ? AND status = 'pending'
-                """,
-                (stamp, stamp, request_id),
-            )
+            _expire_request(conn, row, now=now)
             unbound = True
         else:
             stamp = _timestamp(now)
@@ -650,6 +731,9 @@ def close_exchange_request(
                 """,
                 (target_status, stamp, stamp, request_id),
             )
+            _close_pending_notification(conn, row, now=now)
+            if action == "reject":
+                _notify_exchange_result(conn, row, "rejected", now=now)
             _record_operation(
                 conn, actor_type, actor_id, key, action, request_id, now
             )
@@ -677,15 +761,7 @@ def get_exchange_request(
         if row["status"] == "pending" and not _pair_is_bound(
             row, actor_type, bound_counterparty_id
         ):
-            stamp = _timestamp(now)
-            conn.execute(
-                """
-                UPDATE exchange_requests
-                SET status = 'expired', closed_at = ?, updated_at = ?
-                WHERE request_id = ?
-                """,
-                (stamp, stamp, request_id),
-            )
+            _expire_request(conn, row, now=now)
             row = _request_row(conn, request_id)
         return _request_payload(row, actor_type, actor_id)
 
@@ -715,17 +791,10 @@ def list_exchange_requests(
             """,
             (actor_id,),
         ).fetchall()
-        stamp = _timestamp(now)
         for pending in actor_pending:
             if pending["counterparty_id"] not in bound_ids:
-                conn.execute(
-                    """
-                    UPDATE exchange_requests
-                    SET status = 'expired', closed_at = ?, updated_at = ?
-                    WHERE request_id = ? AND status = 'pending'
-                    """,
-                    (stamp, stamp, pending["request_id"]),
-                )
+                pending_row = _request_row(conn, pending["request_id"])
+                _expire_request(conn, pending_row, now=now)
         if counterparty_id is not None and counterparty_id not in bound_ids:
             return {"pending_for_me": [], "waiting_for_other": [], "history": []}
         where = f"{column} = ?"
@@ -771,8 +840,9 @@ def compact_exchange_lists(payload: dict) -> dict:
             key: item[key]
             for key in (
                 "request_id", "status", "human_id", "ai_id", "initiator", "payer",
-                "item", "custom_title", "display_title", "request_note", "chip_amount",
-                "allowed_actions", "expires_at", "completed_at", "created_at",
+                "direction", "summary", "item", "custom_title", "display_title",
+                "request_note", "chip_amount", "allowed_actions", "expires_at",
+                "completed_at", "created_at",
             )
         }
 

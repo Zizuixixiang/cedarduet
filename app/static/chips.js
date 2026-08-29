@@ -28,6 +28,40 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+function unreadCount(category) {
+  return Number(summary?.unread?.categories?.[category] || 0);
+}
+
+function renderUnreadBadges() {
+  const specs = [
+    ["achievementUnreadBadge", "achievement", "成就"],
+    ["exchangeUnreadBadge", "exchange", "兑换"],
+    ["loanUnreadBadge", "loan", "借款"],
+  ];
+  for (const [elementId, category, label] of specs) {
+    const count = unreadCount(category);
+    const badge = $(elementId);
+    if (!badge) continue;
+    badge.textContent = String(count);
+    badge.classList.toggle("hidden", count <= 0);
+    badge.setAttribute("aria-label", `${label}（未读${count}）`);
+  }
+}
+
+async function ackUnreadCategory(category) {
+  if (!summary || document.hidden) return;
+  try {
+    const payload = await requestJson("/api/notifications/read", {
+      method: "POST",
+      body: JSON.stringify({category}),
+    });
+    summary.unread = payload.unread;
+    renderUnreadBadges();
+  } catch (_error) {
+    // Keep the selected module usable; a later visit retries the explicit ack.
+  }
+}
+
 function showNotice(message, isError = false) {
   const notice = $("notice");
   notice.textContent = message;
@@ -134,6 +168,14 @@ function activateModuleTab(selectedTab, moveFocus = false) {
     panel.hidden = panel.id !== selectedTab.dataset.panel;
   }
   if (moveFocus) selectedTab.focus();
+  const category = {
+    "panel-achievements": "achievement",
+    "panel-shop": "exchange",
+    "panel-loans": "loan",
+  }[selectedTab.dataset.panel];
+  if (category && typeof ackUnreadCategory === "function") {
+    void ackUnreadCategory(category);
+  }
 }
 
 function handleModuleTabKeydown(event) {
@@ -208,8 +250,8 @@ function renderSubject(subject, wallet, ledger, achievements = null, loans = nul
     : "我的永久成就；奖励在解锁时自动到账";
   $("exchangeTitle").textContent = readOnly ? `与 ${subject.name} 的互动商店` : "互动商店";
   $("exchangeDescription").textContent = readOnly
-    ? `申请方承诺完成小约定、由对方支付筹码；这里仅显示你与 ${subject.name} 的双向申请`
-    : "你用自己承诺完成的小约定向绑定小机换筹码；小机也可按同一规则向你申请";
+    ? `申请方先完成约定并收取筹码，审批方确认后支付；这里仅显示你与 ${subject.name} 的双向申请`
+    : "申请方先在常用聊天中完成约定并收取筹码，再由审批方确认并支付";
   $("socialTitle").textContent = readOnly ? `与 ${subject.name} 的欠条` : "欠条";
   $("socialDescription").textContent = readOnly
     ? `你与 ${subject.name} 的欠条；人类只能执行自己角色允许的操作`
@@ -534,7 +576,7 @@ function renderLoanActions(loan, card) {
   if (!loan.allowed_actions?.length) return;
   const box = document.createElement("div");
   box.className = "loan-actions";
-  const labels = {accept: "接受", reject: "拒绝", counter: "还价", withdraw: "撤销", repay: "还款"};
+  const labels = {accept: "接受", reject: "拒绝", counter: "改条件", withdraw: "撤销", repay: "还款"};
   for (const action of loan.allowed_actions) {
     const button = document.createElement("button");
     button.type = "button";
@@ -607,7 +649,7 @@ function renderLoans(loans) {
     }
     const terms = document.createElement("dl");
     terms.className = "loan-terms";
-    appendLoanTerm(terms, "revision / 还价", `${loan.revision} / ${loan.counter_count} 次`);
+    appendLoanTerm(terms, "revision / 改条件", `${loan.revision} / ${loan.counter_count} 次`);
     appendLoanTerm(terms, "本金 / 剩余本金", `${loan.principal} / ${loan.remaining_principal}`);
     appendLoanTerm(terms, "日利率", `${loan.daily_rate_percent}%`);
     appendLoanTerm(terms, "累计 / 已还利息", `${loan.lifetime_interest} / ${loan.interest_paid}`);
@@ -636,11 +678,6 @@ const exchangeStatusLabels = {
   withdrawn: "已撤回", expired: "已失效",
 };
 
-function exchangeSymbol(itemKey) {
-  const item = currentExchange?.catalog?.find((entry) => entry.key === itemKey);
-  return item?.symbol || "♡";
-}
-
 function syncExchangeTarget() {
   const select = $("exchangeMachineSelect");
   if (!select || !summary) return;
@@ -651,6 +688,26 @@ function syncExchangeTarget() {
     select.disabled = !summary.machines.length;
     if (!select.value && summary.machines.length) select.value = summary.machines[0].id;
   }
+  updateExchangeFormSummary();
+}
+
+function updateExchangeFormSummary() {
+  const itemKey = String($("exchangeItemKey")?.value || "");
+  const item = currentExchange?.catalog?.find((entry) => entry.key === itemKey);
+  if (!item) return;
+  const customTitle = item.key === "custom"
+    ? String($("exchangeCustomTitle")?.value || "").trim()
+    : "";
+  const displayTitle = customTitle || item.title;
+  const machineId = String($("exchangeMachineSelect")?.value || "");
+  const targetName = machineId ? machineName(machineId) : "绑定小机";
+  const amount = Number($("exchangeAmount")?.value);
+  const hasAmount = Number.isInteger(amount) && amount >= 1 && amount <= 100;
+  $("exchangeFormTitle").textContent = hasAmount
+    ? `你用「${displayTitle}」向 ${targetName} 换 ${amount} 筹码`
+    : `你用「${displayTitle}」向 ${targetName} 换筹码`;
+  $("exchangeFormDescription").textContent =
+    `请先在常用聊天中完成约定，再由 ${targetName} 确认并支付筹码；确认后筹码由你收取。`;
 }
 
 function openExchangeForm(item) {
@@ -660,8 +717,6 @@ function openExchangeForm(item) {
   }
   $("exchangeItemKey").value = item.key;
   $("exchangeFormSymbol").textContent = item.symbol || "♡";
-  $("exchangeFormTitle").textContent = `用「${item.title}」换筹码`;
-  $("exchangeFormDescription").textContent = `你承诺：${item.description} 对方确认后向你支付筹码。`;
   const custom = item.key === "custom";
   $("exchangeCustomTitleWrap").classList.toggle("hidden", !custom);
   $("exchangeCustomTitle").required = custom;
@@ -732,29 +787,54 @@ function renderExchangeRequest(item) {
   card.className = `exchange-request ${item.status}`;
   const titleRow = document.createElement("div");
   titleRow.className = "exchange-request-title";
-  const title = document.createElement("strong");
-  title.textContent = `${exchangeSymbol(item.item.key)} ${item.display_title}`;
+  const sentence = document.createElement("p");
+  sentence.className = "exchange-request-summary";
+  const machine = document.createElement("strong");
+  machine.className = "exchange-request-machine";
+  machine.textContent = item.machine_name || machineName(item.ai_id);
+  const amount = document.createElement("strong");
+  amount.className = "exchange-request-amount";
+  amount.textContent = `${item.chip_amount} 筹码`;
+  if (item.initiator.type === "human") {
+    sentence.append(
+      document.createTextNode(`你用「${item.display_title}」向 `),
+      machine,
+      document.createTextNode(" 换 "),
+      amount,
+    );
+  } else {
+    sentence.append(
+      machine,
+      document.createTextNode(` 用「${item.display_title}」向你换 `),
+      amount,
+    );
+  }
   const status = document.createElement("span");
   status.className = "exchange-status";
   status.textContent = exchangeStatusLabels[item.status] || item.status;
-  titleRow.append(title, status);
-  const direction = item.initiator.type === "human"
-    ? "人类履约换筹码 · 小机付款" : "小机履约换筹码 · 人类付款";
-  const meta = document.createElement("p");
-  meta.className = "exchange-request-meta";
-  meta.textContent = `${item.machine_name || machineName(item.ai_id)} · ${direction} · ${item.chip_amount} 枚`;
-  const description = document.createElement("p");
-  description.className = "exchange-request-meta";
-  description.textContent = item.item.description;
-  const note = document.createElement("p");
-  note.className = "exchange-request-note";
-  note.textContent = `本次说明：${item.request_note}`;
+  titleRow.append(sentence, status);
+  const agreement = document.createElement("div");
+  agreement.className = "exchange-request-detail";
+  const agreementLabel = document.createElement("span");
+  agreementLabel.className = "exchange-request-label";
+  agreementLabel.textContent = "约定";
+  const agreementText = document.createElement("p");
+  agreementText.textContent = item.item.description;
+  agreement.append(agreementLabel, agreementText);
+  const note = document.createElement("div");
+  note.className = "exchange-request-detail";
+  const noteLabel = document.createElement("span");
+  noteLabel.className = "exchange-request-label";
+  noteLabel.textContent = "本次说明";
+  const noteText = document.createElement("p");
+  noteText.textContent = item.request_note;
+  note.append(noteLabel, noteText);
   const time = document.createElement("p");
-  time.className = "exchange-request-meta";
+  time.className = "exchange-request-time";
   time.textContent = item.status === "pending"
-    ? `72 小时有效，至 ${formatLedgerCreatedAt(item.expires_at)}`
+    ? `有效期至 ${formatLedgerCreatedAt(item.expires_at)}`
     : `创建于 ${formatLedgerCreatedAt(item.created_at)}`;
-  card.append(titleRow, meta, description, note, time);
+  card.append(titleRow, agreement, note, time);
   if (item.allowed_actions?.length) {
     const actions = document.createElement("div");
     actions.className = "exchange-actions";
@@ -838,6 +918,7 @@ async function runExchangeAction(item, action) {
 async function loadSummary() {
   try {
     summary = await requestJson("/api/chips");
+    renderUnreadBadges();
     renderMachines(summary.machines);
     renderSubject(
       {type: "human", id: null, name: summary.human_name || "我"},
@@ -1052,8 +1133,14 @@ function initCreateForms() {
   const exchangeForm = $("exchangeCreateForm");
   exchangeForm.noValidate = true;
   exchangeForm.addEventListener("submit", handleExchangeCreateSubmit);
-  exchangeForm.addEventListener("input", () => clearFormError("exchangeFormError", exchangeForm));
-  exchangeForm.addEventListener("change", () => clearFormError("exchangeFormError", exchangeForm));
+  exchangeForm.addEventListener("input", () => {
+    clearFormError("exchangeFormError", exchangeForm);
+    updateExchangeFormSummary();
+  });
+  exchangeForm.addEventListener("change", () => {
+    clearFormError("exchangeFormError", exchangeForm);
+    updateExchangeFormSummary();
+  });
   $("exchangeCancelButton").addEventListener("click", () => {
     clearFormError("exchangeFormError", exchangeForm);
     exchangeForm.classList.add("hidden");

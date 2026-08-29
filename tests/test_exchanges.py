@@ -103,6 +103,10 @@ class ExchangeServiceTests(unittest.TestCase):
         serialized_human = json.dumps(human, ensure_ascii=False)
         for key in ("cyber_gift", "bedtime_story", "biased_fortune", "contrast_play"):
             self.assertNotIn(key, serialized_human)
+        nickname = next(item for item in human if item["key"] == "nickname")
+        self.assertEqual(
+            nickname["description"], "在约定期限内，用指定称呼叫对方。"
+        )
 
         secret = self.create("ai", "ai-1", "human-1")
         human_view = exchanges.list_exchange_requests(
@@ -138,16 +142,31 @@ class ExchangeServiceTests(unittest.TestCase):
         machine_request = self.create("ai", "ai-1", "human-1")
 
         self.assertEqual(human_request["payer"], {"type": "ai", "id": "ai-1"})
+        self.assertEqual(human_request["summary"], "你用「今天有好好生活」向小机换 10 筹码")
+        self.assertEqual(human_request["direction"], {
+            "agreement_provider": "initiator",
+            "chip_payer": "payer",
+            "chip_recipient": "initiator",
+        })
         self.assertEqual(human_request["allowed_actions"], ["withdraw"])
         ai_list = exchanges.list_exchange_requests(
             "ai", "ai-1", bound_counterparty_ids={"human-1"}
         )
         self.assertEqual(ai_list["pending_for_me"][0]["allowed_actions"], ["confirm", "reject"])
+        self.assertEqual(
+            ai_list["pending_for_me"][0]["summary"],
+            "人类用「今天有好好生活」向你换 10 筹码",
+        )
         self.assertEqual(machine_request["payer"], {"type": "human", "id": "human-1"})
+        self.assertEqual(machine_request["summary"], "你用「赛博小礼物」向人类换 10 筹码")
         human_list = exchanges.list_exchange_requests(
             "human", "human-1", bound_counterparty_ids={"ai-1"}
         )
         self.assertEqual(human_list["pending_for_me"][0]["request_id"], machine_request["request_id"])
+        self.assertEqual(
+            human_list["pending_for_me"][0]["summary"],
+            "小机用「赛博小礼物」向你换 10 筹码",
+        )
 
     def test_note_custom_amount_and_catalog_role_validation(self):
         invalid_cases = [
@@ -456,18 +475,39 @@ class ExchangeApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(
+            created.json()["request"]["summary"],
+            "你用「借我一眼人间」向小机换 12 筹码",
+        )
         request_id = created.json()["request"]["request_id"]
         catalog = await self.mcp(exchange_action="catalog")
+        self.assertEqual(catalog.json()["exchange_rule"], exchanges.EXCHANGE_RULE_SUMMARY)
         keys = {item["key"] for item in catalog.json()["catalog"]}
         self.assertIn("cyber_gift", keys)
         self.assertNotIn("world_glimpse", keys)
         listed = await self.mcp(exchange_action="list")
-        self.assertEqual(listed.json()["pending_approval"][0]["request_id"], request_id)
+        listed_request = listed.json()["pending_approval"][0]
+        self.assertEqual(listed.json()["exchange_rule"], exchanges.EXCHANGE_RULE_SUMMARY)
+        self.assertEqual(listed_request["request_id"], request_id)
+        self.assertEqual(
+            listed_request["summary"],
+            "人类用「借我一眼人间」向你换 12 筹码",
+        )
+        self.assertEqual(listed_request["direction"], {
+            "agreement_provider": "initiator",
+            "chip_payer": "payer",
+            "chip_recipient": "initiator",
+        })
         confirmed = await self.mcp(
             exchange_action="confirm", request_id=request_id,
             idempotency_key="mcp:exchange:confirm:1",
         )
         self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["exchange_rule"], exchanges.EXCHANGE_RULE_SUMMARY)
+        self.assertEqual(
+            confirmed.json()["request"]["summary"],
+            "人类用「借我一眼人间」向你换 12 筹码",
+        )
         self.assertEqual(confirmed.json()["wallet"]["balance"], 188)
         self.assertEqual(confirmed.json()["bound_human_balance"], 212)
 
@@ -478,6 +518,11 @@ class ExchangeApiTests(unittest.IsolatedAsyncioTestCase):
             idempotency_key="mcp:exchange:create:2",
         )
         self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["exchange_rule"], exchanges.EXCHANGE_RULE_SUMMARY)
+        self.assertEqual(
+            created.json()["request"]["summary"],
+            "你用「今夜有故事」向人类换 20 筹码",
+        )
         request_id = created.json()["request"]["request_id"]
         selected = await self.client.get(
             "/api/chips/machines/api-ai-1", headers=self.headers()

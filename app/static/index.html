@@ -29,7 +29,10 @@
             <strong id="humanChipBalance" class="chip-balance"
                     aria-label="当前人类筹码余额">—</strong>
           </a>
-          <a id="chipCenterLink" class="chip-center-button" href="/chips">筹码中心</a>
+          <a id="chipCenterLink" class="chip-center-button" href="/chips">
+            筹码中心<span id="chipCenterUnreadBadge" class="unread-badge hidden"
+              aria-label="筹码中心未读数量">0</span>
+          </a>
         </div>
       </div>
     </header>
@@ -146,7 +149,8 @@
             <div class="section-head">
               <div>
                 <span class="tag">ROOM LOG</span>
-                <h2>我的全部房间</h2>
+                <h2>我的全部房间 <span id="gameUnreadBadge" class="unread-badge hidden"
+                  aria-label="对局未读数量">0</span></h2>
               </div>
               <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
             </div>

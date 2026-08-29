@@ -122,10 +122,16 @@ class ChipCenterStructureTests(unittest.TestCase):
         ):
             self.attributes_for_id(element_id)
         self.assertIn("互动商店", HTML)
-        self.assertIn("申请方用自己承诺完成的小约定，向对方换筹码", HTML)
-        self.assertIn("申请方请在常用聊天中完成约定", HTML)
-        self.assertIn("发送换筹码申请", HTML)
+        self.assertIn("申请方完成约定并收取筹码，审批方确认后支付筹码", HTML)
+        self.assertIn("先由申请方在常用聊天中完成约定，再由对方确认并支付筹码", HTML)
+        self.assertIn("单次 1–100 · 每对最多 3 张待处理 · 付款方每日最多支付 100 · 72 小时失效", HTML)
+        self.assertEqual(HTML.count('class="exchange-limits"'), 1)
+        self.assertIn("发送申请", HTML)
         self.assertIn("希望对方支付的筹码数", HTML)
+        self.assertIn("本次说明：你会如何完成约定", HTML)
+        self.assertNotIn("人类履约换筹码 · 小机付款", SCRIPT)
+        self.assertNotIn("小机履约换筹码 · 人类付款", SCRIPT)
+        self.assertNotIn("72 小时有效", SCRIPT)
         self.assertNotIn("筹备中", HTML)
         self.assertNotIn("不支持人民币充值", HTML)
         self.assertIn('id="exchangeCreateForm" class="exchange-form hidden" autocomplete="off" novalidate', HTML)
@@ -154,7 +160,9 @@ class ChipCenterStructureTests(unittest.TestCase):
         requests = HTML[
             HTML.index('id="exchange-view-requests"'):HTML.index('id="exchange-view-history"')
         ]
-        self.assertLess(requests.index("待我确认"), requests.index("等待小机"))
+        self.assertLess(requests.index("待我确认付款"), requests.index("等待小机确认付款"))
+        self.assertIn("没有需要你确认付款的申请", SCRIPT)
+        self.assertIn("没有等待小机确认付款的申请", SCRIPT)
 
     def test_exchange_cards_are_two_columns_and_mobile_one_column(self):
         styles = (ROOT / "app" / "static" / "chips.css").read_text(encoding="utf-8")
@@ -165,8 +173,23 @@ class ChipCenterStructureTests(unittest.TestCase):
         self.assertIn(".exchange-art img", styles)
         self.assertIn("object-fit: contain", styles)
         self.assertIn(".exchange-art.has-image .exchange-art-fallback", styles)
-        self.assertIn("/static/chips.css?v=1.2.1", HTML)
-        self.assertIn("/static/chips.js?v=1.2.1", HTML)
+        self.assertIn("/static/chips.css?v=1.2.2", HTML)
+        self.assertIn("/static/chips.js?v=1.2.2", HTML)
+        self.assertIn(".exchange-request-summary", styles)
+        self.assertIn(".exchange-request-detail", styles)
+        self.assertIn(".exchange-request-time", styles)
+        form_actions = styles[
+            styles.index(".exchange-form-actions {"):
+            styles.index(".exchange-request-group +")
+        ]
+        request_actions = styles[
+            styles.index(".exchange-actions {"):
+            styles.index(".loan-form {")
+        ]
+        self.assertIn("flex-wrap: nowrap", form_actions)
+        self.assertIn("white-space: nowrap", form_actions)
+        self.assertIn("flex-wrap: nowrap", request_actions)
+        self.assertIn("white-space: nowrap", request_actions)
 
 
 @unittest.skipUnless(NODE, "node is required for frontend behavior tests")
@@ -524,17 +547,41 @@ async function main() {{
       image_key: "/static/assets/exchange-shop/items/custom.png?v=20260829",
       symbol: "+",
     }},
+    {{
+      key: "kiss", title: "亲亲赎回",
+      description: "在常用聊天里给对方一个只属于你们的亲亲。",
+      image_key: "/static/assets/exchange-shop/items/kiss.png?v=20260829",
+      symbol: "♥",
+    }},
   ];
   const wallet = {{
     balance: 200, checked_in_today: false, bankruptcy_active: false,
     bankruptcy_badge: null, bankruptcy_count: 0, can_declare_bankruptcy: false,
   }};
+  const requestBase = {{
+    request_id: "ex-test", status: "pending", ai_id: "ai-1",
+    request_note: "今晚在聊天里完成", chip_amount: 100,
+    expires_at: "2026-09-01T02:00:00+00:00",
+    created_at: "2026-08-29T02:00:00+00:00", machine_name: "Sirius",
+  }};
   const exchange = {{
-    catalog, pending_for_me: [], waiting_for_other: [], history: [],
+    catalog,
+    pending_for_me: [{{
+      ...requestBase, request_id: "ex-machine", display_title: "赛博小礼物",
+      item: {{key: "cyber_gift", description: "送上一份赛博小礼物。"}},
+      initiator: {{type: "ai", id: "ai-1"}}, allowed_actions: ["confirm", "reject"],
+    }}],
+    waiting_for_other: [{{
+      ...requestBase, request_id: "ex-human", display_title: "亲亲赎回",
+      item: {{key: "kiss", description: "先完成一个亲亲约定。"}},
+      initiator: {{type: "human", id: "human-1"}}, allowed_actions: ["withdraw"],
+    }}],
+    history: [],
   }};
   const basePayload = {{
     ok: true, human_name: "测试人类", wallet,
-    machines: [{{id: "ai-1", name: "测试小机"}}], ledger: [], loans: [], exchange,
+    machines: [{{id: "ai-1", name: "Sirius"}}, {{id: "ai-2", name: "Nova"}}],
+    ledger: [], loans: [], exchange,
     achievements: {{summary: {{unlocked: 0, total: 0, hidden_unlocked: 0}}, sections: []}},
   }};
   const calls = [];
@@ -600,6 +647,55 @@ main().catch((error) => {{
       machine_id: "ai-1", item_key: "good_life",
       request_note: "我会发一张今天窗外的照片", chip_amount: 12, custom_title: null,
     },
+  );
+""")
+
+    def test_exchange_form_summary_tracks_item_machine_and_amount(self):
+        self.run_dom(r"""
+  document.querySelector('[data-item-key="kiss"]').click();
+  const amount = document.getElementById("exchangeAmount");
+  amount.value = "100";
+  amount.dispatchEvent(new window.Event("input", {bubbles: true}));
+  assert.equal(
+    document.getElementById("exchangeFormTitle").textContent,
+    "你用「亲亲赎回」向 Sirius 换 100 筹码",
+  );
+  assert.match(
+    document.getElementById("exchangeFormDescription").textContent,
+    /先在常用聊天中完成约定，再由 Sirius 确认并支付筹码；确认后筹码由你收取/,
+  );
+  const machine = document.getElementById("exchangeMachineSelect");
+  machine.value = "ai-2";
+  machine.dispatchEvent(new window.Event("change", {bubbles: true}));
+  assert.equal(
+    document.getElementById("exchangeFormTitle").textContent,
+    "你用「亲亲赎回」向 Nova 换 100 筹码",
+  );
+""")
+
+    def test_exchange_request_cards_use_relative_sentences_and_compact_layers(self):
+        self.run_dom(r"""
+  const humanCard = document.querySelector("#exchangeWaitingList .exchange-request");
+  assert.equal(
+    humanCard.querySelector(".exchange-request-summary").textContent,
+    "你用「亲亲赎回」向 Sirius 换 100 筹码",
+  );
+  assert.equal(humanCard.querySelector(".exchange-request-machine").textContent, "Sirius");
+  assert.equal(humanCard.querySelector(".exchange-request-amount").textContent, "100 筹码");
+  assert.deepEqual(
+    [...humanCard.querySelectorAll(".exchange-request-label")].map((node) => node.textContent),
+    ["约定", "本次说明"],
+  );
+  assert.match(humanCard.querySelector(".exchange-request-time").textContent, /^有效期至 /);
+
+  const machineCard = document.querySelector("#exchangePendingList .exchange-request");
+  assert.equal(
+    machineCard.querySelector(".exchange-request-summary").textContent,
+    "Sirius 用「赛博小礼物」向你换 100 筹码",
+  );
+  assert.equal(
+    machineCard.querySelector(".exchange-actions .primary").textContent,
+    "确认并支付筹码",
   );
 """)
 

@@ -208,6 +208,22 @@ footer {
   font-weight: 800;
   cursor: pointer;
 }
+.unread-badge {
+  min-width: 18px;
+  height: 18px;
+  margin-left: 5px;
+  padding: 1px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #d72f65;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+}
 
 .module-tab[aria-selected="true"] {
   border-color: var(--ink);
@@ -279,14 +295,17 @@ footer {
 
 .exchange-card, .loans-card { background: rgba(255, 249, 253, 0.94); }
 .exchange-boundary {
-  margin: 11px 0 0;
-  padding: 8px 9px;
-  border: 1px dashed var(--pink-dark);
-  color: #70425f;
-  background: #fff1f8;
-  font-size: 0.7rem;
-  font-weight: 800;
-  line-height: 1.45;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.exchange-limits {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1.35;
 }
 .exchange-tabs {
   display: grid;
@@ -414,8 +433,20 @@ footer {
   font-weight: 800;
   line-height: 1.45;
 }
-.exchange-form-actions { display: flex; gap: 7px; margin-top: 10px; }
-.exchange-form-actions .button { flex: 1; }
+.exchange-form-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 10px;
+}
+.exchange-form-actions .button {
+  flex: 0 0 auto;
+  min-width: 86px;
+  min-height: 36px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
 .exchange-request-group + .exchange-request-group { margin-top: 15px; padding-top: 13px; border-top: 2px dashed var(--line); }
 .exchange-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .panel-state.urgent { border-color: #b51f55; color: #fff; background: #d8245d; }
@@ -431,16 +462,21 @@ footer {
 .exchange-request.completed { border-color: #548565; background: #f3fff7; }
 .exchange-request.rejected, .exchange-request.withdrawn, .exchange-request.expired { color: #6f6672; background: #f1edf0; }
 .exchange-request-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.exchange-request-title strong { font-size: 0.78rem; overflow-wrap: anywhere; }
+.exchange-request-summary { flex: 1; min-width: 0; margin: 0; font-size: 0.73rem; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
+.exchange-request-summary strong { font-size: inherit; font-weight: 900; }
+.exchange-request-machine { color: var(--ink); }
+.exchange-request-amount { color: var(--pink-dark); white-space: nowrap; }
 .exchange-status { flex: 0 0 auto; padding: 2px 5px; color: #fff; background: var(--lilac); font-size: 0.62rem; font-weight: 900; }
 .exchange-request.completed .exchange-status { background: #4d8062; }
 .exchange-request.rejected .exchange-status,
 .exchange-request.withdrawn .exchange-status,
 .exchange-request.expired .exchange-status { background: #776c78; }
-.exchange-request-meta { margin: 5px 0 0; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
-.exchange-request-note { margin: 7px 0 0; padding: 7px; background: var(--soft); font-size: 0.7rem; line-height: 1.45; overflow-wrap: anywhere; }
-.exchange-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.exchange-actions .button { min-height: 32px; padding: 5px 8px; font-size: 0.68rem; }
+.exchange-request-detail { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; margin-top: 6px; align-items: start; }
+.exchange-request-label { padding: 1px 4px; color: var(--muted); background: var(--soft); font-size: 0.6rem; font-weight: 900; line-height: 1.4; }
+.exchange-request-detail p { margin: 0; font-size: 0.68rem; line-height: 1.4; overflow-wrap: anywhere; }
+.exchange-request-time { margin: 6px 0 0; color: var(--muted); font-size: 0.61rem; line-height: 1.35; }
+.exchange-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.exchange-actions .button { flex: 0 1 auto; min-width: 0; min-height: 32px; padding: 5px 8px; font-size: 0.68rem; white-space: nowrap; }
 
 .loan-form { margin-top: 12px; padding: 11px; border: 2px solid var(--line); background: #fff; }
 .loan-form h3, .loan-list-heading h3 { margin: 0; font-size: 0.88rem; }

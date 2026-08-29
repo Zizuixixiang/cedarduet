@@ -433,6 +433,11 @@ def init_db() -> None:
         except Exception:
             conn.rollback()
             raise
+        # Historical achievement backfill runs before the notification table
+        # exists, so upgrading cannot manufacture fresh unread events.
+        from .notifications import init_notifications_schema
+
+        init_notifications_schema(conn)
     finally:
         conn.close()
 

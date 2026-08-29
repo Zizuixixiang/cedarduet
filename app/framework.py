@@ -8,6 +8,7 @@ from typing import Literal
 from .database import connect, decode_room, write_transaction
 from .games import get_game
 from .games.base import MoveResult
+from .notifications import create_notification, mark_notifications_read
 from .npc_personas import PersonaConfigError, load_personas
 
 Role = Literal["human", "ai"]
@@ -161,6 +162,68 @@ def _participant_by_id(room: dict, player_id: str | None) -> dict | None:
         ),
         None,
     )
+
+
+def _participant_subject(participant: dict) -> tuple[Role, str] | None:
+    kind = participant.get("participant_kind")
+    if kind == "human":
+        return "human", participant["player_id"]
+    if kind == "bound_machine":
+        return "ai", participant["player_id"]
+    return None
+
+
+def _notify_game_participants(
+    conn,
+    room: dict,
+    *,
+    event_type: str,
+    summary: str,
+    event_key: str,
+    exclude_player_ids: set[str] | None = None,
+    only_player_ids: set[str] | None = None,
+    created_at: str | None = None,
+) -> None:
+    excluded = exclude_player_ids or set()
+    for participant in room.get("participants", []):
+        player_id = participant["player_id"]
+        if player_id in excluded:
+            continue
+        if only_player_ids is not None and player_id not in only_player_ids:
+            continue
+        subject = _participant_subject(participant)
+        if subject is None:
+            continue
+        create_notification(
+            conn,
+            subject[0],
+            subject[1],
+            "game",
+            event_type,
+            room["room_id"],
+            summary,
+            event_key=event_key,
+            created_at=created_at,
+        )
+
+
+def _close_room_invitation_notifications(
+    conn, room: dict, *, player_ids: set[str] | None = None, read_at: str | None = None
+) -> None:
+    for participant in room.get("participants", []):
+        if player_ids is not None and participant["player_id"] not in player_ids:
+            continue
+        subject = _participant_subject(participant)
+        if subject is None:
+            continue
+        mark_notifications_read(
+            conn,
+            subject[0],
+            subject[1],
+            "game",
+            event_keys=[f"game:created:{room['room_id']}"],
+            read_at=read_at,
+        )
 
 
 def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
@@ -1097,17 +1160,38 @@ def _expire_pending_invitations(conn, room_id: str | None = None) -> int:
     if room_id is not None:
         room_clause = " AND room_id = ?"
         params.append(room_id)
-    cursor = conn.execute(
+    rows = conn.execute(
         f"""
-        DELETE FROM rooms
+        SELECT * FROM rooms
         WHERE status = 'pending'
           AND confirmation_expires_at IS NOT NULL
           AND datetime(confirmation_expires_at) <= datetime(?)
           {room_clause}
         """,
         params,
-    )
-    return cursor.rowcount
+    ).fetchall()
+    timestamp = _now()
+    for row in rows:
+        room = decode_room(row, conn)
+        pending_ids = {
+            item["player_id"]
+            for item in room.get("confirmations", [])
+            if item["decision"] == "pending"
+        }
+        _close_room_invitation_notifications(
+            conn, room, player_ids=pending_ids, read_at=timestamp
+        )
+        _notify_game_participants(
+            conn,
+            room,
+            event_type="invitation_expired",
+            summary=f"{get_game(room['game_type']).display_name}邀请已过期",
+            event_key=f"game:invitation_expired:{room['room_id']}",
+            only_player_ids={room["initiator_player_id"]},
+            created_at=timestamp,
+        )
+        conn.execute("DELETE FROM rooms WHERE room_id = ?", (room["room_id"],))
+    return len(rows)
 
 
 def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
@@ -1155,6 +1239,14 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
 
         record_terminal_room(
             conn, terminal_room, "stale_archive", normal=False
+        )
+        _notify_game_participants(
+            conn,
+            terminal_room,
+            event_type="finished",
+            summary=f"{get_game(terminal_room['game_type']).display_name}房间已结束",
+            event_key=f"game:finished:{terminal_room['room_id']}",
+            created_at=timestamp,
         )
     return len(stale_rows)
 
@@ -1595,6 +1687,20 @@ def create_room(
         from .achievements import record_room_created
 
         room["achievement_unlocks"] = record_room_created(conn, room)
+        game_name = game.display_name
+        _notify_game_participants(
+            conn,
+            room,
+            event_type="created",
+            summary=(
+                f"{game_name}邀请：需确认 {stake} 筹码"
+                if confirmation_required
+                else f"对方新建了{game_name}房间"
+            ),
+            event_key=f"game:created:{room_id}",
+            exclude_player_ids={player_id},
+            created_at=timestamp,
+        )
     return _decorate(room)
 
 
@@ -1646,10 +1752,26 @@ def respond_to_invitation(
                     f"🪙{room['stake']}/人" if room["stake"] > 0 else "娱乐局"
                 ),
             }
+            timestamp = _now()
+            _close_room_invitation_notifications(
+                conn, room, player_ids={player_id}, read_at=timestamp
+            )
+            _notify_game_participants(
+                conn,
+                room,
+                event_type="invitation_rejected",
+                summary=f"对方拒绝了 {room['stake']} 筹码邀请",
+                event_key=f"game:invitation_rejected:{room_id}:{player_id}",
+                exclude_player_ids={player_id},
+                created_at=timestamp,
+            )
             conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
             return cancelled
 
         timestamp = _now()
+        _close_room_invitation_notifications(
+            conn, room, player_ids={player_id}, read_at=timestamp
+        )
         conn.execute(
             """
             UPDATE room_confirmations
@@ -1698,6 +1820,15 @@ def respond_to_invitation(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
         result = decode_room(updated, conn)
+        _notify_game_participants(
+            conn,
+            result,
+            event_type="invitation_accepted",
+            summary=f"对方已接受 {room['stake']} 筹码邀请",
+            event_key=f"game:invitation_accepted:{room_id}:{player_id}",
+            exclude_player_ids={player_id},
+            created_at=timestamp,
+        )
     return _decorate(result)
 
 
@@ -2359,6 +2490,16 @@ def play_move(
             record_special_move(conn, result, actor, move)
         )
         result["achievement_unlocks"] = achievement_unlocks
+        if result["status"] == "finished":
+            _notify_game_participants(
+                conn,
+                result,
+                event_type="finished",
+                summary=f"{game.display_name}对局已结束",
+                event_key=f"game:finished:{room_id}",
+                exclude_player_ids={player_id},
+                created_at=timestamp,
+            )
     return _decorate(result)
 
 
@@ -2393,6 +2534,17 @@ def leave_room(
                 "status": "cancelled",
                 "stake": room.get("stake", 0),
             }
+            timestamp = _now()
+            _close_room_invitation_notifications(conn, room, read_at=timestamp)
+            _notify_game_participants(
+                conn,
+                room,
+                event_type="left",
+                summary=f"对方离开了{get_game(room['game_type']).display_name}房间",
+                event_key=f"game:left:{room_id}:{player_id}",
+                exclude_player_ids={player_id},
+                created_at=timestamp,
+            )
             conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
             return cancelled
         if room["status"] not in {"waiting", "playing"}:
@@ -2457,7 +2609,17 @@ def leave_room(
                 conn, room_id, role, player_id, updated["revision"],
                 event_type="leave", text=message,
             )
-            return _decorate(decode_room(updated, conn))
+            result = decode_room(updated, conn)
+            _notify_game_participants(
+                conn,
+                result,
+                event_type="left",
+                summary=f"对方离开了{game.display_name}房间",
+                event_key=f"game:left:{room_id}:{player_id}",
+                exclude_player_ids={player_id},
+                created_at=timestamp,
+            )
+            return _decorate(result)
 
         conn.execute(
             """
@@ -2549,6 +2711,15 @@ def leave_room(
             result["achievement_unlocks"] = record_terminal_room(
                 conn, result, "participant_left", normal=False
             )
+        _notify_game_participants(
+            conn,
+            result,
+            event_type="left",
+            summary=f"对方离开了{game.display_name}房间",
+            event_key=f"game:left:{room_id}:{player_id}",
+            exclude_player_ids={player_id},
+            created_at=timestamp,
+        )
     return _decorate(result)
 
 
@@ -2684,4 +2855,13 @@ def resign(
                 "resignation",
                 normal=result.get("winner_player_id") is not None,
             )
+        _notify_game_participants(
+            conn,
+            result,
+            event_type="resigned",
+            summary=f"对方在{get_game(result['game_type']).display_name}中认输",
+            event_key=f"game:resigned:{room_id}:{player_id}",
+            exclude_player_ids={player_id},
+            created_at=timestamp,
+        )
     return _decorate(result)

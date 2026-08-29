@@ -121,6 +121,7 @@ button, select { cursor: pointer; }
 }
 .chip-balance-link,
 .chip-center-button {
+  position: relative;
   height: 36px;
   min-height: 36px;
   display: inline-flex;
@@ -170,6 +171,28 @@ button, select { cursor: pointer; }
   background: rgba(134, 120, 160, .78);
   font-size: 10px;
   font-weight: 700;
+}
+.unread-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 1px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #d72f65;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: middle;
+}
+.chip-center-button .unread-badge {
+  position: absolute;
+  top: -9px;
+  right: -9px;
 }
 .chip-balance-link:hover,
 .chip-center-button:hover {

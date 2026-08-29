@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from .chips import _apply_balance_change, _ensure_wallet
 from .database import write_transaction
 from .framework import DuelError
+from .notifications import create_notification, mark_notifications_read
 
 SubjectType = Literal["human", "ai"]
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -308,6 +309,82 @@ def _counterparty(row: sqlite3.Row, actor_type: SubjectType, actor_id: str) -> t
     return row["borrower_type"], row["borrower_id"]
 
 
+def _proposal_event_key(loan_id: str, revision: int) -> str:
+    return f"loan:proposal:{loan_id}:revision:{revision}"
+
+
+def _notify_proposal(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    revision: int,
+    *,
+    event_type: Literal["created", "countered"],
+    now: datetime,
+) -> None:
+    terms = _revision_row(conn, row["loan_id"], revision)
+    summary = (
+        f"借款提案：{terms['principal']} 筹码，待你回应"
+        if event_type == "created"
+        else f"借款条件已修改：{terms['principal']} 筹码，待你回应"
+    )
+    create_notification(
+        conn,
+        terms["recipient_type"],
+        terms["recipient_id"],
+        "loan",
+        event_type,
+        row["loan_id"],
+        summary,
+        event_key=_proposal_event_key(row["loan_id"], revision),
+        created_at=_timestamp(now),
+    )
+
+
+def _close_proposal_notification(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    revision: int,
+    *,
+    now: datetime,
+) -> None:
+    terms = _revision_row(conn, row["loan_id"], revision)
+    mark_notifications_read(
+        conn,
+        terms["recipient_type"],
+        terms["recipient_id"],
+        "loan",
+        event_keys=[_proposal_event_key(row["loan_id"], revision)],
+        read_at=_timestamp(now),
+    )
+
+
+def _notify_loan_result(
+    conn: sqlite3.Connection,
+    subject_type: SubjectType,
+    subject_id: str,
+    row: sqlite3.Row,
+    event_type: Literal["accepted", "rejected", "expired"],
+    *,
+    now: datetime,
+) -> None:
+    summaries = {
+        "accepted": "借款提案已接受，本金已转账",
+        "rejected": "借款提案已被拒绝",
+        "expired": "借款提案已过期",
+    }
+    create_notification(
+        conn,
+        subject_type,
+        subject_id,
+        "loan",
+        event_type,
+        row["loan_id"],
+        summaries[event_type],
+        event_key=f"loan:{event_type}:{row['loan_id']}:revision:{row['current_revision']}",
+        created_at=_timestamp(now),
+    )
+
+
 def _active_debt_count(conn: sqlite3.Connection, subject_type: str, subject_id: str) -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM loans WHERE borrower_type = ? AND borrower_id = ? AND status IN ('active', 'overdue')",
@@ -380,11 +457,23 @@ def _accrue_interest(
 
 def _refresh_one(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> sqlite3.Row:
     if row["status"] == "negotiating" and _parse_timestamp(row["proposal_expires_at"]) <= now:
+        revision = row["current_revision"]
+        terms = _revision_row(conn, row["loan_id"], revision)
+        _close_proposal_notification(conn, row, revision, now=now)
         conn.execute(
             "UPDATE loans SET status = 'expired', awaiting_type = NULL, awaiting_id = NULL, updated_at = ? WHERE loan_id = ?",
             (_timestamp(now), row["loan_id"]),
         )
-        return _loan_row(conn, row["loan_id"])
+        updated = _loan_row(conn, row["loan_id"])
+        _notify_loan_result(
+            conn,
+            terms["proposer_type"],
+            terms["proposer_id"],
+            updated,
+            "expired",
+            now=now,
+        )
+        return updated
     if row["status"] not in {"active", "overdue"}:
         return row
     became_overdue = (
@@ -395,6 +484,21 @@ def _refresh_one(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> s
         conn, row, now, status="overdue" if became_overdue else row["status"]
     )
     if became_overdue:
+        for subject_type, subject_id in (
+            (updated["borrower_type"], updated["borrower_id"]),
+            (updated["lender_type"], updated["lender_id"]),
+        ):
+            create_notification(
+                conn,
+                subject_type,
+                subject_id,
+                "loan",
+                "overdue",
+                updated["loan_id"],
+                "借款已逾期",
+                event_key=f"loan:overdue:{updated['loan_id']}:{subject_type}:{subject_id}",
+                created_at=_timestamp(now),
+            )
         from .achievements import record_loan_event
 
         record_loan_event(
@@ -495,7 +599,9 @@ def create_loan(
             conn, actor_type=borrower_type, actor_id=borrower_id, key=key,
             action="create", loan_id=loan_id, revision=1, now=now,
         )
-        return _loan_payload(conn, _loan_row(conn, loan_id), borrower_type, borrower_id)
+        created = _loan_row(conn, loan_id)
+        _notify_proposal(conn, created, 1, event_type="created", now=now)
+        return _loan_payload(conn, created, borrower_type, borrower_id)
 
 
 def counter_loan(
@@ -527,7 +633,7 @@ def counter_loan(
         _assert_binding(row, bound_counterparty_id)
         _assert_revision(row, revision)
         if row["status"] != "negotiating":
-            raise DuelError("只有未生效且未过期的提案可以还价", 409)
+            raise DuelError("只有未生效且未过期的提案可以改条件", 409)
         if (row["awaiting_type"], row["awaiting_id"]) != (actor_type, actor_id):
             raise DuelError("当前还没轮到你回应这张欠条", 409)
         current = _revision_row(conn, loan_id, revision)
@@ -537,7 +643,8 @@ def counter_loan(
             and int(terms[3]) == current["interest_cap_enabled"]
             and terms[2] == current["due_date"]
         ):
-            raise DuelError("还价至少需要改变一项条款")
+            raise DuelError("改条件至少需要改变一项条款")
+        _close_proposal_notification(conn, row, revision, now=now)
         other_type, other_id = _counterparty(row, actor_type, actor_id)
         next_revision = revision + 1
         expires = _timestamp(now + PROPOSAL_LIFETIME)
@@ -566,7 +673,11 @@ def counter_loan(
             conn, actor_type=actor_type, actor_id=actor_id, key=key,
             action="counter", loan_id=loan_id, revision=next_revision, now=now,
         )
-        return _loan_payload(conn, _loan_row(conn, loan_id), actor_type, actor_id)
+        countered = _loan_row(conn, loan_id)
+        _notify_proposal(
+            conn, countered, next_revision, event_type="countered", now=now
+        )
+        return _loan_payload(conn, countered, actor_type, actor_id)
 
 
 def accept_loan(
@@ -594,6 +705,8 @@ def accept_loan(
             raise DuelError("只有当前未生效提案可以接受", 409)
         if (row["awaiting_type"], row["awaiting_id"]) != (actor_type, actor_id):
             raise DuelError("当前没轮到你接受这张欠条", 409)
+        other_type, other_id = _counterparty(row, actor_type, actor_id)
+        _close_proposal_notification(conn, row, revision, now=now)
         terms = _revision_row(conn, loan_id, revision)
         _validate_due_date(terms["due_date"], now)
         lender = _ensure_wallet(conn, row["lender_type"], row["lender_id"])
@@ -656,7 +769,11 @@ def accept_loan(
                 ),
             },
         )
-        return _loan_payload(conn, _loan_row(conn, loan_id), actor_type, actor_id)
+        activated = _loan_row(conn, loan_id)
+        _notify_loan_result(
+            conn, other_type, other_id, activated, "accepted", now=now
+        )
+        return _loan_payload(conn, activated, actor_type, actor_id)
 
 
 def close_proposal(
@@ -683,10 +800,13 @@ def close_proposal(
             if (row["awaiting_type"], row["awaiting_id"]) != (actor_type, actor_id):
                 raise DuelError("只有当前收到提案的一方可以拒绝", 403)
             status = "rejected"
+            other_type, other_id = _counterparty(row, actor_type, actor_id)
         else:
             if (row["initiator_type"], row["initiator_id"]) != (actor_type, actor_id):
                 raise DuelError("只有借款发起人可以撤销提案", 403)
             status = "withdrawn"
+            other_type = other_id = None
+        _close_proposal_notification(conn, row, revision, now=now)
         conn.execute(
             "UPDATE loans SET status = ?, awaiting_type = NULL, awaiting_id = NULL, updated_at = ? WHERE loan_id = ?",
             (status, _timestamp(now), loan_id),
@@ -695,7 +815,12 @@ def close_proposal(
             conn, actor_type=actor_type, actor_id=actor_id, key=key,
             action=action, loan_id=loan_id, revision=revision, now=now,
         )
-        return _loan_payload(conn, _loan_row(conn, loan_id), actor_type, actor_id)
+        closed = _loan_row(conn, loan_id)
+        if action == "reject" and other_type is not None and other_id is not None:
+            _notify_loan_result(
+                conn, other_type, other_id, closed, "rejected", now=now
+            )
+        return _loan_payload(conn, closed, actor_type, actor_id)
 
 
 def repay_loan(
@@ -778,6 +903,21 @@ def repay_loan(
             amount=payment, interest=interest, principal=principal, now=now,
         )
         updated = _loan_row(conn, loan_id)
+        create_notification(
+            conn,
+            updated["lender_type"],
+            updated["lender_id"],
+            "loan",
+            "repaid" if fully_repaid else "repayment",
+            loan_id,
+            (
+                f"借款已还清：收到 {payment} 筹码"
+                if fully_repaid
+                else f"收到部分还款 {payment} 筹码"
+            ),
+            event_key=f"loan:repayment:{loan_id}:{actor_type}:{actor_id}:{key}",
+            created_at=_timestamp(now),
+        )
         from .achievements import record_loan_event
 
         if not fully_repaid:

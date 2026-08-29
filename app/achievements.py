@@ -112,7 +112,7 @@ ACHIEVEMENT_CATALOG: tuple[AchievementDefinition, ...] = (
     _definition("loan_three_ontime_repayments", "一诺千金", "累计 3 张欠条按时还清", "loan", ("human", "ai"), 20, 3),
     _definition("loan_lend_to_negative_borrower", "雪中送炭", "借款人负余额时成功出借", "loan", ("human", "ai"), 10),
     _definition("loan_debt_free_after_three", "无债一身轻", "同时有 3 张债务后全部还清", "loan", ("human", "ai"), 20),
-    _definition("loan_pair_counter_activated", "有商有量", "同一对人机还价后激活欠条", "relationship", ("human", "ai"), 5),
+    _definition("loan_pair_counter_activated", "有商有量", "同一对人机改条件后激活欠条", "relationship", ("human", "ai"), 5),
     _definition("loan_pair_bidirectional", "有来有往", "同一绑定组合双向借款均成功", "relationship", ("human", "ai"), 10, 2),
 
     _definition("jungle_rat_captures_elephant", "大象也怕老鼠", "斗兽棋中权威地用老鼠吃掉大象", "hidden", ("human", "ai"), 10, hidden=True),
@@ -978,6 +978,23 @@ def _unlock(
             reference_type="achievement", reference_id=achievement_id,
             metadata={"achievement_name": definition.name, "context_key": context_key},
         )
+    from .notifications import create_notification
+
+    create_notification(
+        conn,
+        subject_type,
+        subject_id,
+        "achievement",
+        "unlocked",
+        achievement_id,
+        (
+            f"成就「{definition.name}」已解锁，奖励 {definition.reward} 筹码"
+            if definition.reward > 0
+            else f"成就「{definition.name}」已解锁"
+        ),
+        event_key=f"achievement:unlocked:{achievement_id}:{context_key or 'global'}",
+        created_at=unlocked_at,
+    )
     payload = {
         "subject_type": subject_type,
         "subject_id": subject_id,

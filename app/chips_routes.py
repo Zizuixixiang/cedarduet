@@ -45,6 +45,7 @@ from .models import (
     LoanDecisionBody,
     LoanRepaymentBody,
 )
+from .notifications import ack_explicit_achievement_unlocks, unread_summary
 
 ROOT = Path(__file__).resolve().parent
 CHIPS_HTML = (ROOT / "static" / "chips.html").read_text(encoding="utf-8")
@@ -133,14 +134,16 @@ def create_chips_router(
         machine_ids = {machine["id"] for machine in machines}
         loans = list_loans("human", human_id, bound_counterparty_ids=machine_ids)
         achievements = get_achievements("human", human_id)
+        exchange = named_exchange_payload(human_id, machines)
         return {
             "ok": True,
             "human_name": human_name,
             "wallet": get_wallet("human", human_id),
+            "unread": unread_summary("human", human_id),
             "machines": machines,
             "ledger": list_ledger("human", human_id),
             "loans": loans,
-            "exchange": named_exchange_payload(human_id, machines),
+            "exchange": exchange,
             "achievements": achievements,
             "rules": {
                 "initial_balance": INITIAL_BALANCE,
@@ -194,6 +197,7 @@ def create_chips_router(
         unlocks = filter_unlocks(
             result.pop("unlocks", []), "human", human_id
         )
+        ack_explicit_achievement_unlocks("human", human_id, unlocks)
         return {
             "ok": True,
             **result,
@@ -218,6 +222,7 @@ def create_chips_router(
         unlocks = filter_unlocks(
             wallet.pop("unlocks", []), "human", human_id
         )
+        ack_explicit_achievement_unlocks("human", human_id, unlocks)
         return {
             "ok": True,
             "wallet": wallet,
@@ -308,7 +313,7 @@ def create_chips_router(
         )
         return {
             **human_exchange_payload(request, human_id, created),
-            "message": "兑换申请已发给小机，记得去常用聊天里完成约定。",
+            "message": "申请已发送；请先在常用聊天中完成约定，再等小机确认并支付筹码。",
         }
 
     @router.post("/api/chips/exchanges/{request_id}/confirm")
@@ -457,7 +462,7 @@ def create_chips_router(
         )
         return {
             **human_loan_payload(request, human_id, loan),
-            "message": "还价已生成新 revision，等待小机回应。",
+            "message": "新条件已生成新 revision，等待小机回应。",
         }
 
     @router.post("/api/chips/loans/{loan_id}/repay")

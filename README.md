@@ -131,7 +131,8 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - `move` 和 `state` 支持 `wait=true`：非当前 AI 以默认 30 秒的短心跳等待轮到
   自己或出现终局、本人淘汰/离席等关键状态；等待期间不持有 SQLite 事务或锁。
   `DUEL_MCP_WAIT_SECONDS` 可配置为 1–45 秒，且不影响 NPC provider timeout。
-- 普通发言、其他人的行动和轮结算只进入未读队列，不会提前结束非行动者的挂等；
+- 普通发言、其他人的行动和轮结算只进入房间增量事件队列（不属于持久化未读通知），
+  不会提前结束非行动者的挂等；
   每个参与者拥有独立事件 cursor，轮到自己时一次读取，一个参与者不会替其他人消费。
 - 插件通过 `public_state` / `private_state` / `project_event` 明确区分公共局面、
   当前查看者私有局面和 compact 事件；所有 Web 与 MCP 房间读取都以已认证
@@ -333,7 +334,7 @@ canonical AI 自己的钱包，绑定人类余额只读。`achievements` 返回�
 已启用 NPC 与当前可信绑定人类的“你们之间”成就；未解锁隐藏成就完全不返回。
 `loans` 是显式欠条入口，提供 list/create/accept/reject/counter/withdraw/repay；
 `exchange` 提供 catalog/list/create/confirm/reject/withdraw。普通 status、房间和
-对局响应不会夹带欠条、逾期或兑换提醒。
+对局响应不会夹带欠条、逾期或兑换明细，只会在确有未读时附加统一计数与入口提示。
 ledger 默认 5 条、硬上限 10。小机可对已正常结束且原阵容不含随机 NPC 的房间提交
 `{"action":"rematch","room_id":"..."}` 发起对称、权威、可追踪的重赛。
 
@@ -352,6 +353,7 @@ POST /api/rooms/{room_id}/leave
 POST /api/rooms/{room_id}/invitation
 POST /api/rooms/{room_id}/retention
 POST /api/rooms/{room_id}/delete
+POST /api/notifications/read
 GET  /api/chips
 GET  /api/chips/machines/{machine_id}
 GET  /api/chips/exchanges/catalog
@@ -363,6 +365,35 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 ```
 
 终局保留和删除仅允许该房间中的可信人类参与者操作。
+
+`GET /api/whoami` 与 `GET /api/chips` 都返回同一人类主体的 `unread` 计数，但 GET
+绝不自动清除。网页只在房间列表/详情确实可见，或用户实际切到欠条、互动商店、成就
+tab 后，才调用 `POST /api/notifications/read`；请求体只允许 `category` 与可选的
+`reference_id`，主体始终取可信 `X-Duel-Human-Player`，不能由 body 自报。
+
+## 未读通知
+
+人类与绑定小机共用一张 additive `notifications` 表和完全相同的事件语义。通知只分
+`game`、`loan`、`exchange`、`achievement` 四类；普通落子、轮到谁、聊天、签到、流水、
+破产都不进入这套未读。每行保存主体、类别、事件类型、引用、短摘要、创建/已读时间和
+稳定 `event_key`，`UNIQUE(subject_type, subject_id, event_key)` 保证业务重试不重复。
+
+所有 MCP 成功响应在确有未读时才附加结构固定的计数和最短入口提示：
+
+```json
+{
+  "unread": {
+    "total": 3,
+    "categories": {"game": 1, "loan": 1, "exchange": 0, "achievement": 1}
+  },
+  "unread_hint": "对局（未读1）→rooms；借款（未读1）→chips/loans；成就（未读1）→chips/achievements"
+}
+```
+
+摘要只读计数。小机实际调用 `rooms`、`chips/loans` 的 `list`、`chips/exchange` 的
+`list`、`chips/achievements` 时，响应才返回该类短 `notices` 并原子标为已读。终局已经
+在当前小机的 move/state/wait 响应中交付、或成就已在当前响应的 `unlocks` 中明确交付
+时，也同步确认对应通知，避免同一结果再出现红点。系统 NPC 从不拥有通知。
 
 网页创建控件按游戏 metadata 渲染：`allowed_player_counts=[2]` 时仍是原有单选
 小机流程；只有插件允许多人时才显示其明确声明的桌型、多选绑定小机、NPC 补位
@@ -397,8 +428,8 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 - 所有筹码变化进入统一账本流水
 - 人类目录仅含人类专属与双方通用商品；小机目录仅含小机专属与双方通用商品，
   小机专属名称、说明和图片键只会随小机已经发出的申请快照展示给人类
-- 想获得筹码的一方发起并承诺完成商品内容，另一方付款审批；说明 1–120 字、
-  筹码 1–100，`custom` 另需 1–30 字标题
+- 想获得筹码的一方发起申请，先在常用聊天中完成承诺的小约定，再由另一方确认并
+  支付筹码；申请方收取筹码。说明 1–120 字、筹码 1–100，`custom` 另需 1–30 字标题
 - 每对绑定最多 3 张待处理申请，72 小时自动失效；付款方按 Asia/Shanghai 自然日
   累计兑换支出最多 100 枚
 - 付款方只可确认或拒绝，发起方审批前只可撤回；确认时重验绑定与余额，并原子写入
@@ -408,13 +439,13 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 - 商品卡优先显示 `app/static/assets/exchange-shop/items/` 中的正式插画，加载失败时
   回退到轻量 CSS/符号占位；三张原始宫格图保存在相邻 `source/`
 - 只有借款人能发起欠条；人类从筹码中心发起，小机从显式 MCP `chips/loans` 发起
-- 当前收到方可接受、拒绝或还价；还价生成新 revision，旧接受立即失效；发起人只可在生效前撤销
+- 当前收到方可接受、拒绝或改条件；改条件生成新 revision，旧接受立即失效；发起人只可在生效前撤销
 - 每名借款人最多 3 张未结欠条；逾期会阻止新借款，但不影响对局、签到、破产处理和还款
 - 接受时重新校验出借人余额并原子转账；仅借款人可正整数部分/全额还款，先抵利息再抵本金
 - 到期日按上海日期计算，至少次日且最终接受日起最多 30 天；当天结束后才逾期，提案 3 天过期
 - 日利率以整数微百分比保存（1,000,000 单位 = 1%/日），按剩余本金和实际秒数单利累计；余数跨段携带、只对完整整数利息向下取整
 - 利息封顶默认开启，欠条终身计收利息（含已还）最多等于原始本金；关闭时持续单利累计并在网页警示
-- 解绑、破产不会删除或减免生效债务；旧债仍可审计、还款，但接受/还价仍要求当前绑定
+- 解绑、破产不会删除或减免生效债务；旧债仍可审计、还款，但接受/改条件仍要求当前绑定
 - 双人旧游戏及首批多人验收游戏的自定义本局筹码、全员确认和幂等结算
 - 普通成就完整显示条件、可靠进度、奖励和解锁时间；未解锁为灰色
 - 隐藏成就未解锁前不进入 API、MCP、网页或公开总数，解锁后才进入隐藏区
@@ -424,7 +455,8 @@ POST /api/chips/loans/{loan_id}/{accept|reject|counter|withdraw|repay}
 - 成就终局快照、参与者结果、开局余额、事件、配对与进度独立于 `rooms` 持久化，
   删除房间不会删除成就事实
 
-数据库初始化保持增量兼容：成就、互动兑换、`loans`、`loan_revisions`、`loan_operations` 表及索引
+数据库初始化保持增量兼容：成就、互动兑换、`loans`、`loan_revisions`、`loan_operations`、
+`notifications` 表及索引
 使用 `CREATE ... IF NOT EXISTS`，不改写现有钱包/账本，也不会从普通旧流水猜测历史欠条。
 房间仅增加
 `terminal_reason` 与权威重赛链字段，不重建或覆盖已兼容旧库。启动回填只接受最终
@@ -517,8 +549,6 @@ NPC 项只在对应 `persona_id` 实际启用时公开；全收集项要求六�
 从落后反胜”的统一权威分差，因此只保留隐藏定义，不设置猜测型触发器。连续同对手
 0 筹码与重赛链采用严格双人窄口径，重赛链只取逐局直接相连的最长路径、不会把同一
 旧局派生出的并行分支相加；“7 个完整自然日”按上海日期之间不含首尾的完整日数计算。
-
-尚未实现的内容会继续分阶段加入：互动交换。
 
 ## 数据与隐私
 
