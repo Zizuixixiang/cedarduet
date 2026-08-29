@@ -1546,6 +1546,13 @@ def create_room(
     try:
         if first_player_id is None:
             first_player_id = game.first_player_id(participants, mode)
+        # A room-local hint lets hidden-information plugins align their first
+        # private legal-action projection even when callers nominate an
+        # explicit opener and therefore bypass ``game.first_player_id``.
+        for participant in participants:
+            participant["_opening_player"] = (
+                participant["player_id"] == first_player_id
+            )
         state = game.initialize(participants)
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc
