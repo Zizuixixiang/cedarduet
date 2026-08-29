@@ -81,7 +81,21 @@ ROOT = Path(__file__).resolve().parent
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 STYLES_CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-MAX_CONCURRENT_WAITS = 20
+
+
+def _parse_max_concurrent_waits(raw: str) -> int:
+    try:
+        count = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("DUEL_MAX_CONCURRENT_WAITS 必须是 1–500 的整数") from exc
+    if not 1 <= count <= 500:
+        raise ValueError("DUEL_MAX_CONCURRENT_WAITS 必须是 1–500 的整数")
+    return count
+
+
+MAX_CONCURRENT_WAITS = _parse_max_concurrent_waits(
+    os.getenv("DUEL_MAX_CONCURRENT_WAITS", "20")
+)
 
 
 def _parse_mcp_wait_seconds(raw: str) -> float:

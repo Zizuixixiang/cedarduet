@@ -321,6 +321,15 @@ class CapacityFrameworkTests(unittest.TestCase):
         self.assertEqual(cursors, [("ai-two", 0), ("human-two", 1)])
 
 
+class WaitCapacityConfigTests(unittest.TestCase):
+    def test_wait_capacity_parser_accepts_gateway_scale_and_rejects_bad_values(self):
+        self.assertEqual(main_module._parse_max_concurrent_waits("20"), 20)
+        self.assertEqual(main_module._parse_max_concurrent_waits("200"), 200)
+        for value in ("0", "501", "abc", "2.5"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                main_module._parse_max_concurrent_waits(value)
+
+
 class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="duel-wait-capacity-")
