@@ -321,8 +321,43 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   justify-content: space-between;
   gap: 16px;
 }
-.lobby-header h1 { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); }
+.lobby-header h1 { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); white-space: nowrap; }
+.lobby-header-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
 .hero-pair { color: var(--pink-dark); font-size: 13px; line-height: 1.5; text-align: right; }
+.lobby-refresh-button {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--purple-darker);
+  background: #fff;
+  border: 3px solid var(--purple);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 rgba(190, 177, 209, .4);
+  font-family: system-ui, sans-serif;
+  font-size: 25px;
+  line-height: 1;
+}
+.lobby-refresh-button:hover { color: var(--pink-dark); border-color: var(--pink); }
+.lobby-refresh-button:focus-visible {
+  outline: 3px solid var(--pink-dark);
+  outline-offset: 3px;
+}
+.lobby-refresh-button:disabled { cursor: wait; opacity: .7; }
+.lobby-refresh-icon { display: block; }
+.lobby-refresh-button.is-refreshing .lobby-refresh-icon {
+  animation: lobby-refresh-spin .7s linear infinite;
+}
+@keyframes lobby-refresh-spin { to { transform: rotate(360deg); } }
 .hero-art {
   width: min(360px, 38vw);
   height: 104px;
@@ -980,8 +1015,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   align-items: center;
   justify-content: flex-start;
   color: var(--pink-dark);
-  background: rgba(230, 168, 177, .1);
-  border: 1px solid rgba(230, 168, 177, .58);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 2px;
   line-height: 1;
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
@@ -992,15 +1027,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .room-copy-button:hover {
   color: var(--pink-dark);
-  background: rgba(230, 168, 177, .2);
-  border-color: var(--pink);
+  background: rgba(230, 168, 177, .1);
 }
 .room-copy-button:focus-visible {
-  outline: 2px solid var(--pink);
+  outline: 2px solid rgba(204, 112, 132, .5);
   outline-offset: 1px;
   color: var(--pink-dark);
-  background: rgba(230, 168, 177, .2);
-  border-color: var(--pink-dark);
+  background: rgba(230, 168, 177, .12);
 }
 .result-banner {
   width: min(920px, 100%);
@@ -2413,7 +2446,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .gate-view { min-height: 420px; padding: 24px 16px; }
   .lobby-header { min-height: 46px; padding-inline: 1px; }
   .lobby-header h1 { font-size: 21px; }
-  .hero-pair { max-width: 55%; font-size: 12px; }
+  .lobby-header-actions { flex: 0 1 auto; gap: 7px; }
+  .hero-pair { min-width: 0; max-width: 48vw; font-size: 12px; overflow-wrap: anywhere; }
+  .lobby-refresh-button {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+  }
   .section-panel { padding: 12px; }
   .create-panel { padding: 10px; }
   .create-form { grid-template-columns: 1fr; }

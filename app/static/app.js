@@ -850,7 +850,13 @@ function updateCreateButtonState() {
 
 function syncMachinePicker(machines) {
   const select = $("aiPlayer");
+  const previousSingleSelection = select.value;
+  const previousMultipleSelections = new Set(selectedMachineIds);
+  const availableMachineIds = new Set(machines.map((machine) => machine.id));
   selectedMachineIds.clear();
+  previousMultipleSelections.forEach((playerId) => {
+    if (availableMachineIds.has(playerId)) selectedMachineIds.add(playerId);
+  });
   selectedMachineWallets.clear();
   machineWalletRequest += 1;
   select.replaceChildren();
@@ -879,7 +885,11 @@ function syncMachinePicker(machines) {
   // 单机时只有一个 option，保持可见可读；原生 disabled 在部分移动端会显示为空。
   select.disabled = false;
   select.dataset.locked = machines.length === 1 ? "true" : "false";
-  if (machines.length === 1) select.value = machines[0].id;
+  if (availableMachineIds.has(previousSingleSelection)) {
+    select.value = previousSingleSelection;
+  } else if (machines.length === 1) {
+    select.value = machines[0].id;
+  }
   configureParticipantPicker();
   machineSelectionChanged();
 }
@@ -1004,7 +1014,7 @@ async function loadIdentity({quiet = false} = {}) {
       stopPolling();
       $("pairLabel").textContent = "LOGIN REQUIRED";
       showView("unboundView");
-      return;
+      return false;
     }
     identity = data;
     $("pairLabel").textContent = data.identity_label;
@@ -1017,6 +1027,7 @@ async function loadIdentity({quiet = false} = {}) {
     renderRooms((data.rooms || []).filter((item) => !incoming.has(item.room_id)));
     if (!room) showView("lobbyView");
     if (!quiet) showNotice("");
+    return true;
   } catch (error) {
     identity = null;
     room = null;
@@ -1024,6 +1035,23 @@ async function loadIdentity({quiet = false} = {}) {
     $("pairLabel").textContent = "OFFLINE";
     showView("unboundView");
     if (!quiet) toast(error.message);
+    return false;
+  }
+}
+
+async function refreshLobbyIdentity() {
+  const button = $("refreshLobbyButton");
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add("is-refreshing");
+  button.setAttribute("aria-busy", "true");
+  try {
+    const refreshed = await loadIdentity();
+    if (refreshed) showNotice("大厅数据已刷新");
+  } finally {
+    button.disabled = false;
+    button.classList.remove("is-refreshing");
+    button.setAttribute("aria-busy", "false");
   }
 }
 
@@ -2522,6 +2550,7 @@ $("fillWithNpcs").addEventListener("change", renderCreateSeatPreview);
 $("gameType").addEventListener("change", configureParticipantPicker);
 $("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);
+$("refreshLobbyButton").addEventListener("click", refreshLobbyIdentity);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());

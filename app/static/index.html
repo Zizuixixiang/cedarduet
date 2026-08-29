@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.0">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.1">
 </head>
 <body>
   <div class="app">
@@ -55,7 +55,13 @@
           <div>
             <h1>双弈</h1>
           </div>
-          <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
+          <div class="lobby-header-actions">
+            <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
+            <button id="refreshLobbyButton" class="lobby-refresh-button" type="button"
+                    title="刷新大厅数据" aria-label="刷新大厅数据" aria-busy="false">
+              <span class="lobby-refresh-icon" aria-hidden="true">↻</span>
+            </button>
+          </div>
         </div>
 
         <p id="notice" class="notice" role="status"></p>
@@ -354,6 +360,6 @@
   </div>
 
   <div id="toast" class="pixel-toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=0.9.0"></script>
+  <script src="/static/app.js?v=0.9.1"></script>
 </body>
 </html>

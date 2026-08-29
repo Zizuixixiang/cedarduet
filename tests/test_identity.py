@@ -205,8 +205,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             html,
         )
         self.assertNotIn("← 返回首页", html)
-        self.assertIn("/static/app.js?v=0.9.0", html)
-        self.assertIn("/static/styles.css?v=0.9.0", html)
+        self.assertIn("/static/app.js?v=0.9.1", html)
+        self.assertIn("/static/styles.css?v=0.9.1", html)
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)
