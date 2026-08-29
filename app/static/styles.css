@@ -884,26 +884,39 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   white-space: nowrap;
   font-size: 13px;
 }
-.room-copy-button {
-  min-width: 0;
-  min-height: 30px;
-  padding: 3px 5px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--purple-darker);
-  background: #fff;
-  border: 2px solid var(--purple);
-}
-.room-copy-button strong {
+.room-number-value {
   max-width: 148px;
   font-variant-numeric: tabular-nums;
   user-select: all;
 }
+.room-copy-button {
+  min-width: 32px;
+  min-height: 30px;
+  padding: 3px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  line-height: 1;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
 .room-copy-label {
-  color: var(--pink-dark);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
+}
+.room-copy-button:hover {
+  color: var(--purple-darker);
+  background: rgba(230, 223, 240, .52);
+  border-color: rgba(190, 177, 209, .72);
+}
+.room-copy-button:focus-visible {
+  outline: 2px solid var(--purple-dark);
+  outline-offset: 1px;
+  color: var(--purple-darker);
+  background: rgba(230, 223, 240, .52);
 }
 .result-banner {
   width: min(920px, 100%);
@@ -2148,8 +2161,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-meta-label { font-size: 9px; }
   .game-meta strong { font-size: 12px; }
   .room-number-item { flex: 0 1 auto; }
-  .room-copy-button { min-height: 40px; padding: 3px 4px; }
-  .room-copy-button strong { max-width: 86px; }
+  .room-number-value { max-width: 86px; }
+  .room-copy-button { min-width: 40px; min-height: 40px; padding: 3px 4px; }
   .room-copy-label { font-size: 8px; }
   .result-banner {
     padding: 10px;

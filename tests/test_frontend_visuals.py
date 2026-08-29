@@ -111,6 +111,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         secondary = header[header.index('class="game-meta-line game-meta-secondary"'):]
         self.assertLess(primary.index('id="roomId"'), primary.index('id="status"'))
         self.assertLess(primary.index('id="status"'), primary.index('id="roomStake"'))
+        self.assertLess(primary.index('id="roomId"'), primary.index('id="copyRoomButton"'))
         self.assertIn('id="copyRoomButton"', primary)
         self.assertIn("房间号", primary)
         self.assertIn("筹码", primary)
@@ -122,6 +123,35 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertNotIn('$("revision")', render_game)
         self.assertIn("authoritativeRoundText(room)", render_game)
         self.assertIn('revision: room.revision', SCRIPT)
+
+    def test_room_number_is_plain_text_with_subtle_accessible_copy_control(self):
+        primary = HTML[
+            HTML.index('class="game-meta-line game-meta-primary"'):
+            HTML.index('class="game-meta-line game-meta-secondary"')
+        ]
+        copy_start = primary.index('<button id="copyRoomButton"')
+        copy_end = primary.index("</button>", copy_start)
+        copy_button = primary[copy_start:copy_end]
+        self.assertNotIn('id="roomId"', copy_button)
+        self.assertIn('type="button"', copy_button)
+        self.assertIn('aria-label="复制房间号"', copy_button)
+        self.assertIn('aria-hidden="true">复制</span>', copy_button)
+
+        copy_styles = STYLES[
+            STYLES.index(".room-copy-button {"):
+            STYLES.index(".result-banner {")
+        ]
+        self.assertIn("background: transparent;", copy_styles)
+        self.assertIn("border: 1px solid transparent;", copy_styles)
+        self.assertNotIn("background: #fff;", copy_styles)
+        self.assertIn(".room-copy-button:hover", copy_styles)
+        self.assertIn(".room-copy-button:focus-visible", copy_styles)
+        self.assertIn("outline: 2px solid var(--purple-dark);", copy_styles)
+        self.assertIn(
+            '$("copyRoomButton").setAttribute("aria-label", '
+            "`复制房间号 ${room.room_id}`);",
+            function_source("renderGame"),
+        )
 
     def test_two_player_rows_remain_and_multiplayer_uses_compact_roster(self):
         self.assertIn('id="opponentRow" class="player-row opponent-row"', HTML)
@@ -572,7 +602,7 @@ assert.ok(!bubble.classList.contains("seat-1"));
         self.assertIn("grid-column: 1 / -1", mobile)
         self.assertIn(".layout-top-row .room-participants { justify-content: flex-start; }", mobile)
         self.assertIn(".viewer-participant-slot { padding: 0 2px; }", mobile)
-        self.assertIn(".room-copy-button { min-height: 40px;", mobile)
+        self.assertIn(".room-copy-button { min-width: 40px; min-height: 40px;", mobile)
         self.assertIn(".shared-speech {\n    width: min(430px, 100%);", mobile)
 
 
