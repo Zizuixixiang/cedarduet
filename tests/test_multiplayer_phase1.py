@@ -256,7 +256,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 12)
+        self.assertEqual(len(production), 13)
         for game_type in (
             "tictactoe", "gomoku", "othello", "connect4", "banqi",
             "checkers", "chess", "jungle", "xiangqi"
@@ -275,6 +275,16 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         )
         self.assertTrue(production["yahtzee"]["supports_npcs"])
         self.assertFalse(production["yahtzee"]["supports_stakes"])
+        self.assertEqual(production["aeroplane_chess"]["category"], "board")
+        self.assertEqual(
+            production["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4]
+        )
+        self.assertEqual(production["aeroplane_chess"]["recommended_players"], 4)
+        self.assertTrue(production["aeroplane_chess"]["supports_npcs"])
+        self.assertTrue(production["aeroplane_chess"]["supports_stakes"])
+        self.assertTrue(
+            production["aeroplane_chess"]["supports_multiplayer_stakes"]
+        )
         with self.assertRaisesRegex(framework.DuelError, "最多允许 2"):
             framework.create_room(
                 "tictactoe", "human_first", "human", "human-1",
