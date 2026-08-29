@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 12)
+        self.assertEqual(len(payload["games"]), 13)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -152,6 +152,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "yahtzee": "dice",
                 "jungle": "board",
                 "xiangqi": "board",
+                "chinese_checkers": "board",
             },
         )
         self.assertEqual(
@@ -169,11 +170,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "yahtzee": "快艇骰子",
                 "jungle": "斗兽棋",
                 "xiangqi": "象棋",
+                "chinese_checkers": "中国跳棋",
             },
         )
         self.assertEqual(games["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertEqual(games["yahtzee"]["allowed_player_counts"], [2, 3, 4, 5, 6])
+        self.assertEqual(games["chinese_checkers"]["allowed_player_counts"], [2, 3, 4, 6])
         self.assertTrue(games["yahtzee"]["supports_npcs"])
         self.assertFalse(games["yahtzee"]["supports_stakes"])
         self.assertEqual(
@@ -264,6 +267,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         for game_type in (
             "tictactoe", "gomoku", "othello",
             "connect4", "banqi", "checkers", "chess", "dots_boxes", "jungle", "xiangqi",
+            "chinese_checkers",
         ):
             self.assertIn(f'value="{game_type}"', html)
         game_select = html[

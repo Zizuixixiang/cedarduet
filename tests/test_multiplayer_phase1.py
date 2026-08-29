@@ -256,7 +256,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 12)
+        self.assertEqual(len(production), 13)
         for game_type in (
             "tictactoe", "gomoku", "othello", "connect4", "banqi",
             "checkers", "chess", "jungle", "xiangqi"
@@ -267,6 +267,10 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         self.assertEqual(production["liars_dice"]["category"], "dice")
         self.assertEqual(production["yahtzee"]["category"], "dice")
         self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
+        self.assertEqual(
+            production["chinese_checkers"]["allowed_player_counts"], [2, 3, 4, 6]
+        )
+        self.assertTrue(production["chinese_checkers"]["supports_multiplayer_stakes"])
         self.assertEqual(
             production["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
