@@ -67,6 +67,8 @@ renderer 必须实现同步的 `renderBoard(context)`。还可实现：
   容器每次重绘前都会清空。
 - `usesStandardMoveConfirmation: false`：隐藏通用“落子”确认条。此时专属控件通常
   应调用 `context.helpers.submitMove(payload)`，并自行提供可访问的按钮、状态和禁用态。
+- `ownsPrivateStatePresentation: true`：renderer 已在自己的桌面中呈现手牌等私有状态，
+  宿主不再重复显示通用 JSON 私有状态面板。未声明时保留通用面板作为降级展示。
 
 `context` 每次渲染都会重建；除 `uiState` 外都应视为只读：
 

@@ -1130,10 +1130,13 @@ def _attach_multiplayer_settlement(
     state: dict,
     game_result: dict,
 ) -> dict:
-    """Require and validate an opted-in plugin's exact multiplayer payout."""
-    if room.get("stake", 0) <= 0 or len(room.get("participants", [])) <= 2:
+    """Require and validate an opted-in plugin's exact custom payout."""
+    participant_count = len(room.get("participants", []))
+    if room.get("stake", 0) <= 0:
         return game_result
-    if not game.supports_multiplayer_stakes:
+    if participant_count <= 2 and not game.uses_custom_stake_settlement:
+        return game_result
+    if participant_count > 2 and not game.supports_multiplayer_stakes:
         raise DuelError("多人房间尚未定义筹码结算规则")
     result = dict(game_result)
     deltas = result.get("settlement_deltas")
@@ -1546,7 +1549,7 @@ def create_room(
     try:
         if first_player_id is None:
             first_player_id = game.first_player_id(participants, mode)
-        state = game.initialize(participants)
+        state = game.initialize_for_first_player(participants, first_player_id)
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc
     state["marks_by_player"] = {
@@ -1981,7 +1984,7 @@ def join_room(
         )
         try:
             first_player_id = game.first_player_id(prospective, room["mode"])
-            state = game.initialize(prospective)
+            state = game.initialize_for_first_player(prospective, first_player_id)
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
         state["marks_by_player"] = token_by_player
@@ -2578,7 +2581,7 @@ def leave_room(
                 return {"room_id": room_id, "status": "cancelled", "stake": 0}
             try:
                 first_player_id = game.first_player_id(remaining, room["mode"])
-                state = game.initialize(remaining)
+                state = game.initialize_for_first_player(remaining, first_player_id)
             except (KeyError, TypeError, ValueError) as exc:
                 raise DuelError(f"游戏插件初始化失败：{exc}") from exc
             state["marks_by_player"] = {

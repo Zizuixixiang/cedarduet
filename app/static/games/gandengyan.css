@@ -1,0 +1,624 @@
+.board.gandengyan {
+  width: min(100%, 860px);
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+}
+
+.gandengyan-game,
+.gandengyan-game * {
+  box-sizing: border-box;
+}
+
+.gandengyan-game {
+  --felt: #174f42;
+  --felt-deep: #0b3029;
+  --felt-light: #27725f;
+  --ivory: #fffaf0;
+  --ink: #24302d;
+  --gold: #e7bd65;
+  --red: #b82f3c;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  color: #f8f3e7;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.gandengyan-topbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px;
+  color: #34403d;
+}
+
+.gandengyan-title,
+.gandengyan-metrics,
+.gandengyan-opponent-header,
+.gandengyan-hand-label,
+.gandengyan-trick-heading,
+.gandengyan-action-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.gandengyan-title {
+  min-width: 0;
+  gap: 8px;
+  letter-spacing: .08em;
+}
+
+.gandengyan-title-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #6d262c;
+  border-radius: 9px;
+  color: #fff9ed;
+  background: linear-gradient(145deg, #c8454e, #8f252e);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.18), 0 3px 8px rgba(68,31,33,.2);
+  font-family: serif;
+  font-size: 21px;
+}
+
+.gandengyan-title strong {
+  overflow: hidden;
+  font-family: serif;
+  font-size: clamp(18px, 4vw, 25px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gandengyan-metrics {
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.gandengyan-metric {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid #d8cdbb;
+  border-radius: 999px;
+  color: #655b50;
+  background: #fffaf1;
+  font-size: clamp(11px, 2.6vw, 14px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.gandengyan-metric.multiplier {
+  border-color: #d7af5e;
+  color: #6f4d0f;
+  background: #fff2c9;
+}
+
+.gandengyan-table-shell {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(190px, auto) auto;
+  gap: clamp(10px, 2vw, 18px);
+  padding: clamp(12px, 2.8vw, 24px) clamp(8px, 2.4vw, 20px) clamp(9px, 2vw, 17px);
+  overflow: hidden;
+  border: clamp(5px, 1vw, 9px) solid #68482f;
+  border-radius: clamp(19px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 50% 44%, rgba(81,151,124,.32), transparent 44%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.018) 0 2px, transparent 2px 7px),
+    linear-gradient(150deg, var(--felt-light), var(--felt) 48%, var(--felt-deep));
+  box-shadow:
+    inset 0 0 0 2px rgba(244,211,148,.34),
+    inset 0 0 42px rgba(0,0,0,.28),
+    0 13px 30px rgba(31,51,44,.24);
+}
+
+.gandengyan-table-shell::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  pointer-events: none;
+  border: 1px solid rgba(234,205,143,.35);
+  border-radius: inherit;
+}
+
+.gandengyan-opponents {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(5px, 1.5vw, 12px);
+}
+
+.gandengyan-opponent {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 7px clamp(6px, 1.4vw, 11px);
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 12px;
+  background: rgba(4,34,28,.42);
+  box-shadow: inset 0 1px rgba(255,255,255,.08);
+}
+
+.gandengyan-opponent.current {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(231,189,101,.2), inset 0 1px rgba(255,255,255,.1);
+}
+
+.gandengyan-opponent.passed {
+  opacity: .64;
+}
+
+.gandengyan-opponent-header {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 5px;
+  font-size: clamp(10px, 2.4vw, 13px);
+}
+
+.gandengyan-opponent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gandengyan-opponent-state {
+  flex: 0 0 auto;
+  color: #e9d8b9;
+  font-size: .88em;
+}
+
+.gandengyan-card-backs {
+  min-width: 0;
+  min-height: 42px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 32px;
+}
+
+.gandengyan-card-back {
+  width: clamp(25px, 4.8vw, 38px);
+  height: clamp(36px, 6.8vw, 54px);
+  flex: 0 0 auto;
+  margin-right: clamp(-18px, -2.5vw, -11px);
+  border: 2px solid #f5e7c9;
+  border-radius: 5px;
+  background:
+    linear-gradient(45deg, transparent 42%, rgba(255,255,255,.25) 43% 48%, transparent 49%),
+    linear-gradient(-45deg, transparent 42%, rgba(255,255,255,.17) 43% 48%, transparent 49%),
+    #983843;
+  background-size: 10px 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,.25);
+}
+
+.gandengyan-card-count {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #253b34;
+  background: #f7e7be;
+  font-size: clamp(10px, 2.2vw, 12px);
+  white-space: nowrap;
+}
+
+.gandengyan-trick {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.gandengyan-trick-number {
+  color: #dfcfad;
+  font-size: 11px;
+  letter-spacing: .14em;
+}
+
+.gandengyan-trick-heading {
+  min-width: 0;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.gandengyan-trick-heading strong {
+  color: #fff6df;
+  font-family: serif;
+  font-size: clamp(16px, 3.6vw, 21px);
+}
+
+.gandengyan-trick-heading span {
+  color: #d9e7df;
+  font-size: clamp(10px, 2.5vw, 13px);
+}
+
+.gandengyan-trick-cards {
+  width: 100%;
+  min-width: 0;
+  min-height: 105px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 18px;
+  overflow: hidden;
+}
+
+.gandengyan-trick-cards .gandengyan-card + .gandengyan-card {
+  margin-left: clamp(-27px, -3.2vw, -13px);
+}
+
+.gandengyan-trick-cards .gandengyan-card {
+  transform: rotate(calc((var(--trick-index, 0) - 2) * 1.2deg));
+  box-shadow: 0 5px 10px rgba(0,0,0,.28);
+}
+
+.gandengyan-empty-trick,
+.gandengyan-empty-hand {
+  display: grid;
+  place-items: center;
+  min-height: 58px;
+  padding: 10px 18px;
+  border: 1px dashed rgba(255,255,255,.34);
+  border-radius: 12px;
+  color: #d5e1db;
+  font-size: 13px;
+}
+
+.gandengyan-pass-line {
+  min-height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+}
+
+.gandengyan-pass-chip,
+.gandengyan-no-pass {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #f9edce;
+  background: rgba(4,31,26,.5);
+  font-size: 11px;
+}
+
+.gandengyan-no-pass {
+  color: #aac5ba;
+  background: transparent;
+}
+
+.gandengyan-hand-zone {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 5px;
+}
+
+.gandengyan-hand-label {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.gandengyan-hand-label span {
+  color: #cfe0d8;
+  white-space: nowrap;
+}
+
+.gandengyan-hand-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 122px;
+  display: flex;
+  align-items: end;
+  padding: 17px 10px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scroll-padding-inline: 10px;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gandengyan-hand-scroll .gandengyan-card + .gandengyan-card {
+  margin-left: clamp(-16px, -2vw, -8px);
+}
+
+.gandengyan-card {
+  width: clamp(58px, 10vw, 78px);
+  height: clamp(88px, 15vw, 116px);
+  min-width: 58px;
+  min-height: 88px;
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid #c7bdaa;
+  border-radius: clamp(7px, 1.4vw, 10px);
+  color: #202622;
+  background: linear-gradient(145deg, #fffdf7, #eee8dc);
+  box-shadow: 0 4px 8px rgba(0,0,0,.24), inset 0 0 0 1px rgba(255,255,255,.8);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+button.gandengyan-card {
+  min-width: 58px;
+  min-height: 88px;
+  cursor: pointer;
+  transform: rotate(var(--fan-angle, 0deg));
+  transform-origin: 50% 100%;
+  transition: transform 130ms ease, box-shadow 130ms ease, filter 130ms ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gandengyan-card.suit-hearts,
+.gandengyan-card.suit-diamonds,
+.gandengyan-card.suit-joker.joker {
+  color: var(--red);
+}
+
+.gandengyan-card.suit-joker.joker .gandengyan-card-center {
+  writing-mode: vertical-rl;
+  letter-spacing: .08em;
+}
+
+.gandengyan-card-corner {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  display: grid;
+  justify-items: center;
+  line-height: .95;
+}
+
+.gandengyan-card-rank {
+  font-size: clamp(15px, 3vw, 21px);
+}
+
+.gandengyan-card-suit {
+  font-size: clamp(12px, 2.6vw, 18px);
+}
+
+.gandengyan-card-center {
+  position: absolute;
+  inset: 23% 8% 8%;
+  display: grid;
+  place-items: center;
+  font-size: clamp(27px, 5.8vw, 44px);
+  font-weight: 700;
+}
+
+button.gandengyan-card:not(.selectable) {
+  cursor: not-allowed;
+  filter: saturate(.55) brightness(.82);
+}
+
+button.gandengyan-card.selectable:hover,
+button.gandengyan-card.selectable:focus-visible {
+  transform: translateY(-7px) rotate(var(--fan-angle, 0deg));
+  box-shadow: 0 8px 13px rgba(0,0,0,.32), 0 0 0 3px rgba(235,193,103,.72);
+}
+
+button.gandengyan-card.selected {
+  z-index: 5;
+  transform: translateY(-13px) rotate(var(--fan-angle, 0deg));
+  border-color: #f3cf7b;
+  box-shadow: 0 9px 16px rgba(0,0,0,.34), 0 0 0 4px rgba(242,198,102,.8);
+}
+
+button.gandengyan-card:focus-visible {
+  outline: 3px solid #fff0b7;
+  outline-offset: 2px;
+}
+
+.gandengyan-controls {
+  width: min(100%, 860px);
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d8cbb6;
+  border-radius: 14px;
+  color: var(--ink, #24302d);
+  background: linear-gradient(145deg, #fffdf8, #f2eadb);
+  box-shadow: 0 6px 15px rgba(55,48,39,.12);
+}
+
+.gandengyan-selection-status {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.gandengyan-selection-title,
+.gandengyan-selection-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gandengyan-selection-title {
+  color: #3f463f;
+  font-size: 14px;
+}
+
+.gandengyan-selection-detail {
+  color: #766b5d;
+  font-size: 11px;
+}
+
+.gandengyan-action-buttons {
+  gap: 7px;
+}
+
+.gandengyan-play-button,
+.gandengyan-pass-button {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 9px 16px;
+  border: 1px solid #8d2630;
+  border-radius: 11px;
+  color: #fffaf0;
+  background: linear-gradient(145deg, #c54852, #932b34);
+  box-shadow: 0 3px 7px rgba(83,35,39,.2);
+  font: 700 14px system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.gandengyan-pass-button {
+  border-color: #8a7b66;
+  color: #4b443b;
+  background: linear-gradient(145deg, #fffaf0, #e9ddca);
+}
+
+.gandengyan-play-button:focus-visible,
+.gandengyan-pass-button:focus-visible {
+  outline: 3px solid #2a6858;
+  outline-offset: 2px;
+}
+
+.gandengyan-play-button:disabled,
+.gandengyan-pass-button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+  box-shadow: none;
+}
+
+@media (max-width: 599px) {
+  .board.gandengyan,
+  .gandengyan-game,
+  .gandengyan-controls {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .gandengyan-table-shell {
+    grid-template-rows: auto minmax(170px, auto) auto;
+    padding-inline: 6px;
+    border-width: 5px;
+    border-radius: 20px;
+  }
+
+  .gandengyan-opponents {
+    gap: 4px;
+  }
+
+  .gandengyan-opponent {
+    padding: 6px 4px;
+  }
+
+  .gandengyan-card-backs {
+    padding-right: 24px;
+  }
+
+  .gandengyan-trick-cards {
+    min-height: 94px;
+    padding-inline: 5px;
+  }
+
+  .gandengyan-hand-scroll {
+    min-height: 116px;
+    padding-inline: 7px;
+  }
+}
+
+@media (max-width: 375px) {
+  .gandengyan-topbar {
+    align-items: flex-start;
+  }
+
+  .gandengyan-metrics {
+    display: grid;
+    gap: 3px;
+  }
+
+  .gandengyan-metric {
+    min-height: 25px;
+    padding: 3px 7px;
+  }
+
+  .gandengyan-title-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .gandengyan-table-shell {
+    grid-template-rows: auto minmax(158px, auto) auto;
+  }
+
+  .gandengyan-opponent-header {
+    display: grid;
+    justify-items: center;
+  }
+
+  .gandengyan-opponent-state {
+    font-size: 9px;
+  }
+
+  .gandengyan-card-back {
+    width: 24px;
+    height: 35px;
+  }
+
+  .gandengyan-controls {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .gandengyan-action-buttons {
+    width: 100%;
+  }
+
+  .gandengyan-play-button,
+  .gandengyan-pass-button {
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.gandengyan-card {
+    transition: none;
+  }
+}

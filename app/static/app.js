@@ -2637,7 +2637,11 @@ function createParticipantBadge(participant, targetRoom) {
   copy.append(name, seat);
   const detail = document.createElement("span");
   detail.className = "room-participant-detail";
-  const metadataLabels = {score: "得分", dice_count: "剩余骰子"};
+  const metadataLabels = {
+    score: "得分",
+    dice_count: "剩余骰子",
+    hand_count: "剩余手牌",
+  };
   const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
     ? participant.game_metadata
     : {};
@@ -2678,7 +2682,14 @@ function renderPrivateState(targetRoom) {
   const panel = $("privateStatePanel");
   const content = $("privateStateContent");
   const privateState = targetRoom && targetRoom.private_state;
-  const visible = privateState && typeof privateState === "object"
+  const renderer = targetRoom
+    ? registeredGameUIRenderer(targetRoom.game_type)
+    : null;
+  const rendererOwnsPresentation = Boolean(
+    renderer && renderer.ownsPrivateStatePresentation === true
+  );
+  const visible = !rendererOwnsPresentation
+    && privateState && typeof privateState === "object"
     && !Array.isArray(privateState) && Object.keys(privateState).length > 0;
   panel.classList.toggle("hidden", !visible);
   content.replaceChildren();
