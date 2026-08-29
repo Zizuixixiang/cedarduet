@@ -2275,12 +2275,12 @@ function renderGame(nextRoom, message = "", timeline = []) {
     && !isTerminal(room)
     && isTerminal(nextRoom)
   );
-  const selectionIsStale = (
+  const boardStateChanged = (
     !room
     || room.room_id !== nextRoom.room_id
     || room.revision !== nextRoom.revision
   );
-  if (selectionIsStale) {
+  if (boardStateChanged) {
     selectedJungleCell = null;
     selectedXiangqiCell = null;
     pendingMove = null;
@@ -2326,7 +2326,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   renderPlayers(timeline);
   renderParticipantRoster(room);
   renderPrivateState(room);
-  renderBoard(timeline);
+  if (boardStateChanged) renderBoard(timeline);
   renderTimeline(timeline);
   if (isTerminal(room)) stopPolling();
   if (becameTerminal) openResultModal(resultText);

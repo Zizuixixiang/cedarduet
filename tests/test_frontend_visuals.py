@@ -307,6 +307,109 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('value="liars_dice"', HTML)
 
 
+@unittest.skipUnless(NODE, "node is required for frontend rendering tests")
+class BoardPollingRenderTests(unittest.TestCase):
+    def test_same_room_revision_preserves_board_but_updates_timeline(self):
+        renderer = function_source("renderGame")
+        harness = f"""
+const assert = require("node:assert/strict");
+class Element {{
+  constructor() {{
+    this.children = [];
+    this.classList = {{toggle() {{}}}};
+    this.textContent = "";
+    this.title = "";
+    this.disabled = false;
+  }}
+  replaceChildren(...children) {{ this.children = children; }}
+  setAttribute() {{}}
+}}
+const elements = {{board: new Element(), timeline: new Element()}};
+const $ = (id) => elements[id] || (elements[id] = new Element());
+let room = null;
+let currentTimeline = [];
+let selectedJungleCell = {{row: 1, col: 1}};
+let selectedXiangqiCell = {{row: 2, col: 2}};
+let pendingMove = {{row: 0, col: 0}};
+let boardRenderCount = 0;
+let participantRenderCount = 0;
+const isTerminal = (targetRoom) => ["finished", "archived"].includes(targetRoom.status);
+const canHumanMove = () => true;
+const statusLabel = (status) => status;
+const roomTurnText = () => "轮到你";
+const authoritativeRoundText = () => "";
+const resultTextFor = () => "";
+const participantByPlayerId = () => null;
+const aiNameFor = () => "小机";
+const showView = () => {{}};
+const renderRetention = () => {{}};
+const showWaitModeModalOnce = () => {{}};
+const showNotice = () => {{}};
+const renderPlayers = () => {{}};
+const renderParticipantRoster = () => {{ participantRenderCount += 1; }};
+const renderPrivateState = () => {{}};
+const renderBoard = () => {{
+  boardRenderCount += 1;
+  elements.board.replaceChildren({{revision: room.revision}});
+}};
+const renderTimeline = (timeline) => {{
+  elements.timeline.replaceChildren(...timeline.map((event) => event.text));
+}};
+const stopPolling = () => {{}};
+const openResultModal = () => {{}};
+{renderer}
+const firstRoom = {{
+  room_id: "DICE1",
+  revision: 7,
+  game_type: "liars_dice",
+  game_name: "吹牛骰子",
+  status: "playing",
+  participants: [{{player_id: "human-1"}}],
+  board_state: {{}},
+  rules_text: "规则",
+  stake: 0,
+}};
+renderGame(firstRoom, "", [{{text: "第一条"}}]);
+assert.equal(boardRenderCount, 1);
+const originalBoardNode = elements.board.children[0];
+assert.deepEqual(elements.timeline.children, ["第一条"]);
+assert.equal(selectedJungleCell, null);
+assert.equal(selectedXiangqiCell, null);
+assert.equal(pendingMove, null);
+
+renderGame(
+  {{...firstRoom, participants: [...firstRoom.participants, {{player_id: "npc-1"}}]}},
+  "",
+  [{{text: "第一条"}}, {{text: "轮询收到的新消息"}}],
+);
+assert.equal(boardRenderCount, 1);
+assert.equal(elements.board.children[0], originalBoardNode);
+assert.deepEqual(elements.timeline.children, ["第一条", "轮询收到的新消息"]);
+assert.equal(participantRenderCount, 2);
+
+renderGame(
+  {{...firstRoom, revision: 8}},
+  "",
+  [{{text: "第一条"}}, {{text: "NPC 已行动"}}],
+);
+assert.equal(boardRenderCount, 2);
+assert.notEqual(elements.board.children[0], originalBoardNode);
+assert.equal(elements.board.children[0].revision, 8);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+
 @unittest.skipUnless(NODE, "node is required for multiplayer layout tests")
 class MultiplayerTableRenderingTests(unittest.TestCase):
     def run_node(self, harness: str) -> None:
