@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Standard stdio MCP adapter; kept out of the production dependency surface.
+mcp>=2.1,<3

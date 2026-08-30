@@ -11,8 +11,8 @@
 The application imports the upstream native module as `MahjongGB` and calls
 `MahjongFanCalculator` for every win/fan decision and `MahjongShanten` for
 shanten information. `requirements.txt` installs this directory as a local
-source distribution. Its unmodified upstream `setup.py` compiles
-`MahjongGB/mahjong.cpp`, `fan_calculator.cpp`, and `shanten.cpp` as a C++11
+source distribution. Its locally adapted `setup.py` compiles
+`MahjongGB/mahjong.cpp`, `fan_calculator.cpp`, and `shanten.cpp` as a C++
 CPython extension, so a C++ compiler and Python development headers are build
 requirements.
 
@@ -29,7 +29,10 @@ PYTHONPATH=/tmp/pymahjonggb-runtime \
 
 ## Local changes
 
-None. The vendored upstream source, headers, Python binding, type stub,
-license files, readmes, and tests are byte-for-byte copies from the revision
-above. Build directories and platform-specific compiled artifacts are not
-vendored; they are produced by the requirements installation step.
+The Mahjong algorithm source, headers, Python binding, type stub, license files,
+readmes, and tests remain byte-for-byte copies from the revision above. Only
+build metadata is adapted: `setup.py` uses `/std:c++14` for Windows/MSVC and
+`-std=c++11` for GCC/Clang, while `pyproject.toml` declares the isolated
+setuptools build backend. Build directories and platform-specific compiled
+artifacts are not vendored; they are produced by the requirements installation
+step.

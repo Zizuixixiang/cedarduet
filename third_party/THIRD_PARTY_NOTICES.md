@@ -12,7 +12,7 @@
 | `online_junqi` | https://github.com/samuelyuan/online-junqi | `f5ba2e8cedaa7e1dc3975349d5bbe097f2d5e13a` | MIT | 棋子碰撞、拓扑、铁路、工兵转弯、布阵与胜负核心；TypeScript rule core 同时保留 type-erased CommonJS runtime |
 | `pypokerengine` | https://github.com/ishikota/PyPokerEngine | `a52a048a15da276005eca4acae96fb6eeb4dc034` | MIT | 牌/牌桌/下注/手牌评估/side-pot 核心；含在 NOTICE 中逐项披露的 HU、kicker、odd-chip、all-in 等修正 |
 | `tenuki` | https://github.com/aprescott/tenuki | 0.3.1 / `aeedb4cd39d73242e49490aea359118ea5a4df23` | MIT | BoardState/Ruleset/Scorer/Region 等规则核心；固定 19×19、PSK、中国面积计分、贴 7.5 |
-| `pymahjonggb` | https://github.com/ailab-pku/PyMahjongGB | 1.4.0 / `bb404f3f3480c2569e14d54043ad06e366e128df` | MIT | 原样源码编译 C++11 CPython 扩展；`MahjongFanCalculator` 判胡/番，`MahjongShanten` 算向听 |
+| `pymahjonggb` | https://github.com/ailab-pku/PyMahjongGB | 1.4.0 / `bb404f3f3480c2569e14d54043ad06e366e128df` | MIT | 原样算法源码编译 C++11 CPython 扩展；仅按 MSVC/GCC/Clang 适配构建参数；`MahjongFanCalculator` 判胡/番，`MahjongShanten` 算向听 |
 
 ## 规则验证参考与运行依赖的区别
 

@@ -4,6 +4,11 @@
 `npc:*` 不能作为 MCP 身份。先用 `state` 取得 `revision`，落子时原样带回。陈旧
 revision 返回 409，调用方应重新 `state`，不得盲目重放。
 
+本地 clone 可使用 `python -m app.local_mcp` 提供的标准 stdio adapter。它不接受
+调用方提供身份字段，固定以 `local-ai` 调用 loopback gateway，并由 gateway 注入
+绑定人类 `local-human`；adapter 仍通过本页同一个 `POST /mcp/play`，不直接调用内部
+实现。启动和宿主配置见 [LOCAL.md](LOCAL.md)。以下生产协议正文不因本地 adapter 改变。
+
 ## 增量上下文
 
 每个房间、每名小机只有第一次进入 `playing` 会收到 `bootstrap=true` 和完整 `room`。

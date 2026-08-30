@@ -1,10 +1,15 @@
+import os
+
 from setuptools import setup, Extension
+
+
+compile_args = ["/std:c++14"] if os.name == "nt" else ["-std=c++11"]
 
 module = Extension('MahjongGB', sources=[
     'MahjongGB/mahjong.cpp',
     'MahjongGB/mahjong-algorithm/fan_calculator.cpp',
     'MahjongGB/mahjong-algorithm/shanten.cpp'
-    ], language='c++', extra_compile_args = ["-std=c++11"])
+    ], language='c++', extra_compile_args=compile_args)
 
 setup(name = "PyMahjongGB",
     version = "1.4.0",

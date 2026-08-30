@@ -270,62 +270,26 @@ data/                   本地运行数据目录；真实数据库不会提交�
 
 ## 本地启动
 
-要求 Python 3.10+。
+要求 Python 3.10+、Node.js，以及用于编译 PyMahjongGB 的 C++ 工具链。clone 后运行对应平台入口：
 
 ```bash
 git clone https://github.com/Zizuixixiang/cedarduet.git
 cd cedarduet
-
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
+# macOS / Linux
+./scripts/start-local.sh
 ```
 
-健康检查：
+Windows PowerShell：
 
-```bash
-curl http://127.0.0.1:8772/health
+```powershell
+.\scripts\start-local.ps1
 ```
 
-默认数据库为 `data/duel.db`，也可以通过环境变量指定：
+也可双击或在 cmd 中运行 `scripts\start-local.cmd`。launcher 会创建 `.venv`、安装本地依赖、编译 PyMahjongGB、检查四个 vendored Node bridge，以单 worker 启动仅监听 `127.0.0.1` 的本地 gateway，并打开浏览器。数据固定写入 `data/local-duel.db`。
 
-```bash
-DUEL_DB_PATH=/your/path/duel.db \
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
-```
+页面固定使用 `local-human`，本地 MCP 固定使用 `local-ai`。gateway 运行后执行 `python3 scripts/local.py mcp-config`（Windows 用 `py -3 scripts\local.py mcp-config`）即可生成含绝对解释器路径的 stdio MCP 配置。完整步骤、provider 配置和三平台依赖排错见 [docs/LOCAL.md](docs/LOCAL.md)。
 
-不配置 NPC provider 时，所有不含 NPC 的普通对局照常可玩；只有主动启用
-NPC 补位时才需要部署者自己的兼容 API 和外部人设目录。复制 `.env.example` 后：
-
-```bash
-DUEL_NPC_PROVIDER=openai_compatible
-DUEL_NPC_API_BASE=https://your-provider.example/v1
-DUEL_NPC_API_KEY=your-own-server-secret
-DUEL_NPC_MODEL=your-model
-DUEL_NPC_PERSONAS_DIR=/your/external/personas
-DUEL_NPC_AVATARS_DIR=/your/external/npc-avatars
-```
-
-`openai_compatible` 调标准 `/chat/completions`；API key 只存在服务端环境，不进入
-网页、房间数据库或日志。`DUEL_NPC_TIMEOUT_SECONDS`、`DUEL_NPC_MAX_TOKENS`、
-`DUEL_NPC_MAX_CONCURRENCY` 分别控制单请求超时、输出上限和跨房间全局并发。
-格式和限制见 `app/config/npc_personas/README.md`。仓库内 `_example.json` 只展示
-普通格式且不会加载；空库存与 disabled provider 都不影响无 NPC 对局。
-
-官方 CedarToy 可改用 `DUEL_NPC_PROVIDER=cedartoy_bridge`，由带共享 Bearer token
-的 loopback bridge 调用官方 NPC 池。CedarDuet 不导入海龟汤模块，也不保存或复制
-池中 API key；两种 provider 对控制器都返回同一 `action_id/message` 结构。
-
-事件唤醒目前是单进程内机制，因此请保持 uvicorn 单 worker。
-
-### 为什么直接打开 8772 会提示从主站登录？
-
-当前网页端采用“可信上游认证”模式：CedarDuet 不自行保存 CedarToy 的账号密码，而是由上游认证层验证登录后，向 CedarDuet 注入可信的人类身份和绑定 AI 清单。
-
-因此，直接裸连 `http://127.0.0.1:8772/` 可以启动服务、跑测试和调用内部接口，但当前网页会提示从认证入口进入。这是部署方式的边界，不是游戏引擎依赖 CedarToy。
-
-如果你想把 CedarDuet 接进自己的站点，可以实现自己的认证/绑定层，再按下文的可信身份协议反向代理到 CedarDuet。
+生产部署仍然启动 `app.main:app`；它不会读取或启用上述本地身份。直接启动生产入口而没有可信代理 Header 时，网页仍会提示从主站登录，这是预期的生产安全边界。事件唤醒是单进程内机制，本地和生产均须保持单 worker。
 
 ## 可信人类身份协议
 
