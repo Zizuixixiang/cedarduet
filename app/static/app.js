@@ -2493,10 +2493,11 @@ function timelineSpeakerName(event) {
 function renderRecentChat(timeline = []) {
   const feed = $("recentChatFeed");
   const list = $("recentChatMessages");
-  const messages = isMultiplayerRoom(room) ? recentMessageEvents(timeline) : [];
+  const multiplayer = isMultiplayerRoom(room);
+  const messages = multiplayer ? recentMessageEvents(timeline) : [];
   list.replaceChildren();
-  feed.classList.toggle("hidden", messages.length === 0);
-  if (!messages.length) return;
+  feed.classList.toggle("hidden", !multiplayer);
+  if (!multiplayer || !messages.length) return;
 
   messages.forEach((event) => {
     const sender = typeof event.sender === "object" && event.sender
