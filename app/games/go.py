@@ -23,7 +23,7 @@ class Go(GamePlugin):
     recommended_players = 2
     supports_npcs = True
     uses_local_npc_strategy = True
-    supports_stakes = False
+    supports_stakes = True
     mcp_immediate_public_events = True
 
     RULE_VERSION = "go-chinese-19x19-area-psk-v1"
@@ -47,8 +47,9 @@ class Go(GamePlugin):
         "连续两次 pass 后进入死子确认阶段，不会立即结算。轮到的一方可以切换 Tenuki 选定的"
         "整组死子，任何修改都会清空双方此前确认；只有双方先后确认完全相同的当前死子集合，"
         "系统才按面积分结算并给白方加 7.5 目。任一方不能单独判死。\n\n"
-        "【胜负】\n"
-        "双方确认后总分较高者获胜；也可随时使用房间的认输操作。围棋仅支持娱乐局，不支持筹码。"
+        "【胜负与 CedarDuet 娱乐筹码】\n"
+        "双方确认后总分较高者获胜；也可随时使用房间的认输操作。终局赢家 +stake、败者"
+        "-stake，认输也采用相同的双人标准结算；若面积分相同判和，则双方筹码变化均为 0。"
     )
     move_format = (
         '行棋：{"move":{"action":"play","row":3,"col":3},"revision":当前版本}；'

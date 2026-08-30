@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from app import database, framework
+from app import chips, database, framework
 from app import main as main_module
 from app.games import game_catalog, get_game
 from app.games.junqi import Junqi
@@ -140,12 +140,15 @@ class JunqiPluginTests(unittest.TestCase):
     def state(self):
         return self.game.initialize_for_first_player(deepcopy(PARTICIPANTS), "human-1")
 
-    def test_catalog_contract_and_no_stakes(self):
+    def test_catalog_contract_and_standard_stakes(self):
         item = next(item for item in game_catalog() if item["game_type"] == "junqi")
         self.assertEqual(item["allowed_player_counts"], [2])
         self.assertTrue(item["supports_npcs"])
         self.assertTrue(item["uses_local_npc_strategy"])
-        self.assertFalse(item["supports_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertFalse(self.game.uses_custom_stake_settlement)
+        self.assertIn("赢家获得 stake", self.game.rules_text)
+        self.assertIn("不设棋子、回合或终局原因倍率", self.game.rules_text)
 
     def test_privacy_projection_never_exposes_opponent_ranks_or_public_legal_actions(self):
         state = self.state()
@@ -288,11 +291,28 @@ class JunqiFrameworkTests(unittest.TestCase):
         self.assertEqual(room["board_state"]["phase"], "play")
         self.assertEqual(room["current_player_id"], "human-2")
 
-    def test_stakes_are_rejected(self):
-        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码"):
-            framework.create_room(
-                "junqi", "human_first", "human", "human-stake", "ai-stake", stake=1
-            )
+    def test_standard_stake_room_and_resignation_settle_exactly(self):
+        room = framework.create_room(
+            "junqi", "human_first", "human", "human-stake", "ai-stake", stake=3
+        )
+        self.assertEqual(room["status"], "pending")
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "ai-stake", "accept"
+        )
+        self.assertEqual(room["status"], "playing")
+        room = framework.resign(room["room_id"], "ai", "ai-stake")
+        self.assertEqual(room["winner_player_id"], "human-stake")
+        human_delta = next(
+            item for item in chips.list_ledger("human", "human-stake")
+            if item["transaction_type"] == "duel_win"
+        )
+        ai_delta = next(
+            item for item in chips.list_ledger("ai", "ai-stake")
+            if item["transaction_type"] == "duel_loss"
+        )
+        self.assertEqual(human_delta["amount"], 3)
+        self.assertEqual(ai_delta["amount"], -3)
+        self.assertEqual(human_delta["amount"] + ai_delta["amount"], 0)
 
     def test_system_npc_auto_sets_up_then_chooses_an_authoritative_move(self):
         room = framework.create_room(

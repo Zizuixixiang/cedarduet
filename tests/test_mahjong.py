@@ -108,6 +108,39 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertEqual(self.zone_count(advanced.state), 136)
         self.assertEqual(len(advanced.state["wall"]), 82)
 
+    def test_cedarduet_stake_policy_covers_all_terminal_win_types_and_draw(self):
+        self.assertTrue(self.game.supports_stakes)
+        self.assertTrue(self.game.supports_multiplayer_stakes)
+        self.assertIn("不是官方麻将竞赛计分", self.game.rules_text)
+        self.assertIn("total_fan 不乘算钱包筹码", self.game.rules_text)
+
+        cases = (
+            (
+                {"winner_player_id": "p0", "win_type": "self_draw", "total_fan": 88},
+                {"p0": 15, "p1": -5, "p2": -5, "p3": -5},
+            ),
+            (
+                {
+                    "winner_player_id": "p2", "win_type": "discard",
+                    "source_player_id": "p0", "total_fan": 8,
+                },
+                {"p0": -15, "p1": 0, "p2": 15, "p3": 0},
+            ),
+            (
+                {
+                    "winner_player_id": "p3", "win_type": "rob_kong",
+                    "source_player_id": "p1", "total_fan": 64,
+                },
+                {"p0": 0, "p1": -15, "p2": 0, "p3": 15},
+            ),
+            ({"draw": True, "reason": "wall_exhausted"}, {"p0": 0, "p1": 0, "p2": 0, "p3": 0}),
+        )
+        for result, expected in cases:
+            with self.subTest(result=result):
+                deltas = self.game.settlement_deltas({}, result, self.players, 5)
+                self.assertEqual(deltas, expected)
+                self.assertEqual(sum(deltas.values()), 0)
+
     def test_self_draw_and_discard_win_use_engine_and_enforce_eight_fan(self):
         state = self.state()
         state["hands"]["p0"] = self.tiles([*WAITING_HAND, "W8"])
@@ -328,7 +361,8 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
     async def test_registry_mcp_bootstrap_full_state_delta_and_refresh_persistence(self):
         catalog = {item["game_type"]: item for item in game_catalog()}
         self.assertEqual(catalog["mahjong"]["allowed_player_counts"], [4])
-        self.assertFalse(catalog["mahjong"]["supports_stakes"])
+        self.assertTrue(catalog["mahjong"]["supports_stakes"])
+        self.assertTrue(catalog["mahjong"]["supports_multiplayer_stakes"])
         created = await self.client.post("/mcp/play", json={
             "action": "new", "player_id": "ai-m", "opponent_id": "human-m",
             "participant_ids": ["human-m", "ai-m", "ai-2", "ai-3"],
@@ -366,6 +400,20 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         projected_b = framework.project_room_for_viewer(restored_b, "ai-m")
         self.assertEqual(restored_a["board_state"], restored_b["board_state"])
         self.assertEqual(projected_a["private_state"], projected_b["private_state"])
+
+        staked = framework.create_room(
+            "mahjong", "human_first", "human", "stake-human", "stake-ai-1",
+            ordered_participants=[
+                {"player_id": "stake-human", "role": "human"},
+                {"player_id": "stake-ai-1", "role": "ai"},
+                {"player_id": "stake-ai-2", "role": "ai"},
+                {"player_id": "stake-ai-3", "role": "ai"},
+            ],
+            first_player_id="stake-human",
+            stake=4,
+        )
+        self.assertEqual(staked["stake"], 4)
+        self.assertEqual(staked["status"], "pending")
 
         responder_bootstrap = await self.client.post("/mcp/play", json={
             "action": "state", "player_id": "ai-2", "room_id": room["room_id"],

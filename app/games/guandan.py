@@ -33,11 +33,8 @@ class Guandan(GamePlugin):
     allowed_player_counts = (4,)
     recommended_players = 4
     supports_npcs = True
-    # One Duet room is the upstream-standard full 2-to-A match.  Team settlement
-    # is intentionally disabled until the common wallet has a first-class team
-    # winner contract rather than an individual winner surrogate.
-    supports_stakes = False
-    supports_multiplayer_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
     mcp_immediate_public_events = True
     rules_text = (
         "【规则版本】\n"
@@ -71,8 +68,11 @@ class Guandan(GamePlugin):
         "所有牌型、比较、权威合法动作、接风、贡还、抗贡、升级和终局均由实际 vendor"
         " 的 Choysang/rlcard-guandan v0.1.0 规则核心裁定；双弈适配层只保存上游对象、"
         "映射 action_id 并生成安全投影。未公开手牌只进入本人私密视图；客户端和 NPC 只能提交"
-        "核心当前发布的 action_id。当前娱乐局不支持筹码，因为公共结算层尚无准确的"
-        "两人一队整场赢家契约。"
+        "核心当前发布的 action_id。\n\n"
+        "【CedarDuet 娱乐筹码】\n"
+        "钱包结算与上述上游升级、名次和级差计分明确分开，只在完整 2 到 A 比赛结束时进行："
+        "获胜队两名玩家各 +stake，落败队两名玩家各 -stake，四人合计为 0；不按领先等级、"
+        "副数或名次差追加倍数。这只是 CedarDuet 钱包政策，不改写上游掼蛋计分。"
     )
     move_format = (
         '只提交规则核心发布的短 ID：{"move":{"action":"act",'
@@ -267,6 +267,33 @@ class Guandan(GamePlugin):
             "team_levels": deepcopy(match["team_levels"]),
             "deal_count": int(match["deal_count"]),
             "result_text": f"{TEAM_LABELS.get(team, team)}赢得完整掼蛋升级赛",
+        }
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        del state
+        player_ids = [str(item["player_id"]) for item in participants]
+        if len(player_ids) != 4:
+            raise ValueError("掼蛋筹码结算固定需要四名参与者")
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        winners = result.get("winning_player_ids")
+        if (
+            not isinstance(winners, list)
+            or len(winners) != 2
+            or len(set(winners)) != 2
+            or not set(winners).issubset(player_ids)
+        ):
+            raise ValueError("掼蛋终局必须提供两名有效获胜队员")
+        winner_ids = set(winners)
+        return {
+            player_id: stake if player_id in winner_ids else -stake
+            for player_id in player_ids
         }
 
     def public_state(

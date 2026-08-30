@@ -5,6 +5,7 @@ import random
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -285,24 +286,28 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         )
         self.assertTrue(production["train_cards"]["supports_npcs"])
         self.assertTrue(production["train_cards"]["uses_local_npc_strategy"])
-        self.assertFalse(production["train_cards"]["supports_stakes"])
+        self.assertTrue(production["train_cards"]["supports_stakes"])
+        self.assertTrue(production["train_cards"]["supports_multiplayer_stakes"])
 
         self.assertEqual(production["doudizhu"]["category"], "card")
         self.assertEqual(production["doudizhu"]["allowed_player_counts"], [3])
         self.assertTrue(production["doudizhu"]["supports_npcs"])
-        self.assertFalse(production["doudizhu"]["supports_stakes"])
+        self.assertTrue(production["doudizhu"]["supports_stakes"])
+        self.assertTrue(production["doudizhu"]["supports_multiplayer_stakes"])
 
 
         self.assertEqual(production["guandan"]["category"], "card")
         self.assertEqual(production["guandan"]["allowed_player_counts"], [4])
         self.assertTrue(production["guandan"]["supports_npcs"])
-        self.assertFalse(production["guandan"]["supports_stakes"])
+        self.assertTrue(production["guandan"]["supports_stakes"])
+        self.assertTrue(production["guandan"]["supports_multiplayer_stakes"])
 
         self.assertEqual(production["mahjong"]["category"], "card")
         self.assertEqual(production["mahjong"]["allowed_player_counts"], [4])
         self.assertTrue(production["mahjong"]["supports_npcs"])
         self.assertTrue(production["mahjong"]["uses_local_npc_strategy"])
-        self.assertFalse(production["mahjong"]["supports_stakes"])
+        self.assertTrue(production["mahjong"]["supports_stakes"])
+        self.assertTrue(production["mahjong"]["supports_multiplayer_stakes"])
 
         self.assertEqual(production["dots_boxes"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(
@@ -725,6 +730,84 @@ class MultiplayerFrameworkTests(unittest.TestCase):
                 restored = framework.get_room(room["room_id"])
                 self.assertEqual(restored["status"], "playing")
                 self.assertEqual(restored["revision"], baseline_revision)
+
+    def test_new_multiplayer_stake_games_attach_terminal_zero_sum_maps(self):
+        cases = (
+            (
+                "doudizhu",
+                3,
+                {"landlord_player_id": "human-1", "multiplier": 6},
+                {
+                    "winner_player_id": "human-1",
+                    "winning_side": "landlord",
+                    "winning_player_ids": ["human-1"],
+                    "draw": False,
+                },
+                {"human-1": 60, "ai-1": -30, "ai-2": -30},
+            ),
+            (
+                "guandan",
+                4,
+                {},
+                {
+                    "winner_team": "A",
+                    "winning_player_ids": ["human-1", "ai-2"],
+                    "draw": False,
+                },
+                {"human-1": 5, "ai-1": -5, "ai-2": 5, "ai-3": -5},
+            ),
+            (
+                "mahjong",
+                4,
+                {},
+                {
+                    "winner_player_id": "ai-2",
+                    "winner_player_ids": ["ai-2"],
+                    "win_type": "discard",
+                    "source_player_id": "human-1",
+                    "total_fan": 88,
+                    "draw": False,
+                },
+                {"human-1": -15, "ai-1": 0, "ai-2": 15, "ai-3": 0},
+            ),
+        )
+        for game_type, count, state_updates, terminal_result, expected in cases:
+            with self.subTest(game_type=game_type):
+                room = framework.create_room(
+                    game_type,
+                    "human_first",
+                    "human",
+                    "human-1",
+                    ordered_participants=ordered_participants(count),
+                    first_player_id="human-1",
+                    stake=5,
+                )
+                self.assertEqual(room["status"], "pending")
+                for index in range(1, count):
+                    room = framework.respond_to_invitation(
+                        room["room_id"], "ai", f"ai-{index}", "accept"
+                    )
+                state = deepcopy(room["board_state"])
+                state.update(state_updates)
+                applied = MoveResult(state=state, result=deepcopy(terminal_result))
+                plugin = GAMES[game_type]
+                with (
+                    patch.object(plugin, "format_action", return_value="测试终局"),
+                    patch.object(plugin, "validate_action", return_value=None),
+                    patch.object(plugin, "apply_action", return_value=applied),
+                    patch.object(
+                        plugin, "progress_after_action", return_value=applied
+                    ),
+                ):
+                    finished = framework.play_move(
+                        room["room_id"], "human", "human-1", {"action": "finish"}
+                    )
+                self.assertEqual(finished["status"], "finished")
+                self.assertEqual(
+                    finished["result"]["settlement_deltas"], expected
+                )
+                self.assertTrue(finished["result"]["settlement_zero_sum"])
+                self.assertEqual(sum(expected.values()), 0)
 
 
 class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):

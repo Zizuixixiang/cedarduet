@@ -80,7 +80,8 @@ class Doudizhu(GamePlugin):
     allowed_player_counts = (3,)
     recommended_players = 3
     supports_npcs = True
-    supports_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
     mcp_immediate_public_events = True
     rules_text = (
         "【牌局与叫分】\n"
@@ -104,8 +105,11 @@ class Doudizhu(GamePlugin):
         "胜。\n\n"
         "【倍数与计分】\n"
         "局内倍数以最终叫分 1、2 或 3 为基数；每打出一次四张炸弹或王炸即乘 2，不设"
-        "倍数上限，也不设春天、反春天及其他附加翻倍。第一版不接入筹码或钱包，倍数、"
-        "炸弹数和胜负仅作公开局面记录，不产生筹码结算。"
+        "倍数上限，也不设春天、反春天及其他附加翻倍。\n\n"
+        "【CedarDuet 娱乐筹码】\n"
+        "只用于钱包的结算单位 u=底注 stake×终局倍数。地主获胜时地主 +2u、两名农民"
+        "各 -u；农民获胜时地主 -2u、两名农民各 +u，三人合计始终为 0。这里的终局倍数"
+        "就是最终叫分再按每次炸弹或王炸乘 2；春天、反春天仍不启用。"
     )
     move_format = (
         '叫分：原样提交自己私有状态中发布的 {"action":"bid","action_id":"bid:1",'
@@ -734,6 +738,42 @@ class Doudizhu(GamePlugin):
             "winning_player_ids": deepcopy(state.get("winning_player_ids", [])),
             "draw": False,
         }
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        player_ids = [str(item["player_id"]) for item in participants]
+        if len(player_ids) != 3:
+            raise ValueError("斗地主筹码结算固定需要三名参与者")
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        landlord = str(state.get("landlord_player_id") or "")
+        if landlord not in player_ids:
+            raise ValueError("斗地主终局缺少有效地主")
+        multiplier = state.get("multiplier")
+        if (
+            isinstance(multiplier, bool)
+            or not isinstance(multiplier, int)
+            or multiplier <= 0
+        ):
+            raise ValueError("斗地主终局倍数必须是正整数")
+        unit = stake * multiplier
+        winning_side = result.get("winning_side")
+        if winning_side == "landlord":
+            return {
+                player_id: 2 * unit if player_id == landlord else -unit
+                for player_id in player_ids
+            }
+        if winning_side == "farmers":
+            return {
+                player_id: -2 * unit if player_id == landlord else unit
+                for player_id in player_ids
+            }
+        raise ValueError("斗地主终局缺少有效获胜阵营")
 
     def public_state(
         self,

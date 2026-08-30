@@ -187,13 +187,14 @@ class DoudizhuGameTests(unittest.TestCase):
             state, action, actor, self.table, result
         )
 
-    def test_catalog_deck_fixed_seats_rules_and_no_stakes(self):
+    def test_catalog_deck_fixed_seats_rules_and_stakes(self):
         item = {value["game_type"]: value for value in game_catalog()}["doudizhu"]
         self.assertEqual(item["display_name"], "斗地主")
         self.assertEqual(item["allowed_player_counts"], [3])
         self.assertEqual(item["recommended_players"], 3)
         self.assertTrue(item["supports_npcs"])
-        self.assertFalse(item["supports_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
         deck = build_deck()
         self.assertEqual(len(deck), 54)
         self.assertEqual(len({card["id"] for card in deck}), 54)
@@ -207,7 +208,8 @@ class DoudizhuGameTests(unittest.TestCase):
         for phrase in (
             "0 分（不叫）", "严格高于", "全部不叫", "最后一位不叫者",
             "定地主后底牌向全桌公开", "34,152", "王炸最高",
-            "不设倍数上限", "不设春天、反春天", "不接入筹码或钱包",
+            "不设倍数上限", "不设春天、反春天", "u=底注 stake×终局倍数",
+            "地主 +2u", "地主 -2u", "三人合计始终为 0",
         ):
             self.assertIn(phrase, GAMES["doudizhu"].rules_text)
 
@@ -338,7 +340,7 @@ class DoudizhuGameTests(unittest.TestCase):
         delta = result.public_event["doudizhu_delta"]
         self.assertEqual((delta["multiplier"], delta["bomb_count"]), (8, 2))
 
-    def test_farmer_finish_returns_team_winners_without_chip_settlement(self):
+    def test_farmer_finish_returns_team_winners_and_chip_settlement(self):
         state = self.playing_state([
             ("S9", "H9"),
             ("S3",),
@@ -350,10 +352,47 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertEqual(state["winning_side"], "farmers")
         self.assertEqual(state["winning_player_ids"], ["ai-1", "ai-2"])
         self.assertEqual(result.result["winning_player_ids"], ["ai-1", "ai-2"])
-        self.assertIsNone(self.game.settlement_deltas(state, result.result, self.table, 5))
+        self.assertEqual(
+            self.game.settlement_deltas(state, result.result, self.table, 5),
+            {"human-1": -30, "ai-1": 15, "ai-2": 15},
+        )
         delta = result.public_event["doudizhu_delta"]
         self.assertTrue(delta["finished"])
         self.assertEqual(delta["winning_side"], "farmers")
+
+    def test_stake_multiplier_examples_cover_landlord_and_farmer_wins(self):
+        state = {
+            "landlord_player_id": "human-1",
+            "multiplier": 6,
+        }
+        landlord = self.game.settlement_deltas(
+            state,
+            {"winning_side": "landlord", "draw": False},
+            self.table,
+            5,
+        )
+        self.assertEqual(
+            landlord, {"human-1": 60, "ai-1": -30, "ai-2": -30}
+        )
+        self.assertEqual(sum(landlord.values()), 0)
+
+        state["multiplier"] = 12
+        farmers = self.game.settlement_deltas(
+            state,
+            {"winning_side": "farmers", "draw": False},
+            self.table,
+            2,
+        )
+        self.assertEqual(
+            farmers, {"human-1": -48, "ai-1": 24, "ai-2": 24}
+        )
+        self.assertEqual(sum(farmers.values()), 0)
+        self.assertEqual(
+            self.game.settlement_deltas(
+                {}, {"draw": True, "reason": "insufficient_players"}, self.table, 9
+            ),
+            {"human-1": 0, "ai-1": 0, "ai-2": 0},
+        )
 
     def test_public_private_npc_and_participant_relationships_are_safe(self):
         state = self.playing_state([
@@ -421,7 +460,7 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
 
-    def test_framework_accepts_mixed_fixed_three_and_rejects_stakes(self):
+    def test_framework_accepts_mixed_fixed_three_and_positive_stakes(self):
         room = framework.create_room(
             "doudizhu", "human_first", "human", "human-1",
             opponent_id="ai-1", ordered_participants=self.mixed_participants(),
@@ -433,16 +472,17 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             ["human", "bound_machine", "system_npc"],
         )
         self.assertEqual(room["stake"], 0)
-        with self.assertRaisesRegex(framework.DuelError, "筹码"):
-            framework.create_room(
-                "doudizhu", "human_first", "human", "human-2",
-                ordered_participants=[
-                    {"player_id": "human-2", "role": "human"},
-                    {"player_id": "ai-2", "role": "ai"},
-                    {"player_id": "ai-3", "role": "ai"},
-                ],
-                stake=1,
-            )
+        staked = framework.create_room(
+            "doudizhu", "human_first", "human", "human-2",
+            ordered_participants=[
+                {"player_id": "human-2", "role": "human"},
+                {"player_id": "ai-2", "role": "ai"},
+                {"player_id": "ai-3", "role": "ai"},
+            ],
+            stake=1,
+        )
+        self.assertEqual(staked["stake"], 1)
+        self.assertEqual(staked["status"], "pending")
 
     async def test_mcp_bootstrap_delta_full_state_and_private_hands(self):
         participants = seats()

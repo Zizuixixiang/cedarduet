@@ -221,7 +221,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["go"]["allowed_player_counts"], [2])
         self.assertTrue(games["go"]["supports_npcs"])
         self.assertTrue(games["go"]["uses_local_npc_strategy"])
-        self.assertFalse(games["go"]["supports_stakes"])
+        self.assertTrue(games["go"]["supports_stakes"])
         self.assertEqual(games["liars_dice"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertEqual(games["yahtzee"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(games["yahtzee"]["supports_npcs"])
@@ -249,17 +249,20 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(games["doudizhu"]["allowed_player_counts"], [3])
         self.assertTrue(games["doudizhu"]["supports_npcs"])
-        self.assertFalse(games["doudizhu"]["supports_stakes"])
+        self.assertTrue(games["doudizhu"]["supports_stakes"])
+        self.assertTrue(games["doudizhu"]["supports_multiplayer_stakes"])
         self.assertEqual(
             games["train_cards"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
         self.assertTrue(games["train_cards"]["supports_npcs"])
         self.assertTrue(games["train_cards"]["uses_local_npc_strategy"])
-        self.assertFalse(games["train_cards"]["supports_stakes"])
+        self.assertTrue(games["train_cards"]["supports_stakes"])
+        self.assertTrue(games["train_cards"]["supports_multiplayer_stakes"])
 
         self.assertEqual(games["guandan"]["allowed_player_counts"], [4])
         self.assertTrue(games["guandan"]["supports_npcs"])
-        self.assertFalse(games["guandan"]["supports_stakes"])
+        self.assertTrue(games["guandan"]["supports_stakes"])
+        self.assertTrue(games["guandan"]["supports_multiplayer_stakes"])
 
         self.assertEqual(
             games["zhajinhua"]["allowed_player_counts"], [2, 3, 4, 5, 6]
