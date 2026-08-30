@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from app import database, framework
+from app import chips, database, framework
 from app import main as main_module
 from app.games import get_game
 from app.games.go import Go
@@ -56,7 +56,10 @@ class GoTenukiRulesTests(unittest.TestCase):
         self.assertEqual(state["to_play"], "black")
         self.assertEqual(len(state["legal_actions"]), 362)
         self.assertIn({"action": "pass"}, state["legal_actions"])
-        self.assertFalse(self.game.supports_stakes)
+        self.assertTrue(self.game.supports_stakes)
+        self.assertFalse(self.game.uses_custom_stake_settlement)
+        self.assertIn("终局赢家 +stake", self.game.rules_text)
+        self.assertIn("面积分相同判和", self.game.rules_text)
 
     def test_single_capture_and_multi_stone_capture_come_from_tenuki(self):
         state, applied, _history = play_history([
@@ -221,11 +224,27 @@ class GoFrameworkPersistenceTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_room_refresh_retains_history_and_generic_resignation(self):
-        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码"):
-            framework.create_room(
-                "go", "human_first", "human", "human-stake", "ai-stake",
-                stake=1,
-            )
+        stake_room = framework.create_room(
+            "go", "human_first", "human", "human-stake", "ai-stake",
+            stake=4,
+        )
+        stake_room = framework.respond_to_invitation(
+            stake_room["room_id"], "ai", "ai-stake", "accept"
+        )
+        staked_result = framework.resign(
+            stake_room["room_id"], "ai", "ai-stake"
+        )
+        self.assertEqual(staked_result["winner_player_id"], "human-stake")
+        human_delta = next(
+            item for item in chips.list_ledger("human", "human-stake")
+            if item["transaction_type"] == "duel_win"
+        )
+        ai_delta = next(
+            item for item in chips.list_ledger("ai", "ai-stake")
+            if item["transaction_type"] == "duel_loss"
+        )
+        self.assertEqual((human_delta["amount"], ai_delta["amount"]), (4, -4))
+        self.assertEqual(human_delta["amount"] + ai_delta["amount"], 0)
         room = framework.create_room(
             "go", "human_first", "human", "human-go", "ai-go"
         )

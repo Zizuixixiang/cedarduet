@@ -79,8 +79,9 @@ class TrainCardsRuleTests(unittest.TestCase):
         self.assertEqual(item["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(item["supports_npcs"])
         self.assertTrue(item["uses_local_npc_strategy"])
-        self.assertFalse(item["supports_stakes"])
-        self.assertFalse(item["supports_multiplayer_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertTrue(self.game.uses_custom_stake_settlement)
         rules = GAMES["train_cards"].rules_text
         for phrase in (
             "本项目采用版本",
@@ -91,7 +92,9 @@ class TrainCardsRuleTests(unittest.TestCase):
             "都不是万能牌",
             "完整局面再次出现",
             "10000 次翻牌安全上限",
-            "0 筹码娱乐局",
+            "每名败者扣 stake",
+            "(人数-1)×stake",
+            "平局，所有参与者均结算 0",
         ):
             self.assertIn(phrase, rules)
 
@@ -238,6 +241,34 @@ class TrainCardsRuleTests(unittest.TestCase):
             limited_state, {"action": "flip"}, table[0]
         )
         self.assertEqual(limited.state["draw_reason"], "action_limit")
+
+    def test_stake_settlement_is_exact_zero_sum_for_two_to_six_and_draws(self):
+        for count in (2, 3, 4, 5, 6):
+            table = seats(count)
+            winner = table[-1]["player_id"]
+            with self.subTest(count=count):
+                deltas = self.game.settlement_deltas(
+                    {}, {"winner_player_id": winner, "draw": False}, table, 7
+                )
+                self.assertEqual(deltas[winner], (count - 1) * 7)
+                self.assertTrue(all(
+                    delta == -7
+                    for player_id, delta in deltas.items()
+                    if player_id != winner
+                ))
+                self.assertEqual(sum(deltas.values()), 0)
+                self.assertEqual(
+                    self.game.settlement_deltas(
+                        {}, {"draw": True, "reason": "repeated_position"}, table, 7
+                    ),
+                    {item["player_id"]: 0 for item in table},
+                )
+                self.assertEqual(
+                    self.game.settlement_deltas(
+                        {}, {"draw": True, "reason": "action_limit"}, table, 7
+                    ),
+                    {item["player_id"]: 0 for item in table},
+                )
 
     def test_public_and_private_projections_never_reveal_hidden_order(self):
         table = seats(4)

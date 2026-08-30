@@ -54,14 +54,15 @@ class Mahjong(GamePlugin):
     recommended_players = 4
     supports_npcs = True
     uses_local_npc_strategy = True
-    supports_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
     mcp_immediate_public_events = True
     rules_text = (
         "【固定规则版本】\n"
         "第一版为四人、136 张无花牌、东一局单手国标麻将。牌只有万、筒、条与东南西北"
         "中发白；座位 0–3 固定对应东、南、西、北，东家为庄家并先摸打。摸牌从牌墙头部，"
         "杠后补牌从牌墙尾部。一手自摸、点炮、抢杠和或荒牌后房间立即结束，不换庄、不进入"
-        "下一局，也不接入筹码或钱包。\n\n"
+        "下一局。\n\n"
         "【和牌与番数】\n"
         "所有和牌形状、番种互斥与番数由 PyMahjongGB 1.4.0 原生 MahjongFanCalculator"
         "按中国官方/国标语义裁决；所有向听数由原生 MahjongShanten 计算。花牌数固定为 0，"
@@ -80,7 +81,11 @@ class Mahjong(GamePlugin):
         "【杠与公开信息】\n"
         "明杠、暗杠、加杠成立后立即从牌墙尾补一张；加杠先给其余三家按座位距离依次检查"
         "抢杠和，任何首个合法和牌立即终止加杠。弃牌、吃、碰、明杠、加杠及响应结果公开。"
-        "暗杠固定只公开‘暗杠’与四张牌背，不公开牌面；暗杠者自己仍能看到真实牌面。"
+        "暗杠固定只公开‘暗杠’与四张牌背，不公开牌面；暗杠者自己仍能看到真实牌面。\n\n"
+        "【CedarDuet 娱乐筹码】\n"
+        "这是 CedarDuet 钱包政策，不是官方麻将竞赛计分，也不改变 PyMahjongGB 番数计算。"
+        "自摸时其余三家各 -stake、和牌者 +3×stake；点炮或抢杠和时来源玩家 -3×stake、"
+        "和牌者 +3×stake，另外两家为 0；荒牌四家均为 0。total_fan 不乘算钱包筹码。"
     )
     move_format = (
         '只能原样提交 private_state.legal_actions 中的一项，例如 '
@@ -888,6 +893,42 @@ class Mahjong(GamePlugin):
     ) -> dict[str, Any] | None:
         del participants
         return deepcopy(state.get("game_result"))
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        del state
+        player_ids = [str(item["player_id"]) for item in participants]
+        if len(player_ids) != 4:
+            raise ValueError("麻将筹码结算固定需要四名参与者")
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        winner = result.get("winner_player_id")
+        if winner not in player_ids:
+            raise ValueError("麻将终局缺少有效和牌者")
+        win_type = result.get("win_type")
+        if win_type == "self_draw":
+            return {
+                player_id: 3 * stake if player_id == winner else -stake
+                for player_id in player_ids
+            }
+        if win_type in {"discard", "rob_kong"}:
+            source = result.get("source_player_id")
+            if source not in player_ids or source == winner:
+                raise ValueError("麻将点炮或抢杠和终局缺少有效来源玩家")
+            return {
+                player_id: (
+                    3 * stake if player_id == winner
+                    else -3 * stake if player_id == source
+                    else 0
+                )
+                for player_id in player_ids
+            }
+        raise ValueError("麻将终局缺少有效和牌类型")
 
     @classmethod
     def _public_meld(cls, meld: dict[str, Any], *, reveal_concealed: bool = False) -> dict[str, Any]:

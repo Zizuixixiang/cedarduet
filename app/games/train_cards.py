@@ -84,8 +84,9 @@ class TrainCards(GamePlugin):
     recommended_players = 4
     supports_npcs = True
     uses_local_npc_strategy = True
-    supports_stakes = False
-    supports_multiplayer_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
+    uses_custom_stake_settlement = True
     mcp_immediate_public_events = True
     rules_text = (
         "【本项目采用版本】\n"
@@ -111,7 +112,11 @@ class TrainCards(GamePlugin):
         "只剩一名未淘汰玩家时该玩家获胜，桌面遗留牌不再处理。由于本游戏完全由初始"
         "洗牌决定，若行动权、未淘汰席位、桌面牌列及所有个人牌堆顺序组成的完整局面"
         "再次出现，后续必然无限循环，立即判平局；另设 10000 次翻牌安全上限，达到也"
-        "判平局。第一版仅支持 0 筹码娱乐局，不制造或销毁筹码。"
+        "判平局。\n\n"
+        "【CedarDuet 娱乐筹码】\n"
+        "底注 stake 按每名败者分别结算：非平局时每名败者扣 stake，唯一赢家获得 "
+        "(人数-1)×stake，二人桌和 3–6 人桌均采用这一明确的零和规则。完整局面循环或"
+        "达到动作上限造成的平局，所有参与者均结算 0。"
     )
     move_format = (
         '翻牌：{"move":{"action":"flip"},"revision":当前版本}。'
@@ -455,6 +460,26 @@ class TrainCards(GamePlugin):
             }
         draw_reason = state.get("draw_reason")
         return {"draw": True, "reason": draw_reason} if draw_reason else None
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        del state
+        player_ids = [str(item["player_id"]) for item in participants]
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        winner = result.get("winner_player_id")
+        if winner not in player_ids:
+            raise ValueError("开火车终局缺少有效唯一赢家")
+        return {
+            player_id: stake * (len(player_ids) - 1)
+            if player_id == winner else -stake
+            for player_id in player_ids
+        }
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         del state

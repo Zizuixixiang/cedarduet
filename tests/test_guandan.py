@@ -42,15 +42,19 @@ class GuandanPluginTests(unittest.TestCase):
         self.game = Guandan(random.Random(11))
         self.state = self.game.initialize_for_first_player(self.players, "human-1")
 
-    def test_catalog_fixed_four_npc_ready_and_stakes_disabled(self):
+    def test_catalog_fixed_four_npc_ready_and_team_stakes(self):
         item = next(entry for entry in game_catalog() if entry["game_type"] == "guandan")
         self.assertEqual(item["display_name"], "掼蛋")
         self.assertEqual(item["category"], "card")
         self.assertEqual(item["allowed_player_counts"], [4])
         self.assertEqual(item["recommended_players"], 4)
         self.assertTrue(item["supports_npcs"])
-        self.assertFalse(item["supports_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
         self.assertIn("完整升级赛", self.game.rules_text)
+        self.assertIn("获胜队两名玩家各 +stake", self.game.rules_text)
+        self.assertIn("不按领先等级", self.game.rules_text)
+        self.assertIn("CedarDuet 钱包政策", self.game.rules_text)
         self.assertIn("action_id", self.game.move_format)
 
     def test_plugin_legal_actions_are_direct_core_projection_and_validate_id_only(self):
@@ -133,6 +137,20 @@ class GuandanPluginTests(unittest.TestCase):
         self.assertEqual(result["winner_team"], "A")
         self.assertNotIn("winner_player_id", result)
         self.assertIn("完整掼蛋升级赛", result["result_text"])
+        deltas = self.game.settlement_deltas(self.state, result, self.players, 9)
+        self.assertEqual(deltas, {
+            "human-1": 9,
+            "ai-1": -9,
+            "npc:one": 9,
+            "npc:two": -9,
+        })
+        self.assertEqual(sum(deltas.values()), 0)
+        self.assertEqual(
+            self.game.settlement_deltas(
+                self.state, {"draw": True}, self.players, 9
+            ),
+            {item["player_id"]: 0 for item in self.players},
+        )
 
 
 class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
@@ -219,6 +237,18 @@ class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
         for player_id in ("human-1", "npc:one", "npc:two"):
             for card in latest["board_state"]["hands"][player_id]:
                 self.assertNotIn(card["id"], snapshot_json)
+
+    async def test_framework_accepts_positive_stake_room(self):
+        ordered = [
+            {key: value for key, value in item.items() if key != "seat_index"}
+            for item in participants()
+        ]
+        room = framework.create_room(
+            "guandan", "human_first", "human", "human-1", "ai-1",
+            ordered_participants=ordered, first_player_id="human-1", stake=3,
+        )
+        self.assertEqual(room["stake"], 3)
+        self.assertEqual(room["status"], "pending")
 
 
 if __name__ == "__main__":

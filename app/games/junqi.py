@@ -28,7 +28,7 @@ class Junqi(GamePlugin):
     recommended_players = 2
     supports_npcs = True
     uses_local_npc_strategy = True
-    supports_stakes = False
+    supports_stakes = True
     mcp_immediate_public_events = True
 
     rules_version = "online-junqi@f5ba2e8cedaa7e1dc3975349d5bbe097f2d5e13a"
@@ -64,6 +64,9 @@ class Junqi(GamePlugin):
         "任何可移动棋子都可夺旗。司令阵亡后，其军旗位置公开。\n\n"
         "【暗棋信息】\n"
         "对手棋子身份始终隐藏；只有实际碰撞结果和司令阵亡后的军旗位置会公开。"
+        "\n\n【CedarDuet 娱乐筹码】\n"
+        "终局赢家获得 stake，败者扣除 stake，采用双人标准零和结算，不设棋子、回合或"
+        "终局原因倍率；认输同样按赢家 +stake、认输者 -stake 结算。"
     )
     move_format = (
         '布阵换位：{"move":{"action":"swap","from":"a1","to":"a2"}}；'
