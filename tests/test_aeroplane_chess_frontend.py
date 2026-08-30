@@ -52,11 +52,12 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("aeroplane_chess", APP_SCRIPT)
         self.assertNotIn("aeroplane", PUBLIC_STYLES.lower())
         self.assertNotIn("/static/games/aeroplane_chess.js", HTML)
+        self.assertEqual(APP_SCRIPT.count("await showRoomTransitionFeedback("), 2)
 
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.2";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.3";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -72,12 +73,15 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             'class: `aeroplane-shortcut-line color-${color}`',
             'class: `aeroplane-shortcut-arrow color-${color}`',
             'class: "aeroplane-token-body"',
+            'class: "aeroplane-token-cockpit"',
             'className = "aeroplane-legal-target"',
             'board.dataset.viewerRotation',
         ):
             self.assertIn(required, SCRIPT)
         self.assertNotIn("<img", SCRIPT.lower())
         self.assertNotIn("background-image: url", STYLES.lower())
+        self.assertIn(".aeroplane-token-cockpit {", STYLES)
+        self.assertNotIn("L58 34 L58 40", SCRIPT)
         self.assertIn('"data-ring-index": ringIndex', SCRIPT)
         self.assertIn("const TRACK_MIN = 18;", SCRIPT)
         self.assertIn("const TRACK_MAX = 82;", SCRIPT)
@@ -289,6 +293,14 @@ function makeContext(viewerId, canMove = true) {
   ], [50, 77]);
   const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
   assert.equal(tokens.length, 8);
+  assert.equal(tokens.every((node) => node.tag === "button"), true);
+  assert.equal(tokens.every((node) => hasClass(node.children[0], "aeroplane-token-svg")), true);
+  assert.equal(
+    tokens.every((node) => descendants(node.children[0]).some(
+      (child) => hasClass(child, "aeroplane-token-cockpit")
+    )),
+    true
+  );
   const legalTokens = tokens.filter((node) => hasClass(node, "legal"));
   assert.equal(legalTokens.length, 4);
   assert.equal(tokens.filter((node) => node.dataset.playerId === "ai-1" && !node.disabled).length, 0);
@@ -309,9 +321,56 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.2");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.3");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_npc_transition_feedback_keeps_roll_and_move_results_visible(self):
+        self.run_node(r'''
+const previousTimeline = [{sequence: 20, event_type: "message", text: "此前"}];
+const nextTimeline = [
+  ...previousTimeline,
+  {
+    sequence: 21, revision_at_send: 8, event_type: "move",
+    sender: {name: "许知衡", participant_kind: "system_npc"},
+    move: {action: "roll"},
+  },
+  {
+    sequence: 22, revision_at_send: 8, event_type: "result",
+    text: "掷出 4 点但没有可移动飞机，服务端已自动结束本回合。",
+    move: {aeroplane_delta: {action: "roll", value: 4, auto_pass: true}},
+  },
+  {
+    sequence: 23, revision_at_send: 9, event_type: "move",
+    sender: {name: "真人", participant_kind: "human"},
+    move: {action: "roll"},
+  },
+  {
+    sequence: 24, revision_at_send: 9, event_type: "result",
+    text: "掷出 2 点。",
+    move: {aeroplane_delta: {action: "roll", value: 2}},
+  },
+  {
+    sequence: 25, revision_at_send: 10, event_type: "move",
+    sender: {name: "许知衡", participant_kind: "system_npc"},
+    move: {action: "move", plane_id: "blue-0"},
+  },
+  {
+    sequence: 26, revision_at_send: 10, event_type: "result",
+    text: "蓝方 1 号机前进 6 点，并触发跳跃。",
+    move: {aeroplane_delta: {action: "move", die: 6, plane_id: "blue-0"}},
+  },
+];
+const beats = renderer.transitionFeedbackBeats({previousTimeline, nextTimeline});
+assert.equal(beats.length, 2);
+assert.equal(
+  beats[0].text,
+  "许知衡掷出 4 点，但没有可移动飞机，服务端已自动结束本回合。"
+);
+assert.equal(beats[1].text, "许知衡：蓝方 1 号机前进 6 点，并触发跳跃。");
+assert.equal(beats.every((beat) => beat.durationMs === 450), true);
+assert.equal(typeof renderer.transitionFeedback, "function");
 ''')
 
     def test_awaiting_roll_control_submits_only_roll_action(self):

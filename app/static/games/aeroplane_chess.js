@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.2";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.3";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -233,18 +233,86 @@
     svg.classList.add("aeroplane-token-svg");
     const shadow = svgNode(documentRef, "path", {
       class: "aeroplane-token-shadow",
-      d: "M32 4 C35 4 37 8 37 13 L37 23 L58 34 L58 40 L37 35 L36 51 L45 57 L45 61 L32 57 L19 61 L19 57 L28 51 L27 35 L6 40 L6 34 L27 23 L27 13 C27 8 29 4 32 4 Z",
+      d: "M32 6 C36 6 38 11 38 17 L38 25 C45 28 51 31 56 35 C59 37 59 40 56 42 C50 44 44 43 38 40 L37 49 L44 54 C47 56 46 59 43 60 L32 56 L21 60 C18 59 17 56 20 54 L27 49 L26 40 C20 43 14 44 8 42 C5 40 5 37 8 35 C13 31 19 28 26 25 L26 17 C26 11 28 6 32 6 Z",
     });
     const body = svgNode(documentRef, "path", {
       class: "aeroplane-token-body",
-      d: "M32 3 C35 3 36 8 36 13 L36 24 L57 34 L57 38 L36 34 L35 51 L44 57 L44 59 L32 56 L20 59 L20 57 L29 51 L28 34 L7 38 L7 34 L28 24 L28 13 C28 8 29 3 32 3 Z",
+      d: "M32 5 C36 5 37 10 37 17 L37 26 C44 28 50 31 55 35 C57 37 57 39 54 40 C48 42 43 41 37 39 L36 49 L43 54 C45 56 44 58 42 59 L32 55 L22 59 C20 58 19 56 21 54 L28 49 L27 39 C21 41 16 42 10 40 C7 39 7 37 9 35 C14 31 20 28 27 26 L27 17 C27 10 28 5 32 5 Z",
     });
     const shine = svgNode(documentRef, "path", {
       class: "aeroplane-token-shine",
-      d: "M32 7 C33 7 33 10 33 15 L33 29 L48 35 L35 32 L33 49 L32 53 Z",
+      d: "M30 9 C32 7 34 9 34 13 L34 28 C39 30 44 32 48 35 C43 34 38 33 34 32 L33 49 L31 51 Z",
     });
-    svg.append(shadow, body, shine);
+    const cockpit = svgNode(documentRef, "circle", {
+      class: "aeroplane-token-cockpit",
+      cx: 32,
+      cy: 18,
+      r: 4.5,
+    });
+    svg.append(shadow, body, shine, cockpit);
     return svg;
+  }
+
+  function transitionFeedbackBeats({previousTimeline = [], nextTimeline = []} = {}) {
+    const previousLastSequence = previousTimeline.reduce(
+      (latest, event) => Math.max(latest, Number(event.sequence || event.id) || 0),
+      0
+    );
+    const newEvents = nextTimeline.filter(
+      (event) => (Number(event.sequence || event.id) || 0) > previousLastSequence
+    );
+    const npcByRevision = new Map();
+    const beats = [];
+    newEvents.forEach((event) => {
+      const revision = String(event.revision_at_send || "");
+      if (
+        event.event_type === "move"
+        && event.sender
+        && event.sender.participant_kind === "system_npc"
+      ) {
+        npcByRevision.set(revision, event.sender.name || event.sender_name || "NPC");
+        return;
+      }
+      const name = npcByRevision.get(revision);
+      const delta = event.move && event.move.aeroplane_delta;
+      if (event.event_type !== "result" || !name || !delta) return;
+      let text = "";
+      if (delta.action === "roll") {
+        const value = Number(delta.value) || "?";
+        const prefix = `${name}掷出 ${value} 点`;
+        const note = String(event.text || "").trim();
+        const repeatedPrefix = new RegExp(`^掷出\\s*${value}\\s*点[，,。.]?\\s*`);
+        const detail = note.replace(repeatedPrefix, "");
+        text = detail ? `${prefix}，${detail}` : prefix;
+      } else if (delta.action === "move") {
+        text = `${name}：${String(event.text || "完成移动").trim()}`;
+      }
+      if (text) beats.push({text, durationMs: 450});
+    });
+    return beats.slice(-4);
+  }
+
+  async function transitionFeedback({
+    document: documentRef = window.document,
+    previousTimeline = [],
+    nextTimeline = [],
+  } = {}) {
+    const beats = transitionFeedbackBeats({previousTimeline, nextTimeline});
+    if (!beats.length || !documentRef || typeof documentRef.querySelector !== "function") {
+      return;
+    }
+    const activityCopy = documentRef.querySelector(
+      ".aeroplane-activity > span:last-child"
+    );
+    const headingCopy = documentRef.querySelector(
+      ".aeroplane-board-heading > span:last-child"
+    );
+    if (!activityCopy) return;
+    for (const beat of beats) {
+      activityCopy.textContent = beat.text;
+      if (headingCopy) headingCopy.textContent = beat.text;
+      await new Promise((resolve) => window.setTimeout(resolve, beat.durationMs));
+    }
   }
 
   function createDie(documentRef, value, compact = false) {
@@ -730,6 +798,8 @@
     ensureStylesheet,
     renderBoard,
     renderControls,
+    transitionFeedback,
+    transitionFeedbackBeats,
   };
 
   window.DuelGameUI.register("aeroplane_chess", renderer);

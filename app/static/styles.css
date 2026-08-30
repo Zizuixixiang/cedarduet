@@ -2669,7 +2669,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 6px;
 }
 .recent-chat-feed {
-  height: 96px;
+  height: 134px;
   min-width: 0;
   padding: 6px 8px 7px;
   display: grid;
@@ -2679,9 +2679,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border: 2px solid var(--purple);
   box-shadow: 2px 2px 0 rgba(92, 84, 99, .12);
   font-family: system-ui, sans-serif;
-}
-.multiplayer-presentation[data-participant-presentation="generic"] .recent-chat-feed {
-  height: 128px;
 }
 .recent-chat-heading {
   margin-bottom: 3px;
@@ -3584,8 +3581,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .move-confirm .pixel-btn { min-width: 88px; }
   .chat-compose { gap: 6px; }
   .multiplayer-presentation .game-chat-area { gap: 5px; }
-  .recent-chat-feed { height: 88px; padding: 5px 6px 6px; }
-  .multiplayer-presentation[data-participant-presentation="generic"] .recent-chat-feed { height: 120px; }
+  .recent-chat-feed { height: 126px; padding: 5px 6px 6px; }
   .recent-chat-messages { gap: 2px; }
   .recent-chat-message {
     padding: 3px 4px;

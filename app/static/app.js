@@ -2843,6 +2843,7 @@ function renderTimeline(timeline = []) {
 function recentSpeechEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
   return timeline.filter((event) => (
     event
+    && event.event_type === "message"
     && typeof event.text === "string"
     && Boolean(event.text.trim())
     && event.is_public !== false
@@ -3349,14 +3350,39 @@ function renderGame(nextRoom, message = "", timeline = []) {
   if (becameTerminal) openResultModal(resultText);
 }
 
+async function showRoomTransitionFeedback(
+  previousRoom, previousTimeline, nextRoom, nextTimeline
+) {
+  if (
+    !previousRoom
+    || !nextRoom
+    || previousRoom.room_id !== nextRoom.room_id
+    || previousRoom.revision === nextRoom.revision
+  ) return;
+  const renderer = registeredGameUIRenderer(nextRoom.game_type);
+  if (!renderer || typeof renderer.transitionFeedback !== "function") return;
+  await renderer.transitionFeedback({
+    document,
+    previousRoom,
+    previousTimeline,
+    nextRoom,
+    nextTimeline,
+  });
+}
+
 async function refreshRoom({quiet = false} = {}) {
   if (!room) return;
+  const previousRoom = room;
+  const previousTimeline = currentTimeline;
   const previousRevision = room.revision;
   const previousStatus = room.status;
   try {
     const data = await request(`/api/rooms/${room.room_id}`);
     const visibleStateChanged = (
       data.room.revision !== previousRevision || data.room.status !== previousStatus
+    );
+    await showRoomTransitionFeedback(
+      previousRoom, previousTimeline, data.room, data.timeline
     );
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
     if (!quiet || visibleStateChanged) {
@@ -3370,6 +3396,8 @@ async function refreshRoom({quiet = false} = {}) {
 
 async function submitMove(movePayload) {
   if (!movePayload || !canHumanMove()) return false;
+  const previousRoom = room;
+  const previousTimeline = currentTimeline;
   try {
     const data = await request(`/api/rooms/${room.room_id}/move`, {
       method: "POST",
@@ -3379,6 +3407,9 @@ async function submitMove(movePayload) {
     pendingMove = null;
     selectedJungleCell = null;
     selectedXiangqiCell = null;
+    await showRoomTransitionFeedback(
+      previousRoom, previousTimeline, data.room, data.timeline
+    );
     renderGame(data.room, data.message, data.timeline);
     return true;
   } catch (error) {

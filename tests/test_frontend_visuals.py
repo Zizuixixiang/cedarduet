@@ -472,13 +472,23 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('await openRoom(routeRoomId, {historyMode: "none", routeRestore: true})', SCRIPT)
         self.assertIn('ensureInitialRouteState();', SCRIPT)
 
-    def test_only_generic_multiplayer_chat_gets_two_extra_lines(self):
+    def test_all_multiplayer_chat_feeds_have_shared_four_line_height(self):
         selector = '.multiplayer-presentation[data-participant-presentation="generic"] .recent-chat-feed'
-        self.assertIn(f'{selector} {{\n  height: 128px;', STYLES)
         mobile = STYLES[STYLES.index('@media (max-width: 599px)'):]
-        self.assertIn(f'{selector} {{ height: 120px; }}', mobile)
-        self.assertIn('.recent-chat-feed {\n  height: 96px;', STYLES)
+        self.assertNotIn(selector, STYLES)
+        self.assertIn('.recent-chat-feed {\n  height: 134px;', STYLES)
+        self.assertIn(
+            '.recent-chat-feed { height: 126px; padding: 5px 6px 6px; }',
+            mobile,
+        )
         self.assertNotIn('[data-participant-presentation="board-edge"] .recent-chat-feed', STYLES)
+        for game_style in (ROOT / "app" / "static" / "games").glob("*.css"):
+            content = game_style.read_text(encoding="utf-8")
+            self.assertNotRegex(
+                content,
+                r"\.recent-chat-feed\s*\{[^}]*\bheight\s*:",
+                game_style.name,
+            )
 
     def test_only_tictactoe_renders_raw_marks_as_text(self):
         board_cell = function_source("boardCell")
@@ -2115,6 +2125,8 @@ const canHumanMove = () => humanTurn;
 let pendingMove = null;
 let selectedJungleCell = null;
 let selectedXiangqiCell = null;
+let currentTimeline = [];
+const showRoomTransitionFeedback = async () => {{}};
 const requests = [];
 const notices = [];
 let room = {{
@@ -3009,18 +3021,19 @@ const events = [
   {{event_type: "message", text: "最后消息", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
 ];
 renderRecentChat(events);
-assert.equal(list.children.length, 5);
+assert.equal(list.children.length, 3);
 assert.deepEqual(
   list.children.map((item) => item.children[1].textContent),
-  ["认输附言", "离桌附言", "公开消息", "第二个落子附言", "最后消息"]
+  ["最早消息", "公开消息", "最后消息"]
 );
 assert.deepEqual(
   list.children.map((item) => item.children[0].textContent),
-  ["丙", "丙", "甲", "乙", "丙"]
+  ["甲", "甲", "丙"]
 );
-assert.ok(list.children[0].classList.contains("seat-2"));
-assert.ok(list.children[3].classList.contains("seat-1"));
-assert.ok(!list.children.some((item) => item.children[1].textContent.includes("D4")));
+assert.ok(list.children[0].classList.contains("seat-0"));
+for (const excluded of ["最早落子附言", "认输附言", "离桌附言", "第二个落子附言", "系统胜负结果"]) {{
+  assert.ok(!list.children.some((item) => item.children[1].textContent === excluded));
+}}
 assert.ok(!feed.classList.contains("hidden"));
 assert.equal(list.scrollTop, list.scrollHeight);
 
@@ -3271,7 +3284,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("width: min(700px, 100%);", chat_area)
         self.assertIn("min-width: 0;", chat_area)
         self.assertIn("display: grid;", chat_area)
-        self.assertIn("height: 96px;", recent)
+        self.assertIn("height: 134px;", recent)
         self.assertIn("display: grid;", recent)
         self.assertIn("grid-template-rows: auto minmax(0, 1fr);", recent)
         self.assertIn("min-height: 0;", recent)
@@ -3293,7 +3306,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("white-space: pre-wrap;", text)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn(
-            ".recent-chat-feed { height: 88px; padding: 5px 6px 6px; }",
+            ".recent-chat-feed { height: 126px; padding: 5px 6px 6px; }",
             mobile,
         )
         self.assertIn(".recent-chat-messages { gap: 2px; }", mobile)
@@ -3308,10 +3321,17 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertNotIn("grid-template-columns:", mobile_message)
         self.assertIn(".chat-compose input { min-height: 38px;", mobile)
         self.assertIn("min-width: 64px;", mobile)
-        for viewport in (320, 375):
+        mobile_feed_height = 126
+        mobile_fixed_overhead = 11 + 13 + 3
+        mobile_message_height = 11 * 1.4 + 6
+        self.assertGreaterEqual(
+            mobile_feed_height - mobile_fixed_overhead,
+            4 * mobile_message_height + 3 * 2,
+        )
+        for viewport in (360, 375, 390, 430):
             content_width = viewport - 20 - 14
             compose_input_width = content_width - 6 - 64
-            self.assertGreaterEqual(content_width, 286)
+            self.assertLessEqual(content_width, viewport)
             self.assertGreaterEqual(compose_input_width, 216)
 
     def test_liars_round_card_visibility_and_polling_safe_bid_draft(self):

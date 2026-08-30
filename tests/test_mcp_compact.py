@@ -86,6 +86,11 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不得主动逐项泄露自己的真实未公开", rules_text)
         self.assertIn("公开以系统结果为准", rules_text)
         self.assertIn("正常诈唬不受限", rules_text)
+        self.assertIn("move 的 message 可选", rules_text)
+        self.assertIn("自然桌边话", rules_text)
+        self.assertIn("禁止用它复述动作", rules_text)
+        self.assertIn("Yellow rolls.", rules_text)
+        self.assertIn("无话就省略", rules_text)
         self.assertEqual(
             payload["chip_balances"],
             {"ai": ai_balance, "human": human_balance},

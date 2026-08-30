@@ -14,6 +14,9 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 move 追加一个 `{"name":"双弈裁判","<game>_delta":{...}}`。这类结果在行动者失去
 回合时也会直接进入本次 move 响应。插件 delta 中按参与者映射的公共计数可以使用
 bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
+`move` 的 `message` 是可选桌边附言：只有真的想说一句自然桌边话时才带，并尽量短。
+动作、系统状态和颜色已由 `move` 与裁判结果表达，禁止再用 `message` 复述（如
+`Yellow rolls.`、`I roll.`、`I move...`）；无话就省略。
 普通 message、其他参与者的 move 和 round_result 只进入房间增量事件游标（不是下文
 四类持久化未读通知），不会唤醒尚未
 获得行动权的小机，也不会被 `state wait=false` 提前消费。真正轮到该小机时，服务端

@@ -368,6 +368,12 @@
   fill: rgba(255, 255, 255, .42);
 }
 
+.aeroplane-token-cockpit {
+  fill: rgba(255, 255, 255, .68);
+  stroke: var(--plane-dark);
+  stroke-width: 1.4;
+}
+
 .aeroplane-token.last-moved {
   border-radius: 50%;
   box-shadow: 0 0 0 2px #fffdf2, 0 0 0 4px #c88b49;
