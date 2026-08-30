@@ -12,6 +12,7 @@ from .gandengyan import Gandengyan
 from .guandan import Guandan
 from .jungle import Jungle
 from .liars_dice import LiarsDice
+from .mahjong import Mahjong
 from .othello import Othello
 from .tictactoe import TicTacToe
 from .train_cards import TrainCards
@@ -39,6 +40,7 @@ GAMES = {
     DotsBoxes.game_type: DotsBoxes(),
     Doudizhu.game_type: Doudizhu(),
     LiarsDice.game_type: LiarsDice(),
+    Mahjong.game_type: Mahjong(),
     Yahtzee.game_type: Yahtzee(),
     Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),

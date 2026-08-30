@@ -3,3 +3,6 @@ httpx>=0.27,<1
 numpy>=1.24,<3
 rlcard>=1.2,<2
 uvicorn[standard]>=0.30,<1
+
+# Native C++11 Chinese Official Mahjong fan/shanten engine (vendored MIT source).
+./third_party/pymahjonggb

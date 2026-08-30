@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 21)
+        self.assertEqual(len(payload["games"]), 22)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -166,6 +166,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
 
                 "guandan": "card",
+
+                "mahjong": "card",
 
 
                 "zhajinhua": "card",
@@ -201,6 +203,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
 
                 "guandan": "掼蛋",
+
+                "mahjong": "麻将",
 
 
                 "zhajinhua": "炸金花",
