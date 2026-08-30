@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.4";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.5";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -127,7 +127,45 @@
     ) || "玩家";
   }
 
+  function homeCountForPlayer(state, playerId) {
+    const planes = (state.planes || {})[playerId];
+    return Array.isArray(planes)
+      ? planes.filter((plane) => plane.zone === "home").length
+      : 0;
+  }
+
+  function createHomeCount(documentRef, count) {
+    const badge = documentRef.createElement("span");
+    badge.className = "aeroplane-home-count";
+    badge.textContent = `${count}/4`;
+    badge.setAttribute("aria-label", `已到家 ${count}/4`);
+    return badge;
+  }
+
+  function syncDuelHomeCounts(documentRef, context) {
+    const participants = context.participants || [];
+    if (participants.length !== 2 || typeof documentRef.getElementById !== "function") {
+      return;
+    }
+    const human = participants.find((participant) => (
+      participant.role === "human" || participant.participant_kind === "human"
+    )) || participants.find((participant) => (
+      participant.player_id === (context.viewer && context.viewer.player_id)
+    ));
+    const opponent = participants.find((participant) => participant !== human);
+    [
+      ["humanName", human],
+      ["aiName", opponent],
+    ].forEach(([elementId, participant]) => {
+      const target = documentRef.getElementById(elementId);
+      if (!target || !participant) return;
+      const count = homeCountForPlayer(context.state, participant.player_id);
+      target.dataset.aeroplaneHomeCount = `${count}/4`;
+    });
+  }
+
   function createEdgeIdentity(documentRef, context, participant, color, point) {
+    const homeCount = homeCountForPlayer(context.state, participant.player_id);
     const item = documentRef.createElement("article");
     const viewerId = context.viewer && context.viewer.player_id;
     item.className = [
@@ -144,7 +182,7 @@
     item.style.setProperty("--edge-column", point[0] < 50 ? 1 : 2);
     item.setAttribute(
       "aria-label",
-      `${playerName(participant)}，${COLOR_LABELS[color]}${participant.player_id === viewerId ? "，你" : ""}`
+      `${playerName(participant)}，${COLOR_LABELS[color]}，已到家 ${homeCount}/4${participant.player_id === viewerId ? "，你" : ""}`
     );
     const avatar = documentRef.createElement("span");
     avatar.className = "board-edge-avatar";
@@ -158,11 +196,14 @@
     }
     const copy = documentRef.createElement("span");
     copy.className = "board-edge-copy";
+    const nameRow = documentRef.createElement("span");
+    nameRow.className = "aeroplane-edge-name-row";
     const name = documentRef.createElement("strong");
     name.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
+    nameRow.append(name, createHomeCount(documentRef, homeCount));
     const label = documentRef.createElement("small");
     label.textContent = COLOR_LABELS[color];
-    copy.append(name, label);
+    copy.append(nameRow, label);
     item.append(avatar, copy);
     return item;
   }
@@ -586,6 +627,7 @@
     Object.entries(state.planes || {}).forEach(([playerId, planes]) => {
       const color = colorForPlayer(state, playerId);
       planes.forEach((plane) => {
+        if (plane.zone === "home") return;
         entries.push({
           playerId,
           color,
@@ -649,7 +691,6 @@
         legal ? "legal" : "",
         lastAction.plane_id === plane.plane_id ? "last-moved" : "",
         returnedIds.has(plane.plane_id) ? "recently-returned" : "",
-        plane.zone === "home" ? "arrived-home" : "",
       ].filter(Boolean).join(" ");
       token.dataset.planeId = plane.plane_id;
       token.dataset.planeIndex = String(plane.plane_index);
@@ -754,6 +795,7 @@
     shell.appendChild(svg);
     appendLegalTargets(documentRef, shell, context, quarterTurns);
     appendPlanes(documentRef, shell, context, quarterTurns);
+    syncDuelHomeCounts(documentRef, context);
     const edgeRoster = edgeRosters(documentRef, context, quarterTurns);
 
     const activity = documentRef.createElement("div");

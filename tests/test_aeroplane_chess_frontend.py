@@ -4,7 +4,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from app.games.aeroplane_chess import AeroplaneChess
+from app.games.aeroplane_chess import FINISH_ROUTE_STEP, AeroplaneChess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +57,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.4";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.5";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -147,11 +147,25 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("width: var(--aeroplane-token-size);", STYLES)
         self.assertIn(".aeroplane-token.legal .aeroplane-token-svg", STYLES)
         self.assertIn("width: calc(var(--aeroplane-token-size) + 3px);", STYLES)
-        self.assertIn("border: 1px solid rgba(73, 56, 74, .62);", STYLES)
+        token_base = STYLES[
+            STYLES.index(".aeroplane-token::before {"):
+            STYLES.index(".aeroplane-token.color-red")
+        ]
+        self.assertIn("background: transparent;", token_base)
+        self.assertIn("box-shadow: none;", token_base)
+        self.assertNotIn("rgba(255, 253, 247, .72)", token_base)
+        legal_base = STYLES[
+            STYLES.index(".aeroplane-token.legal::before {"):
+            STYLES.index(".aeroplane-token.legal:hover")
+        ]
+        self.assertIn("background: transparent;", legal_base)
+        self.assertIn("0 0 0 1px", legal_base)
         self.assertIn("stroke-width: 2.6;", STYLES)
         self.assertIn("paint-order: stroke fill;", STYLES)
+        self.assertIn("drop-shadow(0 0 .35px", STYLES)
         self.assertNotIn("drop-shadow(0 0 3px", STYLES)
         self.assertNotIn("drop-shadow(0 0 8px", STYLES)
+        self.assertNotIn(".aeroplane-token.arrived-home", STYLES)
         self.assertIn(".aeroplane-activity.npc-feedback-active {", STYLES)
         for viewport in (320, 360, 375, 390, 430, 599):
             board_width = min(viewport * 0.96, 680)
@@ -231,6 +245,7 @@ class Element {
   addEventListener(name, listener) { this.listeners[name] = listener; }
 }
 const styleNodes = new Map();
+const idNodes = new Map();
 const queryNodes = new Map();
 const feedbackDelays = [];
 let feedbackTimeoutObserver = null;
@@ -238,9 +253,15 @@ const document = {
   head: {appendChild(element) { if (element.id) styleNodes.set(element.id, element); }},
   createElement(tag) { return new Element(tag); },
   createElementNS(_namespace, tag) { return new Element(tag); },
-  getElementById(id) { return styleNodes.get(id) || null; },
+  getElementById(id) { return styleNodes.get(id) || idNodes.get(id) || null; },
   querySelector(selector) { return queryNodes.get(selector) || null; },
 };
+for (const id of ["aiName", "humanName"]) {
+  const name = new Element("strong");
+  name.id = id;
+  name.textContent = id === "aiName" ? "小机" : "南山";
+  idNodes.set(id, name);
+}
 let renderer = null;
 const window = {
   document,
@@ -385,7 +406,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.4");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.5");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -643,6 +664,96 @@ assert.equal(JSON.stringify(harness.submitted), JSON.stringify([
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''', state=state)
 
+    def test_home_planes_leave_board_and_live_counts_cover_two_three_four_players(self):
+        home_counts_by_player_count = {
+            2: (0, 4),
+            3: (0, 1, 4),
+            4: (0, 1, 2, 4),
+        }
+        for count, expected_counts in home_counts_by_player_count.items():
+            with self.subTest(count=count):
+                participants = [
+                    {
+                        "player_id": f"p-{index}",
+                        "display_name": f"玩家{index}",
+                        "token": color,
+                        "seat_index": index,
+                        "role": "human" if index == 0 else "ai",
+                        "participant_kind": (
+                            "human" if index == 0 else "system_npc"
+                        ),
+                    }
+                    for index, color in enumerate(
+                        AeroplaneChess._colors_for_count(count)
+                    )
+                ]
+                game = AeroplaneChess()
+                state = game.initialize(participants)
+                for participant, home_count in zip(
+                    participants, expected_counts, strict=True
+                ):
+                    color = state["color_by_player"][participant["player_id"]]
+                    for plane_index in range(home_count):
+                        game._set_plane_step(
+                            state["planes"][participant["player_id"]][plane_index],
+                            color,
+                            FINISH_ROUTE_STEP,
+                        )
+                state["last_action_note"] = (
+                    f"{participants[-1]['display_name']}的 4 号机到达终点。"
+                )
+                self.run_node(r'''
+const harness = makeContext(participants[0].player_id, false);
+renderer.renderBoard(harness.context);
+const nodes = descendants(harness.board);
+const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
+const totalHome = EXPECTED_COUNTS.reduce((total, value) => total + value, 0);
+assert.equal(tokens.length, participants.length * 4 - totalHome);
+assert.equal(tokens.some((node) => node.dataset.logicalZone === "home"), false);
+assert.equal(tokens.some((node) => hasClass(node, "arrived-home")), false);
+const activity = nodes.find((node) => hasClass(node, "aeroplane-activity"));
+assert.equal(
+  activity.children[1].textContent,
+  `${participants[participants.length - 1].display_name}的 4 号机到达终点。`
+);
+
+if (participants.length === 2) {
+  assert.equal(
+    descendants(harness.board).filter(
+      (node) => hasClass(node, "aeroplane-edge-participant")
+    ).length,
+    0
+  );
+  const humanName = idNodes.get("humanName");
+  const aiName = idNodes.get("aiName");
+  assert.equal(humanName.dataset.aeroplaneHomeCount, `${EXPECTED_COUNTS[0]}/4`);
+  assert.equal(aiName.dataset.aeroplaneHomeCount, `${EXPECTED_COUNTS[1]}/4`);
+  humanName.textContent = "轮询后的人类姓名";
+  aiName.textContent = "轮询后的小机姓名";
+  assert.equal(humanName.dataset.aeroplaneHomeCount, `${EXPECTED_COUNTS[0]}/4`);
+  assert.equal(aiName.dataset.aeroplaneHomeCount, `${EXPECTED_COUNTS[1]}/4`);
+} else {
+  const identities = nodes.filter(
+    (node) => hasClass(node, "aeroplane-edge-participant")
+  );
+  assert.equal(identities.length, participants.length);
+  identities.forEach((identity) => {
+    const playerIndex = participants.findIndex(
+      (participant) => participant.player_id === identity.dataset.playerId
+    );
+    const nameRow = identity.children[1].children[0];
+    const badge = nameRow.children.find(
+      (node) => hasClass(node, "aeroplane-home-count")
+    );
+    assert.equal(badge.textContent, `${EXPECTED_COUNTS[playerIndex]}/4`);
+    assert.match(identity.attributes["aria-label"], /已到家 [0-4]\/4/);
+  });
+}
+'''.replace("EXPECTED_COUNTS", json.dumps(expected_counts)),
+                    state=state,
+                    participants=participants,
+                )
+
     def test_multiplayer_edge_identities_follow_rotated_airports(self):
         participants = [
             {
@@ -670,6 +781,10 @@ for (const participant of participants) {
   assert.equal(viewerIdentity.dataset.visualEdge, "bottom-left");
   assert.equal(viewerIdentity.dataset.color, state.color_by_player[participant.player_id]);
   assert.equal(viewerIdentity.children[0].textContent, `avatar:${participant.player_id}`);
+  assert.equal(
+    viewerIdentity.children[1].children[0].children[1].textContent,
+    "0/4"
+  );
   assert.match(viewerIdentity.children[1].children[1].textContent, /方$/);
 
   const shell = nodes.find((node) => hasClass(node, "aeroplane-board-shell"));
@@ -690,6 +805,10 @@ for (const participant of participants) {
         self.assertIn("text-overflow: ellipsis;", STYLES)
         self.assertIn(".aeroplane-edge-participant .board-edge-avatar", STYLES)
         self.assertIn(".aeroplane-edge-participant .board-edge-copy", STYLES)
+        self.assertIn(".aeroplane-edge-name-row", STYLES)
+        self.assertIn(".aeroplane-home-count", STYLES)
+        self.assertIn(".player-name[data-aeroplane-home-count]", STYLES)
+        self.assertIn("content: attr(data-aeroplane-home-count);", STYLES)
         for viewport in (320, 360, 375, 390, 430):
             self.assertLessEqual(min(viewport * 0.96, 680), viewport)
 

@@ -366,8 +366,36 @@ class AeroplaneChessRuleTests(unittest.TestCase):
         self.roll(game, state, actor)
         result = self.move(game, state, actor, 3)
         self.assertEqual(result.result["winner_player_id"], actor["player_id"])
+        self.assertEqual(
+            result.note,
+            "人类的 4 号机到达终点，4 架飞机全部到家，赢得本局。",
+        )
         self.assertEqual(state["flow"]["phase"], "finished")
         self.assertEqual(self.plane(state, actor["player_id"], 3)["zone"], "home")
+
+    def test_home_arrival_note_names_plane_for_human_and_npc(self):
+        for actor_index, expected_name in ((0, "人类"), (1, "小机 1")):
+            with self.subTest(actor_index=actor_index):
+                game, _rng, seats, state = self.make_game((1,), count=2)
+                actor = self.actor(seats, actor_index)
+                self.set_step(
+                    game,
+                    state,
+                    actor["player_id"],
+                    2,
+                    FINISH_ROUTE_STEP - 1,
+                )
+                self.roll(game, state, actor)
+                result = self.move(game, state, actor, 2)
+                self.assertEqual(
+                    result.note,
+                    f"{expected_name}的 3 号机到达终点。",
+                )
+                self.assertEqual(
+                    self.plane(state, actor["player_id"], 2)["zone"],
+                    "home",
+                )
+                self.assertTrue(state["last_action"]["reached_home"])
 
     def test_move_identity_and_npc_actions_are_server_authoritative(self):
         game, _rng, seats, state = self.make_game((6,), count=2)

@@ -618,6 +618,12 @@ class AeroplaneChess(GamePlugin):
         self._append_history(state, action)
 
         winner = self._winner(state)
+        actor_name = str(
+            actor.get("display_name") or COLOR_LABELS[color]
+        ).strip() or COLOR_LABELS[color]
+        arrival_note = (
+            f"{actor_name}的 {plane['plane_index'] + 1} 号机到达终点"
+        )
         if winner is not None:
             state["winner_player_id"] = winner
             state["flow"]["phase"] = "finished"
@@ -627,7 +633,7 @@ class AeroplaneChess(GamePlugin):
             state["turn_player_id"] = None
             return MoveResult(
                 state=state,
-                note=f"{COLOR_LABELS[color]}第 4 架飞机精确到家，赢得本局。",
+                note=f"{arrival_note}，4 架飞机全部到家，赢得本局。",
                 result={"winner_player_id": winner, "draw": False},
             )
 
@@ -639,10 +645,14 @@ class AeroplaneChess(GamePlugin):
             effects.append("跨盘飞跃")
         if returned:
             effects.append(f"击落 {len(returned)} 架")
-        if movement["reached_home"]:
-            effects.append("精确到家")
         suffix = f"，{'、'.join(effects)}" if effects else ""
-        note = f"{COLOR_LABELS[color]} {plane['plane_index'] + 1} 号机前进 {die} 点{suffix}。"
+        note = (
+            f"{arrival_note}。" if movement["reached_home"]
+            else (
+                f"{COLOR_LABELS[color]} {plane['plane_index'] + 1} 号机"
+                f"前进 {die} 点{suffix}。"
+            )
+        )
         if die == 6:
             self._set_awaiting_roll(state)
             return MoveResult(state=state, retain_turn=True, note=note + " 可继续掷骰。")
