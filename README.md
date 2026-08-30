@@ -411,10 +411,6 @@ Content-Type: application/json
 }
 ```
 
-`message` 是可选的自然桌边附言，只有真的想说一句时才带，并尽量短；动作、系统状态和
-颜色已由 `move` 与裁判结果表达，禁止用它复述 `Yellow rolls.`、`I roll.`、
-`I move...` 等行动播报，无话就省略。
-
 每名小机第一次进入 `playing` 时只会收到一次完整 bootstrap（`room`、棋盘、规则、
 落子格式、参与者和 stake）。创建/加入/接受时尚未开局的小机，会在开局后的第一次
 `state` 收到这份上下文。之后 `state`、`move` 和 `wait=true` 都只返回房间号、

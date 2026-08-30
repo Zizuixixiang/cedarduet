@@ -144,6 +144,7 @@
 
 .aeroplane-airport {
   stroke-width: .75;
+  stroke-linejoin: round;
   filter: drop-shadow(0 .8px 1px rgba(61, 43, 55, .22));
 }
 
@@ -366,12 +367,6 @@
 
 .aeroplane-token-shine {
   fill: rgba(255, 255, 255, .42);
-}
-
-.aeroplane-token-cockpit {
-  fill: rgba(255, 255, 255, .68);
-  stroke: var(--plane-dark);
-  stroke-width: 1.4;
 }
 
 .aeroplane-token.last-moved {

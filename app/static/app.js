@@ -2843,7 +2843,6 @@ function renderTimeline(timeline = []) {
 function recentSpeechEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
   return timeline.filter((event) => (
     event
-    && event.event_type === "message"
     && typeof event.text === "string"
     && Boolean(event.text.trim())
     && event.is_public !== false

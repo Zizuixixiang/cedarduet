@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.3";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.4";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -25,17 +25,21 @@
     blue: [[87.75, 6.75], [93.25, 6.75], [87.75, 12.25], [93.25, 12.25]],
     green: [[87.75, 87.75], [93.25, 87.75], [87.75, 93.25], [93.25, 93.25]],
   };
+  const AIRPORT_FIELD_POINTS = [
+    [3.5, 84.5], [9.5, 84.5], [15.5, 90.5], [15.5, 96.5], [3.5, 96.5],
+  ];
+  const AIRPORT_QUARTER_TURNS = {red: 0, yellow: 3, blue: 2, green: 1};
   const LAUNCH_POINTS = {
-    red: [42, 87.5],
-    yellow: [12.5, 42],
-    blue: [58, 12.5],
-    green: [87.5, 58],
+    red: [42, 85],
+    yellow: [15, 42],
+    blue: [58, 15],
+    green: [85, 58],
   };
   const HOME_LANE_POINTS = {
-    red: [[50, 77], [50, 72.4], [50, 67.8], [50, 63.2], [50, 58.6], [50, 54]],
-    yellow: [[23, 50], [27.6, 50], [32.2, 50], [36.8, 50], [41.4, 50], [46, 50]],
-    blue: [[50, 23], [50, 27.6], [50, 32.2], [50, 36.8], [50, 41.4], [50, 46]],
-    green: [[77, 50], [72.4, 50], [67.8, 50], [63.2, 50], [58.6, 50], [54, 50]],
+    red: [[50, 85.5], [50, 79.2], [50, 72.9], [50, 66.6], [50, 60.3], [50, 54]],
+    yellow: [[14.5, 50], [20.8, 50], [27.1, 50], [33.4, 50], [39.7, 50], [46, 50]],
+    blue: [[50, 14.5], [50, 20.8], [50, 27.1], [50, 33.4], [50, 39.7], [50, 46]],
+    green: [[85.5, 50], [79.2, 50], [72.9, 50], [66.6, 50], [60.3, 50], [54, 50]],
   };
   const HOME_POINTS = {
     red: [[47, 53], [49, 54], [51, 54], [53, 53]],
@@ -43,8 +47,23 @@
     blue: [[47, 47], [49, 46], [51, 46], [53, 47]],
     green: [[53, 47], [54, 49], [54, 51], [53, 53]],
   };
-  const TRACK_MIN = 18;
-  const TRACK_MAX = 82;
+  const TRACK_EDGE_MIN = 8;
+  const TRACK_EDGE_MAX = 92;
+  const TRACK_QUADRANT_POINTS = [
+    [50, TRACK_EDGE_MAX],
+    [45, TRACK_EDGE_MAX],
+    [40, TRACK_EDGE_MAX],
+    [35, TRACK_EDGE_MAX],
+    [30, TRACK_EDGE_MAX],
+    [25, TRACK_EDGE_MAX],
+    [20.75, 87.75],
+    [16.5, 83.5],
+    [12.25, 79.25],
+    [TRACK_EDGE_MIN, 75],
+    [TRACK_EDGE_MIN, 68.75],
+    [TRACK_EDGE_MIN, 62.5],
+    [TRACK_EDGE_MIN, 56.25],
+  ];
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -79,22 +98,12 @@
 
   function ringPoint(ringIndex) {
     const normalized = ((Number(ringIndex) % 52) + 52) % 52;
-    const side = TRACK_MAX - TRACK_MIN;
-    const halfSide = side / 2;
-    const distance = normalized * (side * 4 / 52);
-    if (distance <= halfSide) {
-      return [50 - distance, TRACK_MAX];
-    }
-    if (distance <= halfSide + side) {
-      return [TRACK_MIN, TRACK_MAX - (distance - halfSide)];
-    }
-    if (distance <= halfSide + side * 2) {
-      return [TRACK_MIN + (distance - halfSide - side), TRACK_MIN];
-    }
-    if (distance <= halfSide + side * 3) {
-      return [TRACK_MAX, TRACK_MIN + (distance - halfSide - side * 2)];
-    }
-    return [TRACK_MAX - (distance - halfSide - side * 3), TRACK_MAX];
+    const quadrant = Math.floor(normalized / 13);
+    const quadrantIndex = normalized % 13;
+    return rotatePoint(
+      TRACK_QUADRANT_POINTS[quadrantIndex],
+      (4 - quadrant) % 4
+    );
   }
 
   function stackOffsets(size) {
@@ -233,23 +242,17 @@
     svg.classList.add("aeroplane-token-svg");
     const shadow = svgNode(documentRef, "path", {
       class: "aeroplane-token-shadow",
-      d: "M32 6 C36 6 38 11 38 17 L38 25 C45 28 51 31 56 35 C59 37 59 40 56 42 C50 44 44 43 38 40 L37 49 L44 54 C47 56 46 59 43 60 L32 56 L21 60 C18 59 17 56 20 54 L27 49 L26 40 C20 43 14 44 8 42 C5 40 5 37 8 35 C13 31 19 28 26 25 L26 17 C26 11 28 6 32 6 Z",
+      d: "M32 4 C35 4 37 8 37 13 L37 23 L58 34 L58 40 L37 35 L36 51 L45 57 L45 61 L32 57 L19 61 L19 57 L28 51 L27 35 L6 40 L6 34 L27 23 L27 13 C27 8 29 4 32 4 Z",
     });
     const body = svgNode(documentRef, "path", {
       class: "aeroplane-token-body",
-      d: "M32 5 C36 5 37 10 37 17 L37 26 C44 28 50 31 55 35 C57 37 57 39 54 40 C48 42 43 41 37 39 L36 49 L43 54 C45 56 44 58 42 59 L32 55 L22 59 C20 58 19 56 21 54 L28 49 L27 39 C21 41 16 42 10 40 C7 39 7 37 9 35 C14 31 20 28 27 26 L27 17 C27 10 28 5 32 5 Z",
+      d: "M32 3 C35 3 36 8 36 13 L36 24 L57 34 L57 38 L36 34 L35 51 L44 57 L44 59 L32 56 L20 59 L20 57 L29 51 L28 34 L7 38 L7 34 L28 24 L28 13 C28 8 29 3 32 3 Z",
     });
     const shine = svgNode(documentRef, "path", {
       class: "aeroplane-token-shine",
-      d: "M30 9 C32 7 34 9 34 13 L34 28 C39 30 44 32 48 35 C43 34 38 33 34 32 L33 49 L31 51 Z",
+      d: "M32 7 C33 7 33 10 33 15 L33 29 L48 35 L35 32 L33 49 L32 53 Z",
     });
-    const cockpit = svgNode(documentRef, "circle", {
-      class: "aeroplane-token-cockpit",
-      cx: 32,
-      cy: 18,
-      r: 4.5,
-    });
-    svg.append(shadow, body, shine, cockpit);
+    svg.append(shadow, body, shine);
     return svg;
   }
 
@@ -333,17 +336,14 @@
   function appendAirport(documentRef, svg, color, quarterTurns) {
     const unrotated = AIRPORT_POINTS[color];
     const corners = unrotated.map((point) => rotatePoint(point, quarterTurns));
-    const center = corners.reduce(
-      (total, point) => [total[0] + point[0] / 4, total[1] + point[1] / 4],
-      [0, 0]
-    );
-    const base = svgNode(documentRef, "rect", {
-      x: center[0] - 6,
-      y: center[1] - 6,
-      width: 12,
-      height: 12,
-      rx: 3.2,
+    const fieldPoints = AIRPORT_FIELD_POINTS.map((point) => rotatePoint(
+      point,
+      (AIRPORT_QUARTER_TURNS[color] + quarterTurns) % 4
+    ));
+    const base = svgNode(documentRef, "polygon", {
+      points: fieldPoints.map((point) => point.join(",")).join(" "),
       class: `aeroplane-airport color-${color}`,
+      "data-corner-cut": "45deg",
     });
     svg.appendChild(base);
     corners.forEach(([x, y]) => {
@@ -452,7 +452,7 @@
       const isShortcut = COLORS.some((candidate) => (
         ((mappings[candidate] || {}).shortcut || {}).from_ring_index === ringIndex
       ));
-      const size = isShortcut ? 5.5 : 5;
+      const size = isShortcut ? 5.7 : 5.2;
       const cell = svgNode(documentRef, "rect", {
         x: x - size / 2,
         y: y - size / 2,

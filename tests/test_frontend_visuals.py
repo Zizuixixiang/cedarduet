@@ -3021,19 +3021,20 @@ const events = [
   {{event_type: "message", text: "最后消息", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
 ];
 renderRecentChat(events);
-assert.equal(list.children.length, 3);
+assert.equal(list.children.length, 5);
 assert.deepEqual(
   list.children.map((item) => item.children[1].textContent),
-  ["最早消息", "公开消息", "最后消息"]
+  ["认输附言", "离桌附言", "公开消息", "第二个落子附言", "最后消息"]
 );
 assert.deepEqual(
   list.children.map((item) => item.children[0].textContent),
-  ["甲", "甲", "丙"]
+  ["丙", "丙", "甲", "乙", "丙"]
 );
-assert.ok(list.children[0].classList.contains("seat-0"));
-for (const excluded of ["最早落子附言", "认输附言", "离桌附言", "第二个落子附言", "系统胜负结果"]) {{
-  assert.ok(!list.children.some((item) => item.children[1].textContent === excluded));
-}}
+assert.ok(list.children[0].classList.contains("seat-2"));
+assert.ok(list.children[3].classList.contains("seat-1"));
+assert.ok(list.children.some((item) => item.children[1].textContent === "公开消息"));
+assert.ok(list.children.some((item) => item.children[1].textContent === "第二个落子附言"));
+assert.ok(!list.children.some((item) => item.children[1].textContent === "系统胜负结果"));
 assert.ok(!feed.classList.contains("hidden"));
 assert.equal(list.scrollTop, list.scrollHeight);
 
