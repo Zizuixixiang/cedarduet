@@ -56,6 +56,95 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen[0]["opponent_id"], "local-human")
         self.assertNotIn("participant_ids", seen[0])
 
+
+    async def test_wait_heartbeats_are_hidden_and_retried_as_state(self):
+        seen = []
+        replies = [
+            {"ok": True, "status": "still_waiting", "room_id": "ROOM1", "revision": 4},
+            {"ok": True, "status": "still_waiting", "room_id": "ROOM1", "revision": 4},
+            {
+                "ok": True, "status": "playing", "room_id": "ROOM1",
+                "revision": 5, "your_turn": True, "events": [{"move": {"row": 1, "col": 1}}],
+            },
+        ]
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, json=replies.pop(0))
+
+        status, payload = await forward_play(
+            {
+                "action": "move", "room_id": "ROOM1", "wait": True,
+                "move": {"row": 0, "col": 0}, "message": "下这里。",
+            },
+            base_url="http://127.0.0.1:9999",
+            transport=httpx.MockTransport(handler),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["your_turn"])
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(seen[0]["action"], "move")
+        self.assertEqual(seen[0]["move"], {"row": 0, "col": 0})
+        self.assertEqual(seen[0]["message"], "下这里。")
+        for followup in seen[1:]:
+            self.assertEqual(followup, {
+                "action": "state",
+                "room_id": "ROOM1",
+                "wait": True,
+                "player_id": "local-ai",
+                "opponent_id": "local-human",
+            })
+
+    async def test_wait_false_does_not_hide_still_waiting(self):
+        calls = 0
+
+        async def handler(_request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json={
+                "ok": True, "status": "still_waiting", "room_id": "ROOM1", "revision": 4
+            })
+
+        status, payload = await forward_play(
+            {"action": "state", "room_id": "ROOM1", "wait": False},
+            base_url="http://127.0.0.1:9999",
+            transport=httpx.MockTransport(handler),
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "still_waiting")
+        self.assertEqual(calls, 1)
+
+    async def test_wait_slot_downgrade_is_retried_without_hot_looping_action(self):
+        seen = []
+        replies = [
+            {
+                "ok": True, "status": "playing", "room_id": "ROOM1",
+                "revision": 7, "your_turn": False, "wait_downgraded": True,
+            },
+            {
+                "ok": True, "status": "playing", "room_id": "ROOM1",
+                "revision": 8, "your_turn": True,
+            },
+        ]
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, json=replies.pop(0))
+
+        with patch("app.local_mcp.anyio.sleep", return_value=None) as sleeper:
+            status, payload = await forward_play(
+                {"action": "state", "room_id": "ROOM1", "wait": True},
+                base_url="http://127.0.0.1:9999",
+                transport=httpx.MockTransport(handler),
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["your_turn"])
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[1]["action"], "state")
+        sleeper.assert_awaited_once()
+
     async def test_backend_error_is_returned_as_mcp_tool_error(self):
         async def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(503, json={

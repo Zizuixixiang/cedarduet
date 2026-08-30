@@ -60,7 +60,7 @@ py -3 scripts\local.py mcp-config
 
 把输出的 `mcpServers.cedarduet` 放入支持 stdio MCP 的宿主配置并重启宿主。配置使用 `.venv` 内的绝对 Python 路径执行 `python -m app.local_mcp`，无需依赖宿主当前工作目录。
 
-adapter 只暴露 `play` 工具，输入字段与生产 `POST /mcp/play` 一致，但不暴露 `player_id`、`opponent_id`、`participant_ids`。每次调用都会强制写入 `local-ai` / `local-human`，再通过 loopback HTTP 请求 gateway 的现有 `/mcp/play`；不会直接调用 `_mcp_play_impl`。因此 bootstrap、compact delta、full_state、revision、wait/still_waiting、viewer privacy、事件 cursor、unread/notices 均由原生产路由实现。
+adapter 只暴露 `play` 工具，输入字段与生产 `POST /mcp/play` 一致，但不暴露 `player_id`、`opponent_id`、`participant_ids`。每次调用都会强制写入 `local-ai` / `local-human`，再通过 loopback HTTP 请求 gateway 的现有 `/mcp/play`；不会直接调用 `_mcp_play_impl`。因此 bootstrap、compact delta、full_state、revision、viewer privacy、事件 cursor、unread/notices 均由原生产路由实现。`wait=true` 时，adapter 会像官方 CedarToy async gateway 一样吞掉底层 30 秒 `still_waiting` 心跳并自动改用无副作用的 `state(wait=true)` 续等；`move` 和 `message` 只提交一次，不会每 30 秒回到模型或重复执行。单次 MCP 工具调用默认最多连续挂等 600 秒。
 
 ## 4. NPC 与多人桌
 

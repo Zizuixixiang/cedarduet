@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import anyio
@@ -16,6 +17,8 @@ from .models import McpPlayBody
 
 
 TOOL_NAME = "play"
+MAX_CONTINUOUS_WAIT_SECONDS = 600.0
+WAIT_SLOT_RETRY_SECONDS = 0.25
 IDENTITY_FIELDS = frozenset({"player_id", "opponent_id", "participant_ids"})
 
 
@@ -36,41 +39,82 @@ async def forward_play(
     *,
     base_url: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    max_wait_seconds: float = MAX_CONTINUOUS_WAIT_SECONDS,
 ) -> tuple[int, dict[str, Any]]:
     payload = dict(arguments)
     for field in IDENTITY_FIELDS:
         payload.pop(field, None)
     payload["player_id"] = LOCAL_AI_ID
     payload["opponent_id"] = LOCAL_HUMAN_ID
+    continue_waiting = payload.get("wait") is True
+    deadline = time.monotonic() + max_wait_seconds
     timeout = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-            response = await client.post(
-                f"{base_url or local_base_url()}/mcp/play",
-                json=payload,
-                headers={"Accept": "application/json"},
+
+    async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+        while True:
+            try:
+                response = await client.post(
+                    f"{base_url or local_base_url()}/mcp/play",
+                    json=payload,
+                    headers={"Accept": "application/json"},
+                )
+            except httpx.HTTPError as exc:
+                return 503, {
+                    "ok": False,
+                    "status": "error",
+                    "message": f"无法连接本地 CedarDuet gateway：{exc}",
+                }
+            try:
+                result = response.json()
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                result = {
+                    "ok": False,
+                    "status": "error",
+                    "message": "本地 CedarDuet gateway 返回了非 JSON 响应",
+                }
+            if not isinstance(result, dict):
+                result = {
+                    "ok": False,
+                    "status": "error",
+                    "message": "本地 CedarDuet gateway 返回了非对象 JSON",
+                }
+
+            retryable_wait = (
+                response.status_code < 400
+                and continue_waiting
+                and (
+                    result.get("status") == "still_waiting"
+                    or (
+                        result.get("wait_downgraded") is True
+                        and result.get("your_turn") is not True
+                        and result.get("status")
+                        not in {"finished", "archived", "cancelled", "left"}
+                        and result.get("room_status")
+                        not in {"finished", "archived", "cancelled"}
+                    )
+                )
             )
-    except httpx.HTTPError as exc:
-        return 503, {
-            "ok": False,
-            "status": "error",
-            "message": f"无法连接本地 CedarDuet gateway：{exc}",
-        }
-    try:
-        result = response.json()
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        result = {
-            "ok": False,
-            "status": "error",
-            "message": "本地 CedarDuet gateway 返回了非 JSON 响应",
-        }
-    if not isinstance(result, dict):
-        result = {
-            "ok": False,
-            "status": "error",
-            "message": "本地 CedarDuet gateway 返回了非对象 JSON",
-        }
-    return response.status_code, result
+            if not retryable_wait or time.monotonic() >= deadline:
+                return response.status_code, result
+
+            room_id = result.get("room_id") or payload.get("room_id")
+            if room_id in {None, ""}:
+                return response.status_code, result
+
+            # Never replay a move/message after an internal heartbeat.  From the
+            # second request onward, only issue the canonical side-effect-free wait.
+            payload = {
+                "action": "state",
+                "room_id": str(room_id),
+                "wait": True,
+                "player_id": LOCAL_AI_ID,
+                "opponent_id": LOCAL_HUMAN_ID,
+            }
+            if result.get("wait_downgraded") is True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return response.status_code, result
+                await anyio.sleep(min(WAIT_SLOT_RETRY_SECONDS, remaining))
 
 
 async def _list_tools(_context, _params) -> types.ListToolsResult:
