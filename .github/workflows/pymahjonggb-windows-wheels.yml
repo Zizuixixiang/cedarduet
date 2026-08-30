@@ -1,0 +1,100 @@
+name: Publish PyMahjongGB Windows wheels
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pymahjonggb-windows-wheels.yml"
+      - "requirements-local.txt"
+      - "third_party/pymahjonggb/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pymahjonggb-windows-wheels-v1.4.0-1
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: pymahjonggb-wheels-v1.4.0-1
+
+jobs:
+  build:
+    name: CPython ${{ matrix.python-version }} win_amd64
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+          cache: pip
+      - name: Build wheel
+        shell: pwsh
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          python -m pip install --upgrade build
+          $sourceRoot = Join-Path $env:RUNNER_TEMP "cedarduet-wheel-source"
+          $source = Join-Path $sourceRoot "pymahjonggb"
+          New-Item -ItemType Directory -Force $sourceRoot | Out-Null
+          Copy-Item -Recurse -Force third_party\pymahjonggb $source
+          python -m build --wheel --outdir wheelhouse $source
+          $wheel = @(Get-ChildItem wheelhouse\*.whl)
+          if ($wheel.Count -ne 1) { throw "Expected exactly one wheel" }
+          $cp = "cp" + $env:PYTHON_VERSION.Replace(".", "")
+          $expected = "pymahjonggb-1.4.0-$cp-$cp-win_amd64.whl"
+          if ($wheel[0].Name -cne $expected) {
+            Move-Item $wheel[0].FullName (Join-Path "wheelhouse" $expected)
+          }
+      - name: Test wheel with standalone dependencies
+        shell: pwsh
+        run: |
+          $wheel = @(Get-ChildItem wheelhouse\*.whl)
+          if ($wheel.Count -ne 1) { throw "Expected exactly one wheel" }
+          python -m pip install -r requirements-local.txt
+          python -m pip install --force-reinstall $wheel[0].FullName
+          python -c "import fastapi, httpx, MahjongGB, mcp, numpy, rlcard, uvicorn; print(MahjongGB.__file__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pymahjonggb-cp${{ matrix.python-version }}-win-amd64
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  release:
+    name: Publish fixed release assets
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pymahjonggb-*
+          path: wheelhouse
+          merge-multiple: true
+      - name: Generate SHA256 manifest
+        shell: bash
+        run: |
+          cd wheelhouse
+          sha256sum *.whl | LC_ALL=C sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" wheelhouse/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" wheelhouse/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "PyMahjongGB Windows wheels v1.4.0-1" \
+              --notes "Windows x64 wheels for the unmodified vendored PyMahjongGB 1.4.0 algorithm sources."
+          fi

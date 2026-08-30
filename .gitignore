@@ -6,6 +6,10 @@ __pycache__/
 .env.*
 !.env.example
 *.log
+
+# Native build products must never dirty a source clone.
+/third_party/pymahjonggb/build/
+/third_party/pymahjonggb/*.egg-info/
 data/*.db
 data/*.db-shm
 data/*.db-wal
