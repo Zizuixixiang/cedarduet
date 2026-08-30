@@ -25,7 +25,7 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.1";', SCRIPT
+            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.2";', SCRIPT
         )
         self.assertIn('link.dataset.duelGameStyle = "gandengyan";', SCRIPT)
         self.assertNotIn("gandengyan", APP_SCRIPT)
@@ -70,6 +70,8 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("button.gandengyan-card:focus-visible", STYLES)
         self.assertIn('node.setAttribute("aria-pressed"', SCRIPT)
         self.assertIn('status.setAttribute("aria-live", "polite")', SCRIPT)
+        self.assertIn("button.gandengyan-card.selectable {", STYLES)
+        self.assertNotIn("filter: saturate(.55) brightness(.82);", STYLES)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -212,6 +214,10 @@ assert.equal(renderer.renderBoard(value.context), true);
 const nodes = descendants(value.board);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card") && node.tag === "button").length, 4);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card") && node.tag === "span").length, 1);
+assert.equal(JSON.stringify(nodes.filter(
+  (node) => hasClass(node, "gandengyan-card") && node.tag === "button"
+).map((node) => node.dataset.cardId)), JSON.stringify(["JOKER-S", "C8", "H4", "S4"]));
+assert.equal(JSON.stringify(privateState.hand.map((card) => card.id)), JSON.stringify(["S4", "H4", "C8", "JOKER-S"]));
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent")).length, 2);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card-back")).length, 8);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent") && hasClass(node, "passed")).length, 1);
@@ -219,7 +225,7 @@ assert.equal(value.board.dataset.multiplier, "4");
 assert.equal(styleNodes.size, 1);
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
-assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.1");
+assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.2");
 ''')
 
     def test_multi_selection_submits_exact_server_action_and_pass_is_separate(self):
@@ -230,8 +236,28 @@ assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/
   let cards = descendants(value.board).filter(
     (node) => hasClass(node, "gandengyan-card") && node.tag === "button"
   );
+  let scroller = descendants(value.board).find((node) => hasClass(node, "gandengyan-hand-scroll"));
+  scroller.scrollLeft = 137;
   cards.find((node) => node.dataset.cardId === "S4").listeners.click();
+  assert.equal(value.uiState.gandengyanHandScrollLeft, 137);
+  value.board.replaceChildren();
+  renderer.renderBoard(value.context);
+  scroller = descendants(value.board).find((node) => hasClass(node, "gandengyan-hand-scroll"));
+  assert.equal(scroller.scrollLeft, 137);
+  cards = descendants(value.board).filter(
+    (node) => hasClass(node, "gandengyan-card") && node.tag === "button"
+  );
+  scroller.scrollLeft = 153;
   cards.find((node) => node.dataset.cardId === "H4").listeners.click();
+  value.board.replaceChildren();
+  renderer.renderBoard(value.context);
+  scroller = descendants(value.board).find((node) => hasClass(node, "gandengyan-hand-scroll"));
+  assert.equal(scroller.scrollLeft, 153);
+  cards = descendants(value.board).filter(
+    (node) => hasClass(node, "gandengyan-card") && node.tag === "button"
+  );
+  assert.equal(cards.find((node) => node.dataset.cardId === "S4").classList.contains("selected"), true);
+  assert.equal(cards.find((node) => node.dataset.cardId === "H4").classList.contains("selected"), true);
   assert.equal(JSON.stringify(value.uiState.selectedCardIds), JSON.stringify(["S4", "H4"]));
   assert.equal(value.rerenders(), 2);
   renderer.renderControls(value.context);

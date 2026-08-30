@@ -238,8 +238,8 @@ button.uno-card {
 }
 
 .uno-deck:disabled,
-.uno-hand-scroll .uno-card:disabled { cursor: default; }
-.uno-hand-scroll .uno-card:not(.legal) { filter: saturate(.62) brightness(.75); }
+.uno-hand-scroll .uno-card:disabled { cursor: default; opacity: 1; filter: none; }
+.uno-hand-scroll .uno-card.legal { border-color: #ffd45d; }
 .uno-hand-scroll .uno-card.selected {
   outline: 4px solid #ffd45d;
   outline-offset: 2px;
@@ -296,7 +296,7 @@ button.uno-card {
 .uno-hand-scroll .uno-card {
   transform: rotate(calc(var(--fan-index) * .7deg));
   transform-origin: 50% 110%;
-  transition: transform .14s ease, filter .14s ease;
+  transition: transform .14s ease, border-color .14s ease;
 }
 .uno-hand-scroll .uno-card + .uno-card { margin-left: -13px; }
 .uno-empty-hand { width: 100%; margin: auto; text-align: center; }

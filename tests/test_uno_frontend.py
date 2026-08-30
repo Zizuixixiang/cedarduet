@@ -24,7 +24,7 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.0";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.1";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "uno";', SCRIPT)
         self.assertNotIn("uno", APP_SCRIPT.lower())
         self.assertNotIn("uno", PUBLIC_STYLES.lower())
@@ -61,6 +61,8 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("max-width: 100%;", board_rule)
         self.assertIn("min-width: 0;", board_rule)
         self.assertIn("overflow: hidden;", board_rule)
+        self.assertIn(".uno-hand-scroll .uno-card.legal { border-color:", STYLES)
+        self.assertNotIn("filter: saturate(.62) brightness(.75);", STYLES)
 
 
 @unittest.skipUnless(NODE, "node is required for UNO renderer DOM tests")
@@ -163,14 +165,20 @@ assert.equal(nodes.filter((node) => node.dataset.cardId === "wild-1").length, 1)
 assert.equal(nodes.filter((node) => node.dataset.cardId && node.dataset.cardId.includes("ai")).length, 0);
 const playable = nodes.find((node) => node.dataset.cardId === "red-number-7-1");
 assert.equal(playable.disabled, false);
+let scroller = nodes.find((node) => hasClass(node, "uno-hand-scroll"));
+scroller.scrollLeft = 119;
+scroller.listeners.scroll();
 playable.listeners.click();
 assert.equal(view.context.uiState.selectedCardId, "red-number-7-1");
+assert.equal(view.context.uiState.unoHandScrollLeft, 119);
 view.board.replaceChildren();
 renderer.renderBoard(view.context);
 nodes = descendants(view.board);
+scroller = nodes.find((node) => hasClass(node, "uno-hand-scroll"));
+assert.equal(scroller.scrollLeft, 119);
 assert.equal(nodes.find((node) => node.dataset.cardId === "red-number-7-1").classList.contains("selected"), true);
 assert.equal(styles.size, 1);
-assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.0");
+assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.1");
 ''')
 
     def test_wild_color_and_uno_submit_exact_authoritative_action(self):

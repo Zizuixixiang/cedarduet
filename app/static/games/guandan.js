@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-guandan-styles";
-  const STYLE_HREF = "/static/games/guandan.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/guandan.css?v=0.1.2";
   const SUITS = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -152,6 +152,20 @@
     context.uiState.chosenActionId = action ? action.action_id : null;
   }
 
+  function saveHandScroll(context, scroller) {
+    const scrollLeft = Number(scroller.scrollLeft);
+    if (Number.isFinite(scrollLeft)) {
+      context.uiState.guandanHandScrollLeft = Math.max(0, scrollLeft);
+    }
+  }
+
+  function restoreHandScroll(context, scroller) {
+    const scrollLeft = Number(context.uiState.guandanHandScrollLeft);
+    if (Number.isFinite(scrollLeft) && scrollLeft >= 0) {
+      scroller.scrollLeft = scrollLeft;
+    }
+  }
+
   function relativePosition(context, seatIndex) {
     const viewerSeat = Number(context.viewer && context.viewer.seat);
     const difference = ((Number(seatIndex) - viewerSeat) % 4 + 4) % 4;
@@ -299,6 +313,7 @@
   function renderHand(documentRef, context, table) {
     const hand = context.privateState && Array.isArray(context.privateState.hand)
       ? context.privateState.hand : [];
+    const displayHand = [...hand].reverse();
     const selected = selectedIds(context);
     const actions = cardActions(context);
     const byId = new Map(hand.map((card) => [String(card.id), card]));
@@ -320,7 +335,8 @@
     const scroller = element(documentRef, "div", "guandan-hand-scroll");
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", "我的私密手牌，可横向滚动选择");
-    hand.forEach((card, index) => {
+    scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
+    displayHand.forEach((card, index) => {
       const cardId = String(card.id);
       const isSelected = selected.includes(cardId);
       // The two deck copies of an identical suit/rank are rule-equivalent.
@@ -333,12 +349,13 @@
         selectable: canSelect,
         disabled: !context.canMove || !canSelect || Boolean(context.uiState.submitting),
       });
-      const middle = (hand.length - 1) / 2;
+      const middle = (displayHand.length - 1) / 2;
       const angle = Math.max(-5, Math.min(5, (index - middle) * 0.42));
       node.style.setProperty("--fan-angle", `${angle}deg`);
       node.style.setProperty("--hand-index", index);
       node.addEventListener("click", () => {
         if (!context.helpers.canMove() || !canSelect || context.uiState.submitting) return;
+        saveHandScroll(context, scroller);
         const current = selectedIds(context);
         context.uiState.selectedCardIds = singleChoicePhase
           ? (isSelected ? [] : [cardId])
@@ -353,6 +370,7 @@
     }
     zone.append(heading, scroller);
     table.appendChild(zone);
+    return scroller;
   }
 
   function renderBoard(context) {
@@ -369,9 +387,10 @@
     });
     renderTribute(documentRef, context, table);
     renderCenter(documentRef, context, table);
-    renderHand(documentRef, context, table);
+    const handScroller = renderHand(documentRef, context, table);
     game.appendChild(table);
     context.board.appendChild(game);
+    restoreHandScroll(context, handScroller);
     return true;
   }
 

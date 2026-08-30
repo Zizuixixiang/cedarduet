@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.2";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
 
   function ensureStyle() {
@@ -168,6 +168,20 @@
     return status;
   }
 
+  function saveHandScroll(context, scroller) {
+    const scrollLeft = Number(scroller.scrollLeft);
+    if (Number.isFinite(scrollLeft)) {
+      context.uiState.mahjongHandScrollLeft = Math.max(0, scrollLeft);
+    }
+  }
+
+  function restoreHandScroll(context, scroller) {
+    const scrollLeft = Number(context.uiState.mahjongHandScrollLeft);
+    if (Number.isFinite(scrollLeft) && scrollLeft >= 0) {
+      scroller.scrollLeft = scrollLeft;
+    }
+  }
+
   function ownHandNode(context) {
     const wrap = el("section", "mahjong-own-hand-wrap");
     const head = el("div", "mahjong-own-hand-head");
@@ -177,6 +191,7 @@
       ? "我的手牌"
       : `我的手牌 · ${shanten === 0 ? "听牌" : `${shanten} 向听`}${basis === "after_best_discard" ? "（最佳打牌后）" : ""}`;
     const scroll = el("div", "mahjong-own-hand-scroll");
+    scroll.addEventListener("scroll", () => saveHandScroll(context, scroll), {passive: true});
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const discardById = new Map();
     legal.filter((action) => action.kind === "discard").forEach((action) => {
@@ -194,13 +209,14 @@
       node.setAttribute("aria-pressed", String(selected === tile.id));
       node.addEventListener("click", () => {
         if (!selectable) return;
+        saveHandScroll(context, scroll);
         context.uiState.mahjongSelectedTileId = selected === tile.id ? null : tile.id;
         context.helpers.rerender();
       });
       scroll.appendChild(node);
     });
     wrap.append(head, scroll);
-    return wrap;
+    return {wrap, scroll};
   }
 
   function renderBoard(context) {
@@ -220,8 +236,10 @@
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
     center.appendChild(discardTable);
     table.appendChild(center);
-    table.appendChild(ownHandNode(context));
+    const ownHand = ownHandNode(context);
+    table.appendChild(ownHand.wrap);
     context.board.replaceChildren(table);
+    restoreHandScroll(context, ownHand.scroll);
   }
 
   const CONFIRMED_ACTION_KINDS = new Set([

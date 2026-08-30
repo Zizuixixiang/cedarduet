@@ -215,6 +215,20 @@
     return center;
   }
 
+  function saveTableScroll(context, scroller) {
+    const scrollLeft = Number(scroller.scrollLeft);
+    if (Number.isFinite(scrollLeft)) {
+      context.uiState.texasTableScrollLeft = Math.max(0, scrollLeft);
+    }
+  }
+
+  function restoreTableScroll(context, scroller) {
+    const scrollLeft = Number(context.uiState.texasTableScrollLeft);
+    if (Number.isFinite(scrollLeft) && scrollLeft >= 0) {
+      scroller.scrollLeft = scrollLeft;
+    }
+  }
+
   function renderBoard(context) {
     const documentRef = context.board.ownerDocument || context.document || window.document;
     ensureStylesheet(documentRef);
@@ -233,6 +247,7 @@
     const scroll = element(documentRef, "div", "texas-table-scroll");
     scroll.tabIndex = 0;
     scroll.setAttribute("aria-label", "德州扑克牌桌，可横向滚动");
+    scroll.addEventListener("scroll", () => saveTableScroll(context, scroll), {passive: true});
     const table = element(documentRef, "section", "texas-table");
     table.dataset.playerCount = String(participants.length);
     table.appendChild(renderCenter(documentRef, context));
@@ -261,6 +276,7 @@
     }
     scroll.appendChild(table);
     context.board.replaceChildren(scroll);
+    restoreTableScroll(context, scroll);
     context.board.dataset.playerCount = String(participants.length);
     return true;
   }

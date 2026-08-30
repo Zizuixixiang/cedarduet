@@ -113,6 +113,7 @@ class Element {
     this.children = []; this.dataset = {}; this.attributes = {}; this.listeners = {};
     this.style = {}; this.classList = new ClassList(); this.textContent = "";
     this.disabled = false; this.value = ""; this.type = ""; this.tabIndex = -1;
+    this.scrollLeft = 0;
   }
   set className(value) { this.classList.reset(value); }
   get className() { return [...this.classList.names].join(" "); }
@@ -205,13 +206,21 @@ assert.equal(styleNodes.size, 1);
         self.run_node(r'''
 (async () => {
   const value = makeContext();
+  renderer.renderBoard(value.context);
+  let tableScroll = descendants(value.board).find((node) => hasClass(node, "texas-table-scroll"));
+  tableScroll.scrollLeft = 96;
+  tableScroll.listeners.scroll();
   renderer.renderControls(value.context);
   let nodes = descendants(value.controls);
   let call = nodes.find((node) => node.dataset.action === "call");
   await call.click();
   assert.equal(value.submitted.length, 0);
   assert.equal(value.uiState.texasPendingAction, "call");
+  assert.equal(value.uiState.texasTableScrollLeft, 96);
   assert.equal(value.rerenders(), 1);
+  renderer.renderBoard(value.context);
+  tableScroll = descendants(value.board).find((node) => hasClass(node, "texas-table-scroll"));
+  assert.equal(tableScroll.scrollLeft, 96);
 
   renderer.renderControls(value.context);
   nodes = descendants(value.controls);
@@ -219,6 +228,9 @@ assert.equal(styleNodes.size, 1);
   await cancel.click();
   assert.equal(value.submitted.length, 0);
   assert.equal(value.uiState.texasPendingAction, undefined);
+  renderer.renderBoard(value.context);
+  tableScroll = descendants(value.board).find((node) => hasClass(node, "texas-table-scroll"));
+  assert.equal(tableScroll.scrollLeft, 96);
 
   renderer.renderControls(value.context);
   nodes = descendants(value.controls);

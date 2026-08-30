@@ -165,7 +165,7 @@
 }
 
 button.mahjong-tile { cursor: pointer; appearance: none; }
-button.mahjong-tile:disabled { cursor: default; opacity: .92; }
+button.mahjong-tile:disabled { cursor: default; opacity: 1; }
 .mahjong-tile[data-suit="W"] { color: #b6463c; }
 .mahjong-tile[data-suit="T"] { color: #26704e; }
 .mahjong-tile[data-suit="B"] { color: #355f9a; }

@@ -266,8 +266,8 @@
   transform-origin: 50% 100%;
   scroll-snap-align: center;
 }
-.guandan-hand-scroll .guandan-card:hover,
-.guandan-hand-scroll .guandan-card:focus-visible,
+.guandan-hand-scroll .guandan-card:hover:not(:disabled),
+.guandan-hand-scroll .guandan-card:focus-visible:not(:disabled),
 .guandan-hand-scroll .guandan-card.selected {
   z-index: 10;
   transform: translateY(-7px) rotate(0deg);
@@ -293,8 +293,8 @@
 .guandan-card.suit-diamonds { color: #b8272e; }
 .guandan-card.suit-joker { color: #3b2c68; }
 button.guandan-card { min-width: 50px; min-height: 72px; cursor: pointer; }
-button.guandan-card:disabled { cursor: default; filter: saturate(.45) brightness(.86); }
-.guandan-card.selectable:not(:disabled) { border-color: #e4bb65; }
+button.guandan-card:disabled { cursor: default; opacity: 1; filter: none; }
+.guandan-card.selectable { border-color: #e4bb65; }
 .guandan-card.selected { border-color: #ffda79; box-shadow: 0 0 0 2px #805d24, 0 8px 14px rgba(0,0,0,.34); }
 .guandan-card-corner { display: flex; flex-direction: column; align-items: flex-start; line-height: .82; }
 .guandan-card-rank { font-size: 13px; }

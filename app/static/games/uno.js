@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-uno-styles";
-  const STYLE_HREF = "/static/games/uno.css?v=1.0.0";
+  const STYLE_HREF = "/static/games/uno.css?v=1.0.1";
   const COLORS = ["red", "yellow", "green", "blue"];
   const COLOR_LABELS = {
     red: "红色",
@@ -163,6 +163,20 @@
     ) || null;
   }
 
+  function saveHandScroll(context, scroller) {
+    const scrollLeft = Number(scroller.scrollLeft);
+    if (Number.isFinite(scrollLeft)) {
+      context.uiState.unoHandScrollLeft = Math.max(0, scrollLeft);
+    }
+  }
+
+  function restoreHandScroll(context, scroller) {
+    const scrollLeft = Number(context.uiState.unoHandScrollLeft);
+    if (Number.isFinite(scrollLeft) && scrollLeft >= 0) {
+      scroller.scrollLeft = scrollLeft;
+    }
+  }
+
   function appendCenter(documentRef, shell, context) {
     const state = context.state;
     const center = documentRef.createElement("section");
@@ -270,6 +284,7 @@
     scroller.className = "uno-hand-scroll";
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", `你的手牌，共 ${hand.length} 张`);
+    scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
     hand.forEach((card, index) => {
       const legal = playableById.has(card.id);
       const selected = context.uiState.selectedCardId === card.id;
@@ -283,6 +298,7 @@
       cardNode.disabled = !context.canMove || !legal;
       cardNode.addEventListener("click", () => {
         if (!context.helpers.canMove() || !legal) return;
+        saveHandScroll(context, scroller);
         if (context.uiState.selectedCardId === card.id) {
           delete context.uiState.selectedCardId;
           delete context.uiState.selectedColor;
@@ -302,6 +318,7 @@
     }
     area.append(heading, scroller);
     shell.appendChild(area);
+    return scroller;
   }
 
   function renderBoard(context) {
@@ -317,8 +334,9 @@
     appendStatus(documentRef, shell, context);
     appendCenter(documentRef, shell, context);
     appendAlerts(documentRef, shell, context);
-    appendHand(documentRef, shell, context);
+    const handScroller = appendHand(documentRef, shell, context);
     context.board.appendChild(shell);
+    restoreHandScroll(context, handScroller);
     return true;
   }
 

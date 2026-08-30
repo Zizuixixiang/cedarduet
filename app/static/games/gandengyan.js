@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-gandengyan-styles";
-  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.2";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -136,6 +136,20 @@
     return subset.every((item) => source.has(String(item)));
   }
 
+  function saveHandScroll(context, scroller) {
+    const scrollLeft = Number(scroller.scrollLeft);
+    if (Number.isFinite(scrollLeft)) {
+      context.uiState.gandengyanHandScrollLeft = Math.max(0, scrollLeft);
+    }
+  }
+
+  function restoreHandScroll(context, scroller) {
+    const scrollLeft = Number(context.uiState.gandengyanHandScrollLeft);
+    if (Number.isFinite(scrollLeft) && scrollLeft >= 0) {
+      scroller.scrollLeft = scrollLeft;
+    }
+  }
+
   function renderOpponent(documentRef, context, participant, passIds) {
     const playerId = participant.player_id;
     const count = Number((context.state.hand_counts || {})[playerId] || 0);
@@ -236,6 +250,7 @@
     const hand = context.privateState && Array.isArray(context.privateState.hand)
       ? context.privateState.hand
       : [];
+    const displayHand = [...hand].reverse();
     const selected = selectedIds(context);
     const legal = playActions(context);
     const selectableIds = new Set(
@@ -250,7 +265,8 @@
     const scroller = element(documentRef, "div", "gandengyan-hand-scroll");
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", "我的手牌，可横向滚动并多选");
-    hand.forEach((card, index) => {
+    scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
+    displayHand.forEach((card, index) => {
       const cardId = String(card.id);
       const isSelected = selected.includes(cardId);
       const selectable = selectableIds.has(cardId);
@@ -260,12 +276,13 @@
         selectable,
         disabled: !context.canMove || !selectable || Boolean(context.uiState.submitting),
       });
-      const middle = (hand.length - 1) / 2;
+      const middle = (displayHand.length - 1) / 2;
       const angle = Math.max(-6, Math.min(6, (index - middle) * 0.75));
       cardNode.style.setProperty("--fan-angle", `${angle}deg`);
       cardNode.style.setProperty("--hand-index", index);
       cardNode.addEventListener("click", () => {
         if (!context.helpers.canMove() || !selectable || context.uiState.submitting) return;
+        saveHandScroll(context, scroller);
         const current = selectedIds(context);
         context.uiState.selectedCardIds = current.includes(cardId)
           ? current.filter((id) => id !== cardId)
@@ -279,6 +296,7 @@
     }
     handZone.append(label, scroller);
     shell.appendChild(handZone);
+    return scroller;
   }
 
   function renderBoard(context) {
@@ -328,9 +346,10 @@
       });
     shell.appendChild(opponents);
     renderTrick(documentRef, context, shell);
-    renderHand(documentRef, context, shell);
+    const handScroller = renderHand(documentRef, context, shell);
     game.append(topbar, shell);
     board.appendChild(game);
+    restoreHandScroll(context, handScroller);
     return true;
   }
 

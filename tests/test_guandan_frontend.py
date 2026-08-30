@@ -21,7 +21,7 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.1";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.2";', SCRIPT)
         self.assertNotIn("guandan", APP_SCRIPT)
         self.assertNotIn("guandan.js", HTML)
         self.assertNotIn("guandan.css", HTML)
@@ -58,6 +58,8 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn("@media (max-width: 320px)", STYLES)
         self.assertIn("min-height: 44px;", STYLES)
         self.assertIn('node.setAttribute("aria-pressed"', SCRIPT)
+        self.assertIn(".guandan-card.selectable {", STYLES)
+        self.assertNotIn("filter: saturate(.45) brightness(.86);", STYLES)
         for emoji in ("🃏", "🎴", "♠️", "♥️", "♣️", "♦️", "💣", "🔥"):
             self.assertNotIn(emoji, SCRIPT + STYLES)
 
@@ -152,11 +154,24 @@ function makeContext(legal=privateState.legal_actions){
  assert.equal(nodes.filter(n=>hasClass(n,"position-left")).length,1);
  assert.equal(nodes.filter(n=>hasClass(n,"position-right")).length,1);
  assert.equal(nodes.filter(n=>hasClass(n,"guandan-card")&&n.tag==="button").length,4);
- const handCards=nodes.filter(n=>hasClass(n,"guandan-card")&&n.tag==="button");
+ let handCards=nodes.filter(n=>hasClass(n,"guandan-card")&&n.tag==="button");
+ assert.equal(JSON.stringify(handCards.map(n=>n.dataset.cardId)),JSON.stringify(["d2-S-4","d1-C-4","d1-H-7","d1-S-4"]));
+ assert.equal(JSON.stringify(privateState.hand.map(card=>card.id)),JSON.stringify(["d1-S-4","d1-H-7","d1-C-4","d2-S-4"]));
  // d2-S-4 is the other deck copy; the core action intentionally carries the
  // rule-equivalent canonical d1-S-4 representative.
+ let scroller=nodes.find(n=>hasClass(n,"guandan-hand-scroll"));scroller.scrollLeft=144;
  handCards.find(n=>n.dataset.cardId==="d2-S-4").listeners.click();
+ assert.equal(value.uiState.guandanHandScrollLeft,144);
+ value.board.replaceChildren();renderer.renderBoard(value.context);
+ let rerendered=descendants(value.board);scroller=rerendered.find(n=>hasClass(n,"guandan-hand-scroll"));
+ assert.equal(scroller.scrollLeft,144);scroller.scrollLeft=166;
+ handCards=rerendered.filter(n=>hasClass(n,"guandan-card")&&n.tag==="button");
  handCards.find(n=>n.dataset.cardId==="d1-H-7").listeners.click();
+ value.board.replaceChildren();renderer.renderBoard(value.context);rerendered=descendants(value.board);
+ scroller=rerendered.find(n=>hasClass(n,"guandan-hand-scroll"));assert.equal(scroller.scrollLeft,166);
+ handCards=rerendered.filter(n=>hasClass(n,"guandan-card")&&n.tag==="button");
+ assert.equal(handCards.find(n=>n.dataset.cardId==="d2-S-4").classList.contains("selected"),true);
+ assert.equal(handCards.find(n=>n.dataset.cardId==="d1-H-7").classList.contains("selected"),true);
  renderer.renderControls(value.context);const controls=descendants(value.controls);
  const play=controls.find(n=>hasClass(n,"guandan-play-button"));assert.equal(play.disabled,false);await play.listeners.click();
  assert.equal(JSON.stringify(value.submitted[0]),JSON.stringify({action:"act",action_id:"g_pair"}));

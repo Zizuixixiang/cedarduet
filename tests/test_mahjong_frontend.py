@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.1";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.2";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -57,6 +57,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("min-width: 0;", STYLES)
         self.assertIn("overflow: hidden;", STYLES)
         self.assertIn("min-height: 44px;", STYLES)
+        self.assertIn("button.mahjong-tile:disabled { cursor: default; opacity: 1; }", STYLES)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -157,8 +158,13 @@ assert.equal(styles.size,1);
         self.run_node(r'''
 (async()=>{
  const value=makeContext();renderer.renderBoard(value.context);let nodes=descendants(value.board);
+ let scroller=nodes.find(n=>hasClass(n,"mahjong-own-hand-scroll"));scroller.scrollLeft=88;
  const tile=nodes.find(n=>n.tag==="button"&&n.dataset.cardId==="h1");tile.listeners.click();
  assert.equal(value.uiState.mahjongSelectedTileId,"h1");assert.equal(value.rerenders(),1);
+ assert.equal(value.uiState.mahjongHandScrollLeft,88);
+ value.board.replaceChildren();renderer.renderBoard(value.context);nodes=descendants(value.board);
+ scroller=nodes.find(n=>hasClass(n,"mahjong-own-hand-scroll"));assert.equal(scroller.scrollLeft,88);
+ assert.equal(nodes.find(n=>n.dataset.cardId==="h1").classList.contains("selected"),true);
  renderer.renderControls(value.context);let controls=descendants(value.controls);
  const discard=controls.find(n=>n.dataset.actionId==="discard:h1");await discard.listeners.click();
  let kong=controls.find(n=>n.dataset.actionId==="concealed:1");await kong.listeners.click();
