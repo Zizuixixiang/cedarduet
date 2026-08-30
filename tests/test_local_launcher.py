@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -380,11 +381,53 @@ class LocalLauncherTests(unittest.TestCase):
             self.assertFalse((source / "PyMahjongGB.egg-info").exists())
 
     def test_local_requirements_exclude_native_mahjong_build(self):
-        requirements = (PROJECT_ROOT / "requirements-local.txt").read_text(encoding="utf-8")
-        self.assertNotIn("requirements.txt", requirements)
-        self.assertNotIn("third_party/pymahjonggb", requirements.lower())
+        local_requirements = (PROJECT_ROOT / "requirements-local.txt").read_text(
+            encoding="utf-8"
+        )
+        common_requirements = (PROJECT_ROOT / "requirements-common.txt").read_text(
+            encoding="utf-8"
+        )
+        requirements = local_requirements + common_requirements
+        self.assertNotIn("requirements.txt", local_requirements)
+        self.assertNotIn("third_party/pymahjonggb", local_requirements.lower())
         for dependency in ("fastapi", "httpx", "numpy", "rlcard", "uvicorn", "mcp"):
             self.assertIn(dependency, requirements)
+
+    def test_production_and_local_share_the_tzdata_dependency(self):
+        common_path = PROJECT_ROOT / "requirements-common.txt"
+        common_requirements = common_path.read_text(encoding="utf-8")
+        production_requirements = (PROJECT_ROOT / "requirements.txt").read_text(
+            encoding="utf-8"
+        )
+        local_requirements = (PROJECT_ROOT / "requirements-local.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("tzdata>=", common_requirements)
+        self.assertEqual(common_requirements.lower().count("tzdata"), 1)
+        for requirements in (production_requirements, local_requirements):
+            self.assertIn("-r requirements-common.txt", requirements)
+            self.assertNotIn("tzdata", requirements.lower())
+        self.assertIn(common_path, launcher.CORE_REQUIREMENT_INPUTS)
+        self.assertIn("tzdata", launcher.CORE_IMPORTS)
+
+    def test_installed_local_runtime_has_shanghai_timezone_data(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import tzdata; from zoneinfo import ZoneInfo; import app.chips; "
+                    "assert ZoneInfo('Asia/Shanghai').key == 'Asia/Shanghai'"
+                ),
+            ],
+            cwd=PROJECT_ROOT,
+            env={**os.environ, "PYTHONTZPATH": ""},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_wheel_workflow_builds_all_supported_windows_assets_and_manifest(self):
         workflow = (
@@ -395,6 +438,14 @@ class LocalLauncherTests(unittest.TestCase):
         self.assertIn("SHA256SUMS.txt", workflow)
         self.assertIn(launcher.PYMAHJONG_RELEASE_TAG, workflow)
         self.assertIn("$wheel[0].Name -cne $expected", workflow)
+        self.assertIn("import app.chips", workflow)
+        self.assertIn("ZoneInfo('Asia/Shanghai')", workflow)
+
+        cross_platform_workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "local-cross-platform.yml"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(cross_platform_workflow.count("import app.chips"), 2)
+        self.assertEqual(cross_platform_workflow.count("ZoneInfo('Asia/Shanghai')"), 2)
 
 
 if __name__ == "__main__":

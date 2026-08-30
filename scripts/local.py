@@ -32,7 +32,10 @@ PYMAHJONG_RELEASE_BASE_URL = (
     f"{PYMAHJONG_RELEASE_TAG}"
 )
 VIRTUALENV_REQUIREMENT = "virtualenv>=20.26,<21"
-CORE_REQUIREMENT_INPUTS = (PROJECT_ROOT / "requirements-local.txt",)
+CORE_REQUIREMENT_INPUTS = (
+    PROJECT_ROOT / "requirements-local.txt",
+    PROJECT_ROOT / "requirements-common.txt",
+)
 PYMAHJONG_REQUIREMENT_INPUTS = (
     PROJECT_ROOT / "third_party" / "pymahjonggb" / "setup.py",
     PROJECT_ROOT / "third_party" / "pymahjonggb" / "pyproject.toml",
@@ -44,7 +47,7 @@ PYMAHJONG_REQUIREMENT_INPUTS = (
 )
 CORE_STAMP_PATH = VENV_DIR / ".cedarduet-local-core-requirements"
 PYMAHJONG_STAMP_PATH = VENV_DIR / ".cedarduet-local-pymahjonggb"
-CORE_IMPORTS = ("fastapi", "httpx", "numpy", "rlcard", "uvicorn", "mcp")
+CORE_IMPORTS = ("fastapi", "httpx", "numpy", "rlcard", "tzdata", "uvicorn", "mcp")
 BRIDGE_PROBES = (
     (
         "象棋",

@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/pymahjonggb-windows-wheels.yml"
+      - "requirements-common.txt"
       - "requirements-local.txt"
       - "third_party/pymahjonggb/**"
 
@@ -59,7 +60,7 @@ jobs:
           if ($wheel.Count -ne 1) { throw "Expected exactly one wheel" }
           python -m pip install -r requirements-local.txt
           python -m pip install --force-reinstall $wheel[0].FullName
-          python -c "import fastapi, httpx, MahjongGB, mcp, numpy, rlcard, uvicorn; print(MahjongGB.__file__)"
+          python -c "from zoneinfo import ZoneInfo; import app.chips, fastapi, httpx, MahjongGB, mcp, numpy, rlcard, tzdata, uvicorn; ZoneInfo('Asia/Shanghai'); print(MahjongGB.__file__)"
       - uses: actions/upload-artifact@v4
         with:
           name: pymahjonggb-cp${{ matrix.python-version }}-win-amd64
