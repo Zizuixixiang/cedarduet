@@ -96,8 +96,12 @@
     if (participant.player_id === state.dealer_player_id) {
       badges.appendChild(el("i", "mahjong-dealer", "庄"));
     }
-    if (current) badges.appendChild(el("i", "mahjong-turn", "行动"));
     identity.append(avatar, name, badges);
+
+    const turnIndicator = current
+      ? el("span", "mahjong-turn-indicator", "行动")
+      : null;
+    if (turnIndicator) turnIndicator.setAttribute("aria-label", "当前行动玩家");
 
     const backs = el("div", "mahjong-opponent-hand");
     if (!isViewer) {
@@ -115,6 +119,7 @@
       : state.melds && state.melds[participant.player_id] || [];
     visibleMelds.forEach((meld) => melds.appendChild(meldNode(meld)));
     seat.append(identity, backs, melds);
+    if (turnIndicator) seat.appendChild(turnIndicator);
     return seat;
   }
 

@@ -47,11 +47,12 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             self.assertIn(expected, SCRIPT)
         for area in ("grid-area: top", "grid-area: bottom", "grid-area: left", "grid-area: right"):
             self.assertIn(area, STYLES)
-        self.assertIn('". top ."', STYLES)
+        self.assertIn('"top top top"', STYLES)
         self.assertIn('"left center right"', STYLES)
+        self.assertIn('". bottom ."', STYLES)
         self.assertIn('"dl . dr"', STYLES)
         self.assertIn("flex-direction: column;", STYLES)
-        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto;", STYLES)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto auto;", STYLES)
         self.assertIn("grid-template-columns: repeat(2, auto);", STYLES)
         self.assertIn(".mahjong-opponent-hand:empty", STYLES)
         self.assertIn("grid-template-columns: 1fr auto;", STYLES)
@@ -82,6 +83,36 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn(".mahjong-control-hint.state-select", STYLES)
         self.assertIn("align-items: center;", STYLES)
         self.assertIn("font: 600 9px/1.3 system-ui, sans-serif;", STYLES)
+
+    def test_top_seat_spans_table_and_thirteen_backs_stay_on_one_row(self):
+        self.assertIn(
+            'grid-template-areas:\n    "top top top"\n'
+            '    "left center right"\n    ". bottom ."\n'
+            '    "hand hand hand";',
+            STYLES,
+        )
+        top_hand_start = STYLES.index(".position-top .mahjong-opponent-hand {")
+        top_hand = STYLES[top_hand_start:STYLES.index("}", top_hand_start)]
+        self.assertIn("width: 100%;", top_hand)
+        self.assertIn("max-width: 100%;", top_hand)
+        self.assertIn("flex-wrap: nowrap;", top_hand)
+        self.assertIn("overflow: hidden;", top_hand)
+        self.assertNotIn("flex-direction: column;", top_hand)
+        self.assertIn(".mahjong-table {", STYLES)
+        self.assertIn("width: 100%;", STYLES)
+        self.assertIn("min-width: 0;", STYLES)
+        top_row_width_at_390 = 13 * 14 + 12
+        conservative_available_width_at_390 = 350
+        self.assertLess(top_row_width_at_390, conservative_available_width_at_390)
+
+        identity_start = STYLES.index(".position-top .mahjong-seat-identity {")
+        identity = STYLES[identity_start:STYLES.index("}", identity_start)]
+        self.assertIn("width: min(100%, 320px);", identity)
+        mobile = STYLES[STYLES.index("@media (max-width: 600px)"):]
+        self.assertIn(
+            ".position-top .mahjong-seat-identity { width: min(100%, 220px); }",
+            mobile,
+        )
 
     def test_mobile_side_hands_are_vertical_rails_of_physically_sideways_backs(self):
         rail_selector = (
@@ -143,6 +174,31 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("grid-area: name;", name)
         self.assertIn("grid-area: badges;", STYLES)
         self.assertNotIn("display: none;", identity)
+
+    def test_turn_indicator_is_independent_and_positioned_by_seat_edge(self):
+        self.assertIn('el("span", "mahjong-turn-indicator", "行动")', SCRIPT)
+        self.assertIn('turnIndicator.setAttribute("aria-label", "当前行动玩家")', SCRIPT)
+        self.assertIn("if (turnIndicator) seat.appendChild(turnIndicator);", SCRIPT)
+        self.assertNotIn('badges.appendChild(el("i", "mahjong-turn", "行动"))', SCRIPT)
+        self.assertIn(".mahjong-seat.current { border-color: #c89427;", STYLES)
+        self.assertIn(
+            ".position-top .mahjong-turn-indicator,\n"
+            ".position-bottom .mahjong-turn-indicator {",
+            STYLES,
+        )
+        self.assertIn("position: absolute;\n  top: 4px;\n  right: 4px;", STYLES)
+        self.assertIn(
+            ".position-left .mahjong-turn-indicator,\n"
+            ".position-right .mahjong-turn-indicator {",
+            STYLES,
+        )
+        self.assertIn("grid-area: turn;\n  align-self: end;", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 600px)"):]
+        self.assertIn(
+            ".mahjong-seat.position-bottom.viewer { min-height: 0; padding-block: 3px; }",
+            mobile,
+        )
+        self.assertNotIn(".mahjong-seat-badges .mahjong-turn", STYLES)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -249,6 +305,25 @@ assert.equal(discardNodes.filter(n=>hasClass(n,"mahjong-center-status")).length,
 for(const position of ["bottom","right","top","left"]){assert.equal(discardNodes.filter(n=>hasClass(n,`discard-${position}`)).length,1);}
 assert.equal(discardNodes.filter(n=>hasClass(n,"last-discard")).length,1);
 assert.equal(styles.size,1);
+''')
+
+    def test_turn_indicator_is_a_direct_seat_child_at_every_visual_edge(self):
+        self.run_node(r'''
+for(const [playerId,position] of [["east","top"],["south","left"],["viewer","bottom"],["north","right"]]){
+ state.turn_player_id=playerId;
+ const value=makeContext();renderer.renderBoard(value.context);const nodes=descendants(value.board);
+ const seats=nodes.filter(n=>hasClass(n,"mahjong-seat"));
+ const current=seats.find(n=>n.dataset.playerId===playerId);
+ assert.ok(current);assert.equal(hasClass(current,`position-${position}`),true);
+ assert.equal(current.classList.contains("current"),true);
+ const directIndicators=current.children.filter(n=>hasClass(n,"mahjong-turn-indicator"));
+ assert.equal(directIndicators.length,1);
+ assert.equal(directIndicators[0].textContent,"行动");
+ assert.equal(directIndicators[0].attributes["aria-label"],"当前行动玩家");
+ const badges=current.children.find(n=>hasClass(n,"mahjong-seat-identity")).children.find(n=>hasClass(n,"mahjong-seat-badges"));
+ assert.equal(descendants(badges).filter(n=>hasClass(n,"mahjong-turn-indicator")).length,0);
+ assert.equal(seats.flatMap(seat=>seat.children).filter(n=>hasClass(n,"mahjong-turn-indicator")).length,1);
+}
 ''')
 
     def test_discard_is_explicit_and_kong_requires_cancelable_confirmation(self):
