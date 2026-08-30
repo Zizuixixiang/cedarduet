@@ -56,7 +56,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.1.1";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.0";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -70,6 +70,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             'class: `aeroplane-airport color-${color}`',
             'class: `aeroplane-home-lane color-${color}`',
             'class: `aeroplane-shortcut-line color-${color}`',
+            'class: `aeroplane-shortcut-arrow color-${color}`',
             'class: "aeroplane-token-body"',
             'className = "aeroplane-legal-target"',
             'board.dataset.viewerRotation',
@@ -77,6 +78,10 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             self.assertIn(required, SCRIPT)
         self.assertNotIn("<img", SCRIPT.lower())
         self.assertNotIn("background-image: url", STYLES.lower())
+        self.assertIn('"data-ring-index": ringIndex', SCRIPT)
+        self.assertIn("const TRACK_MIN = 27;", SCRIPT)
+        self.assertIn("const TRACK_MAX = 73;", SCRIPT)
+        self.assertNotIn("aeroplane-last-route", SCRIPT + STYLES)
         for emoji in ("✈", "🛩", "🎲", "🚀", "🔴", "🟡", "🔵", "🟢"):
             self.assertNotIn(emoji, SCRIPT + STYLES)
 
@@ -96,6 +101,28 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("max-width: 100%;", mobile)
         self.assertIn("@media (max-width: 359px)", mobile)
         self.assertNotIn("overflow-x: auto", STYLES)
+        activity_copy = STYLES[
+            STYLES.index(".aeroplane-activity > span:last-child {"):
+            STYLES.index(".aeroplane-die {")
+        ]
+        self.assertNotIn("max-height:", activity_copy)
+        self.assertNotIn("overflow:", activity_copy)
+        self.assertIn("white-space: normal;", STYLES)
+        self.assertIn("min-height: 34px;", mobile)
+        self.assertIn(":has(.board.aeroplane_chess)", STYLES)
+        self.assertIn(
+            "--aeroplane-token-size: clamp(13px, 3.2vw, 21px);", STYLES
+        )
+        self.assertIn(
+            "--aeroplane-token-size: clamp(12px, 3.65vw, 17px);", mobile
+        )
+        self.assertIn("width: var(--aeroplane-token-size);", STYLES)
+        self.assertIn(".aeroplane-token.legal .aeroplane-token-svg", STYLES)
+        for viewport in (320, 360, 375, 390, 430, 599):
+            board_width = min(viewport * 0.96, 680)
+            cell_width = board_width * 0.0415
+            token_width = min(max(12, viewport * 0.0365), 17)
+            self.assertLess(token_width, cell_width)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -222,6 +249,19 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-airport")).length, 4);
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-launch")).length, 4);
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-shortcut-line")).length, 4);
+  assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-shortcut-arrow")).length, 4);
+  const ringCells = nodes.filter((node) => hasClass(node, "aeroplane-track-cell"));
+  const ringCenter = (index) => {
+    const cell = ringCells.find((node) => node.attributes["data-ring-index"] === String(index));
+    return [
+      Number(cell.attributes.x) + Number(cell.attributes.width) / 2,
+      Number(cell.attributes.y) + Number(cell.attributes.height) / 2,
+    ];
+  };
+  assert.deepEqual(ringCenter(0), [50, 73]);
+  assert.deepEqual(ringCenter(13), [27, 50]);
+  assert.deepEqual(ringCenter(26), [50, 27]);
+  assert.deepEqual(ringCenter(39), [73, 50]);
   const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
   assert.equal(tokens.length, 8);
   const legalTokens = tokens.filter((node) => hasClass(node, "legal"));
@@ -244,7 +284,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.1.1");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.0");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -264,11 +304,77 @@ function makeContext(viewerId, canMove = true) {
     (node) => hasClass(node, "aeroplane-roll-button")
   );
   assert.equal(rollButton.disabled, false);
+  assert.equal(rollButton.textContent, "掷骰");
+  assert.equal(rollButton.classList.contains("ready"), true);
+  const controlCopy = descendants(harness.controls).find(
+    (node) => hasClass(node, "aeroplane-action-copy")
+  );
+  assert.equal(controlCopy.children[0].textContent, "轮到你掷骰");
   rollButton.listeners.click();
   await Promise.resolve();
   assert.equal(JSON.stringify(harness.submitted), JSON.stringify([{action: "roll"}]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
+
+    def test_waiting_copy_names_player_and_duel_stats_are_removed(self):
+        self.run_node(r'''
+state.flow.phase = "awaiting_roll";
+state.legal_actions = [{action: "roll"}];
+state.legal_moves = [];
+const harness = makeContext("ai-1", false);
+harness.context.legalActions = state.legal_actions;
+harness.context.legalMoves = [];
+renderer.renderBoard(harness.context);
+renderer.renderControls(harness.context);
+const boardStatus = descendants(harness.board).find(
+  (node) => hasClass(node, "aeroplane-board-heading")
+).children[1];
+assert.equal(boardStatus.textContent, "等待南山掷骰");
+const actionCopy = descendants(harness.controls).find(
+  (node) => hasClass(node, "aeroplane-action-copy")
+);
+assert.equal(actionCopy.children[0].textContent, "等待南山掷骰");
+const rollButton = descendants(harness.controls).find(
+  (node) => hasClass(node, "aeroplane-roll-button")
+);
+assert.equal(rollButton.textContent, "等待");
+assert.equal(rollButton.disabled, true);
+assert.equal(
+  descendants(harness.controls).some((node) => hasClass(node, "aeroplane-roster-item")),
+  false
+);
+assert.equal(
+  descendants(harness.controls).some((node) => /到家|机场/.test(node.textContent)),
+  false
+);
+''')
+
+    def test_same_cell_planes_are_compact_and_visibly_offset(self):
+        state = rolled_state()
+        for plane in state["planes"]["human-1"]:
+            plane.update({
+                "zone": "launch",
+                "route_step": 0,
+                "ring_index": None,
+                "home_lane_index": None,
+            })
+        state["flow"]["phase"] = "awaiting_roll"
+        state["legal_actions"] = [{"action": "roll"}]
+        state["legal_moves"] = []
+        self.run_node(r'''
+const harness = makeContext("ai-1", false);
+harness.context.legalActions = state.legal_actions;
+harness.context.legalMoves = [];
+renderer.renderBoard(harness.context);
+const stacked = descendants(harness.board).filter(
+  (node) => hasClass(node, "aeroplane-token")
+    && node.dataset.playerId === "human-1"
+    && node.dataset.logicalZone === "launch"
+);
+assert.equal(stacked.length, 4);
+assert.equal(stacked.every((node) => node.dataset.stackSize === "4"), true);
+assert.equal(new Set(stacked.map((node) => `${node.style.left}:${node.style.top}`)).size, 4);
+''', state=state)
 
     def test_multiplayer_edge_identities_follow_rotated_airports(self):
         participants = [
@@ -313,7 +419,11 @@ for (const participant of participants) {
 ''', state=state, participants=participants)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", STYLES)
         self.assertIn('data-visual-edge$="-right"', STYLES)
-        for viewport in (320, 375):
+        self.assertIn("overflow: hidden;", STYLES)
+        self.assertIn("text-overflow: ellipsis;", STYLES)
+        self.assertIn(".aeroplane-edge-participant .board-edge-avatar", STYLES)
+        self.assertIn(".aeroplane-edge-participant .board-edge-copy", STYLES)
+        for viewport in (320, 360, 375, 390, 430):
             self.assertLessEqual(min(viewport * 0.96, 680), viewport)
 
     def test_source_is_valid_javascript(self):

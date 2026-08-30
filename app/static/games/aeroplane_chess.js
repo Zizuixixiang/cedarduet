@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.0";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -20,22 +20,22 @@
     6: [1, 3, 4, 6, 7, 9],
   };
   const AIRPORT_POINTS = {
-    red: [[13, 78], [23, 78], [13, 88], [23, 88]],
-    yellow: [[13, 12], [23, 12], [13, 22], [23, 22]],
-    blue: [[77, 12], [87, 12], [77, 22], [87, 22]],
-    green: [[77, 78], [87, 78], [77, 88], [87, 88]],
+    red: [[10.5, 79.5], [20.5, 79.5], [10.5, 89.5], [20.5, 89.5]],
+    yellow: [[10.5, 10.5], [20.5, 10.5], [10.5, 20.5], [20.5, 20.5]],
+    blue: [[79.5, 10.5], [89.5, 10.5], [79.5, 20.5], [89.5, 20.5]],
+    green: [[79.5, 79.5], [89.5, 79.5], [79.5, 89.5], [89.5, 89.5]],
   };
   const LAUNCH_POINTS = {
-    red: [50, 94],
-    yellow: [6, 50],
-    blue: [50, 6],
-    green: [94, 50],
+    red: [42, 80],
+    yellow: [20, 42],
+    blue: [58, 20],
+    green: [80, 58],
   };
   const HOME_LANE_POINTS = {
-    red: [[50, 80], [50, 75], [50, 70], [50, 65], [50, 60], [50, 55]],
-    yellow: [[20, 50], [25, 50], [30, 50], [35, 50], [40, 50], [45, 50]],
-    blue: [[50, 20], [50, 25], [50, 30], [50, 35], [50, 40], [50, 45]],
-    green: [[80, 50], [75, 50], [70, 50], [65, 50], [60, 50], [55, 50]],
+    red: [[50, 69.5], [50, 66.3], [50, 63.1], [50, 59.9], [50, 56.7], [50, 53.5]],
+    yellow: [[30.5, 50], [33.7, 50], [36.9, 50], [40.1, 50], [43.3, 50], [46.5, 50]],
+    blue: [[50, 30.5], [50, 33.7], [50, 36.9], [50, 40.1], [50, 43.3], [50, 46.5]],
+    green: [[69.5, 50], [66.3, 50], [63.1, 50], [59.9, 50], [56.7, 50], [53.5, 50]],
   };
   const HOME_POINTS = {
     red: [[47, 53], [49, 54], [51, 54], [53, 53]],
@@ -43,10 +43,8 @@
     blue: [[47, 47], [49, 46], [51, 46], [53, 47]],
     green: [[53, 47], [54, 49], [54, 51], [53, 53]],
   };
-  const STACK_OFFSETS = [
-    [0, 0], [-1.25, -1.25], [1.25, -1.25], [-1.25, 1.25],
-    [1.25, 1.25], [0, -1.7], [0, 1.7],
-  ];
+  const TRACK_MIN = 27;
+  const TRACK_MAX = 73;
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -80,8 +78,36 @@
   }
 
   function ringPoint(ringIndex) {
-    const angle = (90 + (Number(ringIndex) * 360 / 52)) * Math.PI / 180;
-    return [50 + 36 * Math.cos(angle), 50 + 36 * Math.sin(angle)];
+    const normalized = ((Number(ringIndex) % 52) + 52) % 52;
+    const side = TRACK_MAX - TRACK_MIN;
+    const halfSide = side / 2;
+    const distance = normalized * (side * 4 / 52);
+    if (distance <= halfSide) {
+      return [50 - distance, TRACK_MAX];
+    }
+    if (distance <= halfSide + side) {
+      return [TRACK_MIN, TRACK_MAX - (distance - halfSide)];
+    }
+    if (distance <= halfSide + side * 2) {
+      return [TRACK_MIN + (distance - halfSide - side), TRACK_MIN];
+    }
+    if (distance <= halfSide + side * 3) {
+      return [TRACK_MAX, TRACK_MIN + (distance - halfSide - side * 2)];
+    }
+    return [TRACK_MAX - (distance - halfSide - side * 3), TRACK_MAX];
+  }
+
+  function stackOffsets(size) {
+    if (size <= 1) return [[0, 0]];
+    if (size === 2) return [[-.28, -.18], [.28, .18]];
+    if (size === 3) return [[0, -.3], [-.3, .2], [.3, .2]];
+    if (size === 4) {
+      return [[-.3, -.3], [.3, -.3], [-.3, .3], [.3, .3]];
+    }
+    return Array.from({length: size}, (_, index) => {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / size;
+      return [Math.cos(angle) * .35, Math.sin(angle) * .35];
+    });
   }
 
   function playerName(participant) {
@@ -244,11 +270,11 @@
       [0, 0]
     );
     const base = svgNode(documentRef, "rect", {
-      x: center[0] - 11,
-      y: center[1] - 11,
-      width: 22,
-      height: 22,
-      rx: 5,
+      x: center[0] - 10.5,
+      y: center[1] - 10.5,
+      width: 21,
+      height: 21,
+      rx: 4.5,
       class: `aeroplane-airport color-${color}`,
     });
     svg.appendChild(base);
@@ -258,6 +284,73 @@
         cy: y,
         r: 3.7,
         class: `aeroplane-airport-slot color-${color}`,
+      }));
+    });
+  }
+
+  function shortcutControl(from, to) {
+    const midpoint = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
+    return [
+      midpoint[0] + (50 - midpoint[0]) * .42,
+      midpoint[1] + (50 - midpoint[1]) * .42,
+    ];
+  }
+
+  function shortcutPath(from, cross, to) {
+    const firstControl = shortcutControl(from, cross);
+    const secondControl = shortcutControl(cross, to);
+    return {
+      d: [
+        `M ${from[0]} ${from[1]}`,
+        `Q ${firstControl[0]} ${firstControl[1]} ${cross[0]} ${cross[1]}`,
+        `Q ${secondControl[0]} ${secondControl[1]} ${to[0]} ${to[1]}`,
+      ].join(" "),
+      finalControl: secondControl,
+    };
+  }
+
+  function shortcutArrowPoints(control, destination) {
+    const dx = destination[0] - control[0];
+    const dy = destination[1] - control[1];
+    const length = Math.max(.01, Math.hypot(dx, dy));
+    const unitX = dx / length;
+    const unitY = dy / length;
+    const tip = [destination[0] - unitX * .8, destination[1] - unitY * .8];
+    const base = [tip[0] - unitX * 3, tip[1] - unitY * 3];
+    return [
+      tip,
+      [base[0] - unitY * 1.55, base[1] + unitX * 1.55],
+      [base[0] + unitY * 1.55, base[1] - unitX * 1.55],
+    ].map((point) => point.join(",")).join(" ");
+  }
+
+  function appendShortcutRoutes(documentRef, svg, state, quarterTurns) {
+    const mappings = state.path_mappings || {};
+    COLORS.forEach((color) => {
+      const shortcut = (mappings[color] || {}).shortcut || {};
+      if (!Number.isInteger(shortcut.from_ring_index)) return;
+      const from = rotatePoint(ringPoint(shortcut.from_ring_index), quarterTurns);
+      const cross = rotatePoint(ringPoint(shortcut.cross_ring_index), quarterTurns);
+      const to = rotatePoint(ringPoint(shortcut.to_ring_index), quarterTurns);
+      const route = shortcutPath(from, cross, to);
+      svg.appendChild(svgNode(documentRef, "path", {
+        d: route.d,
+        class: "aeroplane-shortcut-underlay",
+      }));
+      svg.appendChild(svgNode(documentRef, "path", {
+        d: route.d,
+        class: `aeroplane-shortcut-line color-${color}`,
+        "data-route-kind": "shortcut",
+      }));
+      svg.appendChild(svgNode(documentRef, "polygon", {
+        points: shortcutArrowPoints(route.finalControl, to),
+        class: `aeroplane-shortcut-arrow color-${color}`,
+      }));
+      svg.appendChild(svgNode(documentRef, "circle", {
+        cx: cross[0],
+        cy: cross[1],
+        r: 2.15,
+        class: `aeroplane-shortcut-cross color-${color}`,
       }));
     });
   }
@@ -273,30 +366,17 @@
     }));
     COLORS.forEach((color) => appendAirport(documentRef, svg, color, quarterTurns));
 
-    const mappings = state.path_mappings || {};
     COLORS.forEach((color) => {
-      const shortcut = (mappings[color] || {}).shortcut || {};
-      if (!Number.isInteger(shortcut.from_ring_index)) return;
-      const [fromX, fromY] = rotatePoint(
-        ringPoint(shortcut.from_ring_index), quarterTurns
-      );
-      const [toX, toY] = rotatePoint(
-        ringPoint(shortcut.to_ring_index), quarterTurns
+      const lane = HOME_LANE_POINTS[color].map(
+        (point) => rotatePoint(point, quarterTurns)
       );
       svg.appendChild(svgNode(documentRef, "path", {
-        d: `M ${fromX} ${fromY} Q 50 50 ${toX} ${toY}`,
-        class: `aeroplane-shortcut-line color-${color}`,
-      }));
-      const [crossX, crossY] = rotatePoint(
-        ringPoint(shortcut.cross_ring_index), quarterTurns
-      );
-      svg.appendChild(svgNode(documentRef, "circle", {
-        cx: crossX,
-        cy: crossY,
-        r: 2.2,
-        class: `aeroplane-shortcut-cross color-${color}`,
+        d: `M ${lane[0][0]} ${lane[0][1]} L ${lane[lane.length - 1][0]} ${lane[lane.length - 1][1]}`,
+        class: `aeroplane-home-runway color-${color}`,
       }));
     });
+
+    const mappings = state.path_mappings || {};
 
     for (let ringIndex = 0; ringIndex < 52; ringIndex += 1) {
       const [x, y] = rotatePoint(ringPoint(ringIndex), quarterTurns);
@@ -304,11 +384,15 @@
       const isShortcut = COLORS.some((candidate) => (
         ((mappings[candidate] || {}).shortcut || {}).from_ring_index === ringIndex
       ));
-      const cell = svgNode(documentRef, "circle", {
-        cx: x,
-        cy: y,
-        r: isShortcut ? 2.55 : 2.15,
+      const size = isShortcut ? 4.8 : 4.15;
+      const cell = svgNode(documentRef, "rect", {
+        x: x - size / 2,
+        y: y - size / 2,
+        width: size,
+        height: size,
+        rx: isShortcut ? 1.45 : 1.15,
         class: `aeroplane-track-cell color-${color}${isShortcut ? " shortcut" : " jump"}`,
+        "data-ring-index": ringIndex,
       });
       svg.appendChild(cell);
       if (isShortcut) {
@@ -328,20 +412,20 @@
 
     COLORS.forEach((color) => {
       const launch = rotatePoint(LAUNCH_POINTS[color], quarterTurns);
-      svg.appendChild(svgNode(documentRef, "rect", {
-        x: launch[0] - 4,
-        y: launch[1] - 2.5,
-        width: 8,
-        height: 5,
-        rx: 2.2,
+      svg.appendChild(svgNode(documentRef, "circle", {
+        cx: launch[0],
+        cy: launch[1],
+        r: 3.25,
         class: `aeroplane-launch color-${color}`,
       }));
       HOME_LANE_POINTS[color].forEach((point, index) => {
         const [x, y] = rotatePoint(point, quarterTurns);
-        svg.appendChild(svgNode(documentRef, "circle", {
-          cx: x,
-          cy: y,
-          r: 2.55,
+        svg.appendChild(svgNode(documentRef, "rect", {
+          x: x - 2.15,
+          y: y - 2.15,
+          width: 4.3,
+          height: 4.3,
+          rx: 1.25,
           class: `aeroplane-home-lane color-${color}`,
           "data-lane-index": index + 1,
         }));
@@ -365,32 +449,7 @@
       r: 2.2,
       class: "aeroplane-center-core",
     }));
-  }
-
-  function lastRoutePoints(state, quarterTurns) {
-    const action = state.last_action;
-    if (!action || action.action !== "move") return [];
-    const color = action.color || "red";
-    const points = [action.from, ...(action.landings || []).map((item) => item.location)];
-    return points.map((location) => locationPoint(
-      location, color, Number(action.plane_index || 0), quarterTurns
-    ));
-  }
-
-  function appendLastRoute(documentRef, svg, state, quarterTurns) {
-    const points = lastRoutePoints(state, quarterTurns);
-    if (points.length < 2) return;
-    svg.appendChild(svgNode(documentRef, "polyline", {
-      points: points.map((point) => point.join(",")).join(" "),
-      class: "aeroplane-last-route",
-    }));
-    const last = points[points.length - 1];
-    svg.appendChild(svgNode(documentRef, "circle", {
-      cx: last[0],
-      cy: last[1],
-      r: 3.4,
-      class: "aeroplane-last-target",
-    }));
+    appendShortcutRoutes(documentRef, svg, state, quarterTurns);
   }
 
   function appendLegalTargets(documentRef, shell, context, quarterTurns) {
@@ -436,16 +495,21 @@
         ? `track:${plane.ring_index}`
         : plane.zone === "home_lane"
           ? `lane:${color}:${plane.home_lane_index}`
-          : `${color}:${plane.zone}:${plane.plane_index}`;
+          : plane.zone === "launch"
+            ? `launch:${color}`
+            : `${color}:${plane.zone}:${plane.plane_index}`;
       const group = grouped.get(key) || [];
       group.push(entry);
       grouped.set(key, group);
       entry.point = point;
     });
     grouped.forEach((group) => {
+      const offsets = stackOffsets(group.length);
       group.forEach((entry, index) => {
-        const offset = STACK_OFFSETS[index] || [0, 0];
+        const offset = offsets[index] || [0, 0];
         entry.point = [entry.point[0] + offset[0], entry.point[1] + offset[1]];
+        entry.stackIndex = index;
+        entry.stackSize = group.length;
       });
     });
     return entries;
@@ -484,6 +548,9 @@
       token.dataset.playerId = playerId;
       token.dataset.logicalZone = plane.zone;
       token.dataset.logicalRouteStep = String(plane.route_step);
+      token.dataset.stackIndex = String(entry.stackIndex || 0);
+      token.dataset.stackSize = String(entry.stackSize || 1);
+      token.style.setProperty("--stack-order", String(entry.stackIndex || 0));
       token.style.left = `${point[0]}%`;
       token.style.top = `${point[1]}%`;
       token.disabled = !legal;
@@ -516,13 +583,21 @@
     });
   }
 
-  function phaseCopy(context) {
+  function turnCopy(context) {
     const phase = (context.state.flow || {}).phase;
     if (context.isTerminal || phase === "finished") return "本局已经结束";
+    const current = (context.participants || []).find(
+      (participant) => participant.player_id === context.room.current_player_id
+    );
+    const currentName = playerName(current);
+    const viewerId = context.viewer && context.viewer.player_id;
+    const viewerTurn = Boolean(viewerId && viewerId === context.room.current_player_id);
     if (phase === "awaiting_plane_choice") {
-      return context.canMove ? "请选择一架高亮飞机" : "等待当前玩家选择飞机";
+      return viewerTurn
+        ? "轮到你选择飞机"
+        : `等待${currentName}选择飞机`;
     }
-    return context.canMove ? "可以掷骰" : "等待当前玩家掷骰";
+    return viewerTurn ? "轮到你掷骰" : `等待${currentName}掷骰`;
   }
 
   function renderBoard(context) {
@@ -555,7 +630,7 @@
     const title = documentRef.createElement("strong");
     title.textContent = `${playerName(current)} · ${COLOR_LABELS[colorForPlayer(state, room.current_player_id)]}`;
     const status = documentRef.createElement("span");
-    status.textContent = phaseCopy(context);
+    status.textContent = turnCopy(context);
     heading.append(title, status);
 
     const shell = documentRef.createElement("div");
@@ -568,7 +643,6 @@
       focusable: "false",
     });
     appendStaticBoard(documentRef, svg, state, quarterTurns);
-    appendLastRoute(documentRef, svg, state, quarterTurns);
     shell.appendChild(svg);
     appendLegalTargets(documentRef, shell, context, quarterTurns);
     appendPlanes(documentRef, shell, context, quarterTurns);
@@ -596,7 +670,7 @@
   function renderControls(context) {
     const documentRef = context.document || window.document;
     ensureStylesheet(documentRef);
-    const {controls, state, room} = context;
+    const {controls, state} = context;
     const legalActions = Array.isArray(context.legalActions)
       ? context.legalActions
       : [];
@@ -611,20 +685,30 @@
     actionCopy.className = "aeroplane-action-copy";
     const actionTitle = documentRef.createElement("strong");
     actionTitle.textContent = phase === "awaiting_plane_choice"
-      ? `本次 ${Number((state.last_roll || {}).value || 0)} 点`
-      : "本回合掷骰";
+      ? `本次 ${Number((state.last_roll || {}).value || 0)} 点 · ${turnCopy(context)}`
+      : turnCopy(context);
     const streak = documentRef.createElement("span");
     const sixes = Number(state.consecutive_sixes || 0);
     streak.textContent = sixes
       ? `连续 6：${sixes} / 3${sixes === 2 ? "，下个 6 将触发惩罚" : ""}`
-      : phaseCopy(context);
+      : (phase === "awaiting_plane_choice"
+        ? "点击棋盘上高亮的飞机完成行动"
+        : "本回合掷骰");
     actionCopy.append(actionTitle, streak);
     const rollButton = documentRef.createElement("button");
     rollButton.type = "button";
     rollButton.className = "pixel-btn aeroplane-roll-button";
-    rollButton.textContent = "掷骰";
     const rollIsLegal = legalActions.some((action) => action.action === "roll");
     rollButton.disabled = !context.canMove || !rollIsLegal;
+    if (rollButton.disabled) {
+      rollButton.textContent = context.isTerminal || phase === "finished"
+        ? "已结束"
+        : (phase === "awaiting_plane_choice" ? "选飞机" : "等待");
+    } else {
+      rollButton.textContent = "掷骰";
+      rollButton.classList.add("ready");
+      rollButton.setAttribute("aria-label", "轮到你掷骰，点击掷骰");
+    }
     rollButton.addEventListener("click", async () => {
       if (!context.helpers || typeof context.helpers.submitMove !== "function") return;
       if (typeof context.helpers.canMove === "function" && !context.helpers.canMove()) return;
@@ -635,34 +719,6 @@
     actionPanel.append(die, actionCopy, rollButton);
 
     root.appendChild(actionPanel);
-    if ((context.participants || []).length <= 2) {
-      const roster = documentRef.createElement("div");
-      roster.className = "aeroplane-roster";
-      (context.participants || []).forEach((participant) => {
-        const playerId = participant.player_id;
-        const color = colorForPlayer(state, playerId);
-        const planes = (state.planes || {})[playerId] || [];
-        const homeCount = planes.filter((plane) => plane.zone === "home").length;
-        const airportCount = planes.filter((plane) => plane.zone === "airport").length;
-        const item = documentRef.createElement("div");
-        item.className = [
-          "aeroplane-roster-item",
-          `color-${color}`,
-          room.current_player_id === playerId ? "current" : "",
-          context.viewer && context.viewer.player_id === playerId ? "viewer" : "",
-        ].filter(Boolean).join(" ");
-        const swatch = documentRef.createElement("span");
-        swatch.className = "aeroplane-color-swatch";
-        swatch.setAttribute("aria-hidden", "true");
-        const name = documentRef.createElement("strong");
-        name.textContent = playerName(participant);
-        const count = documentRef.createElement("span");
-        count.textContent = `到家 ${homeCount}/4 · 机场 ${airportCount}`;
-        item.append(swatch, name, count);
-        roster.appendChild(item);
-      });
-      root.appendChild(roster);
-    }
     controls.appendChild(root);
   }
 
