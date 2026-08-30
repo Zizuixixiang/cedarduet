@@ -258,9 +258,7 @@ data/                   本地运行数据目录；真实数据库不会提交�
 
 ## 本地启动
 
-要求 Python 3.10+。如果目的是“克隆下来，让一个人类和一只 AI 直接开玩”，推荐使用仓库自带的 standalone 启动器；它只监听 `127.0.0.1`，不需要 CedarToy、反向代理或账号系统。
-
-麻将在安装依赖时会编译仓库内的 MIT `PyMahjongGB` 扩展，因此系统需要 C++ 编译工具：Linux 通常是 `g++`/Python 开发头文件，Windows 使用 Microsoft C++ Build Tools。仓库已为 GCC/Clang 与 MSVC 分别选择正确的编译参数；不需要另外下载麻将源码。
+要求 Python 3.10+。
 
 ```bash
 git clone https://github.com/Zizuixixiang/cedarduet.git
@@ -269,52 +267,8 @@ cd cedarduet
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-python3 -m app.local
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
-
-Windows PowerShell 激活虚拟环境可用：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m app.local
-```
-
-启动后：
-
-- 人类网页：`http://127.0.0.1:8772/`
-- AI 动作接口：`POST http://127.0.0.1:8772/mcp/play`
-- 默认人类身份：`local-human`（显示名“本地玩家”）
-- 默认 AI 身份：`local-ai`（显示名“本地小机”）
-- 本地数据库：`data/duel.db`
-
-人类直接打开网页即可建房、查看棋盘、出牌/落子和使用筹码中心。AI 可以先列房间：
-
-```bash
-curl -X POST http://127.0.0.1:8772/mcp/play \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"rooms","player_id":"local-ai"}'
-```
-
-AI 也可以主动发起一局；例如井字棋：
-
-```bash
-curl -X POST http://127.0.0.1:8772/mcp/play \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"new","player_id":"local-ai","opponent_id":"local-human","game_type":"tictactoe","mode":"ai_first"}'
-```
-
-随后按返回的 `room_id`、`revision` 和 `move_format` 继续调用 `state` / `move` / `wait`。完整的小机增量状态、暗信息、多人桌、筹码和重赛协议见 [`docs/MCP_GUIDE.md`](docs/MCP_GUIDE.md)。本地 clone 不需要 CedarToy 聚合层；官方线上实例仍由 CedarToy 对外提供认证后的统一 MCP。
-
-standalone 身份可以通过环境变量改名或改 ID：
-
-```bash
-DUEL_LOCAL_HUMAN_NAME=杉杉 \
-DUEL_LOCAL_AI_NAME=Clio \
-python3 -m app.local
-```
-
-可用变量：`DUEL_LOCAL_HUMAN_ID`、`DUEL_LOCAL_HUMAN_NAME`、`DUEL_LOCAL_AI_ID`、`DUEL_LOCAL_AI_NAME`、`DUEL_LOCAL_PORT`。`app.local` 会自动开启 `DUEL_STANDALONE_LOCAL=1`；这个模式仅用于本机 standalone，不应放到公网反向代理后。
 
 健康检查：
 
@@ -325,10 +279,12 @@ curl http://127.0.0.1:8772/health
 默认数据库为 `data/duel.db`，也可以通过环境变量指定：
 
 ```bash
-DUEL_DB_PATH=/your/path/duel.db python3 -m app.local
+DUEL_DB_PATH=/your/path/duel.db \
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
 ```
 
-不配置 NPC provider 时，所有不含模型 NPC 的普通对局照常可玩；使用本地规则策略的 NPC 游戏也不需要外部模型。只有主动启用模型 NPC 补位时才需要部署者自己的兼容 API 和外部人设目录：
+不配置 NPC provider 时，所有不含 NPC 的普通对局照常可玩；只有主动启用
+NPC 补位时才需要部署者自己的兼容 API 和外部人设目录。复制 `.env.example` 后：
 
 ```bash
 DUEL_NPC_PROVIDER=openai_compatible
@@ -339,23 +295,25 @@ DUEL_NPC_PERSONAS_DIR=/your/external/personas
 DUEL_NPC_AVATARS_DIR=/your/external/npc-avatars
 ```
 
-`openai_compatible` 调标准 `/chat/completions`；API key 只存在服务端环境，不进入网页、房间数据库或日志。`DUEL_NPC_TIMEOUT_SECONDS`、`DUEL_NPC_MAX_TOKENS`、`DUEL_NPC_MAX_CONCURRENCY` 分别控制单请求超时、输出上限和跨房间全局并发。格式和限制见 `app/config/npc_personas/README.md`。仓库内 `_example.json` 只展示普通格式且不会加载；空库存与 disabled provider 都不影响无 NPC 对局。
+`openai_compatible` 调标准 `/chat/completions`；API key 只存在服务端环境，不进入
+网页、房间数据库或日志。`DUEL_NPC_TIMEOUT_SECONDS`、`DUEL_NPC_MAX_TOKENS`、
+`DUEL_NPC_MAX_CONCURRENCY` 分别控制单请求超时、输出上限和跨房间全局并发。
+格式和限制见 `app/config/npc_personas/README.md`。仓库内 `_example.json` 只展示
+普通格式且不会加载；空库存与 disabled provider 都不影响无 NPC 对局。
 
-官方 CedarToy 可改用 `DUEL_NPC_PROVIDER=cedartoy_bridge`，由带共享 Bearer token 的 loopback bridge 调用官方 NPC 池。CedarDuet 不导入海龟汤模块，也不保存或复制池中 API key；两种 provider 对控制器都返回同一 `action_id/message` 结构。
+官方 CedarToy 可改用 `DUEL_NPC_PROVIDER=cedartoy_bridge`，由带共享 Bearer token
+的 loopback bridge 调用官方 NPC 池。CedarDuet 不导入海龟汤模块，也不保存或复制
+池中 API key；两种 provider 对控制器都返回同一 `action_id/message` 结构。
 
 事件唤醒目前是单进程内机制，因此请保持 uvicorn 单 worker。
 
-### standalone 与生产认证的边界
+### 为什么直接打开 8772 会提示从主站登录？
 
-`python3 -m app.local` 是给本机试玩/开发准备的显式入口，会开启一对本地身份并强制只监听 loopback。
+当前网页端采用“可信上游认证”模式：CedarDuet 不自行保存 CedarToy 的账号密码，而是由上游认证层验证登录后，向 CedarDuet 注入可信的人类身份和绑定 AI 清单。
 
-直接运行下面的普通 ASGI 命令时，行为仍保持生产模式，不会自动伪造身份：
+因此，直接裸连 `http://127.0.0.1:8772/` 可以启动服务、跑测试和调用内部接口，但当前网页会提示从认证入口进入。这是部署方式的边界，不是游戏引擎依赖 CedarToy。
 
-```bash
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
-```
-
-此时网页如果没有可信上游 Header，仍会提示从 CedarToy 登录入口进入。也就是说，新增的 standalone 模式不会改变官方部署的信任边界。
+如果你想把 CedarDuet 接进自己的站点，可以实现自己的认证/绑定层，再按下文的可信身份协议反向代理到 CedarDuet。
 
 ## 可信人类身份协议
 

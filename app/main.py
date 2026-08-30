@@ -129,34 +129,6 @@ MCP_WAIT_SECONDS = _parse_mcp_wait_seconds(
 )
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _standalone_local_enabled() -> bool:
-    """Opt-in local identity mode used only by the standalone launcher."""
-    return _env_flag("DUEL_STANDALONE_LOCAL", False)
-
-
-def _local_human_id() -> str:
-    return os.getenv("DUEL_LOCAL_HUMAN_ID", "local-human").strip() or "local-human"
-
-
-def _local_human_name() -> str:
-    return os.getenv("DUEL_LOCAL_HUMAN_NAME", "本地玩家").strip() or "本地玩家"
-
-
-def _local_ai_id() -> str:
-    return os.getenv("DUEL_LOCAL_AI_ID", "local-ai").strip() or "local-ai"
-
-
-def _local_ai_name() -> str:
-    return os.getenv("DUEL_LOCAL_AI_NAME", "本地小机").strip() or "本地小机"
-
-
 class RevisionEvents:
     """Single-process revision notification hub; SQLite remains the source of truth."""
 
@@ -752,20 +724,9 @@ def require(value, message: str):
 
 def trusted_human_player(request: Request) -> str:
     player_id = request.headers.get("X-Duel-Human-Player", "").strip()
-    if player_id:
-        return player_id
-    if _standalone_local_enabled():
-        return _local_human_id()
-    raise DuelError("请从 toy.cedarstar.org 首页登录进入", 403)
-
-
-def _trusted_human_name(request: Request, fallback: str = "你") -> str:
-    value = unquote(request.headers.get("X-Duel-Human-Name", "")).strip()
-    if value:
-        return value
-    if _standalone_local_enabled():
-        return _local_human_name()
-    return fallback
+    if not player_id:
+        raise DuelError("请从 toy.cedarstar.org 首页登录进入", 403)
+    return player_id
 
 
 def _trusted_account_avatar(value: object) -> dict | None:
@@ -807,15 +768,13 @@ def _trusted_bound_ais(request: Request) -> list[dict[str, object]]:
         # Keep the already-running pre-migration proxy usable until its reviewed
         # server.py change is manually restarted; the new proxy strips these heads.
         legacy_id = request.headers.get("X-Duel-Ai-Player", "").strip()
-        if legacy_id:
-            legacy_name = (
-                unquote(request.headers.get("X-Duel-Ai-Name", "")).strip()
-                or "你的小机"
-            )
-            return [{"id": legacy_id, "name": legacy_name}]
-        if _standalone_local_enabled():
-            return [{"id": _local_ai_id(), "name": _local_ai_name()}]
-        return []
+        if not legacy_id:
+            return []
+        legacy_name = (
+            unquote(request.headers.get("X-Duel-Ai-Name", "")).strip()
+            or "你的小机"
+        )
+        return [{"id": legacy_id, "name": legacy_name}]
     try:
         value = _decode_proxy_json_header(request, "X-Duel-Bound-Ais")
     except DuelError:
@@ -1026,17 +985,18 @@ async def npc_avatar(filename: str):
 
 @app.get("/api/whoami")
 async def human_whoami(request: Request):
-    trusted_player_id = request.headers.get("X-Duel-Human-Player", "").strip()
-    local_mode = _standalone_local_enabled() and not trusted_player_id
-    if not trusted_player_id and not local_mode:
+    human_player_id = request.headers.get("X-Duel-Human-Player")
+    if not human_player_id:
         return {
             "ok": True,
             "bound": False,
             "message": "请从 toy.cedarstar.org 首页登录进入",
             "rooms": [],
         }
-    human_player_id = trusted_player_id or _local_human_id()
-    human_name = _trusted_human_name(request)
+    human_name = (
+        unquote(request.headers.get("X-Duel-Human-Name", "")).strip()
+        or "你"
+    )
     machines = _trusted_bound_ais(request)
     ai_names = {machine["id"]: machine["name"] for machine in machines}
     update_participant_display_names(
@@ -1052,8 +1012,6 @@ async def human_whoami(request: Request):
     return {
         "ok": True,
         "bound": True,
-        "standalone_local": local_mode,
-        "human_player_id": human_player_id,
         "human_name": human_name,
         "human_avatar": _trusted_human_avatar(request),
         "machines": machines,
@@ -1097,7 +1055,9 @@ async def human_read_notifications(
 
 @app.post("/api/rooms")
 async def human_create(request: Request, body: CreateRoomBody):
-    trusted_human = trusted_human_player(request)
+    trusted_human = request.headers.get("X-Duel-Human-Player")
+    if not trusted_human:
+        raise DuelError("请从 toy.cedarstar.org 首页登录进入", 403)
     if body.player_id != trusted_human:
         raise DuelError("人类身份与主站注入身份不一致", 403)
     selected_ais = list(body.ai_players or [])
@@ -1186,7 +1146,10 @@ async def human_create(request: Request, body: CreateRoomBody):
             *npc_participants,
         ],
         participant_names={
-            body.player_id: _trusted_human_name(request, body.player_id),
+            body.player_id: (
+                unquote(request.headers.get("X-Duel-Human-Name", "")).strip()
+                or body.player_id
+            ),
             **{machine["id"]: machine["name"] for machine in machines},
         },
         stake=body.stake,

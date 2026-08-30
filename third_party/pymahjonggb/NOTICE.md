@@ -29,10 +29,7 @@ PYTHONPATH=/tmp/pymahjonggb-runtime \
 
 ## Local changes
 
-`setup.py` only changes the compiler standard flag so the vendored extension can
-build on both toolchains used by supported local clones: MSVC receives
-`/std:c++14`, while GCC/Clang keep the upstream `-std=c++11`. The algorithm
-source, headers, Python binding, type stub, license files, readmes, and tests are
-otherwise unchanged from the revision above. Build directories and
-platform-specific compiled artifacts are not vendored; they are produced by the
-requirements installation step.
+None. The vendored upstream source, headers, Python binding, type stub,
+license files, readmes, and tests are byte-for-byte copies from the revision
+above. Build directories and platform-specific compiled artifacts are not
+vendored; they are produced by the requirements installation step.
