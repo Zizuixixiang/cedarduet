@@ -170,6 +170,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
                 "guandan": "card",
 
+                "mahjong": "card",
+
 
                 "zhajinhua": "card",
 
@@ -207,6 +209,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
 
 
                 "guandan": "掼蛋",
+
+                "mahjong": "麻将",
 
 
                 "zhajinhua": "炸金花",
