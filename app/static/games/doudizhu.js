@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.2";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.3";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -15,6 +15,13 @@
     clubs: "梅花",
     diamonds: "方块",
   };
+  const HAND_DISPLAY_ORDER = Object.freeze([
+    "big_joker", "small_joker", "2", "A", "K", "Q", "J", "10",
+    "9", "8", "7", "6", "5", "4", "3",
+  ]);
+  const HAND_DISPLAY_POSITION = new Map(
+    HAND_DISPLAY_ORDER.map((rank, index) => [rank, index])
+  );
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -71,6 +78,18 @@
     if (card.rank === "small_joker") return "小王";
     if (card.rank === "big_joker") return "大王";
     return `${SUIT_LABELS[card.suit] || ""}${card.rank || ""}`;
+  }
+
+  function cardsForDisplay(hand) {
+    return hand.map((card, index) => ({card, index})).sort((left, right) => {
+      const leftPosition = HAND_DISPLAY_POSITION.has(left.card.rank)
+        ? HAND_DISPLAY_POSITION.get(left.card.rank)
+        : HAND_DISPLAY_ORDER.length;
+      const rightPosition = HAND_DISPLAY_POSITION.has(right.card.rank)
+        ? HAND_DISPLAY_POSITION.get(right.card.rank)
+        : HAND_DISPLAY_ORDER.length;
+      return leftPosition - rightPosition || left.index - right.index;
+    }).map((entry) => entry.card);
   }
 
   function createCard(documentRef, card, options = {}) {
@@ -251,6 +270,7 @@
     const hand = context.privateState && Array.isArray(context.privateState.hand)
       ? context.privateState.hand
       : [];
+    const displayHand = cardsForDisplay(hand);
     const selected = selectedIds(context);
     const legal = playActions(context);
     const selectableIds = new Set(legal.flatMap((action) => action.card_ids.map(String)));
@@ -271,7 +291,11 @@
     const scroller = element(documentRef, "div", "doudizhu-hand-scroll");
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", "我的私密手牌，可横向滚动并多选");
-    hand.forEach((card, index) => {
+    scroller.addEventListener("scroll", () => {
+      const scrollLeft = Number(scroller.scrollLeft);
+      if (Number.isFinite(scrollLeft)) context.uiState.handScrollLeft = Math.max(0, scrollLeft);
+    }, {passive: true});
+    displayHand.forEach((card, index) => {
       const cardId = String(card.id);
       const selectable = selectableIds.has(cardId);
       const cardNode = createCard(documentRef, card, {
@@ -283,6 +307,10 @@
       cardNode.style.setProperty("--hand-index", index);
       cardNode.addEventListener("click", () => {
         if (!context.helpers.canMove() || !selectable || context.uiState.submitting) return;
+        const scrollLeft = Number(scroller.scrollLeft);
+        context.uiState.handScrollLeft = Number.isFinite(scrollLeft)
+          ? Math.max(0, scrollLeft)
+          : 0;
         const current = selectedIds(context);
         context.uiState.selectedCardIds = current.includes(cardId)
           ? current.filter((id) => id !== cardId)
@@ -297,6 +325,7 @@
     }
     zone.append(label, scroller);
     shell.appendChild(zone);
+    return scroller;
   }
 
   function renderBoard(context) {
@@ -328,9 +357,13 @@
       .forEach((item) => opponents.appendChild(renderSeat(documentRef, context, item, passIds)));
     shell.appendChild(opponents);
     renderCenter(documentRef, context, shell);
-    renderHand(documentRef, context, shell);
+    const handScroller = renderHand(documentRef, context, shell);
     game.append(topbar, shell);
     board.appendChild(game);
+    const savedScrollLeft = Number(context.uiState.handScrollLeft);
+    if (Number.isFinite(savedScrollLeft) && savedScrollLeft > 0) {
+      handScroller.scrollLeft = savedScrollLeft;
+    }
     return true;
   }
 
@@ -425,6 +458,7 @@
   }
 
   function renderPlayControls(documentRef, context, panel) {
+    panel.classList.add("is-playing");
     const selected = selectedIds(context);
     const matches = matchingSelectedActions(context);
     const exact = exactSelectedAction(context);

@@ -550,12 +550,31 @@ button.doudizhu-card:focus-visible,
   opacity: .48;
 }
 
-.doudizhu-play-button,
+.doudizhu-play-button:not(:disabled),
 .doudizhu-bid-button:not(:first-child),
 .doudizhu-bid-confirm-button {
   color: #fff8e8 !important;
   border-color: #8c252e !important;
   background: linear-gradient(145deg, #c33b46, #92262f) !important;
+}
+
+.doudizhu-play-button:not(:disabled) {
+  box-shadow: 0 3px 8px rgba(132, 31, 42, .27);
+}
+
+.doudizhu-pass-button:not(:disabled) {
+  color: #fffdf4;
+  border-color: #185b4e;
+  background: linear-gradient(145deg, #3b8b76, #1d6254);
+  box-shadow: 0 3px 8px rgba(19, 79, 67, .23);
+}
+
+.doudizhu-controls.is-playing .doudizhu-action-buttons button:disabled {
+  color: #858d89;
+  border-color: #ced3d0;
+  background: #ecefed;
+  box-shadow: none;
+  opacity: 1;
 }
 
 .doudizhu-bid-options {
@@ -759,6 +778,38 @@ button.doudizhu-card:focus-visible,
     gap: 5px;
   }
 
+  .doudizhu-controls.is-playing {
+    gap: 3px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-selection-status {
+    min-height: 30px;
+    gap: 0;
+    padding-inline: 2px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-selection-status strong {
+    font-size: 12px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-selection-status span {
+    font-size: 10px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-action-buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(74px, .65fr);
+    gap: 5px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-action-buttons button {
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
   .doudizhu-controls.is-bidding .doudizhu-selection-status {
     min-height: 0;
     gap: 1px;
@@ -841,6 +892,15 @@ button.doudizhu-card:focus-visible,
 
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
     margin-left: -16px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-selection-status {
+    min-height: 28px;
+  }
+
+  .doudizhu-controls.is-playing .doudizhu-action-buttons button {
+    min-height: 34px;
+    padding: 4px 8px;
   }
 }
 
