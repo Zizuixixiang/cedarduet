@@ -37,6 +37,7 @@ const RECENT_CHAT_LIMIT = 5;
 const GAME_GLYPHS = {
   tictactoe: "井",
   gomoku: "五",
+  go: "围",
   othello: "黑",
   connect4: "四",
   checkers: "跳",

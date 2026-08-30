@@ -1637,7 +1637,11 @@ def create_room(
     for participant, token in zip(participants, tokens):
         participant["token"] = str(token)
     # The six legacy games use X for the mode-selected opening side.
-    if allowed_counts == (2,) and len(participants) == 2:
+    if (
+        allowed_counts == (2,)
+        and len(participants) == 2
+        and {item["token"] for item in participants} == {"X", "O"}
+    ):
         if explicit_opener is not None:
             opener = explicit_opener
         else:

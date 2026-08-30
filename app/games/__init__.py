@@ -8,6 +8,7 @@ from .chinese_checkers import ChineseCheckers
 from .dots_boxes import DotsBoxes
 from .doudizhu import Doudizhu
 from .gomoku import Gomoku
+from .go import Go
 from .gandengyan import Gandengyan
 from .guandan import Guandan
 from .jungle import Jungle
@@ -29,6 +30,7 @@ GAMES = {
     TicTacToe.game_type: TicTacToe(),
     TrainCards.game_type: TrainCards(),
     Gomoku.game_type: Gomoku(),
+    Go.game_type: Go(),
     Gandengyan.game_type: Gandengyan(),
     Guandan.game_type: Guandan(),
     Othello.game_type: Othello(),

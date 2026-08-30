@@ -215,6 +215,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "blackjack": "players",
             "tictactoe": "board",
             "gomoku": "board",
+            "go": "board",
             "gandengyan": "current_trick",
             "train_cards": "table_cards",
             "othello": "board",
@@ -307,6 +308,11 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                         board["legal_actions"],
                         room["board_state"]["legal_actions"],
                     )
+                elif game_type == "go":
+                    self.assertNotIn("engine_history", board)
+                    self.assertNotIn("position_identity", board)
+                    self.assertNotIn("legal_actions", board)
+                    self.assertIn("legal_actions", snapshot["private_state"])
                 elif game_type == "chinese_checkers":
                     self.assertNotIn("nodes", board)
                     self.assertNotIn("camps", board)
