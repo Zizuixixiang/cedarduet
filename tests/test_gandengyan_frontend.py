@@ -73,6 +73,16 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("button.gandengyan-card.selectable {", STYLES)
         self.assertNotIn("filter: saturate(.55) brightness(.82);", STYLES)
 
+    def test_opponent_avatars_use_the_shared_helper_with_compact_fallback(self):
+        self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", SCRIPT)
+        self.assertIn('avatar.textContent = Array.from(String(name).trim())[0] || "?";', SCRIPT)
+        self.assertIn(".gandengyan-opponent-avatar {", STYLES)
+        self.assertIn("max-width: 22px;", STYLES)
+        self.assertIn("max-height: 22px;", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn("max-width: 20px;", mobile)
+        self.assertIn("max-height: 20px;", mobile)
+
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
 class GandengyanFrontendRuntimeTests(unittest.TestCase):
@@ -180,6 +190,7 @@ function makeContext(legalActions = privateState.legal_actions) {
   const controls = new Element("div", document);
   const submitted = [];
   const uiState = {};
+  const avatarCalls = [];
   let rerenders = 0;
   const context = {
     board, controls, state, privateState: {...privateState, legal_actions: legalActions},
@@ -191,9 +202,13 @@ function makeContext(legalActions = privateState.legal_actions) {
       canMove() { return true; },
       rerender() { rerenders += 1; return true; },
       async submitMove(move) { submitted.push(move); return true; },
+      renderParticipantAvatar(target, participant) {
+        avatarCalls.push(participant.player_id);
+        target.textContent = `avatar:${participant.player_id}`;
+      },
     },
   };
-  return {context, board, controls, submitted, uiState, rerenders: () => rerenders};
+  return {context, board, controls, submitted, uiState, avatarCalls, rerenders: () => rerenders};
 }
 '''.replace("STATE_JSON", json.dumps(state, ensure_ascii=False)).replace(
             "PRIVATE_JSON", json.dumps(private_state, ensure_ascii=False)
@@ -219,10 +234,18 @@ assert.equal(JSON.stringify(nodes.filter(
 ).map((node) => node.dataset.cardId)), JSON.stringify(["JOKER-S", "C8", "H4", "S4"]));
 assert.equal(JSON.stringify(privateState.hand.map((card) => card.id)), JSON.stringify(["S4", "H4", "C8", "JOKER-S"]));
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent")).length, 2);
+assert.equal(JSON.stringify(value.avatarCalls), JSON.stringify(["ai-1", "ai-2"]));
+assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent-avatar")).length, 2);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card-back")).length, 8);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent") && hasClass(node, "passed")).length, 1);
 assert.equal(value.board.dataset.multiplier, "4");
 assert.equal(styleNodes.size, 1);
+const fallback = makeContext();
+delete fallback.context.helpers.renderParticipantAvatar;
+renderer.renderBoard(fallback.context);
+assert.equal(JSON.stringify(descendants(fallback.board).filter(
+  (node) => hasClass(node, "gandengyan-opponent-avatar")
+).map((node) => node.textContent)), JSON.stringify(["小", "小"]));
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.2");

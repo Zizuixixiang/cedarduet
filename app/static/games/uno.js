@@ -49,6 +49,20 @@
       : (playerId || "玩家");
   }
 
+  function renderAvatar(documentRef, context, participant) {
+    const avatar = documentRef.createElement("span");
+    avatar.className = "uno-opponent-avatar";
+    const name = participant && (participant.display_name || participant.player_id) || "玩家";
+    avatar.textContent = Array.from(String(name).trim())[0] || "?";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    }
+    return avatar;
+  }
+
   function cardSymbol(card) {
     if (!card) return "?";
     return card.kind === "number"
@@ -117,8 +131,11 @@
       if (context.room.current_player_id === participant.player_id) {
         seat.classList.add("current");
       }
+      const identity = documentRef.createElement("div");
+      identity.className = "uno-opponent-identity";
       const heading = documentRef.createElement("strong");
       heading.textContent = participant.display_name || participant.player_id;
+      identity.append(renderAvatar(documentRef, context, participant), heading);
       const cards = documentRef.createElement("div");
       cards.className = "uno-opponent-backs";
       for (let index = 0; index < Math.min(3, count); index += 1) {
@@ -130,7 +147,7 @@
       amount.className = "uno-hand-count";
       amount.textContent = `${count} 张`;
       seat.setAttribute("aria-label", `${heading.textContent}，手牌 ${count} 张`);
-      seat.append(heading, cards, amount);
+      seat.append(identity, cards, amount);
       opponents.appendChild(seat);
     });
     shell.appendChild(opponents);

@@ -87,6 +87,18 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
             ".yahtzee-joker-notice { padding: 6px 7px; font-size: 10px; }",
             mobile,
         )
+        self.assertIn(".yahtzee-player-avatar {", STYLES)
+        self.assertIn("max-width: 22px;", STYLES)
+        self.assertIn("max-height: 22px;", STYLES)
+        self.assertIn(
+            ".yahtzee-player-avatar { width: 20px; height: 20px; max-width: 20px; max-height: 20px; }",
+            mobile,
+        )
+
+    def test_scorecard_player_avatars_use_shared_helper_and_local_fallback(self):
+        self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", RENDERER)
+        self.assertIn('avatar.textContent = Array.from(String(playerName(participant)).trim())[0] || "?";', RENDERER)
+        self.assertIn('identity.className = "yahtzee-player-heading";', RENDERER)
 
     @unittest.skipUnless(NODE, "node is required for JavaScript syntax validation")
     def test_renderer_is_valid_javascript(self):
@@ -149,6 +161,7 @@ vm.runInNewContext(source, sandbox);
 assert.equal(sandbox.renderer.usesStandardMoveConfirmation, false);
 const board = new Element("board");
 const submitted = [];
+const avatarCalls = [];
 const participants = [
   {player_id: "human-1", display_name: "人类"},
   {player_id: "ai-1", display_name: "小机"},
@@ -176,12 +189,31 @@ const context = {
     submitMove: async (move) => { submitted.push(move); return true; },
     canMove: () => true,
     rerender: () => true,
+    renderParticipantAvatar: (target, participant) => {
+      avatarCalls.push(participant.player_id);
+      target.textContent = `avatar:${participant.player_id}`;
+    },
   },
 };
 const descendants = (root) => [root, ...root.children.flatMap(descendants)];
 (async () => {
   sandbox.renderer.renderBoard(context);
   const all = descendants(board);
+  assert.equal(JSON.stringify(avatarCalls), JSON.stringify(["human-1", "ai-1"]));
+  assert.equal(all.filter((item) => item.classList.contains("yahtzee-player-avatar")).length, 2);
+  const fallbackBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: fallbackBoard,
+    helpers: {
+      submitMove: async () => true,
+      canMove: () => true,
+      rerender: () => true,
+    },
+  });
+  assert.equal(JSON.stringify(descendants(fallbackBoard).filter(
+    (item) => item.classList.contains("yahtzee-player-avatar")
+  ).map((item) => item.textContent)), JSON.stringify(["人", "小"]));
   const dice = all.filter((item) => (
     item.classList.contains("yahtzee-die") && item.tag === "button"
   ));

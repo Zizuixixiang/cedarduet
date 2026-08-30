@@ -36,6 +36,19 @@
     return participant && (participant.display_name || participant.player_id) || "玩家";
   }
 
+  function renderAvatar(documentRef, context, participant) {
+    const avatar = documentRef.createElement("span");
+    avatar.className = "blackjack-seat-avatar";
+    avatar.textContent = Array.from(String(playerName(participant)).trim())[0] || "?";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    }
+    return avatar;
+  }
+
   function valueLabel(value, hidden = false) {
     if (hidden) return value && value.total ? `明牌 ${value.total} 点` : "等待翻牌";
     if (!value) return "等待计点";
@@ -171,11 +184,14 @@
       const seatHead = documentRef.createElement("header");
       const identity = documentRef.createElement("div");
       identity.className = "blackjack-seat-identity";
+      const identityCopy = documentRef.createElement("div");
+      identityCopy.className = "blackjack-seat-identity-copy";
       const name = documentRef.createElement("strong");
       name.textContent = playerName(participant);
       const marker = documentRef.createElement("span");
       marker.textContent = isViewer ? "你的手牌" : `座位 ${Number(participant.seat_index) + 1}`;
-      identity.append(name, marker);
+      identityCopy.append(name, marker);
+      identity.append(renderAvatar(documentRef, context, participant), identityCopy);
       const meta = documentRef.createElement("div");
       meta.className = "blackjack-hand-meta";
       meta.appendChild(badge(documentRef, valueLabel(player.value), "value"));

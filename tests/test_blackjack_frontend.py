@@ -56,6 +56,18 @@ class BlackjackFrontendTests(unittest.TestCase):
         self.assertIn("width: clamp(38px, 13vw, 50px);", mobile)
         self.assertIn("@media (max-width: 360px)", mobile)
 
+    def test_seat_avatars_use_the_shared_helper_with_compact_fallback(self):
+        self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", RENDERER)
+        self.assertIn('avatar.textContent = Array.from(String(playerName(participant)).trim())[0] || "?";', RENDERER)
+        self.assertIn(".blackjack-seat-avatar {", STYLES)
+        self.assertIn("max-width: 24px;", STYLES)
+        self.assertIn("max-height: 24px;", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(
+            ".blackjack-seat-avatar { width: 22px; height: 22px; max-width: 22px; max-height: 22px; }",
+            mobile,
+        )
+
     @unittest.skipUnless(NODE, "node is required for JavaScript syntax validation")
     def test_renderer_is_valid_javascript(self):
         completed = subprocess.run(
@@ -133,6 +145,7 @@ const state = {
 const board = new Element("board");
 const controls = new Element("controls");
 const submitted = [];
+const avatarCalls = [];
 const context = {
   board, controls, state, participants, legalActions: [{action: "hit"}, {action: "stand"}],
   viewer: {player_id: "human-1"}, canMove: true, isTerminal: false,
@@ -140,6 +153,10 @@ const context = {
   helpers: {
     canMove: () => true,
     submitMove: async (move) => { submitted.push(move); return true; },
+    renderParticipantAvatar: (target, participant) => {
+      avatarCalls.push(participant.player_id);
+      target.textContent = `avatar:${participant.player_id}`;
+    },
   },
 };
 const descendants = (root) => [root, ...root.children.flatMap(descendants)];
@@ -153,6 +170,18 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   const hidden = all.find((node) => node.classList.contains("is-hidden"));
   assert.equal(hidden.attributes["aria-label"], "庄家暗牌");
   assert.equal(all.filter((node) => node.classList.contains("blackjack-seat")).length, 2);
+  assert.equal(JSON.stringify(avatarCalls), JSON.stringify(["human-1", "ai-1"]));
+  assert.equal(all.filter((node) => node.classList.contains("blackjack-seat-avatar")).length, 2);
+  const fallbackBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: fallbackBoard,
+    helpers: {canMove: () => true, submitMove: async () => true},
+  });
+  const fallbackAvatars = descendants(fallbackBoard).filter(
+    (node) => node.classList.contains("blackjack-seat-avatar")
+  );
+  assert.equal(JSON.stringify(fallbackAvatars.map((node) => node.textContent)), JSON.stringify(["人", "小"]));
   const hit = all.find((node) => node.dataset.action === "hit");
   const stand = all.find((node) => node.dataset.action === "stand");
   assert.equal(hit.disabled, false);

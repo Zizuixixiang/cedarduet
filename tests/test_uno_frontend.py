@@ -64,6 +64,18 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn(".uno-hand-scroll .uno-card.legal { border-color:", STYLES)
         self.assertNotIn("filter: saturate(.62) brightness(.75);", STYLES)
 
+    def test_opponent_avatars_use_the_shared_helper_with_compact_fallback(self):
+        self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", SCRIPT)
+        self.assertIn('avatar.textContent = Array.from(String(name).trim())[0] || "?";', SCRIPT)
+        self.assertIn(".uno-opponent-avatar {", STYLES)
+        self.assertIn("max-width: 22px;", STYLES)
+        self.assertIn("max-height: 22px;", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(
+            ".uno-opponent-avatar { width: 20px; height: 20px; max-width: 20px; max-height: 20px; }",
+            mobile,
+        )
+
 
 @unittest.skipUnless(NODE, "node is required for UNO renderer DOM tests")
 class UnoFrontendRuntimeTests(unittest.TestCase):
@@ -116,9 +128,9 @@ function descendants(root) {
 function hasClass(node, name) { return node.classList && node.classList.contains(name); }
 function makeContext(legalActions) {
   const board = new Element("div", document); const controls = new Element("div", document);
-  const submitted = []; const uiState = {};
+  const submitted = []; const uiState = {}; const avatarCalls = [];
   const state = {
-    hand_counts: {"human-1": 2, "ai-1": 5}, deck_count: 77,
+    hand_counts: {"human-1": 2, "ai-1": 5, "ai-2": 3}, deck_count: 77,
     top_discard: {id: "red-number-5-1", color: "red", kind: "number", value: 5},
     current_color: "red", direction: 1, turn_player_id: "human-1",
     penalty_state: {pending_wild_draw_four: null, last_challenge: null},
@@ -131,6 +143,7 @@ function makeContext(legalActions) {
     participants: [
       {player_id: "human-1", display_name: "南山"},
       {player_id: "ai-1", display_name: "小机"},
+      {player_id: "ai-2", display_name: "北辰"},
     ],
     privateState: {hand: [
       {id: "red-number-7-1", color: "red", kind: "number", value: 7},
@@ -139,9 +152,13 @@ function makeContext(legalActions) {
     helpers: {
       canMove() { return true; }, rerender() { return true; },
       async submitMove(action) { submitted.push(action); return true; },
+      renderParticipantAvatar(target, participant) {
+        avatarCalls.push(participant.player_id);
+        target.textContent = `avatar:${participant.player_id}`;
+      },
     },
   };
-  return {context, board, controls, submitted};
+  return {context, board, controls, submitted, avatarCalls};
 }
 ''' + assertions
         completed = subprocess.run(
@@ -159,7 +176,9 @@ const legal = [
 const view = makeContext(legal);
 renderer.renderBoard(view.context);
 let nodes = descendants(view.board);
-assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent")).length, 1);
+assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent")).length, 2);
+assert.equal(JSON.stringify(view.avatarCalls), JSON.stringify(["ai-1", "ai-2"]));
+assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent-avatar")).length, 2);
 assert.equal(nodes.filter((node) => node.dataset.cardId === "red-number-7-1").length, 1);
 assert.equal(nodes.filter((node) => node.dataset.cardId === "wild-1").length, 1);
 assert.equal(nodes.filter((node) => node.dataset.cardId && node.dataset.cardId.includes("ai")).length, 0);
@@ -178,6 +197,12 @@ scroller = nodes.find((node) => hasClass(node, "uno-hand-scroll"));
 assert.equal(scroller.scrollLeft, 119);
 assert.equal(nodes.find((node) => node.dataset.cardId === "red-number-7-1").classList.contains("selected"), true);
 assert.equal(styles.size, 1);
+const fallback = makeContext(legal);
+delete fallback.context.helpers.renderParticipantAvatar;
+renderer.renderBoard(fallback.context);
+assert.equal(JSON.stringify(descendants(fallback.board).filter(
+  (node) => hasClass(node, "uno-opponent-avatar")
+).map((node) => node.textContent)), JSON.stringify(["小", "北"]));
 assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.1");
 ''')
 

@@ -177,6 +177,33 @@
   font-size: clamp(10px, 2.4vw, 13px);
 }
 
+.gandengyan-opponent-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gandengyan-opponent-avatar {
+  width: 22px;
+  height: 22px;
+  max-width: 22px;
+  max-height: 22px;
+  overflow: hidden;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,.5);
+  border-radius: 50%;
+  color: #183d33;
+  background: #f1d898;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.gandengyan-opponent-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
 .gandengyan-opponent-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -553,6 +580,13 @@ button.gandengyan-card:focus-visible {
     padding: 6px 4px;
   }
 
+  .gandengyan-opponent-avatar {
+    width: 20px;
+    height: 20px;
+    max-width: 20px;
+    max-height: 20px;
+  }
+
   .gandengyan-card-backs {
     padding-right: 24px;
   }
@@ -595,6 +629,16 @@ button.gandengyan-card:focus-visible {
   .gandengyan-opponent-header {
     display: grid;
     justify-items: center;
+  }
+
+  .gandengyan-opponent-identity { width: 100%; justify-content: center; gap: 3px; }
+
+  .gandengyan-opponent-avatar {
+    width: 18px;
+    height: 18px;
+    max-width: 18px;
+    max-height: 18px;
+    font-size: 8px;
   }
 
   .gandengyan-opponent-state {

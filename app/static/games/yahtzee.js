@@ -29,6 +29,19 @@
     return participant.display_name || participant.player_id || "玩家";
   }
 
+  function renderAvatar(documentRef, context, participant) {
+    const avatar = documentRef.createElement("span");
+    avatar.className = "yahtzee-player-avatar";
+    avatar.textContent = Array.from(String(playerName(participant)).trim())[0] || "?";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    }
+    return avatar;
+  }
+
   function createDie(documentRef, value, index, held, selectable, onToggle) {
     const die = documentRef.createElement(value ? "button" : "div");
     die.className = `yahtzee-die${held ? " held" : ""}${value ? "" : " empty"}`;
@@ -250,7 +263,13 @@
       const isViewer = participants.length > 2
         && context.viewer
         && participant.player_id === context.viewer.player_id;
-      header.textContent = `${playerName(participant)}${isViewer ? "（你）" : ""}`;
+      const identity = documentRef.createElement("span");
+      identity.className = "yahtzee-player-heading";
+      const name = documentRef.createElement("span");
+      name.className = "yahtzee-player-name";
+      name.textContent = `${playerName(participant)}${isViewer ? "（你）" : ""}`;
+      identity.append(renderAvatar(documentRef, context, participant), name);
+      header.appendChild(identity);
       header.title = playerName(participant);
       header.className = [
         participant.player_id === room.current_player_id ? "current" : "",

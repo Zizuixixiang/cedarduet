@@ -46,6 +46,19 @@
       || "玩家";
   }
 
+  function renderAvatar(documentRef, context, participant) {
+    const avatar = element(documentRef, "span", "gandengyan-opponent-avatar");
+    const name = participant && (participant.display_name || participant.player_id) || "玩家";
+    avatar.textContent = Array.from(String(name).trim())[0] || "?";
+    if (
+      context.helpers
+      && typeof context.helpers.renderParticipantAvatar === "function"
+    ) {
+      context.helpers.renderParticipantAvatar(avatar, participant);
+    }
+    return avatar;
+  }
+
   function cardName(card) {
     if (!card) return "未知牌";
     if (card.rank === "small_joker") return "小王";
@@ -158,6 +171,7 @@
     seat.classList.toggle("current", context.room.current_player_id === playerId);
     seat.classList.toggle("passed", passIds.has(playerId));
     const header = element(documentRef, "div", "gandengyan-opponent-header");
+    const identity = element(documentRef, "span", "gandengyan-opponent-identity");
     const name = element(
       documentRef,
       "strong",
@@ -172,7 +186,8 @@
         ? "已过"
         : context.room.current_player_id === playerId ? "出牌中" : "等待"
     );
-    header.append(name, state);
+    identity.append(renderAvatar(documentRef, context, participant), name);
+    header.append(identity, state);
     const backs = element(documentRef, "div", "gandengyan-card-backs");
     backs.setAttribute("aria-label", `${count} 张未公开手牌`);
     for (let index = 0; index < Math.min(count, 5); index += 1) {
