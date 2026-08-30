@@ -14,6 +14,7 @@ from .jungle import Jungle
 from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
+from .texas_holdem import TexasHoldem
 from .train_cards import TrainCards
 from .uno import Uno
 from .xiangqi import Xiangqi
@@ -27,6 +28,7 @@ GAMES = {
     Banqi.game_type: Banqi(),
     Blackjack.game_type: Blackjack(),
     TicTacToe.game_type: TicTacToe(),
+    TexasHoldem.game_type: TexasHoldem(),
     TrainCards.game_type: TrainCards(),
     Gomoku.game_type: Gomoku(),
     Gandengyan.game_type: Gandengyan(),

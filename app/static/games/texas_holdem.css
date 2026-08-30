@@ -1,0 +1,303 @@
+.board.texas_holdem {
+  width: min(100%, 980px);
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.texas-table-scroll,
+.texas-table-scroll * { box-sizing: border-box; }
+
+.texas-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: #b68c4a #d9ccb7;
+  touch-action: pan-x;
+}
+
+.texas-table {
+  --felt: #145541;
+  --felt-dark: #093426;
+  --ivory: #fffaf0;
+  --gold: #e0bd69;
+  width: 100%;
+  min-width: 600px;
+  min-height: 530px;
+  position: relative;
+  overflow: hidden;
+  border: 10px solid #64432d;
+  border-radius: 46% / 34%;
+  color: var(--ivory);
+  background:
+    radial-gradient(ellipse at center, rgba(62, 147, 112, .4), transparent 57%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.018) 0 2px, transparent 2px 7px),
+    var(--felt);
+  box-shadow:
+    inset 0 0 0 3px rgba(235, 205, 139, .34),
+    inset 0 0 55px rgba(0, 18, 12, .5),
+    0 12px 28px rgba(38, 27, 22, .24);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.texas-table::after {
+  content: "NO LIMIT  5 / 10";
+  position: absolute;
+  left: 50%;
+  bottom: 28%;
+  transform: translateX(-50%);
+  color: rgba(242, 218, 161, .34);
+  font: 700 10px/1 Georgia, serif;
+  letter-spacing: .19em;
+  white-space: nowrap;
+}
+
+.texas-seat {
+  width: 142px;
+  min-width: 0;
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 13px;
+  background: rgba(5, 35, 27, .84);
+  box-shadow: 0 5px 12px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.08);
+}
+
+.texas-seat.is-viewer {
+  width: 178px;
+  left: 50%;
+  top: 87%;
+  background: rgba(8, 55, 41, .96);
+}
+
+.texas-seat.is-current {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(224,189,105,.28), 0 5px 14px rgba(0,0,0,.28);
+}
+.texas-seat.is-folded { opacity: .54; filter: saturate(.45); }
+.texas-seat.is-all-in { border-color: #e58e72; }
+
+.texas-seat-head,
+.texas-seat-meta,
+.texas-role-badges,
+.texas-actions,
+.texas-range-action label {
+  display: flex;
+  align-items: center;
+}
+
+.texas-seat-head { min-width: 0; gap: 6px; }
+.texas-avatar {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 50%;
+  color: #3e2d1e;
+  background: #e7cf96;
+  font-size: 10px;
+  font-weight: 800;
+}
+.texas-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.texas-seat-copy { min-width: 0; display: grid; gap: 2px; }
+.texas-seat-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.texas-role-badges { gap: 3px; }
+.texas-role-badges b {
+  min-width: 18px;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: #332513;
+  background: #e5c36f;
+  font-size: 7px;
+  line-height: 1.2;
+  text-align: center;
+}
+.texas-role-badges .is-sb { background: #c9d8e0; }
+.texas-role-badges .is-bb { color: #fff; background: #9b414a; }
+
+.texas-hole-cards {
+  min-height: 47px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.texas-card {
+  width: 39px;
+  height: 55px;
+  position: relative;
+  display: grid;
+  place-content: center;
+  flex: 0 0 auto;
+  gap: 1px;
+  margin-left: -7px;
+  overflow: hidden;
+  border: 1px solid #d6d0c3;
+  border-radius: 6px;
+  color: #202127;
+  background: #fffdf6;
+  box-shadow: 2px 3px 0 rgba(0, 24, 15, .3);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+}
+.texas-card:first-child { margin-left: 0; }
+.texas-card.suit-hearts,
+.texas-card.suit-diamonds { color: #a82734; }
+.texas-card-rank { font-size: 16px; }
+.texas-card-suit { font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.texas-card.is-hidden { padding: 3px; color: #f4dfab; background: #7d2634; }
+.texas-card-back {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(244,223,171,.75);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.13) 0 2px, transparent 2px 6px),
+    #6d2130;
+  font: 700 6px/1 system-ui, sans-serif;
+  letter-spacing: .08em;
+}
+.texas-card.is-empty {
+  border-style: dashed;
+  border-color: rgba(246,231,194,.35);
+  background: rgba(0, 27, 19, .24);
+  box-shadow: none;
+}
+
+.texas-seat-meta { min-width: 0; justify-content: center; flex-wrap: wrap; gap: 3px; }
+.texas-seat-meta span {
+  padding: 2px 4px;
+  border-radius: 999px;
+  color: #e8dfc8;
+  background: rgba(255,255,255,.09);
+  font-size: 7px;
+  white-space: nowrap;
+}
+.texas-seat-meta .texas-stack { color: #f2d17e; }
+.texas-seat-meta .texas-bet { color: #bde1d3; }
+.texas-seat-meta .texas-hand-rank { color: #36250f; background: #edce7b; }
+.texas-seat-meta .texas-payout { color: #183526; background: #9cdda9; }
+
+.texas-center {
+  width: 300px;
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 48%;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  transform: translate(-50%, -50%);
+}
+.texas-street {
+  padding: 3px 9px;
+  border: 1px solid rgba(239,217,165,.28);
+  border-radius: 999px;
+  color: #e8d7ad;
+  background: rgba(0,31,22,.35);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+.texas-board-cards { display: flex; justify-content: center; }
+.texas-board-cards .texas-card { width: 46px; height: 65px; margin-left: 4px; }
+.texas-pot { color: #f1cf78; font: 800 15px/1.2 Georgia, serif; }
+.texas-side-pots { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; }
+.texas-side-pots span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #ded2b5;
+  background: rgba(0, 28, 20, .45);
+  font-size: 8px;
+}
+.texas-side-pots .is-side { color: #f3c6ae; }
+.texas-result {
+  max-width: 280px;
+  margin: 0;
+  color: #fff0bd;
+  font-size: 9px;
+  text-align: center;
+}
+
+.texas-controls {
+  width: min(100%, 980px);
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  margin-inline: auto;
+  padding-top: 8px;
+}
+.texas-control-status { margin: 0; color: #675f68; font-size: 11px; text-align: center; }
+.texas-actions { min-width: 0; justify-content: center; flex-wrap: wrap; gap: 7px; }
+.texas-action {
+  min-width: 76px;
+  min-height: 43px;
+  padding: 8px 10px;
+  border: 1px solid #315d4c;
+  border-radius: 10px;
+  color: #fff;
+  background: #176247;
+  box-shadow: 0 3px 0 #0d4431;
+  font: 750 12px/1 system-ui, sans-serif;
+  touch-action: manipulation;
+}
+.texas-action.action-fold { border-color: #85505a; background: #8e3442; box-shadow: 0 3px 0 #5c2029; }
+.texas-action.action-all_in,
+.texas-action.is-primary { border-color: #805d24; color: #34230e; background: #e1bd62; box-shadow: 0 3px 0 #9c7634; }
+.texas-action:disabled { opacity: .48; box-shadow: none; }
+.texas-action:focus-visible { outline: 3px solid #e9bf51; outline-offset: 2px; }
+.texas-range-action {
+  min-width: min(100%, 270px);
+  display: grid;
+  grid-template-columns: minmax(105px, 1fr) 86px;
+  gap: 5px 8px;
+  padding: 6px 8px;
+  border: 1px solid #d7c9ad;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+.texas-range-action label { justify-content: space-between; color: #594d42; font-size: 10px; }
+.texas-range-action input { width: 100%; min-width: 0; accent-color: #1b6b50; }
+.texas-range-action .texas-action { grid-row: 1 / span 2; grid-column: 2; min-width: 0; }
+.texas-range-value { color: #8a5c18; font-weight: 800; }
+
+@media (max-width: 620px) {
+  .texas-table { min-height: 475px; border-width: 8px; }
+  .texas-seat { width: 128px; padding: 6px; }
+  .texas-seat.is-viewer { width: 166px; top: 86%; }
+  .texas-center { top: 49%; }
+  .texas-board-cards .texas-card { width: 42px; height: 59px; }
+  .texas-controls { padding-inline: 4px; }
+}
+
+@media (max-width: 375px) {
+  .texas-table-scroll { border-radius: 15px; }
+  .texas-actions { align-items: stretch; }
+  .texas-action { flex: 1 1 72px; min-width: 68px; }
+  .texas-range-action { flex: 1 1 100%; min-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .texas-table-scroll { scroll-behavior: auto; }
+}

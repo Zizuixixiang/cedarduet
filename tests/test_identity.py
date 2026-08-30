@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 21)
+        self.assertEqual(len(payload["games"]), 22)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -156,6 +156,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "chinese_checkers": "board",
                 "uno": "card",
                 "blackjack": "card",
+                "texas_holdem": "card",
                 "gandengyan": "card",
 
 
@@ -191,6 +192,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "chinese_checkers": "中国跳棋",
                 "uno": "UNO",
                 "blackjack": "21点",
+                "texas_holdem": "德州扑克",
                 "gandengyan": "干瞪眼",
 
 
@@ -215,6 +217,12 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["blackjack"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(games["blackjack"]["supports_npcs"])
         self.assertFalse(games["blackjack"]["supports_stakes"])
+        self.assertEqual(
+            games["texas_holdem"]["allowed_player_counts"], [2, 3, 4, 5, 6]
+        )
+        self.assertTrue(games["texas_holdem"]["supports_npcs"])
+        self.assertTrue(games["texas_holdem"]["uses_local_npc_strategy"])
+        self.assertFalse(games["texas_holdem"]["supports_stakes"])
         self.assertEqual(
             games["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4]
         )
