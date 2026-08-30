@@ -2,8 +2,18 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.9";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.3.2";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
+  const TILE_UNICODE = Object.freeze({
+    W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
+    W6: "🀌", W7: "🀍", W8: "🀎", W9: "🀏",
+    T1: "🀐", T2: "🀑", T3: "🀒", T4: "🀓", T5: "🀔",
+    T6: "🀕", T7: "🀖", T8: "🀗", T9: "🀘",
+    B1: "🀙", B2: "🀚", B3: "🀛", B4: "🀜", B5: "🀝",
+    B6: "🀞", B7: "🀟", B8: "🀠", B9: "🀡",
+    F1: "🀀", F2: "🀁", F3: "🀂", F4: "🀃",
+    J1: "🀄", J2: "🀅", J3: "🀆",
+  });
 
   function ensureStyle() {
     if (global.document.getElementById(STYLE_ID)) return;
@@ -49,12 +59,13 @@
     node.dataset.cardId = String(tile.id || "");
     node.dataset.suit = String(tile.suit || String(tile.code || "")[0] || "");
     const code = String(tile.code || "");
+    const label = String(tile.label || code);
     if (["F", "J"].includes(code[0])) {
       node.classList.add("honor");
     }
-    const face = el("span", "mahjong-tile-face", String(tile.label || code));
+    const face = el("span", "mahjong-tile-face", TILE_UNICODE[code] || label);
     node.appendChild(face);
-    node.setAttribute("aria-label", String(tile.label || code));
+    node.setAttribute("aria-label", label);
     return node;
   }
 
@@ -189,6 +200,10 @@
 
   function ownHandNode(context) {
     const wrap = el("section", "mahjong-own-hand-wrap");
+    const viewerId = context.viewer && context.viewer.player_id;
+    const turnPlayerId = (context.state && context.state.turn_player_id)
+      || (context.room && context.room.current_player_id);
+    wrap.classList.toggle("current", Boolean(viewerId && viewerId === turnPlayerId));
     const head = el("div", "mahjong-own-hand-head");
     const shanten = context.privateState && context.privateState.shanten;
     const basis = context.privateState && context.privateState.shanten_basis;

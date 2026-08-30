@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.9";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.2";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -49,20 +49,19 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             self.assertIn(area, STYLES)
         self.assertIn('"top top top"', STYLES)
         self.assertIn('"left center right"', STYLES)
-        self.assertIn('". bottom ."', STYLES)
+        self.assertIn('"bottom bottom bottom"', STYLES)
         self.assertIn('"dl . dr"', STYLES)
         self.assertIn("flex-direction: column;", STYLES)
         self.assertIn("grid-template-rows: minmax(0, 1fr) auto auto;", STYLES)
         self.assertIn('"identity hand"', STYLES)
         self.assertIn('"hand identity"', STYLES)
-        self.assertIn("grid-template-columns: repeat(2, auto);", STYLES)
+        self.assertIn("grid-template-columns: 1fr;", STYLES)
         self.assertIn(".mahjong-opponent-hand:empty", STYLES)
         self.assertIn("grid-template-columns: 1fr auto;", STYLES)
-        self.assertNotIn("grid-template-columns: 1fr;", STYLES)
         self.assertIn(".mahjong-tile.last-discard", STYLES)
         self.assertIn("--mj-side: 48px;", STYLES)
-        self.assertIn("--mj-tile-w: 15px;", STYLES)
-        self.assertIn("--mj-tile-w: 14px;", STYLES)
+        self.assertIn("--mj-tile-w: 14.5px;", STYLES)
+        self.assertIn("--mj-tile-w: 13.5px;", STYLES)
         self.assertIn("writing-mode: vertical-rl;", STYLES)
         self.assertIn("text-orientation: upright;", STYLES)
         self.assertNotIn("rotate(", STYLES)
@@ -89,7 +88,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
     def test_top_seat_spans_table_and_thirteen_backs_stay_on_one_row(self):
         self.assertIn(
             'grid-template-areas:\n    "top top top"\n'
-            '    "left center right"\n    ". bottom ."\n'
+            '    "left center right"\n    "bottom bottom bottom"\n'
             '    "hand hand hand";',
             STYLES,
         )
@@ -234,6 +233,146 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         )
         self.assertNotIn(".mahjong-seat-badges .mahjong-turn", STYLES)
 
+    def test_unicode_tile_faces_keep_text_labels_for_accessibility(self):
+        expected = {
+            "W1": "🀇", "W2": "🀈", "W3": "🀉", "W4": "🀊", "W5": "🀋",
+            "W6": "🀌", "W7": "🀍", "W8": "🀎", "W9": "🀏",
+            "T1": "🀐", "T2": "🀑", "T3": "🀒", "T4": "🀓", "T5": "🀔",
+            "T6": "🀕", "T7": "🀖", "T8": "🀗", "T9": "🀘",
+            "B1": "🀙", "B2": "🀚", "B3": "🀛", "B4": "🀜", "B5": "🀝",
+            "B6": "🀞", "B7": "🀟", "B8": "🀠", "B9": "🀡",
+            "F1": "🀀", "F2": "🀁", "F3": "🀂", "F4": "🀃",
+            "J1": "🀄", "J2": "🀅", "J3": "🀆",
+        }
+        for code, face in expected.items():
+            self.assertIn(f'{code}: "{face}"', SCRIPT)
+        self.assertIn('TILE_UNICODE[code] || label', SCRIPT)
+        self.assertIn('node.setAttribute("aria-label", label)', SCRIPT)
+
+        tile_start = STYLES.index(".mahjong-tile {")
+        tile_rule = STYLES[tile_start:STYLES.index("}", tile_start)]
+        self.assertIn("width: var(--mj-tile-w);", tile_rule)
+        self.assertIn("height: var(--mj-tile-h);", tile_rule)
+        self.assertIn("padding: 1px;", tile_rule)
+        self.assertIn("border: 1px solid #b7c4bb;", tile_rule)
+        self.assertIn("border-radius: 3px;", tile_rule)
+        self.assertIn(
+            "background: linear-gradient(145deg, #fffef5 10%, #f7f5e9 62%, #e3e5d9);",
+            tile_rule,
+        )
+        self.assertIn("box-shadow: 0 1px 1px rgb(28 61 49 / 23%);", tile_rule)
+        self.assertIn(
+            "font: 700 clamp(8px, 1.35vw, 13px)/1 system-ui, sans-serif;",
+            tile_rule,
+        )
+        self.assertNotIn("background: transparent;", tile_rule)
+        face_start = STYLES.index(".mahjong-tile-face {")
+        face_rule = STYLES[face_start:STYLES.index("}", face_start)]
+        self.assertIn("font-size: clamp(18px, 3.2vw, 28px);", face_rule)
+        self.assertIn("overflow: hidden;", face_rule)
+        self.assertIn('font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols"', STYLES)
+        self.assertIn("font-variant-emoji: text;", STYLES)
+        self.assertIn("line-height: 1;", STYLES)
+        self.assertIn("place-items: center;", STYLES)
+        self.assertIn(
+            ".mahjong-discard-grid .mahjong-tile {\n"
+            "  width: var(--mj-discard-w);\n"
+            "  height: var(--mj-discard-h);\n"
+            "}",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile { width: clamp(26px, 6vw, 41px); "
+            "height: clamp(37px, 8.4vw, 58px); font-size: clamp(12px, 2.6vw, 19px); }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile-face { font-size: clamp(33px, 7.8vw, 53px); transform: translateY(-4px); overflow: visible; }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-terminal-hand .mahjong-tile { width: 22px; height: 31px; font-size: 9px; }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-terminal-hand .mahjong-tile-face { font-size: 23px; }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile.drawn { margin-left: 5px; }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile.selected { transform: translateY(-4px); "
+            "outline: 3px solid #d59a22; }",
+            STYLES,
+        )
+        self.assertIn(
+            ".mahjong-tile.last-discard { outline: 2px solid #d29518; outline-offset: 1px; "
+            "box-shadow: 0 0 0 3px rgb(255 250 220 / 75%); }",
+            STYLES,
+        )
+
+        table_start = STYLES.index(".mahjong-table {")
+        table_rule = STYLES[table_start:STYLES.index("}", table_start)]
+        self.assertIn("--mj-tile-w: clamp(17px, 3vw, 27px);", table_rule)
+        self.assertIn("--mj-tile-h: clamp(24px, 4.1vw, 37px);", table_rule)
+        self.assertIn("--mj-back-w: clamp(14px, 2.4vw, 20px);", table_rule)
+        self.assertIn("--mj-back-h: clamp(23px, 3.5vw, 31px);", table_rule)
+
+        hand_start = STYLES.index(".mahjong-own-hand-scroll {")
+        hand_rule = STYLES[hand_start:STYLES.index("}", hand_start)]
+        self.assertIn("gap: 1px;", hand_rule)
+
+        mobile = STYLES[STYLES.index("@media (max-width: 600px)"):]
+        self.assertIn("--mj-tile-w: clamp(15.5px, 4vw, 18px);", mobile)
+        self.assertIn("--mj-tile-h: clamp(22px, 5.75vw, 26px);", mobile)
+        self.assertIn("--mj-back-w: 14px;", mobile)
+        self.assertIn("--mj-back-h: 22px;", mobile)
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile { width: 25px; height: 36px; font-size: 12px; }",
+            mobile,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile-face { font-size: 34px; transform: translateY(-4px); overflow: visible; }",
+            mobile,
+        )
+        self.assertIn(
+            ".mahjong-meld .mahjong-tile-face { font-size: clamp(17px, 4.5vw, 20px); }",
+            mobile,
+        )
+
+        narrow = STYLES[STYLES.index("@media (max-width: 375px)"):]
+        self.assertIn(".mahjong-table { --mj-tile-w: 14.5px; --mj-tile-h: 22px; }", narrow)
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile { width: 23px; height: 33px; font-size: 12px; }",
+            narrow,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile-face { font-size: 32px; transform: translateY(-4px); overflow: visible; }",
+            narrow,
+        )
+        self.assertIn(
+            ".mahjong-meld .mahjong-tile-face { font-size: 16px; }",
+            narrow,
+        )
+
+        smallest = STYLES[STYLES.index("@media (max-width: 340px)"):]
+        self.assertIn("--mj-tile-w: 13.5px;", smallest)
+        self.assertIn("--mj-tile-h: 20px;", smallest)
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile { width: 22px; min-width: 22px; height: 32px; }",
+            smallest,
+        )
+        self.assertIn(
+            ".mahjong-own-hand-scroll .mahjong-tile-face { font-size: 31px; transform: translateY(-4px); overflow: visible; }",
+            smallest,
+        )
+        self.assertIn(
+            ".mahjong-meld .mahjong-tile-face { font-size: 15px; }",
+            smallest,
+        )
+
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
 class MahjongFrontendRuntimeTests(unittest.TestCase):
@@ -338,7 +477,43 @@ assert.equal(center.children[1],discardTable);
 assert.equal(discardNodes.filter(n=>hasClass(n,"mahjong-center-status")).length,0);
 for(const position of ["bottom","right","top","left"]){assert.equal(discardNodes.filter(n=>hasClass(n,`discard-${position}`)).length,1);}
 assert.equal(discardNodes.filter(n=>hasClass(n,"last-discard")).length,1);
+const discard=discardNodes.find(n=>n.dataset.cardId==="d1");
+assert.equal(descendants(discard).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀇");
+assert.equal(discard.attributes["aria-label"],"1万");
+const meld=nodes.find(n=>n.dataset.cardId==="f1");
+assert.equal(descendants(meld).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀀");
+assert.equal(meld.attributes["aria-label"],"东");
+const handW2=nodes.find(n=>n.dataset.cardId==="h1");
+const handJ1=nodes.find(n=>n.dataset.cardId==="h2");
+assert.equal(descendants(handW2).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀈");
+assert.equal(handW2.attributes["aria-label"],"2万");
+assert.equal(descendants(handJ1).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀄");
+assert.equal(handJ1.attributes["aria-label"],"中");
 assert.equal(styles.size,1);
+assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.2");
+''')
+
+    def test_all_tile_codes_map_to_unicode_without_replacing_aria_labels(self):
+        self.run_node(r'''
+const codes=[
+ "W1","W2","W3","W4","W5","W6","W7","W8","W9",
+ "T1","T2","T3","T4","T5","T6","T7","T8","T9",
+ "B1","B2","B3","B4","B5","B6","B7","B8","B9",
+ "F1","F2","F3","F4","J1","J2","J3",
+];
+const expected=[..."🀇🀈🀉🀊🀋🀌🀍🀎🀏🀐🀑🀒🀓🀔🀕🀖🀗🀘🀙🀚🀛🀜🀝🀞🀟🀠🀡🀀🀁🀂🀃🀄🀅🀆"];
+state.terminal_hands={
+ east:codes.map((code,index)=>({id:`all-${index}`,code,label:`原文-${code}`,suit:code[0]})),
+ south:[],viewer:[],north:[],
+};
+const value=makeContext();renderer.renderBoard(value.context);const nodes=descendants(value.board);
+const review=nodes.find(n=>hasClass(n,"mahjong-terminal-review"));
+const visibleTiles=descendants(review).filter(n=>hasClass(n,"mahjong-tile"));
+assert.deepEqual(
+ visibleTiles.map(tile=>descendants(tile).find(n=>hasClass(n,"mahjong-tile-face")).textContent),
+ expected
+);
+assert.deepEqual(visibleTiles.map(tile=>tile.attributes["aria-label"]),codes.map(code=>`原文-${code}`));
 ''')
 
     def test_turn_indicator_is_a_direct_seat_child_at_every_visual_edge(self):
