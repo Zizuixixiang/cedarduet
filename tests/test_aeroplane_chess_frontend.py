@@ -56,7 +56,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.0";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.2";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -79,8 +79,8 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("<img", SCRIPT.lower())
         self.assertNotIn("background-image: url", STYLES.lower())
         self.assertIn('"data-ring-index": ringIndex', SCRIPT)
-        self.assertIn("const TRACK_MIN = 27;", SCRIPT)
-        self.assertIn("const TRACK_MAX = 73;", SCRIPT)
+        self.assertIn("const TRACK_MIN = 18;", SCRIPT)
+        self.assertIn("const TRACK_MAX = 82;", SCRIPT)
         self.assertNotIn("aeroplane-last-route", SCRIPT + STYLES)
         for emoji in ("✈", "🛩", "🎲", "🚀", "🔴", "🟡", "🔵", "🟢"):
             self.assertNotIn(emoji, SCRIPT + STYLES)
@@ -120,9 +120,19 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn(".aeroplane-token.legal .aeroplane-token-svg", STYLES)
         for viewport in (320, 360, 375, 390, 430, 599):
             board_width = min(viewport * 0.96, 680)
-            cell_width = board_width * 0.0415
+            cell_width = board_width * 0.05
             token_width = min(max(12, viewport * 0.0365), 17)
             self.assertLess(token_width, cell_width)
+        for viewport in (360, 375, 390, 430):
+            board_width = viewport * 0.96
+            track_side = board_width * 0.64
+            airport_width = board_width * 0.12
+            airport_slot_spacing = board_width * 0.055
+            token_width = min(max(12, viewport * 0.0365), 17)
+            airport_outer_slot_center = board_width * 0.0675
+            self.assertGreater(track_side, airport_width * 5)
+            self.assertGreater(airport_slot_spacing, token_width)
+            self.assertGreaterEqual(airport_outer_slot_center, 22)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -250,6 +260,12 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-launch")).length, 4);
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-shortcut-line")).length, 4);
   assert.equal(nodes.filter((node) => hasClass(node, "aeroplane-shortcut-arrow")).length, 4);
+  const airports = nodes.filter((node) => hasClass(node, "aeroplane-airport"));
+  assert.equal(airports.every((node) => Number(node.attributes.width) === 12), true);
+  assert.equal(airports.every((node) => Number(node.attributes.height) === 12), true);
+  const airportSlots = nodes.filter((node) => hasClass(node, "aeroplane-airport-slot"));
+  assert.equal(airportSlots.length, 16);
+  assert.equal(airportSlots.every((node) => Number(node.attributes.r) === 2.35), true);
   const ringCells = nodes.filter((node) => hasClass(node, "aeroplane-track-cell"));
   const ringCenter = (index) => {
     const cell = ringCells.find((node) => node.attributes["data-ring-index"] === String(index));
@@ -258,10 +274,19 @@ function makeContext(viewerId, canMove = true) {
       Number(cell.attributes.y) + Number(cell.attributes.height) / 2,
     ];
   };
-  assert.deepEqual(ringCenter(0), [50, 73]);
-  assert.deepEqual(ringCenter(13), [27, 50]);
-  assert.deepEqual(ringCenter(26), [50, 27]);
-  assert.deepEqual(ringCenter(39), [73, 50]);
+  assert.deepEqual(ringCenter(0), [50, 82]);
+  assert.deepEqual(ringCenter(13), [18, 50]);
+  assert.deepEqual(ringCenter(26), [50, 18]);
+  assert.deepEqual(ringCenter(39), [82, 50]);
+  const redFirstHome = nodes.find((node) => (
+    hasClass(node, "aeroplane-home-lane")
+      && hasClass(node, "color-red")
+      && node.attributes["data-lane-index"] === "1"
+  ));
+  assert.deepEqual([
+    Number(redFirstHome.attributes.x) + Number(redFirstHome.attributes.width) / 2,
+    Number(redFirstHome.attributes.y) + Number(redFirstHome.attributes.height) / 2,
+  ], [50, 77]);
   const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
   assert.equal(tokens.length, 8);
   const legalTokens = tokens.filter((node) => hasClass(node, "legal"));
@@ -284,7 +309,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.0");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.2");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')

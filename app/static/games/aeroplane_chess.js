@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.0";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.2";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -20,22 +20,22 @@
     6: [1, 3, 4, 6, 7, 9],
   };
   const AIRPORT_POINTS = {
-    red: [[10.5, 79.5], [20.5, 79.5], [10.5, 89.5], [20.5, 89.5]],
-    yellow: [[10.5, 10.5], [20.5, 10.5], [10.5, 20.5], [20.5, 20.5]],
-    blue: [[79.5, 10.5], [89.5, 10.5], [79.5, 20.5], [89.5, 20.5]],
-    green: [[79.5, 79.5], [89.5, 79.5], [79.5, 89.5], [89.5, 89.5]],
+    red: [[6.75, 87.75], [12.25, 87.75], [6.75, 93.25], [12.25, 93.25]],
+    yellow: [[6.75, 6.75], [12.25, 6.75], [6.75, 12.25], [12.25, 12.25]],
+    blue: [[87.75, 6.75], [93.25, 6.75], [87.75, 12.25], [93.25, 12.25]],
+    green: [[87.75, 87.75], [93.25, 87.75], [87.75, 93.25], [93.25, 93.25]],
   };
   const LAUNCH_POINTS = {
-    red: [42, 80],
-    yellow: [20, 42],
-    blue: [58, 20],
-    green: [80, 58],
+    red: [42, 87.5],
+    yellow: [12.5, 42],
+    blue: [58, 12.5],
+    green: [87.5, 58],
   };
   const HOME_LANE_POINTS = {
-    red: [[50, 69.5], [50, 66.3], [50, 63.1], [50, 59.9], [50, 56.7], [50, 53.5]],
-    yellow: [[30.5, 50], [33.7, 50], [36.9, 50], [40.1, 50], [43.3, 50], [46.5, 50]],
-    blue: [[50, 30.5], [50, 33.7], [50, 36.9], [50, 40.1], [50, 43.3], [50, 46.5]],
-    green: [[69.5, 50], [66.3, 50], [63.1, 50], [59.9, 50], [56.7, 50], [53.5, 50]],
+    red: [[50, 77], [50, 72.4], [50, 67.8], [50, 63.2], [50, 58.6], [50, 54]],
+    yellow: [[23, 50], [27.6, 50], [32.2, 50], [36.8, 50], [41.4, 50], [46, 50]],
+    blue: [[50, 23], [50, 27.6], [50, 32.2], [50, 36.8], [50, 41.4], [50, 46]],
+    green: [[77, 50], [72.4, 50], [67.8, 50], [63.2, 50], [58.6, 50], [54, 50]],
   };
   const HOME_POINTS = {
     red: [[47, 53], [49, 54], [51, 54], [53, 53]],
@@ -43,8 +43,8 @@
     blue: [[47, 47], [49, 46], [51, 46], [53, 47]],
     green: [[53, 47], [54, 49], [54, 51], [53, 53]],
   };
-  const TRACK_MIN = 27;
-  const TRACK_MAX = 73;
+  const TRACK_MIN = 18;
+  const TRACK_MAX = 82;
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -270,11 +270,11 @@
       [0, 0]
     );
     const base = svgNode(documentRef, "rect", {
-      x: center[0] - 10.5,
-      y: center[1] - 10.5,
-      width: 21,
-      height: 21,
-      rx: 4.5,
+      x: center[0] - 6,
+      y: center[1] - 6,
+      width: 12,
+      height: 12,
+      rx: 3.2,
       class: `aeroplane-airport color-${color}`,
     });
     svg.appendChild(base);
@@ -282,7 +282,7 @@
       svg.appendChild(svgNode(documentRef, "circle", {
         cx: x,
         cy: y,
-        r: 3.7,
+        r: 2.35,
         class: `aeroplane-airport-slot color-${color}`,
       }));
     });
@@ -384,13 +384,13 @@
       const isShortcut = COLORS.some((candidate) => (
         ((mappings[candidate] || {}).shortcut || {}).from_ring_index === ringIndex
       ));
-      const size = isShortcut ? 4.8 : 4.15;
+      const size = isShortcut ? 5.5 : 5;
       const cell = svgNode(documentRef, "rect", {
         x: x - size / 2,
         y: y - size / 2,
         width: size,
         height: size,
-        rx: isShortcut ? 1.45 : 1.15,
+        rx: isShortcut ? 1.6 : 1.3,
         class: `aeroplane-track-cell color-${color}${isShortcut ? " shortcut" : " jump"}`,
         "data-ring-index": ringIndex,
       });
@@ -415,17 +415,17 @@
       svg.appendChild(svgNode(documentRef, "circle", {
         cx: launch[0],
         cy: launch[1],
-        r: 3.25,
+        r: 2.8,
         class: `aeroplane-launch color-${color}`,
       }));
       HOME_LANE_POINTS[color].forEach((point, index) => {
         const [x, y] = rotatePoint(point, quarterTurns);
         svg.appendChild(svgNode(documentRef, "rect", {
-          x: x - 2.15,
-          y: y - 2.15,
-          width: 4.3,
-          height: 4.3,
-          rx: 1.25,
+          x: x - 2.5,
+          y: y - 2.5,
+          width: 5,
+          height: 5,
+          rx: 1.35,
           class: `aeroplane-home-lane color-${color}`,
           "data-lane-index": index + 1,
         }));
@@ -433,7 +433,7 @@
     });
 
     const centerPoints = [
-      [50, 45], [55, 50], [50, 55], [45, 50],
+      [50, 44], [56, 50], [50, 56], [44, 50],
     ].map((point) => rotatePoint(point, quarterTurns));
     centerPoints.forEach(([x, y], index) => {
       svg.appendChild(svgNode(documentRef, "path", {
