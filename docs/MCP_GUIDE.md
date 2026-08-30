@@ -420,35 +420,35 @@ bootstrap 规则。
 
 ## 开火车 `train_cards`
 
-2–6 人，只有一个权威动作 `flip`。牌堆顺序始终隐藏；公共增量只发布本次翻出的牌、公开牌列、是否发生同点收牌、收牌数量及各席剩余张数。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。
+2–6 人，只有一个权威动作 `flip`。牌堆顺序始终隐藏；公共增量只发布本次翻出的牌、公开牌列、是否发生同点收牌、收牌数量及各席剩余张数。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。带 stake 时每名败者扣一个 stake，唯一赢家获得其余席位的总和；循环/动作上限导致的平局全部结算 0。
 
 ## 斗地主 `doudizhu`
 
-固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。地主确定前 3 张底牌隐藏，确定后公开；其他人的手牌始终只显示张数。`pass` 仅在当前牌墩允许时出现。
+固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。地主确定前 3 张底牌隐藏，确定后公开；其他人的手牌始终只显示张数。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
 
 ## 掼蛋 `guandan`
 
-固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。为控制上下文体积，本人合法行动以短 `action_id` 发布：只提交 `{"action":"act","action_id":"g_..."}`，不要重建牌型或 `card_ids`。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；他人手牌不进入 bootstrap、delta 或 full_state。
+固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。为控制上下文体积，本人合法行动以短 `action_id` 发布：只提交 `{"action":"act","action_id":"g_..."}`，不要重建牌型或 `card_ids`。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；他人手牌不进入 bootstrap、delta 或 full_state。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
 
 ## 炸金花 `zhajinhua`
 
-2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。所有下注单位仅为局内虚拟值，`supports_stakes=false`。
+2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。带 stake 时每个虚拟下注单位价值一个 stake，终局按各席实际投入零和结算；精确并列退还，单席最大亏损 64×stake。
 
 ## 军棋 `junqi`
 
-固定双人暗棋陆战军棋。布阵阶段只从本人私有合法行动选择 `swap/shuffle/ready/auto_setup`；进入行棋后再从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。
+固定双人暗棋陆战军棋。布阵阶段只从本人私有合法行动选择 `swap/shuffle/ready/auto_setup`；进入行棋后再从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。带 stake 时按双人标准赢家 +stake、败者 -stake。
 
 ## 德州扑克 `texas_holdem`
 
-2–6 人 no-limit Hold'em，一房一手，使用局内虚拟筹码，不接全局钱包。底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。
+2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
 
 ## 围棋 `go`
 
-固定双人 19×19，黑先，白贴 7.5，禁止自杀，positional superko，中国面积计分。`play(row,col)`、`pass` 都必须来自权威 legal actions；连续两次 pass 后进入死子确认阶段，可 `toggle_dead(row,col)`，任一方修改死子集合会清空双方确认，双方对同一集合执行 `confirm_score` 后才结算。Tenuki 规则核心负责落子、提子、劫/超级劫、死子分组和计分；完整历史随状态持久化以保证刷新后 superko 不丢失。
+固定双人 19×19，黑先，白贴 7.5，禁止自杀，positional superko，中国面积计分。`play(row,col)`、`pass` 都必须来自权威 legal actions；连续两次 pass 后进入死子确认阶段，可 `toggle_dead(row,col)`，任一方修改死子集合会清空双方确认，双方对同一集合执行 `confirm_score` 后才结算。Tenuki 规则核心负责落子、提子、劫/超级劫、死子分组和计分；完整历史随状态持久化以保证刷新后 superko 不丢失。带 stake 时按双人标准赢家 +stake、败者 -stake，和棋双方 0。
 
 ## 麻将 `mahjong`
 
-固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制，`supports_stakes=false`。
+固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
 
 ## 翻翻棋 `banqi`
 
