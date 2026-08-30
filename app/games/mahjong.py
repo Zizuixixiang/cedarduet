@@ -84,8 +84,8 @@ class Mahjong(GamePlugin):
         "暗杠固定只公开‘暗杠’与四张牌背，不公开牌面；暗杠者自己仍能看到真实牌面。\n\n"
         "【CedarDuet 娱乐筹码】\n"
         "这是 CedarDuet 钱包政策，不是官方麻将竞赛计分，也不改变 PyMahjongGB 番数计算。"
-        "自摸时其余三家各 -stake、和牌者 +3×stake；点炮或抢杠和时来源玩家 -3×stake、"
-        "和牌者 +3×stake，另外两家为 0；荒牌四家均为 0。total_fan 不乘算钱包筹码。"
+        "自摸时其余三家各扣一份房间底注、和牌者获得三份；点炮或抢杠和时来源玩家扣三份房间底注、"
+        "和牌者获得三份，另外两家为 0；荒牌四家均为 0。番数不乘算钱包筹码。"
     )
     move_format = (
         '只能原样提交 private_state.legal_actions 中的一项，例如 '

@@ -92,8 +92,8 @@ class TrainCardsRuleTests(unittest.TestCase):
             "都不是万能牌",
             "完整局面再次出现",
             "10000 次翻牌安全上限",
-            "每名败者扣 stake",
-            "(人数-1)×stake",
+            "每名败者扣一份底注",
+            "(人数-1) 份底注",
             "平局，所有参与者均结算 0",
         ):
             self.assertIn(phrase, rules)

@@ -52,7 +52,7 @@ class GuandanPluginTests(unittest.TestCase):
         self.assertTrue(item["supports_stakes"])
         self.assertTrue(item["supports_multiplayer_stakes"])
         self.assertIn("完整升级赛", self.game.rules_text)
-        self.assertIn("获胜队两名玩家各 +stake", self.game.rules_text)
+        self.assertIn("获胜队两名玩家各获得一份房间底注", self.game.rules_text)
         self.assertIn("不按领先等级", self.game.rules_text)
         self.assertIn("CedarDuet 钱包政策", self.game.rules_text)
         self.assertIn("action_id", self.game.move_format)

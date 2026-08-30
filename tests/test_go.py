@@ -58,7 +58,7 @@ class GoTenukiRulesTests(unittest.TestCase):
         self.assertIn({"action": "pass"}, state["legal_actions"])
         self.assertTrue(self.game.supports_stakes)
         self.assertFalse(self.game.uses_custom_stake_settlement)
-        self.assertIn("终局赢家 +stake", self.game.rules_text)
+        self.assertIn("终局赢家获得一份房间底注", self.game.rules_text)
         self.assertIn("面积分相同判和", self.game.rules_text)
 
     def test_single_capture_and_multi_stone_capture_come_from_tenuki(self):

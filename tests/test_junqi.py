@@ -147,7 +147,7 @@ class JunqiPluginTests(unittest.TestCase):
         self.assertTrue(item["uses_local_npc_strategy"])
         self.assertTrue(item["supports_stakes"])
         self.assertFalse(self.game.uses_custom_stake_settlement)
-        self.assertIn("赢家获得 stake", self.game.rules_text)
+        self.assertIn("赢家获得一份房间底注", self.game.rules_text)
         self.assertIn("不设棋子、回合或终局原因倍率", self.game.rules_text)
 
     def test_privacy_projection_never_exposes_opponent_ranks_or_public_legal_actions(self):

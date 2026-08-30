@@ -208,8 +208,8 @@ class DoudizhuGameTests(unittest.TestCase):
         for phrase in (
             "0 分（不叫）", "严格高于", "全部不叫", "最后一位不叫者",
             "定地主后底牌向全桌公开", "34,152", "王炸最高",
-            "不设倍数上限", "不设春天、反春天", "u=底注 stake×终局倍数",
-            "地主 +2u", "地主 -2u", "三人合计始终为 0",
+            "不设倍数上限", "不设春天、反春天", "房间底注×终局倍数",
+            "地主获得两份结算单位", "地主扣两份", "三人合计始终为 0",
         ):
             self.assertIn(phrase, GAMES["doudizhu"].rules_text)
 

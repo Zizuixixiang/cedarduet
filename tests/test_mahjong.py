@@ -112,7 +112,7 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertTrue(self.game.supports_stakes)
         self.assertTrue(self.game.supports_multiplayer_stakes)
         self.assertIn("不是官方麻将竞赛计分", self.game.rules_text)
-        self.assertIn("total_fan 不乘算钱包筹码", self.game.rules_text)
+        self.assertIn("番数不乘算钱包筹码", self.game.rules_text)
 
         cases = (
             (
