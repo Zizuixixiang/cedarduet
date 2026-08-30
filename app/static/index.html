@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.2">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.3">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -240,65 +240,67 @@
         </section>
 
         <section class="battle-stage pixel-card" id="battleStage">
-          <div id="opponentRow" class="player-row opponent-row">
-            <div class="player-identity">
-              <span id="aiAvatar" class="player-avatar ai-avatar" aria-hidden="true">🤖</span>
-              <strong id="aiName" class="player-name ai-name">你的小机</strong>
+          <div class="battle-main-column">
+            <div id="opponentRow" class="player-row opponent-row">
+              <div class="player-identity">
+                <span id="aiAvatar" class="player-avatar ai-avatar" aria-hidden="true">🤖</span>
+                <strong id="aiName" class="player-name ai-name">你的小机</strong>
+              </div>
+              <p id="aiSpeech" class="speech-bubble ai-speech hidden"></p>
             </div>
-            <p id="aiSpeech" class="speech-bubble ai-speech hidden"></p>
-          </div>
 
-          <div id="tableLayout" class="table-layout layout-duel count-2" data-player-count="2">
-            <div id="roomParticipants" class="room-participants count-2 hidden"
-                 aria-label="围桌席位"></div>
+            <div id="tableLayout" class="table-layout layout-duel count-2" data-player-count="2">
+              <div id="roomParticipants" class="room-participants count-2 hidden"
+                   aria-label="围桌席位"></div>
 
-            <div id="sharedSpeechSlot" class="shared-speech-slot hidden" aria-live="polite">
-              <div id="sharedSpeech" class="speech-bubble shared-speech empty" aria-hidden="true">
-                <span id="sharedSpeechAvatar" class="shared-speech-avatar" aria-hidden="true"></span>
-                <span class="shared-speech-copy">
-                  <strong id="sharedSpeechName"></strong>
-                  <span id="sharedSpeechText"></span>
-                </span>
+              <div id="sharedSpeechSlot" class="shared-speech-slot hidden" aria-live="polite">
+                <div id="sharedSpeech" class="speech-bubble shared-speech empty" aria-hidden="true">
+                  <span id="sharedSpeechAvatar" class="shared-speech-avatar" aria-hidden="true"></span>
+                  <span class="shared-speech-copy">
+                    <strong id="sharedSpeechName"></strong>
+                    <span id="sharedSpeechText"></span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="board-zone">
+                <div class="board-frame">
+                  <div id="board" class="board" aria-label="棋盘"></div>
+                </div>
+                <div id="gameControls" class="game-controls hidden"
+                     aria-label="游戏专属操作"></div>
+                <div id="moveConfirm" class="move-confirm">
+                  <span id="selectionHint">请先在棋盘上选择落点</span>
+                  <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
+                </div>
               </div>
             </div>
 
-            <div class="board-zone">
-              <div class="board-frame">
-                <div id="board" class="board" aria-label="棋盘"></div>
-              </div>
-              <div id="gameControls" class="game-controls hidden"
-                   aria-label="游戏专属操作"></div>
-              <div id="moveConfirm" class="move-confirm">
-                <span id="selectionHint">请先在棋盘上选择落点</span>
-                <button id="confirmMoveButton" class="pixel-btn" type="button" disabled>落子</button>
-              </div>
+            <div id="viewerParticipantSlot" class="viewer-participant-row hidden">
+              <p id="viewerSpeech" class="speech-bubble human-speech viewer-speech hidden"
+                 aria-hidden="true" aria-live="polite">
+                <span id="viewerSpeechText" class="speech-bubble-text"></span>
+              </p>
+              <div id="viewerParticipant" class="viewer-participant-slot hidden"
+                   aria-label="我的席位"></div>
             </div>
-          </div>
 
-          <div id="viewerParticipantSlot" class="viewer-participant-row hidden">
-            <p id="viewerSpeech" class="speech-bubble human-speech viewer-speech hidden"
-               aria-hidden="true" aria-live="polite">
-              <span id="viewerSpeechText" class="speech-bubble-text"></span>
-            </p>
-            <div id="viewerParticipant" class="viewer-participant-slot hidden"
-                 aria-label="我的席位"></div>
-          </div>
-
-          <div id="humanRow" class="player-row human-row">
-            <div class="player-identity">
-              <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true"></span>
-              <strong id="humanName" class="player-name human-name">你</strong>
+            <div id="humanRow" class="player-row human-row">
+              <div class="player-identity">
+                <span id="humanAvatar" class="player-avatar human-avatar" aria-hidden="true"></span>
+                <strong id="humanName" class="player-name human-name">你</strong>
+              </div>
+              <p id="humanSpeech" class="speech-bubble human-speech hidden">
+                <span id="humanSpeechText" class="speech-bubble-text"></span>
+              </p>
             </div>
-            <p id="humanSpeech" class="speech-bubble human-speech hidden">
-              <span id="humanSpeechText" class="speech-bubble-text"></span>
-            </p>
-          </div>
 
-          <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
-                   aria-label="我的信息，仅自己可见">
-            <span class="tag pink">我的信息 · PRIVATE</span>
-            <div id="privateStateContent"></div>
-          </section>
+            <section id="privateStatePanel" class="private-state-panel pixel-card hidden"
+                     aria-label="我的信息，仅自己可见">
+              <span class="tag pink">我的信息 · PRIVATE</span>
+              <div id="privateStateContent"></div>
+            </section>
+          </div>
 
           <section id="gameChatArea" class="game-chat-area" aria-label="对局聊天">
             <div id="recentChatFeed" class="recent-chat-feed hidden" aria-label="最近发言">
@@ -411,6 +413,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.0"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.1"></script>
+  <script src="/static/app.js?v=0.9.2"></script>
 </body>
 </html>

@@ -1245,6 +1245,13 @@ function gameCategoryFor(declared) {
   return ["board", "card", "dice"].includes(category) ? category : "";
 }
 
+function roomGameCategory(targetRoom) {
+  const games = identity && Array.isArray(identity.games) ? identity.games : [];
+  return gameCategoryFor(games.find(
+    (game) => game && targetRoom && game.game_type === targetRoom.game_type
+  ));
+}
+
 function compareGamePlayerCounts(left, right) {
   const leftCounts = allowedPlayerCountsForGame(left);
   const rightCounts = allowedPlayerCountsForGame(right);
@@ -2954,6 +2961,7 @@ function applyParticipantLayout(targetRoom) {
   table.dataset.participantPresentation = presentation;
   $("battleStage").dataset.playerCount = String(playerCount);
   $("battleStage").dataset.participantPresentation = presentation;
+  $("battleStage").dataset.gameCategory = roomGameCategory(targetRoom);
   $("battleStage").classList.toggle("multiplayer-presentation", playerCount > 2);
   $("sharedSpeechSlot").classList.toggle("hidden", true);
 }

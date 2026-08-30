@@ -1223,6 +1223,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   display: grid;
   gap: 14px;
 }
+.battle-main-column {
+  min-width: 0;
+  display: grid;
+  gap: inherit;
+}
 .battle-stage.multiplayer-presentation {
   gap: 10px;
   overflow: visible;
@@ -3363,6 +3368,139 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1.5;
 }
 .pixel-toast.show { display: block; }
+
+/* Desktop-only game composition. The multiplayer class is based on the room's
+   actual participant count, so two-player rooms retain the stacked chat layout. */
+@media (min-width: 1024px) {
+  .game-view { gap: 9px; }
+  .battle-stage {
+    --desktop-board-max: 500px;
+    --desktop-board-viewport-max: clamp(360px, calc(100vh - 390px), 500px);
+    --desktop-table-max: 760px;
+    --desktop-table-height: clamp(440px, calc(100vh - 500px), 500px);
+    --desktop-compact-table-height: clamp(400px, calc(100vh - 560px), 440px);
+    padding: 12px 18px 15px;
+    gap: 9px;
+  }
+  .battle-main-column { gap: 9px; }
+  .player-row {
+    min-height: 52px;
+    gap: 10px;
+  }
+  .player-avatar {
+    width: 48px;
+    height: 48px;
+    border-width: 3px;
+    font-size: 25px;
+  }
+  .player-name { padding: 6px 9px; font-size: 12px; }
+
+  .battle-stage.multiplayer-presentation {
+    width: min(1200px, 100%);
+    grid-template-columns: minmax(0, 1fr) clamp(240px, 23vw, 300px);
+    align-items: stretch;
+    column-gap: 16px;
+  }
+  .multiplayer-presentation .battle-main-column {
+    min-width: 0;
+    grid-column: 1;
+  }
+  .battle-main-column {
+    min-width: 0;
+  }
+  .battle-main-column .board-frame {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    justify-items: center;
+  }
+  .battle-stage .board-frame > .board {
+    width: min(
+      var(--desktop-board-max),
+      var(--desktop-board-viewport-max)
+    );
+    max-width: 100%;
+  }
+  .battle-stage[data-game-category="card"] .board-frame > .board {
+    width: min(100%, var(--desktop-table-max));
+  }
+  .battle-stage[data-game-category="dice"] .board-frame > .board {
+    width: min(100%, 640px);
+  }
+  .battle-stage[data-game-category="card"] .game-controls {
+    max-width: var(--desktop-table-max);
+  }
+  .battle-stage[data-game-category="dice"] .game-controls {
+    max-width: 640px;
+  }
+  .battle-stage .board-frame > .board.jungle {
+    width: min(390px, 44vh);
+  }
+  .battle-stage .board-frame > .board.dots_boxes {
+    width: min(430px, var(--desktop-board-viewport-max));
+  }
+  .battle-stage .board-frame > .board.banqi {
+    width: min(330px, var(--desktop-board-viewport-max));
+  }
+  .battle-stage .board-frame > .board.xiangqi {
+    width: min(430px, 52vh);
+  }
+  .battle-stage .board-frame > .board.junqi {
+    width: min(310px, 30vh);
+  }
+  .battle-stage .mahjong-table {
+    min-height: var(--desktop-table-height);
+    grid-template-rows: auto minmax(260px, 1fr) auto auto;
+  }
+  .battle-stage .guandan-table {
+    min-height: var(--desktop-table-height);
+    grid-template-rows:
+      auto minmax(70px, auto) minmax(170px, 1fr) minmax(74px, auto) auto;
+  }
+  .battle-stage .texas-table {
+    min-height: var(--desktop-table-height);
+  }
+  .battle-stage .zhajinhua-table {
+    min-height: var(--desktop-compact-table-height);
+  }
+  .battle-stage .yahtzee-scorecard-scroll {
+    max-height: clamp(320px, calc(100vh - 560px), 460px);
+    overflow: auto;
+  }
+  .multiplayer-presentation .game-chat-area {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+    grid-column: 2;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-self: stretch;
+    gap: 8px;
+  }
+  .multiplayer-presentation .recent-chat-feed {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+  }
+  .multiplayer-presentation .game-compose {
+    width: 100%;
+    margin: 0;
+  }
+}
+
+/* Wider desktops only widen rooms that actually have the multiplayer rail. */
+@media (min-width: 1280px) {
+  .duel-main:has(.battle-stage.multiplayer-presentation) {
+    width: min(1440px, calc(100% - 40px));
+  }
+  .battle-stage.multiplayer-presentation {
+    width: min(1400px, 100%);
+    grid-template-columns: minmax(0, 1fr) clamp(280px, 22vw, 320px);
+    align-items: stretch;
+    column-gap: 20px;
+  }
+}
 
 @media (max-width: 1100px) {
   .create-form { grid-template-columns: 1fr 1fr; }

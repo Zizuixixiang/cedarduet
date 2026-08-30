@@ -26,7 +26,7 @@ def function_source(name: str) -> str:
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
         registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.1"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.2"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
         liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.0"></script>'
@@ -1570,6 +1570,8 @@ assert.equal(oBoard.children.every((cell) => cell.disabled), true);
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
             function_source("participantPresentationFor"),
+            function_source("gameCategoryFor"),
+            function_source("roomGameCategory"),
             function_source("participantLayoutClass"),
             function_source("applyParticipantLayout"),
         ))
@@ -1590,6 +1592,11 @@ const elements = {{
 }};
 const $ = (id) => elements[id];
 const PARTICIPANT_PRESENTATIONS = new Set(["generic", "embedded", "board-edge"]);
+const identity = {{games: [
+  {{game_type: "liars_dice", category: "dice"}},
+  {{game_type: "train_cards", category: "card"}},
+  {{game_type: "dots_boxes", category: "board"}},
+]}};
 const renderers = new Map([
   ["liars_dice", {{participantPresentation: "generic"}}],
   ["train_cards", {{participantPresentation: "generic"}}],
@@ -1612,6 +1619,12 @@ for (const gameType of ["liars_dice", "train_cards", "dots_boxes"]) {{
     assert.equal(elements.tableLayout.className, `table-layout ${{layout}} count-${{count}}`);
     assert.equal(elements.tableLayout.dataset.playerCount, String(count));
     assert.equal(elements.battleStage.dataset.playerCount, String(count));
+    assert.equal(
+      elements.battleStage.dataset.gameCategory,
+      gameType === "liars_dice" ? "dice" : (
+        gameType === "train_cards" ? "card" : "board"
+      )
+    );
     assert.equal(
       elements.tableLayout.dataset.participantPresentation,
       count === 2 ? "duel" : "generic"
