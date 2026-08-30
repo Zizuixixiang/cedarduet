@@ -198,6 +198,7 @@
   white-space: nowrap;
 }
 .zhajinhua-contribution { color: #f5d27d; }
+.zhajinhua-public-hand { color: #3d2b0e; background: #f0ca72; }
 
 .zhajinhua-hand {
   min-width: 0;

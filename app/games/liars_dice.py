@@ -424,8 +424,28 @@ class LiarsDice(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        return self._project_public_state(
+            state,
+            participants,
+            terminal=state.get("flow", {}).get("phase") == "finished",
+        )
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
-        return {
+        projected = {
             "board_kind": "liars_dice",
             "flow": deepcopy(state["flow"]),
             "dice_counts": deepcopy(state["dice_counts"]),
@@ -436,6 +456,12 @@ class LiarsDice(GamePlugin):
             "pending_next_round": deepcopy(state.get("pending_next_round")),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            projected["terminal_dice"] = {
+                player_id: deepcopy(state.get("dice_by_player", {}).get(player_id, []))
+                for player_id in state.get("participant_order", [])
+            }
+        return projected
 
     def private_state(
         self,

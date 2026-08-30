@@ -159,6 +159,15 @@ board = render();
 assert.equal(cellAt(board, 0, 0).classList.contains("selected-origin"), false);
 assert.equal(cellAt(board, 0, 0).classList.contains("last-action-origin"), true);
 assert.equal(cellAt(board, 1, 0).classList.contains("last-action-target"), true);
+
+state.board[0][1] = "b:k";
+state.board[0][2] = "r:p";
+state.legal_actions = [];
+room.revision = 5;
+board = render();
+assert.match(cellAt(board, 0, 1).ariaLabel, /黑将/);
+assert.match(cellAt(board, 0, 2).ariaLabel, /红兵/);
+assert.equal(cellAt(board, 0, 1).classList.contains("has-hidden-piece"), false);
 """
         completed = subprocess.run(
             [NODE, "-e", harness],

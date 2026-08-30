@@ -21,7 +21,7 @@ class TexasHoldemFrontendStaticTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.1";',
+            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.2";',
             SCRIPT,
         )
         self.assertNotIn("/static/games/texas_holdem.js", HTML)
@@ -201,6 +201,23 @@ assert.equal(styleNodes.size, 1);
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 ''', participant_count=count)
+
+    def test_terminal_showdown_is_labeled_but_folded_holes_stay_hidden(self):
+        self.run_node(r'''
+state.street="finished";state.game_result={result_text:"摊牌结算",payout_by_player:{"ai-1":45}};
+state.showdown={
+ "human-1":{cards:privateState.hand,hand_type_label:"一对"},
+ "ai-1":{cards:[{rank:"A",suit:"hearts"},{rank:"A",suit:"clubs"}],hand_type_label:"三条"},
+};
+state.players["ai-2"].status="folded";
+const value=makeContext();value.context.canMove=false;value.context.isTerminal=true;value.context.room.status="finished";
+renderer.renderBoard(value.context);const nodes=descendants(value.board);
+assert.equal(nodes.filter(n=>hasClass(n,"texas-showdown-tag")).length,2);
+assert.equal(nodes.filter(n=>hasClass(n,"texas-card-back")).length,2);
+const folded=nodes.find(n=>hasClass(n,"texas-seat")&&n.dataset.playerId==="ai-2");
+assert.equal(folded.classList.contains("is-folded"),true);
+assert.equal(descendants(folded).filter(n=>hasClass(n,"texas-card-back")).length,2);
+''')
 
     def test_risky_actions_require_confirmation_can_cancel_and_do_not_double_submit(self):
         self.run_node(r'''

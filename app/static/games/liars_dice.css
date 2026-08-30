@@ -1,0 +1,42 @@
+.liars-terminal-review {
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid #b8a56f;
+  border-radius: 10px;
+  color: #403821;
+  background: #fff9e9;
+  box-sizing: border-box;
+}
+
+.liars-terminal-summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.liars-terminal-dice {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.liars-terminal-row {
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: #eee4c9;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 375px) {
+  .liars-terminal-review { margin-top: 6px; padding: 6px; }
+  .liars-terminal-dice { grid-template-columns: 1fr; gap: 3px; }
+  .liars-terminal-row { padding-block: 3px; font-size: 10px; }
+}

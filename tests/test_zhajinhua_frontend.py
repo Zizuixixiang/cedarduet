@@ -23,7 +23,10 @@ class ZhajinhuaFrontendStructureTests(unittest.TestCase):
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
-        self.assertIn("if (participants.length > 2)", SCRIPT)
+        self.assertIn(
+            "if (participants.length > 2 || publiclyRevealedOpponents.length)",
+            SCRIPT,
+        )
         self.assertIn('if (!isMultiplayerRoom(targetRoom)) return "duel";', APP_SCRIPT)
         self.assertNotIn("zhajinhua", APP_SCRIPT)
         self.assertNotIn("/static/games/zhajinhua.js", HTML)
@@ -278,6 +281,30 @@ renderer.renderBoard(value.context);
 const nodes = descendants(value.board);
 assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-opponents")).length, 0);
 assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-seat")).length, 1);
+''', participant_count=2)
+
+    def test_two_player_terminal_rule_reveal_is_visible_without_exposing_folded_hands(self):
+        self.run_node(r'''
+state.flow.phase="finished";
+state.revealed_hands={
+ "human-1":{cards:[{rank:"A",suit:"hearts"},{rank:"K",suit:"clubs"},{rank:"Q",suit:"spades"}],hand_type_label:"顺子"},
+ "ai-1":{cards:[{rank:"9",suit:"hearts"},{rank:"9",suit:"clubs"},{rank:"9",suit:"spades"}],hand_type_label:"豹子"},
+};
+privateState.hand=state.revealed_hands["human-1"].cards;
+privateState.hand_revealed=true;
+const value=makeContext();value.context.canMove=false;value.context.isTerminal=true;value.context.room.status="finished";
+renderer.renderBoard(value.context);let nodes=descendants(value.board);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-seat")).length,2);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-card-rank")).length,6);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-public-hand")).length,2);
+assert.match(nodes.find(n=>hasClass(n,"zhajinhua-private-label")).textContent,/规则公开/);
+
+state.revealed_hands={};privateState.hand=[{hidden:true},{hidden:true},{hidden:true}];privateState.hand_revealed=false;
+const folded=makeContext();folded.context.canMove=false;folded.context.isTerminal=true;folded.context.room.status="finished";
+renderer.renderBoard(folded.context);nodes=descendants(folded.board);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-seat")).length,1);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-card-rank")).length,0);
+assert.equal(nodes.filter(n=>hasClass(n,"zhajinhua-card-back")).length,3);
 ''', participant_count=2)
 
 

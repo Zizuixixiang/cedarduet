@@ -256,9 +256,13 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     game = get_game(room["game_type"])
     participants = deepcopy(room.get("participants", []))
     try:
-        public_state = game.public_state(
-            deepcopy(room["board_state"]), participants
+        state = deepcopy(room["board_state"])
+        public_projector = (
+            game.terminal_public_state
+            if room.get("status") in {"finished", "archived"}
+            else game.public_state
         )
+        public_state = public_projector(state, participants)
         private_state = game.private_state(
             deepcopy(room["board_state"]), deepcopy(viewer), participants
         )

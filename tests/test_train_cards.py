@@ -281,6 +281,7 @@ class TrainCardsRuleTests(unittest.TestCase):
         public = self.game.public_state(state, table)
         self.assertEqual(public["table_cards"], [])
         self.assertEqual(sum(public["hand_counts"].values()), 54)
+        self.assertNotIn("terminal_hands", public)
         self.assertNotIn("cards", public)
         self.assertNotIn("participant_order", public)
         self.assertNotIn("seen_position_hashes", public)
@@ -292,6 +293,21 @@ class TrainCardsRuleTests(unittest.TestCase):
             self.game.private_state(state, table[1], table),
             {"legal_actions": []},
         )
+
+        expected = {
+            player_id: [card["id"] for card in hand]
+            for player_id, hand in state["cards"]["hands"].items()
+        }
+        state["flow"]["phase"] = "finished"
+        terminal = self.game.public_state(state, table)
+        self.assertEqual(
+            {
+                player_id: [card["id"] for card in hand]
+                for player_id, hand in terminal["terminal_hands"].items()
+            },
+            expected,
+        )
+        self.assertNotIn("cards", terminal)
 
     def test_npc_policy_selects_only_the_authoritative_forced_action(self):
         table = seats(3)

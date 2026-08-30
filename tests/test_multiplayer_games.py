@@ -311,6 +311,7 @@ class LiarsDiceTests(MultiplayerGameTestCase):
         for player_id, view in views.items():
             public_json = json.dumps(view["board_state"], ensure_ascii=False)
             self.assertNotIn("dice_by_player", view["board_state"])
+            self.assertNotIn("terminal_dice", view["board_state"])
             self.assertNotIn(str(raw["dice_by_player"]), public_json)
             self.assertEqual(view["private_state"]["dice"], raw["dice_by_player"][player_id])
             for other_id, dice in raw["dice_by_player"].items():
@@ -556,8 +557,22 @@ class LiarsDiceTests(MultiplayerGameTestCase):
         self.assertEqual(room["winner_player_id"], "ai-1")
         self.assertEqual(room["board_state"]["flow"]["phase"], "finished")
         self.assertIsNone(room["board_state"]["pending_next_round"])
+        projected = framework.project_room_for_viewer(room, "ai-1")["board_state"]
+        self.assertEqual(
+            projected["terminal_dice"], room["board_state"]["dice_by_player"]
+        )
+        self.assertNotIn("dice_by_player", projected)
         self.assertEqual(chips.get_wallet("human", "human-1")["balance"], 218)
         self.assertEqual(chips.get_wallet("ai", "ai-1")["balance"], 232)
+
+    def test_room_terminal_resignation_reveals_current_dice_for_review(self):
+        room = self.create_liars(2)
+        hidden = deepcopy(room["board_state"]["dice_by_player"])
+        room = framework.resign(room["room_id"], "human", "human-1")
+        self.assertEqual(room["status"], "finished")
+        projected = framework.project_room_for_viewer(room, "ai-1")["board_state"]
+        self.assertEqual(projected["terminal_dice"], hidden)
+        self.assertNotIn("dice_by_player", projected)
 
     def test_four_player_terminal_settlement_uses_whole_pot(self):
         room = self.create_liars(4, stake=3)

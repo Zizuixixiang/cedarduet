@@ -303,6 +303,9 @@ class ZhajinhuaCoreTests(unittest.TestCase):
         self.assertEqual(last_fold.result["winner_player_id"], "player-2")
         self.assertEqual(state["flow"]["phase"], "finished")
         self.assertEqual(state["pot"], 6)
+        terminal = self.game.terminal_public_state(state, roster)
+        self.assertFalse(terminal["revealed_hands"])
+        self.assertFalse(card_faces(terminal))
 
     def test_compare_eliminates_loser_without_revealing_cards(self):
         roster, state = self.new_state(3)

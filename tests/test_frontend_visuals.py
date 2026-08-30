@@ -29,7 +29,11 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = '<script src="/static/app.js?v=0.9.1"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        self.assertNotIn('<script src="/static/games/', HTML)
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.0"></script>'
+        self.assertIn(liars_tag, HTML)
+        self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
+        self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
+        self.assertEqual(HTML.count('<script src="/static/games/'), 1)
         self.assertIn('id="gameControls" class="game-controls hidden"', HTML)
         self.assertIn("window.DuelGameUI.register", GAME_UI_DOC)
         self.assertIn("顺序必须是 registry", GAME_UI_DOC)

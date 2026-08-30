@@ -257,6 +257,28 @@
   font-size: 13px;
 }
 
+.train-cards-terminal-review {
+  position: relative;
+  z-index: 3;
+  padding: 6px 8px;
+  border: 1px solid rgba(246,234,209,.38);
+  border-radius: 10px;
+  color: #f6ead1;
+  background: rgba(5,34,32,.66);
+}
+.train-cards-terminal-summary { cursor: pointer; color: #ffe2a0; font-size: 10px; }
+.train-cards-terminal-rows { display: grid; gap: 5px; margin-top: 6px; }
+.train-cards-terminal-row { min-width: 0; display: grid; grid-template-columns: minmax(82px, auto) minmax(0, 1fr); align-items: center; gap: 6px; }
+.train-cards-terminal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.train-cards-terminal-pile { min-width: 0; display: flex; gap: 2px; overflow-x: auto; padding: 2px; touch-action: pan-x; }
+.train-cards-terminal-pile .train-card { width: 31px; min-width: 31px; height: 45px; min-height: 45px; border-radius: 4px; transform: none; }
+.train-cards-terminal-pile .train-card-corner { top: 2px; left: 3px; }
+.train-cards-terminal-pile .train-card-rank { font-size: 9px; }
+.train-cards-terminal-pile .train-card-suit { font-size: 8px; }
+.train-cards-terminal-pile .train-card-center { inset: 24% 5% 5%; font-size: 16px; }
+.train-cards-terminal-pile .train-card.joker .train-card-center { font-size: 8px; }
+.train-cards-terminal-empty { color: #d8e6df; font-size: 9px; }
+
 .train-cards-controls {
   width: min(100%, 880px);
   max-width: 100%;
@@ -367,6 +389,10 @@
 
   .train-cards-flip-button {
     width: 100%;
+  }
+
+  .train-cards-terminal-row {
+    grid-template-columns: 66px minmax(0, 1fr);
   }
 }
 

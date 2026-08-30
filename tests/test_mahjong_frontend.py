@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.2";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.3";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -185,6 +185,29 @@ assert.equal(styles.size,1);
   {action:"act",action_id:"discard:h1"},{action:"act",action_id:"concealed:1"}
  ]));
 })().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+
+    def test_terminal_hands_and_concealed_kong_faces_are_reviewable(self):
+        self.run_node(r'''
+state.phase="finished";
+state.terminal_hands={east:privateState.hand,south:privateState.hand,viewer:privateState.hand,north:privateState.hand};
+state.melds.south=[{kind:"concealed_gang",tiles:[
+ {id:"g1",code:"J2",label:"发",suit:"J",rank:2},
+ {id:"g2",code:"J2",label:"发",suit:"J",rank:2},
+ {id:"g3",code:"J2",label:"发",suit:"J",rank:2},
+ {id:"g4",code:"J2",label:"发",suit:"J",rank:2},
+]}];
+const value=makeContext();value.context.canMove=false;value.context.room.status="finished";
+renderer.renderBoard(value.context);const nodes=descendants(value.board);
+const review=nodes.find(n=>hasClass(n,"mahjong-terminal-review"));assert.ok(review);
+const reviewNodes=descendants(review);
+assert.equal(reviewNodes.filter(n=>hasClass(n,"mahjong-terminal-row")).length,4);
+assert.equal(reviewNodes.filter(n=>hasClass(n,"mahjong-tile")&&!hasClass(n,"mahjong-tile-back")).length,8);
+const south=nodes.find(n=>hasClass(n,"mahjong-seat")&&n.dataset.playerId==="south");
+const southNodes=descendants(south);
+assert.equal(southNodes.filter(n=>hasClass(n,"mahjong-meld")&&hasClass(n,"kind-concealed_gang")).length,1);
+assert.equal(southNodes.filter(n=>hasClass(n,"mahjong-tile-back")).length,12);
+assert.equal(southNodes.filter(n=>hasClass(n,"mahjong-tile")&&!hasClass(n,"mahjong-tile-back")).length,4);
 ''')
 
     def test_source_is_valid_javascript(self):

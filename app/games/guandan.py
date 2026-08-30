@@ -301,13 +301,33 @@ class Guandan(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        terminal = (
+            state.get("phase") == "finished"
+            and isinstance(state.get("match_result"), dict)
+        )
+        return self._project_public_state(state, participants, terminal=terminal)
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         order = list(state.get("participant_order", []))
         level_rank = str(state.get("level_rank", "2"))
         trick = state.get("trick") or {}
         last_deal = state.get("deal_history", [])[-1:] or []
         phase = str(state.get("phase", "waiting"))
-        return {
+        projected = {
             "board_kind": "guandan",
             "engine": state.get("engine", "Choysang/rlcard-guandan"),
             "engine_version": state.get("engine_version", GuandanEngine.version),
@@ -340,6 +360,18 @@ class Guandan(GamePlugin):
             "last_public_delta": self._public_delta(state),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            projected["terminal_hands"] = {
+                player_id: [
+                    self._public_card(card, level_rank)
+                    for card in sorted(
+                        state.get("hands", {}).get(player_id, []),
+                        key=lambda item: card_sort_key(item, level_rank),
+                    )
+                ]
+                for player_id in order
+            }
+        return projected
 
     def private_state(
         self,

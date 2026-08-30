@@ -165,6 +165,7 @@ class JunqiPluginTests(unittest.TestCase):
         self.assertFalse(ai["legal_actions"])
         self.assertNotIn("legal_actions", public)
         self.assertNotIn("legal_moves", public)
+        self.assertNotIn("terminal_reveal", public)
         self.assertFalse(any(
             isinstance(piece, dict) and "rank" in piece
             for piece in public["board"].values()
@@ -173,6 +174,26 @@ class JunqiPluginTests(unittest.TestCase):
         ai_squares = set(ai["pieces"])
         self.assertTrue(human_squares.isdisjoint(ai_squares))
         self.assertTrue(all(set(action) <= {"action", "from", "to"} for action in human["legal_actions"]))
+
+    def test_terminal_projection_reveals_every_remaining_rank(self):
+        state = self.state()
+        state["phase"] = "finished"
+        state["active_player_id"] = None
+        terminal = self.game.public_state(state, PARTICIPANTS)
+        remaining = {
+            square: piece
+            for square, piece in state["board"].items()
+            if piece is not None
+        }
+        self.assertTrue(terminal["terminal_reveal"])
+        self.assertEqual(
+            {
+                square: piece["rank"]
+                for square, piece in terminal["board"].items()
+                if piece is not None
+            },
+            {square: piece["rank"] for square, piece in remaining.items()},
+        )
 
     def test_setup_is_operable_sequential_and_npc_auto_setup_is_authoritative(self):
         state = self.state()

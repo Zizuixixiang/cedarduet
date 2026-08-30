@@ -74,11 +74,20 @@ class BanqiRuleTests(unittest.TestCase):
 
         public = self.game.public_state(state, PARTICIPANTS)
         self.assertEqual({value for row in public["board"] for value in row}, {"hidden"})
+        self.assertNotIn("terminal_reveal", public)
         self.assertEqual(len(public["legal_actions"]), 32)
         self.assertEqual(self.game.private_state(state, PARTICIPANTS[0], PARTICIPANTS), {})
         encoded = json.dumps(public, ensure_ascii=False)
         for identity in set(identities):
             self.assertNotIn(identity, encoded)
+
+        state["terminal_reason"] = "quiet_turn_limit"
+        terminal = self.game.public_state(state, PARTICIPANTS)
+        self.assertTrue(terminal["terminal_reveal"])
+        self.assertEqual(
+            [value for row in terminal["board"] for value in row], identities
+        )
+        self.assertEqual(terminal["hidden_count"], 0)
 
     def test_first_flip_assigns_camps_and_only_reveals_that_square(self):
         state = self.game.initialize(deepcopy(PARTICIPANTS))

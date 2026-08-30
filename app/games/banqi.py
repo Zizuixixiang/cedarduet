@@ -533,6 +533,26 @@ class Banqi(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        return self._project_public_state(
+            state,
+            participants,
+            terminal=state.get("terminal_reason") is not None,
+        )
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         board = []
         for row in state["board"]:
@@ -540,7 +560,7 @@ class Banqi(GamePlugin):
             for cell in row:
                 if cell is None:
                     projected_row.append(None)
-                elif cell.get("revealed"):
+                elif terminal or cell.get("revealed"):
                     projected_row.append(str(cell["piece"]))
                 else:
                     projected_row.append("hidden")
@@ -550,7 +570,7 @@ class Banqi(GamePlugin):
             self._legal_actions(state, str(current_player_id))
             if current_player_id is not None else []
         )
-        return {
+        projected = {
             "board_kind": "banqi",
             "rows": self.rows,
             "cols": self.cols,
@@ -566,6 +586,9 @@ class Banqi(GamePlugin):
             "terminal_reason": state.get("terminal_reason"),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            projected["terminal_reveal"] = True
+        return projected
 
     @staticmethod
     def _public_last_move(action: dict[str, Any] | None) -> dict[str, int] | None:

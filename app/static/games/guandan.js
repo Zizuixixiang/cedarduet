@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-guandan-styles";
-  const STYLE_HREF = "/static/games/guandan.css?v=0.1.2";
+  const STYLE_HREF = "/static/games/guandan.css?v=0.1.3";
   const SUITS = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -369,6 +369,41 @@
       scroller.appendChild(element(documentRef, "span", "guandan-empty-hand", "本副手牌已出完"));
     }
     zone.append(heading, scroller);
+    const terminalHands = context.state && context.state.terminal_hands;
+    if (terminalHands && typeof terminalHands === "object") {
+      const review = element(documentRef, "details", "guandan-terminal-review");
+      const populated = Object.entries(terminalHands).filter(
+        ([, cards]) => Array.isArray(cards) && cards.length
+      );
+      review.appendChild(element(
+        documentRef,
+        "summary",
+        "guandan-terminal-summary",
+        `终局剩余手牌 · ${populated.length} 家有牌`
+      ));
+      const rows = element(documentRef, "div", "guandan-terminal-rows");
+      Object.entries(terminalHands).forEach(([playerId, cards]) => {
+        const row = element(documentRef, "section", "guandan-terminal-row");
+        row.dataset.playerId = playerId;
+        row.appendChild(element(
+          documentRef,
+          "strong",
+          "guandan-terminal-name",
+          `${playerName(context, playerId)} · ${Array.isArray(cards) ? cards.length : 0} 张`
+        ));
+        const faces = element(documentRef, "div", "guandan-terminal-cards");
+        (Array.isArray(cards) ? cards : []).forEach(
+          (card) => faces.appendChild(cardNode(documentRef, card))
+        );
+        if (!faces.children.length) {
+          faces.appendChild(element(documentRef, "span", "guandan-terminal-empty", "已出完"));
+        }
+        row.appendChild(faces);
+        rows.appendChild(row);
+      });
+      review.appendChild(rows);
+      zone.appendChild(review);
+    }
     table.appendChild(zone);
     return scroller;
   }

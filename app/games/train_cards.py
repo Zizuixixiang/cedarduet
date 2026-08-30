@@ -402,9 +402,29 @@ class TrainCards(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        return self._project_public_state(
+            state,
+            participants,
+            terminal=state.get("flow", {}).get("phase") == "finished",
+        )
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         cards = public_card_state(state)
-        return {
+        projected = {
             "board_kind": "train_cards",
             "flow": deepcopy(state["flow"]),
             "table_cards": cards["discard"],
@@ -418,6 +438,13 @@ class TrainCards(GamePlugin):
             "draw_reason": state.get("draw_reason"),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            hands = state.get("cards", {}).get("hands", {})
+            projected["terminal_hands"] = {
+                player_id: deepcopy(hands.get(player_id, []))
+                for player_id in state.get("participant_order", [])
+            }
+        return projected
 
     def private_state(
         self,

@@ -967,8 +967,28 @@ class Mahjong(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        return self._project_public_state(
+            state,
+            participants,
+            terminal=state.get("phase") == "finished",
+        )
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
-        return {
+        projected = {
             "board_kind": "mahjong",
             "rules_version": state.get("rules_version"),
             "participant_order": list(state.get("participant_order", [])),
@@ -984,7 +1004,10 @@ class Mahjong(GamePlugin):
                 for player_id, hand in state.get("hands", {}).items()
             },
             "melds": {
-                player_id: [self._public_meld(meld) for meld in melds]
+                player_id: [
+                    self._public_meld(meld, reveal_concealed=terminal)
+                    for meld in melds
+                ]
                 for player_id, melds in state.get("melds", {}).items()
             },
             "discards": {
@@ -1004,6 +1027,28 @@ class Mahjong(GamePlugin):
             "game_result": deepcopy(state.get("game_result")),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            terminal_hands = {
+                player_id: [
+                    self._public_tile(tile)
+                    for tile in sorted(hand, key=_tile_sort_key)
+                ]
+                for player_id, hand in state.get("hands", {}).items()
+            }
+            result = state.get("game_result")
+            if isinstance(result, dict) and result.get("win_type") in {
+                "discard", "rob_kong",
+            }:
+                winner_id = str(result.get("winner_player_id") or "")
+                winning_tile = result.get("winning_tile")
+                winner_hand = terminal_hands.get(winner_id)
+                if isinstance(winning_tile, dict) and winner_hand is not None:
+                    winning_id = winning_tile.get("id")
+                    if all(tile.get("id") != winning_id for tile in winner_hand):
+                        winner_hand.append(deepcopy(winning_tile))
+                        winner_hand.sort(key=_tile_sort_key)
+            projected["terminal_hands"] = terminal_hands
+        return projected
 
     def _shanten(self, state: dict[str, Any], player_id: str) -> tuple[int | None, str]:
         packs = self._engine_packs_for(state, player_id)

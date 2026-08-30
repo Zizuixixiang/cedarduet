@@ -175,6 +175,11 @@ class MahjongRulesTests(unittest.TestCase):
         won = self.game.apply_action(window.state, self.submit(hu), self.players[1])
         self.assertEqual(won.result["win_type"], "discard")
         self.assertEqual(won.result["source_player_id"], "p0")
+        terminal = self.game.public_state(won.state, self.players)
+        self.assertIn(
+            won.result["winning_tile"]["id"],
+            {tile["id"] for tile in terminal["terminal_hands"]["p1"]},
+        )
 
     def test_peng_precedes_chi_and_ming_gang_draws_replacement(self):
         state = self.state()
@@ -228,6 +233,25 @@ class MahjongRulesTests(unittest.TestCase):
         public = self.game.public_state(konged.state, self.players)
         self.assertTrue(all(tile.get("back") for tile in public["melds"]["p0"][0]["tiles"]))
         self.assertNotIn("J2", json.dumps(public, ensure_ascii=False))
+        self.assertNotIn("terminal_hands", public)
+
+        konged.state["phase"] = "finished"
+        konged.state["flow"]["phase"] = "finished"
+        terminal = self.game.public_state(konged.state, self.players)
+        self.assertTrue(all(
+            tile.get("code") == "J2"
+            for tile in terminal["melds"]["p0"][0]["tiles"]
+        ))
+        self.assertEqual(
+            {
+                player_id: {tile["id"] for tile in hand}
+                for player_id, hand in terminal["terminal_hands"].items()
+            },
+            {
+                player_id: {tile["id"] for tile in hand}
+                for player_id, hand in konged.state["hands"].items()
+            },
+        )
 
         rob = self.state()
         pung_tiles = self.tiles(["W8", "W8", "W8"])
@@ -255,6 +279,11 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertEqual(won.result["win_type"], "rob_kong")
         self.assertEqual(won.state["melds"]["p0"][0]["kind"], "peng")
         self.assertEqual(len(won.state["robbed_kong_tiles"]), 1)
+        terminal = self.game.public_state(won.state, self.players)
+        self.assertIn(
+            won.result["winning_tile"]["id"],
+            {tile["id"] for tile in terminal["terminal_hands"]["p1"]},
+        )
 
     def test_multiple_hu_responders_are_nearest_first_and_pass_advances(self):
         state = self.state()

@@ -304,6 +304,27 @@ button.guandan-card:disabled { cursor: default; opacity: 1; filter: none; }
 .guandan-wild-tag { position: absolute; right: 3px; bottom: 3px; display: grid; place-items: center; width: 17px; height: 17px; color: #53380e; border: 1px solid #be8e34; border-radius: 50%; background: #f5d37d; font: 800 9px/1 serif; }
 .guandan-empty-hand { margin: auto; padding: 20px; color: var(--guandan-muted); font-size: 11px; }
 
+.guandan-terminal-review {
+  margin-top: 6px;
+  padding: 5px 7px;
+  color: var(--guandan-ink);
+  border: 1px solid rgba(231, 189, 102, .38);
+  border-radius: 9px;
+  background: rgba(4, 24, 21, .72);
+}
+.guandan-terminal-summary { cursor: pointer; color: #ffe2a0; font-size: 10px; }
+.guandan-terminal-rows { display: grid; gap: 5px; margin-top: 6px; }
+.guandan-terminal-row { min-width: 0; display: grid; grid-template-columns: minmax(76px, auto) minmax(0, 1fr); align-items: center; gap: 5px; }
+.guandan-terminal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.guandan-terminal-cards { min-width: 0; display: flex; gap: 2px; overflow-x: auto; padding: 2px; touch-action: pan-x; }
+.guandan-terminal-cards .guandan-card { width: 30px; height: 43px; flex: 0 0 30px; padding: 2px; border-radius: 4px; }
+.guandan-terminal-cards .guandan-card-rank { font-size: 9px; }
+.guandan-terminal-cards .guandan-card-suit { font-size: 8px; }
+.guandan-terminal-cards .guandan-card-center { margin-bottom: 6px; font-size: 14px; }
+.guandan-terminal-cards .suit-joker .guandan-card-center { margin-bottom: 1px; font-size: 7px; }
+.guandan-terminal-cards .guandan-wild-tag { width: 12px; height: 12px; font-size: 7px; }
+.guandan-terminal-empty { color: var(--guandan-muted); font-size: 9px; }
+
 .guandan-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .guandan-selection-status { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .guandan-selection-status strong { font-size: 12px; }
@@ -363,6 +384,7 @@ button.guandan-card:disabled { cursor: default; opacity: 1; filter: none; }
   .guandan-center-cards { padding-right: 22px; }
   .guandan-center-cards .guandan-card { margin-right: -25px; }
   .guandan-hand-scroll .guandan-card { margin-right: -12px; }
+  .guandan-terminal-row { grid-template-columns: 64px minmax(0, 1fr); }
 }
 
 @media (max-width: 320px) {

@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-train-cards-styles";
-  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.1";
+  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.2";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -98,6 +98,40 @@
     return `${actor} 翻出${card}，未触发收牌`;
   }
 
+  function terminalReview(documentRef, context) {
+    const hands = context.state && context.state.terminal_hands;
+    if (!hands || typeof hands !== "object") return null;
+    const review = element(documentRef, "details", "train-cards-terminal-review");
+    review.appendChild(element(
+      documentRef,
+      "summary",
+      "train-cards-terminal-summary",
+      "终局牌堆复盘 · 按未来翻牌顺序展开"
+    ));
+    const rows = element(documentRef, "div", "train-cards-terminal-rows");
+    Object.entries(hands).forEach(([playerId, cards]) => {
+      const row = element(documentRef, "section", "train-cards-terminal-row");
+      row.dataset.playerId = playerId;
+      row.appendChild(element(
+        documentRef,
+        "strong",
+        "train-cards-terminal-name",
+        `${participantName(context, playerId)} · ${Array.isArray(cards) ? cards.length : 0} 张`
+      ));
+      const pile = element(documentRef, "div", "train-cards-terminal-pile");
+      (Array.isArray(cards) ? cards : []).forEach(
+        (card) => pile.appendChild(createCard(documentRef, card))
+      );
+      if (!pile.children.length) {
+        pile.appendChild(element(documentRef, "span", "train-cards-terminal-empty", "牌堆已空"));
+      }
+      row.appendChild(pile);
+      rows.appendChild(row);
+    });
+    review.appendChild(rows);
+    return review;
+  }
+
   function renderBoard(context) {
     const documentRef = context.board.ownerDocument || window.document;
     ensureStylesheet(documentRef);
@@ -157,6 +191,8 @@
       ));
     }
     table.append(status, track);
+    const review = terminalReview(documentRef, context);
+    if (review) table.appendChild(review);
     game.append(header, table);
     context.board.appendChild(game);
     return true;

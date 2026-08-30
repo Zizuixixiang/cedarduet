@@ -105,6 +105,21 @@ class GamePlugin(ABC):
         """
         return deepcopy(state)
 
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return the shared projection after the room itself is terminal.
+
+        A resignation can finish a room without mutating a plugin's persisted
+        phase. Hidden-information games may override this hook to publish a
+        deliberately scoped review projection. The default preserves the
+        normal public projection, so games never reveal private state merely
+        because the common room lifecycle ended.
+        """
+        return self.public_state(state, participants)
+
     def private_state(
         self,
         state: dict[str, Any],

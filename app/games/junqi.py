@@ -440,6 +440,26 @@ class Junqi(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        return self._project_public_state(
+            state,
+            participants,
+            terminal=state.get("phase") == "finished",
+        )
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         commanders_alive = state.get("commanders_alive", {"b": True, "r": True})
         projected_board: dict[str, Any] = {}
@@ -451,10 +471,12 @@ class Junqi(GamePlugin):
             color = str(piece["color"])
             remaining[color] += 1
             projected = {"color": color}
-            if int(piece["rank"]) == 11 and not commanders_alive.get(color, True):
-                projected["rank"] = 11
+            if terminal or (
+                int(piece["rank"]) == 11 and not commanders_alive.get(color, True)
+            ):
+                projected["rank"] = int(piece["rank"])
             projected_board[square] = projected
-        return {
+        public = {
             "board_kind": "junqi",
             "rows": 12,
             "cols": 5,
@@ -481,6 +503,9 @@ class Junqi(GamePlugin):
                 else state.get("last_action_note", "")
             ),
         }
+        if terminal:
+            public["terminal_reveal"] = True
+        return public
 
     def private_state(
         self,

@@ -169,6 +169,17 @@ assert.equal(red.board.children[1].children[0].dataset.square, "e1");
 assert.equal(red.board.children[2].classList.contains("viewer"), true);
 assert.match(square(red.board.children[1], "a1").ariaLabel, /身份未公开/);
 assert.match(square(red.board.children[1], "e12").ariaLabel, /红方司令/);
+
+state.phase = "finished";
+state.active_player_id = null;
+state.board.e12 = {{color: "r", rank: 1}};
+const terminal = contextFor("human-1", "b", {{}});
+terminal.canMove = false;
+terminal.privateState = {{camp: "b", pieces: {{}}, legal_actions: []}};
+terminal.legalActions = [];
+renderer.renderBoard(terminal);
+assert.match(square(terminal.board.children[1], "e12").ariaLabel, /红方司令/);
+assert.equal(square(terminal.board.children[1], "e12").classList.contains("occupied"), true);
 """
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True, check=False

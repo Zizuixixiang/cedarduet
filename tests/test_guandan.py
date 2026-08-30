@@ -80,6 +80,7 @@ class GuandanPluginTests(unittest.TestCase):
     def test_public_projection_contains_no_other_hands_or_observations(self):
         public = self.game.public_state(self.state, self.players)
         serialized = json.dumps(public, ensure_ascii=False)
+        self.assertNotIn("terminal_hands", public)
         self.assertNotIn("hands", public)
         self.assertNotIn("played_cards", public)
         self.assertNotIn("legal_actions", public)
@@ -98,6 +99,33 @@ class GuandanPluginTests(unittest.TestCase):
             )},
             {"甲队", "乙队"},
         )
+
+    def test_match_terminal_projection_reveals_only_remaining_hands(self):
+        remaining_ids = {
+            player_id: {card["id"] for card in hand}
+            for player_id, hand in self.state["hands"].items()
+        }
+        self.state["phase"] = "finished"
+        self.state["match_result"] = {
+            "winner_team": "A",
+            "winning_player_ids": ["human-1", "npc:one"],
+            "placements": ["human-1", "npc:one", "ai-1", "npc:two"],
+            "team_levels": {"A": "A", "B": "K"},
+            "deal_count": 8,
+        }
+        terminal = self.game.public_state(self.state, self.players)
+        self.assertEqual(
+            {
+                player_id: {card["id"] for card in hand}
+                for player_id, hand in terminal["terminal_hands"].items()
+            },
+            remaining_ids,
+        )
+        self.assertNotIn("hands", terminal)
+
+        playing = self.game.initialize_for_first_player(self.players, "human-1")
+        room_terminal = self.game.terminal_public_state(playing, self.players)
+        self.assertEqual(set(room_terminal["terminal_hands"]), set(remaining_ids))
 
     def test_play_delta_is_public_and_npc_actions_only_carry_engine_action_id(self):
         before_other_ids = {

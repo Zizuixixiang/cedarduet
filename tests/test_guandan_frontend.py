@@ -21,7 +21,7 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.2";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.3";', SCRIPT)
         self.assertNotIn("guandan", APP_SCRIPT)
         self.assertNotIn("guandan.js", HTML)
         self.assertNotIn("guandan.css", HTML)
@@ -180,6 +180,25 @@ function makeContext(legal=privateState.legal_actions){
  assert.equal(JSON.stringify(passValue.submitted[0]),JSON.stringify({action:"act",action_id:"g_pass"}));
  assert.equal(styles.size,1);
 })().catch(e=>{console.error(e);process.exitCode=1;});
+''')
+
+    def test_terminal_remaining_hands_render_in_compact_review(self):
+        self.run_node(r'''
+state.phase="finished";
+state.terminal_hands={
+ human:privateState.hand.slice(0,2),
+ right:[{id:"d1-D-A",suit:"diamonds",rank:"A",wild:false}],
+ partner:[],left:[],
+};
+const value=makeContext([]);value.context.canMove=false;value.context.room.status="finished";
+renderer.renderBoard(value.context);
+const review=descendants(value.board).find(n=>hasClass(n,"guandan-terminal-review"));
+assert.ok(review);
+assert.match(review.children[0].textContent,/终局剩余手牌 · 2 家有牌/);
+const reviewNodes=descendants(review);
+assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-terminal-row")).length,4);
+assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-card")&&n.tag==="span").length,3);
+assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-terminal-empty")).length,2);
 ''')
 
     def test_source_is_valid_javascript(self):

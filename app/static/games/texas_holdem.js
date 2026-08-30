@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-texas-holdem-styles";
-  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.1";
+  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.2";
   const SUIT_TEXT = {
     spades: "S",
     hearts: "H",
@@ -159,6 +159,7 @@
     );
     const handInfo = state.showdown && state.showdown[playerId];
     if (handInfo && handInfo.hand_type_label) {
+      meta.appendChild(element(documentRef, "span", "texas-showdown-tag", "摊牌公开"));
       meta.appendChild(element(documentRef, "span", "texas-hand-rank", handInfo.hand_type_label));
     }
     const payout = state.game_result && state.game_result.payout_by_player

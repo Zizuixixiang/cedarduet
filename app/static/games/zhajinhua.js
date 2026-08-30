@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-zhajinhua-styles";
-  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.1";
+  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.2";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -159,6 +159,15 @@
         `已投 ${Number(player.contribution || 0)}`
       )
     );
+    const publicHand = state.revealed_hands && state.revealed_hands[playerId];
+    if (publicHand && Array.isArray(publicHand.cards)) {
+      badges.appendChild(element(
+        documentRef,
+        "span",
+        "zhajinhua-public-hand",
+        `规则公开 · ${publicHand.hand_type_label || "已亮牌"}`
+      ));
+    }
     const hand = element(documentRef, "div", "zhajinhua-hand");
     hand.setAttribute("aria-label", `${participant.display_name || playerId}的三张牌`);
     (Array.isArray(cards) ? cards : []).forEach((card) => {
@@ -231,9 +240,16 @@
     topbar.append(title, metrics);
 
     const table = element(documentRef, "section", "zhajinhua-table");
-    if (participants.length > 2) {
+    const publiclyRevealedOpponents = opponents.filter((participant) => (
+      state.revealed_hands
+      && state.revealed_hands[participant.player_id]
+      && Array.isArray(state.revealed_hands[participant.player_id].cards)
+    ));
+    if (participants.length > 2 || publiclyRevealedOpponents.length) {
       const opponentRing = element(documentRef, "div", "zhajinhua-opponents");
-      opponents.forEach((participant) => {
+      const displayedOpponents = participants.length > 2
+        ? opponents : publiclyRevealedOpponents;
+      displayedOpponents.forEach((participant) => {
         opponentRing.appendChild(
           renderSeat(
             documentRef,
@@ -265,7 +281,9 @@
         documentRef,
         "div",
         "zhajinhua-private-label",
-        context.privateState && context.privateState.hand_revealed
+        state.revealed_hands && state.revealed_hands[viewer.player_id]
+          ? `规则公开 · ${state.revealed_hands[viewer.player_id].hand_type_label || "已亮牌"}`
+          : context.privateState && context.privateState.hand_revealed
           ? `仅你可见 · ${context.privateState.hand_type_label || "已看牌"}`
           : "尚未看牌 · 牌面保持背面"
       );

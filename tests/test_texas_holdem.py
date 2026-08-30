@@ -268,6 +268,9 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertEqual(public["showdown"], {})
         self.assertFalse(card_faces(public))
         self.assertFalse(card_faces(result.public_event))
+        terminal = self.game.terminal_public_state(state, roster)
+        self.assertEqual(terminal["showdown"], {})
+        self.assertFalse(card_faces(terminal))
 
     def test_short_all_in_does_not_reopen_but_cumulative_short_raises_do(self):
         roster, state = self.new_state(4)

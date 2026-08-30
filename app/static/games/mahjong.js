@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.2";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.3";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
 
   function ensureStyle() {
@@ -216,6 +216,32 @@
       scroll.appendChild(node);
     });
     wrap.append(head, scroll);
+    const terminalHands = context.state && context.state.terminal_hands;
+    if (terminalHands && typeof terminalHands === "object") {
+      const review = el("details", "mahjong-terminal-review");
+      review.appendChild(el("summary", "mahjong-terminal-summary", "终局手牌复盘 · 展开查看四家牌面"));
+      const rows = el("div", "mahjong-terminal-rows");
+      Object.entries(terminalHands).forEach(([playerId, tiles]) => {
+        const participant = (context.participants || []).find(
+          (item) => item.player_id === playerId
+        );
+        const row = el("section", "mahjong-terminal-row");
+        row.dataset.playerId = playerId;
+        row.appendChild(el(
+          "strong",
+          "mahjong-terminal-name",
+          `${participant && (participant.display_name || participant.player_id) || playerId} · ${Array.isArray(tiles) ? tiles.length : 0} 张`
+        ));
+        const faces = el("div", "mahjong-terminal-hand");
+        (Array.isArray(tiles) ? tiles : []).forEach(
+          (tile) => faces.appendChild(publicTile(tile))
+        );
+        row.appendChild(faces);
+        rows.appendChild(row);
+      });
+      review.appendChild(rows);
+      wrap.appendChild(review);
+    }
     return {wrap, scroll};
   }
 
