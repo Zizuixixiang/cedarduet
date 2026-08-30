@@ -1,44 +1,171 @@
 # CedarDuet / 双弈
 
-人类与自己的 AI 搭档进行回合制棋牌对弈的独立服务。
+CedarDuet（双弈）是让人类、绑定 AI 与系统 NPC 同桌进行回合制棋、牌、骰游戏的独立
+FastAPI/ASGI 服务。同一仓库包含 **25 款游戏**、人类 Web、AI HTTP 游戏接口、标准本地
+stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱乐筹码、互动兑换、欠条与
+成就系统。
 
-CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、房间系统、共享时间线、人类网页端、AI HTTP 接口、SQLite 持久化，以及全局娱乐筹码、互动兑换、欠条与成就系统。CedarToy 是当前官方部署所使用的认证、绑定关系和 MCP 聚合层，但游戏逻辑并不放在 CedarToy 主仓库里。
+官方实例通过 [toy.cedarstar.org](https://toy.cedarstar.org) 使用：CedarToy 负责账号、
+人机绑定、可信身份与标准 MCP 聚合，CedarDuet 负责游戏规则、房间和状态。CedarDuet 仍是
+独立服务，游戏逻辑不在 CedarToy 主仓库中。
 
 > 当前定位：公益、非商业、娱乐用途。筹码仅为站内娱乐数值，不支持充值、提现或与真钱兑换。
 
-## 当前游戏
+> [!IMPORTANT]
+> `POST /mcp/play` 是 **CedarDuet 的 AI HTTP 游戏接口**，不等同于标准 MCP transport，
+> 不要把它的 URL 填成 MCP Server 地址。官方标准 MCP 由 CedarToy 聚合提供；本地 clone
+> 的标准 MCP 由 `app.local_mcp` 通过 stdio 提供。
 
-当前生产目录共 **25 款**：
+## 25 款游戏
 
-- `tictactoe`：3×3 井字棋
-- `gomoku`：15×15 五子棋，无禁手
-- `othello`：8×8 黑白棋
-- `connect4`：7×6 四子连珠
-- `jungle`：7×9 斗兽棋
-- `xiangqi`：中国象棋
-- `checkers`：English draughts / American checkers 西洋跳棋
-- `chess`：国际象棋
-- `banqi`：翻翻棋
-- `dots_boxes`：2–4 人点格棋
-- `aeroplane_chess`：2–4 人飞行棋
-- `chinese_checkers`：2/3/4/6 人中国跳棋
-- `liars_dice`：2–6 人吹牛骰子
-- `yahtzee`：2–6 人快艇骰子
-- `uno`：2–6 人 UNO
-- `blackjack`：2–6 人 21 点
-- `gandengyan`：2–4 人干瞪眼
-- `train_cards`：2–6 人开火车
-- `doudizhu`：固定 3 人斗地主
-- `guandan`：固定 4 人、对家组队的掼蛋升级赛
-- `zhajinhua`：2–6 人炸金花
-- `junqi`：固定双人暗棋陆战军棋
-- `texas_holdem`：2–6 人无限注德州扑克
-- `go`：固定双人 19×19 围棋
-- `mahjong`：固定四人国标麻将（136 张、无花）
+人数与 NPC 能力来自当前运行时 catalog。表中的“provider”指 OpenAI-compatible API 或
+部署方提供的等价决策通道；“本地策略”表示无需模型 API 即可在进程内行动。
+
+### 棋类（14）
+
+| 游戏 | 标识 / 玩法 | 人数 | 系统 NPC |
+|---|---|---:|---|
+| 井字棋 | `tictactoe` · 3×3 | 2 | 不支持 |
+| 五子棋 | `gomoku` · 15×15、无禁手 | 2 | 不支持 |
+| 黑白棋 | `othello` · 8×8 | 2 | 不支持 |
+| 四子连珠 | `connect4` · 7×6 | 2 | 不支持 |
+| 斗兽棋 | `jungle` · 7×9 | 2 | 不支持 |
+| 中国象棋 | `xiangqi` | 2 | 不支持 |
+| 西洋跳棋 | `checkers` · English draughts / American checkers | 2 | 支持 · provider |
+| 国际象棋 | `chess` | 2 | 支持 · provider |
+| 翻翻棋 | `banqi` | 2 | 支持 · provider |
+| 点格棋 | `dots_boxes` · 5×5 点阵 | 2 / 3 / 4 | 支持 · provider |
+| 飞行棋 | `aeroplane_chess` | 2 / 3 / 4 | 支持 · provider |
+| 中国跳棋 | `chinese_checkers` | 2 / 3 / 4 / 6 | 支持 · provider |
+| 军棋 | `junqi` · 双人暗棋陆战军棋 | 2 | 支持 · 本地策略 |
+| 围棋 | `go` · 19×19 | 2 | 支持 · 本地策略 |
+
+### 牌类（9）
+
+| 游戏 | 标识 / 玩法 | 人数 | 系统 NPC |
+|---|---|---:|---|
+| 21 点 | `blackjack` · 共同对抗虚拟庄家 | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+| UNO | `uno` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+| 干瞪眼 | `gandengyan` | 2 / 3 / 4 | 支持 · provider |
+| 开火车 | `train_cards` | 2 / 3 / 4 / 5 / 6 | 支持 · 本地策略 |
+| 斗地主 | `doudizhu` · 固定三人 | 3 | 支持 · provider |
+| 掼蛋 | `guandan` · 固定四人、对家组队升级赛 | 4 | 支持 · provider |
+| 炸金花 | `zhajinhua` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+| 德州扑克 | `texas_holdem` · 无限注 | 2 / 3 / 4 / 5 / 6 | 支持 · 本地策略 |
+| 国标麻将 | `mahjong` · 136 张、无花 | 4 | 支持 · 本地策略 |
+
+### 骰子类（2）
+
+| 游戏 | 标识 | 人数 | 系统 NPC |
+|---|---|---:|---|
+| 吹牛骰子 | `liars_dice` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+| 快艇骰子 | `yahtzee` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
 
 支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏在对局进行中只把本人手牌/骰子/暗棋身份放进 `private_state`；真实终局可按各游戏规则发布专用复盘字段，德州扑克与炸金花仍保留弃牌/muck 隐私。NPC 与网页端同样只能消费服务端发布的权威合法行动。
 
 当前 25 款中只有 `blackjack`（21点）和 `yahtzee`（快艇骰子）固定为 0 筹码娱乐局；其余游戏均可按 catalog 创建带 `stake` 的房间。新增八款采用明确零和策略：开火车按每名败者一个 stake；斗地主按最终叫分/炸弹倍率在地主与两农民间结算；掼蛋按两人队伍胜负结算；军棋、围棋走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake；德州扑克把 stake 视为每席完整买入，终局按最终内部栈比例分配真实总买入池。
+
+## 对局之外：娱乐筹码与人机互动
+
+CedarDuet 内置全局娱乐筹码、对局 `stake`、统一流水、每日签到、破产、成就、欠条与互动兑换。它们只服务站内娱乐，不支持充值、提现或真钱兑换；完整规则和奖励见[筹码中心](#筹码中心)。
+
+本地 clone 同样包含整套筹码能力，数据与房间一起保存在独立的 `data/local-duel.db`：本地 Web 可进入 `/chips`，本地标准 MCP 可使用 `chips` 动作。
+
+## 运行与部署方式
+
+| 方式 | Web / 应用入口 | 身份与数据 | 标准 MCP |
+|---|---|---|---|
+| 官方 Web / MCP | [toy.cedarstar.org](https://toy.cedarstar.org) | CedarToy 账号与绑定；CedarDuet 游戏服务 | CedarToy 聚合提供 |
+| 本地 clone | `scripts/start-local.*` 启动浏览器 gateway | 固定 `local-human` / `local-ai`；独立 `data/local-duel.db` | `app.local_mcp`，stdio |
+| 自托管生产 | `app.main:app` | 自行提供可信反向代理和身份层 | 自行接入；`/mcp/play` 不是 MCP transport |
+
+### 官方 Web / MCP
+
+官方实例由 CedarToy 提供登录、账号与小机绑定、标准 MCP 聚合，并把经过认证的请求转给
+CedarDuet；CedarDuet 继续作为独立游戏服务运行。
+
+### 本地 clone：浏览器 + 标准 stdio MCP
+
+依赖：
+
+- Python 3.10+；
+- Node.js（直接运行仓库内 vendored JS bridge，无需 `npm install`）。
+
+Windows x64 的 CPython 3.10–3.13 会优先安装项目 Release 中经过 SHA256 校验的 PyMahjongGB 预编译 wheel，正常情况下不需要 Visual Studio C++ Build Tools。只有当前 Python/架构没有匹配 wheel、或 wheel 无法取得时，才会回退源码编译并提示所需编译工具。macOS/Linux 目前仍从 vendored 源码编译 PyMahjongGB。
+
+clone 后运行对应平台入口：
+
+```bash
+git clone https://github.com/Zizuixixiang/cedarduet.git
+cd cedarduet
+# macOS / Linux
+./scripts/start-local.sh
+```
+
+Windows PowerShell：
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Windows cmd 或双击：
+
+```bat
+scripts\start-local.cmd
+```
+
+macOS/Linux 提供上述 shell 入口，Windows 提供 PowerShell 与 cmd 入口。launcher 会创建或复用仓库内 `.venv`；如果当前 Python 缺少标准库 `venv`，会尝试临时引导 `virtualenv` 创建隔离环境，并在失败时给出明确提示。
+
+随后 launcher 会安装 Web/MCP 普通依赖、安装或编译 PyMahjongGB、检查四个 vendored Node
+bridge，以单 worker 启动只监听 `127.0.0.1` 的本地 gateway，并打开浏览器。本地页面固定
+使用 `local-human`，本地 MCP 固定使用 `local-ai`；数据库固定为
+`data/local-duel.db`，不会读写生产 `data/duel.db`。
+
+保持 gateway 运行，另开终端生成标准 stdio MCP 配置：
+
+```bash
+python3 scripts/local.py mcp-config
+```
+
+Windows 使用：
+
+```powershell
+python scripts\local.py mcp-config
+```
+
+如果系统里没有 `python` 命令，但本地 Web 已经成功创建 `.venv`，也可以直接运行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\local.py mcp-config
+```
+
+生成的配置以绝对解释器路径运行 `python -m app.local_mcp`。完整步骤、provider 配置和
+三平台依赖排错见 [docs/LOCAL.md](docs/LOCAL.md)。
+
+本地 clone 完整保留所有现有多人桌型，不会为了本地运行把游戏简化成双人。本地系统 NPC
+只在目标桌型仍有缺座、请求用 NPC 补位时判断：
+
+- 游戏声明了内置本地 NPC 策略时，决策直接在本地进程运行；
+- 游戏支持 NPC、但没有本地策略时，需要配置 OpenAI-compatible API/provider；未配置会在
+  创建房间前明确拒绝，并提示“该游戏 NPC 需要配置 API/模型通道，或加入更多真实小机/减少
+  NPC”，不会改用随机/假算法 NPC；
+- 游戏本身不支持 NPC 时，只能由真实参与者坐满全部席位。
+
+不缺座或没有请求 NPC 补位时，不检查 provider。
+
+### 自托管生产
+
+生产入口仍是：
+
+```bash
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8772
+```
+
+自托管方必须让 CedarDuet 只监听可信内网或 loopback，并自行提供可信反向代理与身份层；
+不要信任公网客户端自行提交的身份 Header。`app.main:app` 不启用 `local-human` / `local-ai`
+本地身份。事件唤醒是单进程内机制，本地和生产都必须保持单 worker。
+
+## 游戏规则与状态接口
 
 ### 21点固定规则与状态接口
 
@@ -268,29 +395,6 @@ data/                   本地运行数据目录；真实数据库不会提交�
   `human_id + ai_id` 分对，奖励在解锁事务内自动进入统一账本；系统 NPC 没有
   钱包、成就或奖励。欠条已接入可靠事实与自动奖励；互动兑换不新增成就。
 
-## 本地启动
-
-要求 Python 3.10+、Node.js，以及用于编译 PyMahjongGB 的 C++ 工具链。clone 后运行对应平台入口：
-
-```bash
-git clone https://github.com/Zizuixixiang/cedarduet.git
-cd cedarduet
-# macOS / Linux
-./scripts/start-local.sh
-```
-
-Windows PowerShell：
-
-```powershell
-.\scripts\start-local.ps1
-```
-
-也可双击或在 cmd 中运行 `scripts\start-local.cmd`。launcher 会创建 `.venv`、安装本地依赖、编译 PyMahjongGB、检查四个 vendored Node bridge，以单 worker 启动仅监听 `127.0.0.1` 的本地 gateway，并打开浏览器。数据固定写入 `data/local-duel.db`。
-
-页面固定使用 `local-human`，本地 MCP 固定使用 `local-ai`。gateway 运行后执行 `python3 scripts/local.py mcp-config`（Windows 用 `py -3 scripts\local.py mcp-config`）即可生成含绝对解释器路径的 stdio MCP 配置。完整步骤、provider 配置和三平台依赖排错见 [docs/LOCAL.md](docs/LOCAL.md)。
-
-生产部署仍然启动 `app.main:app`；它不会读取或启用上述本地身份。直接启动生产入口而没有可信代理 Header 时，网页仍会提示从主站登录，这是预期的生产安全边界。事件唤醒是单进程内机制，本地和生产均须保持单 worker。
-
 ## 可信人类身份协议
 
 人类网页请求由上游代理验证后注入以下 Header：
@@ -312,7 +416,11 @@ X-Duel-Bound-Ais: <base64url JSON [{"id":"...","name":"..."}]>
 
 开房时网页只提交所选 AI，服务端会再次校验它是否属于可信绑定清单。
 
-## AI HTTP 接口
+## CedarDuet AI HTTP 接口（`/mcp/play`）
+
+这是 CedarDuet 面向 AI 操作的普通 HTTP JSON 接口，不是标准 MCP transport。官方标准 MCP
+入口由 CedarToy 聚合层提供；本地 clone 的标准 MCP 入口是 `app.local_mcp` 的 stdio
+adapter。不要把 `/mcp/play` URL 当作 MCP Server 地址；完整部署差异见前文“运行与部署方式”。
 
 AI 操作统一提交到：
 
