@@ -1586,9 +1586,16 @@ async def _mcp_play_impl(body: McpPlayBody):
                 "room_id": room_id,
             }
         await _schedule_current_system_npc(result)
-        message = f"AI 已接受 {result['stake_label']} 邀请，对局现在开始。"
         if result["status"] == "playing":
+            message = f"AI 已接受 {result['stake_label']} 邀请，对局现在开始。"
             return _bootstrap_ai_response(result, body.player_id, message)
+        pending_count = len(result.get("pending_for", []))
+        waiting = (
+            f"仍等待其他 {pending_count} 名参与者确认"
+            if pending_count
+            else "仍等待其他参与者确认"
+        )
+        message = f"AI 已接受 {result['stake_label']} 邀请，{waiting}。"
         return _pending_ai_response(result, body.player_id, message)
 
     if body.action == "join":

@@ -1812,7 +1812,133 @@ assert.equal(authoritativeRoundText({{
 """
         self.run_node(harness)
 
+    def test_pending_confirmation_copy_resolves_names_and_degrades_safely(self):
+        helpers = "\n".join((
+            function_source("pendingConfirmationDetails"),
+            function_source("pendingConfirmationText"),
+            function_source("pendingRoomCreatedNotice"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+{helpers}
+const pendingRoom = {{
+  room_id: "4X3T437D",
+  confirmations: [
+    {{player_id: "human-1", decision: "accepted"}},
+    {{player_id: "ai-1", decision: "pending"}},
+    {{player_id: "ai-2", decision: "pending"}},
+    {{player_id: "ai-3", decision: "pending"}},
+  ],
+  participants: [
+    {{player_id: "human-1", display_name: "南山"}},
+    {{player_id: "ai-1", display_name: "小满"}},
+    {{player_id: "ai-2", display_name: "未画"}},
+    {{player_id: "ai-3", display_name: "青禾"}},
+  ],
+}};
+assert.deepEqual(pendingConfirmationDetails(pendingRoom), {{
+  count: 3,
+  names: ["小满", "未画", "青禾"],
+}});
+assert.equal(
+  pendingConfirmationText(pendingRoom),
+  "待 3 人确认：小满 / 未画 / 青禾",
+);
+assert.equal(
+  pendingRoomCreatedNotice(pendingRoom),
+  "房间 4X3T437D 创建成功。待 3 人确认：小满 / 未画 / 青禾。"
+    + "全部待确认参与者明确接受后，对局才会开始。",
+);
+
+const malformedRoom = {{
+  confirmations: [
+    {{decision: "pending"}},
+    {{player_id: null, decision: "pending"}},
+  ],
+  participants: "unexpected",
+}};
+assert.deepEqual(pendingConfirmationDetails(malformedRoom), {{count: 2, names: []}});
+assert.equal(pendingConfirmationText(malformedRoom), "待 2 人确认");
+assert.equal(pendingConfirmationText(null), "等待参与者确认");
+assert.match(pendingRoomCreatedNotice(null), /^房间创建成功。等待参与者确认。/);
+"""
+        self.run_node(harness)
+
+    def test_create_room_pending_reports_success_and_pending_names(self):
+        helpers = "\n".join((
+            function_source("pendingConfirmationDetails"),
+            function_source("pendingConfirmationText"),
+            function_source("pendingRoomCreatedNotice"),
+        ))
+        start = SCRIPT.index("async function createRoom(")
+        end = SCRIPT.index("\nasync function openRoom(", start)
+        create_room = SCRIPT[start:end]
+        harness = f"""
+const assert = require("node:assert/strict");
+{helpers}
+let room = {{room_id: "old-room"}};
+let loadIdentityOptions = null;
+let shownNotice = null;
+let renderGameCalled = false;
+const elements = {{
+  createButton: {{disabled: false}},
+  stake: {{value: "10"}},
+  gameType: {{value: "mahjong"}},
+  mode: {{value: "human_first"}},
+}};
+const $ = (id) => elements[id];
+let buttonStateChecks = 0;
+const updateCreateButtonState = () => {{ buttonStateChecks += 1; return true; }};
+const selectedParticipantIds = () => ["ai-1", "ai-2", "ai-3"];
+const selectedTargetPlayerCount = () => 4;
+const selectedFillWithNpcs = () => false;
+const request = async () => ({{
+  message: "等待对方确认",
+  room: {{
+    room_id: "4X3T437D",
+    status: "pending",
+    confirmations: [
+      {{player_id: "human-1", decision: "accepted"}},
+      {{player_id: "ai-1", decision: "pending"}},
+      {{player_id: "ai-2", decision: "pending"}},
+      {{player_id: "ai-3", decision: "pending"}},
+    ],
+    participants: [
+      {{player_id: "human-1", display_name: "南山"}},
+      {{player_id: "ai-1", display_name: "小满"}},
+      {{player_id: "ai-2", display_name: "未画"}},
+      {{player_id: "ai-3", display_name: "青禾"}},
+    ],
+  }},
+}});
+const loadIdentity = async (options) => {{ loadIdentityOptions = options; }};
+const showNotice = (text) => {{ shownNotice = text; }};
+const renderGame = () => {{ renderGameCalled = true; }};
+const startRoomPolling = () => {{}};
+{create_room}
+
+(async () => {{
+  await createRoom();
+  assert.equal(room, null);
+  assert.deepEqual(loadIdentityOptions, {{quiet: true}});
+  assert.match(shownNotice, /^房间 4X3T437D 创建成功。/);
+  assert.match(shownNotice, /待 3 人确认：小满 \/ 未画 \/ 青禾/);
+  assert.match(shownNotice, /明确接受后，对局才会开始/);
+  assert.equal(renderGameCalled, false);
+  assert.equal(buttonStateChecks, 2);
+  assert.equal(elements.createButton.disabled, true);
+}})().catch((error) => {{
+  console.error(error);
+  process.exitCode = 1;
+}});
+"""
+        self.run_node(harness)
+
     def test_room_list_marks_finished_cards_with_an_always_visible_badge(self):
+        helpers = "\n".join((
+            function_source("pendingConfirmationDetails"),
+            function_source("pendingConfirmationText"),
+        ))
         renderer = function_source("renderRooms")
         harness = f"""
 const assert = require("node:assert/strict");
@@ -1846,6 +1972,7 @@ const retentionDeadlineTitle = () => "";
 const updateRoomPreservation = () => {{}};
 const deleteRoom = () => {{}};
 const openRoom = () => {{}};
+{helpers}
 {renderer}
 const base = {{
   game_type: "gomoku", game_name: "五子棋", ai_name: "小机一号",
@@ -1856,12 +1983,23 @@ renderRooms([
   {{...base, room_id: "END-1", status: "finished", winner: "draw"}},
   {{...base, room_id: "PLAY-1", status: "playing", winner: null}},
   {{...base, room_id: "WAIT-1", status: "waiting", winner: null}},
+  {{
+    ...base, room_id: "PENDING-1", status: "pending", winner: null,
+    pending_for: ["ai-1", "ai-2", "ai-3"],
+    participants: [
+      {{player_id: "human-1", display_name: "南山"}},
+      {{player_id: "ai-1", display_name: "小满"}},
+      {{player_id: "ai-2", display_name: "未画"}},
+      {{player_id: "ai-3", display_name: "青禾"}},
+    ],
+  }},
 ]);
-assert.equal(list.children.length, 3);
-const [endedCard, playingCard, waitingCard] = list.children;
+assert.equal(list.children.length, 4);
+const [endedCard, playingCard, waitingCard, pendingCard] = list.children;
 assert.equal(endedCard.className, "room-card ended");
 assert.equal(playingCard.className, "room-card");
 assert.equal(waitingCard.className, "room-card");
+assert.equal(pendingCard.className, "room-card");
 
 const endedOpen = endedCard.children[0];
 assert.match(endedOpen.attributes["aria-label"], /进入已结束的五子棋房间 END-1/);
@@ -1879,6 +2017,10 @@ assert.ok(!playingState.children.some(
 ));
 const waitingState = waitingCard.children[0].children[2];
 assert.equal(waitingState.children[0].textContent, "等待加入");
+const pendingState = pendingCard.children[0].children[2];
+assert.equal(pendingState.children[0].className, "turn pending-confirmations");
+assert.equal(pendingState.children[0].textContent, "待 3 人确认：小满 / 未画 / 青禾");
+assert.equal(pendingState.children[1].textContent, "进入 →");
 """
         self.run_node(harness)
 

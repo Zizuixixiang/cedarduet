@@ -490,6 +490,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-meta { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .room-state { align-self: stretch; display: grid; justify-items: end; align-content: space-between; gap: 8px; }
 .room-state .turn { color: var(--pink-dark); font-size: 12px; white-space: nowrap; }
+.room-state .turn.pending-confirmations {
+  min-width: 0;
+  max-width: min(260px, 36vw);
+  line-height: 1.45;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .room-status-badge {
   min-height: 28px;
   padding: 5px 8px;
@@ -949,8 +957,16 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1.45;
 }
 .create-note span { color: var(--pink); }
-.pending-list { display: grid; gap: 8px; }
+.pending-list { display: grid; gap: 10px; }
 .compact-head { margin-bottom: 8px; }
+.pending-group { display: grid; gap: 6px; }
+.pending-group-title {
+  color: var(--pink-dark);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+}
+.pending-group-list { display: grid; gap: 8px; }
 .pending-card {
   padding: 11px;
   display: grid;
@@ -961,9 +977,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border: 2px solid var(--purple);
 }
 .pending-copy { min-width: 0; display: grid; gap: 5px; }
-.pending-title { color: var(--purple-darker); font-size: 14px; }
-.pending-meta { color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; line-height: 1.45; }
+.pending-title { color: var(--purple-darker); font-size: 14px; overflow-wrap: anywhere; }
+.pending-meta { color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .pending-card .pixel-btn { min-height: 36px; padding: 7px 10px; font-size: 10px; }
+.pending-card-outgoing { grid-template-columns: minmax(0, 1fr) auto; }
 
 .game-header { overflow: hidden; }
 .game-toolbar {
@@ -3211,6 +3228,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .room-open { min-height: 82px; padding: 9px; grid-template-columns: 46px 1fr; }
   .room-glyph { width: 44px; height: 44px; }
   .room-state { grid-column: 2; display: flex; justify-content: space-between; }
+  .room-state .turn.pending-confirmations { max-width: 100%; text-align: left; }
   .room-status-badge { min-height: 24px; padding: 4px 7px; font-size: 10px; }
   .room-record-controls { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px; }
   .room-retention { font-size: 10px; line-height: 1.35; }
@@ -3218,6 +3236,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .pending-card { grid-template-columns: 1fr 1fr; }
   .pending-copy { grid-column: 1 / -1; }
   .pending-card .pixel-btn { width: 100%; }
+  .pending-card-outgoing { grid-template-columns: 1fr; }
   .game-toolbar {
     min-height: 50px;
     padding: 5px 6px;

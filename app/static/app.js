@@ -531,6 +531,74 @@ function retentionDeadlineTitle(targetRoom) {
   return `预计 ${deadline.toLocaleString("zh-CN")} 自动删除`;
 }
 
+function pendingConfirmationDetails(targetRoom) {
+  const source = targetRoom && typeof targetRoom === "object" ? targetRoom : {};
+  const participants = Array.isArray(source.participants) ? source.participants : [];
+  const namesById = new Map();
+  participants.forEach((participant) => {
+    if (!participant || typeof participant !== "object") return;
+    const playerId = typeof participant.player_id === "string"
+      ? participant.player_id.trim()
+      : "";
+    const displayName = typeof participant.display_name === "string"
+      ? participant.display_name.trim()
+      : "";
+    if (playerId && displayName) namesById.set(playerId, displayName);
+  });
+
+  const pendingIds = [];
+  const seenIds = new Set();
+  const addPendingId = (value) => {
+    const playerId = typeof value === "string" ? value.trim() : "";
+    if (!playerId || seenIds.has(playerId)) return;
+    seenIds.add(playerId);
+    pendingIds.push(playerId);
+  };
+
+  const pendingFor = Array.isArray(source.pending_for) ? source.pending_for : [];
+  pendingFor.forEach(addPendingId);
+  const confirmations = Array.isArray(source.confirmations) ? source.confirmations : [];
+  const pendingConfirmations = confirmations.filter(
+    (confirmation) => confirmation && confirmation.decision === "pending"
+  );
+  pendingConfirmations.forEach((confirmation) => addPendingId(confirmation.player_id));
+  const pendingParticipants = participants.filter(
+    (participant) => participant && participant.confirmation_status === "pending"
+  );
+  pendingParticipants.forEach((participant) => addPendingId(participant.player_id));
+
+  const count = Math.max(
+    pendingIds.length,
+    pendingFor.length,
+    pendingConfirmations.length,
+    pendingParticipants.length
+  );
+  return {
+    count,
+    names: pendingIds.map((playerId) => namesById.get(playerId)).filter(Boolean),
+  };
+}
+
+function pendingConfirmationText(targetRoom) {
+  const {count, names} = pendingConfirmationDetails(targetRoom);
+  if (!count) return "等待参与者确认";
+  if (!names.length) return `待 ${count} 人确认`;
+  const unnamedCount = Math.max(0, count - names.length);
+  const suffix = unnamedCount ? ` / 另 ${unnamedCount} 人` : "";
+  return `待 ${count} 人确认：${names.join(" / ")}${suffix}`;
+}
+
+function pendingRoomCreatedNotice(targetRoom) {
+  const roomId = targetRoom && typeof targetRoom.room_id === "string"
+    ? targetRoom.room_id.trim()
+    : "";
+  const subject = roomId ? `房间 ${roomId} ` : "房间";
+  return (
+    `${subject}创建成功。${pendingConfirmationText(targetRoom)}。`
+    + "全部待确认参与者明确接受后，对局才会开始。"
+  );
+}
+
 function renderRooms(rooms) {
   const list = $("roomList");
   list.replaceChildren();
@@ -584,9 +652,12 @@ function renderRooms(rooms) {
       state.appendChild(statusBadge);
     } else {
       const turn = document.createElement("span");
-      turn.className = "turn";
+      const pending = summary.status === "pending";
+      turn.className = `turn${pending ? " pending-confirmations" : ""}`;
       turn.textContent = summary.status === "playing"
         ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor)
+        : pending
+        ? pendingConfirmationText(summary)
         : statusLabel(summary.status);
       state.appendChild(turn);
     }
@@ -629,14 +700,56 @@ function renderRooms(rooms) {
   });
 }
 
-function renderPendingInvitations(invitations = []) {
+function isOutgoingPendingRoom(summary) {
+  if (!summary || summary.status !== "pending") return false;
+  const participants = Array.isArray(summary.participants) ? summary.participants : [];
+  return participants.some((participant) => (
+    participant
+    && participant.role === "human"
+    && participant.player_id === summary.initiator_player_id
+  ));
+}
+
+function partitionLobbyPendingRooms(rooms = [], invitations = []) {
+  const incomingRoomIds = new Set(
+    invitations.map((item) => item && item.room_id).filter(Boolean)
+  );
+  const outgoing = rooms.filter(isOutgoingPendingRoom);
+  const pendingRoomIds = new Set([
+    ...incomingRoomIds,
+    ...outgoing.map((item) => item.room_id),
+  ]);
+  return {
+    outgoing,
+    remainingRooms: rooms.filter((item) => !pendingRoomIds.has(item.room_id)),
+  };
+}
+
+function renderPendingInvitations(invitations = [], outgoingRooms = []) {
   const panel = $("pendingPanel");
   const list = $("pendingList");
   list.replaceChildren();
-  panel.classList.toggle("hidden", invitations.length === 0);
-  invitations.forEach((invitation) => {
+  panel.classList.toggle(
+    "hidden", invitations.length === 0 && outgoingRooms.length === 0
+  );
+
+  const appendGroup = (headingText, items, renderItem) => {
+    if (!items.length) return;
+    const group = document.createElement("section");
+    group.className = "pending-group";
+    const heading = document.createElement("h3");
+    heading.className = "pending-group-title";
+    heading.textContent = headingText;
+    const cards = document.createElement("div");
+    cards.className = "pending-group-list";
+    items.forEach((item) => cards.appendChild(renderItem(item)));
+    group.append(heading, cards);
+    list.appendChild(group);
+  };
+
+  appendGroup("待你确认", invitations, (invitation) => {
     const card = document.createElement("article");
-    card.className = "pending-card";
+    card.className = "pending-card pending-card-incoming";
     const copy = document.createElement("div");
     copy.className = "pending-copy";
     const title = document.createElement("strong");
@@ -657,7 +770,28 @@ function renderPendingInvitations(invitations = []) {
     reject.textContent = "拒绝";
     reject.addEventListener("click", () => respondToInvitation(invitation.room_id, "reject"));
     card.append(copy, accept, reject);
-    list.appendChild(card);
+    return card;
+  });
+
+  appendGroup("等待对方确认", outgoingRooms, (summary) => {
+    const card = document.createElement("article");
+    card.className = "pending-card pending-card-outgoing";
+    const copy = document.createElement("div");
+    copy.className = "pending-copy";
+    const title = document.createElement("strong");
+    title.className = "pending-title";
+    title.textContent = `${summary.game_name} · 房间 ${summary.room_id} 已创建`;
+    const meta = document.createElement("span");
+    meta.className = "pending-meta";
+    meta.textContent = `${summary.stake_label} · ${pendingConfirmationText(summary)}`;
+    copy.append(title, meta);
+    const view = document.createElement("button");
+    view.className = "pixel-btn secondary";
+    view.type = "button";
+    view.textContent = "查看房间";
+    view.addEventListener("click", () => openRoom(summary.room_id));
+    card.append(copy, view);
+    return card;
   });
 }
 
@@ -1278,9 +1412,12 @@ async function loadIdentity({quiet = false} = {}) {
     renderUnreadBadges(identity.unread);
     syncGameTypeOptions(data.games || []);
     syncMachinePicker(data.machines || []);
-    renderPendingInvitations(data.pending_invitations || []);
-    const incoming = new Set((data.pending_invitations || []).map((item) => item.room_id));
-    renderRooms((data.rooms || []).filter((item) => !incoming.has(item.room_id)));
+    const invitations = data.pending_invitations || [];
+    const {outgoing, remainingRooms} = partitionLobbyPendingRooms(
+      data.rooms || [], invitations
+    );
+    renderPendingInvitations(invitations, outgoing);
+    renderRooms(remainingRooms);
     if (!room) {
       showView("lobbyView");
       if (!quiet) await ackHumanNotifications("game");
@@ -1321,7 +1458,7 @@ async function createRoom() {
     if (data.room.status === "pending") {
       room = null;
       await loadIdentity({quiet: true});
-      showNotice(data.message);
+      showNotice(pendingRoomCreatedNotice(data.room));
       return;
     }
     renderGame(data.room, data.message, data.timeline);

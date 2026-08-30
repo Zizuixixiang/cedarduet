@@ -387,6 +387,61 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.db_patch.stop()
         self.temporary.cleanup()
 
+    async def test_multiplayer_stake_accept_message_matches_pending_until_last_ai(self):
+        staked = framework.create_room(
+            "mahjong", "human_first", "human", "stake-human", "stake-ai-1",
+            ordered_participants=[
+                {"player_id": "stake-human", "role": "human"},
+                {"player_id": "stake-ai-1", "role": "ai"},
+                {"player_id": "stake-ai-2", "role": "ai"},
+                {"player_id": "stake-ai-3", "role": "ai"},
+            ],
+            participant_names={
+                "stake-human": "南山",
+                "stake-ai-1": "杉星",
+                "stake-ai-2": "C老师",
+                "stake-ai-3": "clio_web",
+            },
+            first_player_id="stake-human",
+            stake=10,
+        )
+        self.assertEqual(staked["status"], "pending")
+        self.assertEqual(
+            staked["pending_for"],
+            ["stake-ai-1", "stake-ai-2", "stake-ai-3"],
+        )
+
+        for player_id, remaining in (
+            ("stake-ai-1", 2),
+            ("stake-ai-2", 1),
+        ):
+            accepted = await self.client.post("/mcp/play", json={
+                "action": "accept",
+                "player_id": player_id,
+                "room_id": staked["room_id"],
+            })
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            payload = accepted.json()
+            self.assertEqual(payload["status"], "pending")
+            self.assertEqual(payload["confirmation_decision"], "accepted")
+            self.assertIn(
+                f"仍等待其他 {remaining} 名参与者确认", payload["message"]
+            )
+            self.assertNotIn("对局现在开始", payload["message"])
+            self.assertNotIn("room", payload)
+
+        final = await self.client.post("/mcp/play", json={
+            "action": "accept",
+            "player_id": "stake-ai-3",
+            "room_id": staked["room_id"],
+        })
+        self.assertEqual(final.status_code, 200, final.text)
+        payload = final.json()
+        self.assertEqual(payload["status"], "playing")
+        self.assertEqual(payload["room"]["status"], "playing")
+        self.assertTrue(payload["bootstrap"])
+        self.assertIn("对局现在开始", payload["message"])
+
     async def test_registry_mcp_bootstrap_full_state_delta_and_refresh_persistence(self):
         catalog = {item["game_type"]: item for item in game_catalog()}
         self.assertEqual(catalog["mahjong"]["allowed_player_counts"], [4])

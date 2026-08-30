@@ -323,10 +323,152 @@ assert.equal(machinePickerSummary([]), "请选择对手");
             HTML,
         )
         self.assertIn("余额可为负", HTML)
+        self.assertIn("<h2>待确认</h2>", HTML)
         self.assertLess(HTML.index('id="pendingPanel"'), HTML.index("我的全部房间"))
         pending = function_source("renderPendingInvitations")
-        for copy in ("发起方", "棋种", "stake_label", "接受", "拒绝"):
+        for copy in (
+            "待你确认", "等待对方确认", "发起方", "棋种", "stake_label",
+            "接受", "拒绝", "查看房间", "pendingConfirmationText",
+        ):
             self.assertIn(copy, pending)
+        loader = SCRIPT[
+            SCRIPT.index("async function loadIdentity("):
+            SCRIPT.index("async function createRoom(")
+        ]
+        self.assertIn("partitionLobbyPendingRooms", loader)
+        self.assertIn("renderPendingInvitations(invitations, outgoing)", loader)
+        self.assertIn("renderRooms(remainingRooms)", loader)
+        self.assertIn(".pending-card-outgoing {", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(".pending-card-outgoing { grid-template-columns: 1fr; }", mobile)
+
+    @unittest.skipUnless(NODE, "node is required for pending lobby tests")
+    def test_pending_area_groups_incoming_and_outgoing_without_room_duplicates(self):
+        functions = "\n".join((
+            function_source("pendingConfirmationDetails"),
+            function_source("pendingConfirmationText"),
+            function_source("isOutgoingPendingRoom"),
+            function_source("partitionLobbyPendingRooms"),
+        ))
+        start = SCRIPT.index("function renderPendingInvitations(")
+        end = SCRIPT.index("\nasync function respondToInvitation(", start)
+        renderer = SCRIPT[start:end]
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor(owner) {{ this.owner = owner; }}
+  toggle(name, force) {{
+    const names = new Set(this.owner.className.split(/\\s+/).filter(Boolean));
+    if (force === undefined ? !names.has(name) : force) names.add(name);
+    else names.delete(name);
+    this.owner.className = [...names].join(" ");
+  }}
+  contains(name) {{ return this.owner.className.split(/\\s+/).includes(name); }}
+}}
+class Element {{
+  constructor(tagName) {{
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.className = "";
+    this.classList = new ClassList(this);
+    this.textContent = "";
+    this.listeners = {{}};
+  }}
+  replaceChildren(...children) {{ this.children = children; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  append(...children) {{ this.children.push(...children); }}
+  addEventListener(name, listener) {{ this.listeners[name] = listener; }}
+  click() {{ if (this.listeners.click) this.listeners.click(); }}
+}}
+const panel = new Element("section");
+panel.className = "hidden";
+const list = new Element("div");
+const $ = (id) => id === "pendingPanel" ? panel : list;
+const document = {{createElement: (tagName) => new Element(tagName)}};
+const responses = [];
+const opened = [];
+const respondToInvitation = (roomId, decision) => responses.push([roomId, decision]);
+const openRoom = (roomId) => opened.push(roomId);
+{functions}
+{renderer}
+
+const incoming = [{{
+  room_id: "IN-1", initiator_name: "杉星", game_name: "五子棋",
+  stake_label: "🪙6/人",
+}}];
+const outgoing = {{
+  room_id: "OUT-1", status: "pending", initiator_player_id: "human-1",
+  game_name: "麻将", stake_label: "🪙10/人",
+  pending_for: ["ai-1", "ai-2", "ai-3"],
+  participants: [
+    {{player_id: "human-1", role: "human", display_name: "南山"}},
+    {{player_id: "ai-1", role: "ai", display_name: "杉星"}},
+    {{player_id: "ai-2", role: "ai", display_name: "C老师"}},
+    {{player_id: "ai-3", role: "ai", display_name: "clio_web"}},
+  ],
+}};
+const incomingSummary = {{
+  room_id: "IN-1", status: "pending", initiator_player_id: "ai-x",
+  participants: [{{player_id: "human-1", role: "human"}}],
+}};
+const acceptedIncoming = {{
+  room_id: "OTHER-1", status: "pending", initiator_player_id: "ai-y",
+  participants: [{{player_id: "human-1", role: "human"}}],
+}};
+const entertainment = {{
+  room_id: "FREE-1", status: "playing", stake: 0,
+  initiator_player_id: "human-1",
+  participants: [{{player_id: "human-1", role: "human"}}],
+}};
+const partition = partitionLobbyPendingRooms(
+  [incomingSummary, outgoing, acceptedIncoming, entertainment], incoming
+);
+assert.deepEqual(partition.outgoing.map((item) => item.room_id), ["OUT-1"]);
+assert.deepEqual(
+  partition.remainingRooms.map((item) => item.room_id),
+  ["OTHER-1", "FREE-1"],
+);
+
+renderPendingInvitations(incoming, partition.outgoing);
+assert.equal(panel.classList.contains("hidden"), false);
+assert.equal(list.children.length, 2);
+const [incomingGroup, outgoingGroup] = list.children;
+assert.equal(incomingGroup.children[0].textContent, "待你确认");
+assert.equal(outgoingGroup.children[0].textContent, "等待对方确认");
+const incomingCard = incomingGroup.children[1].children[0];
+assert.equal(incomingCard.children[1].textContent, "接受");
+assert.equal(incomingCard.children[2].textContent, "拒绝");
+incomingCard.children[1].click();
+incomingCard.children[2].click();
+assert.deepEqual(responses, [["IN-1", "accept"], ["IN-1", "reject"]]);
+const outgoingCard = outgoingGroup.children[1].children[0];
+assert.equal(outgoingCard.className, "pending-card pending-card-outgoing");
+assert.equal(outgoingCard.children.length, 2);
+assert.equal(outgoingCard.children[0].children[0].textContent, "麻将 · 房间 OUT-1 已创建");
+assert.equal(
+  outgoingCard.children[0].children[1].textContent,
+  "🪙10/人 · 待 3 人确认：杉星 / C老师 / clio_web",
+);
+assert.equal(outgoingCard.children[1].textContent, "查看房间");
+outgoingCard.children[1].click();
+assert.deepEqual(opened, ["OUT-1"]);
+
+renderPendingInvitations([], []);
+assert.equal(panel.classList.contains("hidden"), true);
+assert.equal(list.children.length, 0);
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
 
     def test_redundant_summary_is_removed_and_every_selected_wallet_is_loaded(self):
         loader = SCRIPT[
