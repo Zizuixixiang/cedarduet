@@ -229,7 +229,7 @@ class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal[
-        "rooms", "new", "rematch", "join", "move", "state", "resign", "leave", "accept", "reject",
+        "catalog", "rooms", "new", "rematch", "join", "move", "state", "resign", "leave", "accept", "reject",
         "chips",
     ]
     player_id: str = Field(min_length=1, max_length=80)

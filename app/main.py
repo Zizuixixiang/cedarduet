@@ -1412,6 +1412,12 @@ async def _mcp_play_impl(body: McpPlayBody):
         raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
     if body.full_state and body.action != "state":
         raise DuelError("full_state 只适用于 state 动作")
+    if body.action == "catalog":
+        return {
+            "ok": True,
+            "status": "ok",
+            "games": game_catalog(),
+        }
     if body.action == "rooms":
         room_limit = body.limit if body.limit is not None else 50
         rooms = list_ai_rooms(

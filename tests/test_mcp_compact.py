@@ -74,6 +74,18 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    async def test_catalog_exposes_game_capabilities(self):
+        response = await self.client.post(
+            "/mcp/play", json={"action": "catalog", "player_id": "ai-1"}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        games = {item["game_type"]: item for item in payload["games"]}
+        self.assertIn("aeroplane_chess", games)
+        self.assertEqual(games["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4])
+        self.assertTrue(games["aeroplane_chess"]["supports_npcs"])
+        self.assertTrue(games["aeroplane_chess"]["supports_stakes"])
+
     def assert_full_room(self, payload, *, ai_balance=205, human_balance=200):
         self.assertTrue(payload["bootstrap"])
         self.assertEqual(payload["status"], "playing")
