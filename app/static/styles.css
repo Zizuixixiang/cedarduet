@@ -2554,11 +2554,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   width: min(700px, 100%);
   min-width: 0;
   margin: 0 auto;
-  padding-top: 8px;
   display: grid;
   gap: 6px;
-  border-top: 2px solid rgba(134, 120, 160, .25);
-  overflow: visible;
 }
 .recent-chat-feed {
   min-width: 0;
@@ -2608,11 +2605,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.multiplayer-presentation .game-compose {
-  width: 100%;
-  min-width: 0;
-  margin-top: 0;
-}
+.multiplayer-presentation .game-compose { width: 100%; margin-top: 0; }
 .chat-compose {
   width: min(700px, 100%);
   margin: 2px auto 0;
@@ -3333,7 +3326,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .move-confirm span { flex: 1; align-self: center; font-size: 12px; }
   .move-confirm .pixel-btn { min-width: 88px; }
   .chat-compose { gap: 6px; }
-  .multiplayer-presentation .game-chat-area { padding-top: 6px; gap: 5px; }
+  .multiplayer-presentation .game-chat-area { gap: 5px; }
   .recent-chat-feed { padding: 5px 6px 6px; }
   .recent-chat-messages { max-height: 116px; gap: 2px; }
   .recent-chat-message {

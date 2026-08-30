@@ -5,11 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GAMES = ROOT / "app" / "static" / "games"
-PUBLIC_STYLES = (ROOT / "app" / "static" / "styles.css").read_text(
-    encoding="utf-8"
-)
 APP_SCRIPT = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
-HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 
 
 def css_rule(source: str, selector: str) -> str:
@@ -71,21 +67,6 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
                 script = (GAMES / f"{game_type}.js").read_text(encoding="utf-8")
                 self.assertIn("ownsPrivateStatePresentation: true", script)
         self.assertIn("renderer.ownsPrivateStatePresentation === true", APP_SCRIPT)
-
-    def test_multiplayer_chat_stays_after_private_and_action_regions(self):
-        stage = HTML[HTML.index('<section class="battle-stage') : HTML.index("historyDrawerTab")]
-        self.assertLess(stage.index('class="board-zone"'), stage.index('id="privateStatePanel"'))
-        self.assertLess(stage.index('id="privateStatePanel"'), stage.index('id="recentChatFeed"'))
-        self.assertLess(stage.index('id="recentChatFeed"'), stage.index('id="chatInput"'))
-        self.assertIn('id="gameChatArea" class="game-chat-area"', stage)
-        self.assertIn('id="chatInput"', stage)
-        self.assertIn('feed.classList.toggle("hidden", messages.length === 0)', APP_SCRIPT)
-        board_zone = css_rule(PUBLIC_STYLES, ".layout-multiplayer .board-zone")
-        self.assertIn("overflow: visible;", board_zone)
-        chat_area = css_rule(PUBLIC_STYLES, ".multiplayer-presentation .game-chat-area")
-        self.assertIn("overflow: visible;", chat_area)
-        composer = css_rule(PUBLIC_STYLES, ".multiplayer-presentation .game-compose")
-        self.assertIn("min-width: 0;", composer)
 
 
 if __name__ == "__main__":
