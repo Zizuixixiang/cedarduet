@@ -11,6 +11,7 @@ from .gomoku import Gomoku
 from .gandengyan import Gandengyan
 from .guandan import Guandan
 from .jungle import Jungle
+from .junqi import Junqi
 from .liars_dice import LiarsDice
 from .othello import Othello
 from .tictactoe import TicTacToe
@@ -42,6 +43,7 @@ GAMES = {
     Yahtzee.game_type: Yahtzee(),
     Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),
+    Junqi.game_type: Junqi(),
     Xiangqi.game_type: Xiangqi(),
     Zhajinhua.game_type: Zhajinhua(),
 }

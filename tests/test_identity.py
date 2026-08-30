@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 21)
+        self.assertEqual(len(payload["games"]), 22)
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
@@ -151,6 +151,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "liars_dice": "dice",
                 "yahtzee": "dice",
                 "jungle": "board",
+                "junqi": "board",
                 "xiangqi": "board",
                 "aeroplane_chess": "board",
                 "chinese_checkers": "board",
@@ -186,6 +187,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "liars_dice": "吹牛骰子",
                 "yahtzee": "快艇骰子",
                 "jungle": "斗兽棋",
+                "junqi": "军棋",
                 "xiangqi": "象棋",
                 "aeroplane_chess": "飞行棋",
                 "chinese_checkers": "中国跳棋",
@@ -333,7 +335,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         html = response.text
         for game_type in (
             "tictactoe", "gomoku", "othello",
-            "connect4", "banqi", "checkers", "chess", "dots_boxes", "jungle", "xiangqi",
+            "connect4", "banqi", "checkers", "chess", "dots_boxes", "jungle", "junqi", "xiangqi",
         ):
             self.assertIn(f'value="{game_type}"', html)
         game_select = html[
