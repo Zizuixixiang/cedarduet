@@ -79,7 +79,11 @@ class StakeLobbyUiTests(unittest.TestCase):
         self.assertIn("height: 34px; min-height: 34px", mobile)
         self.assertIn("max-width: 80px", mobile)
         self.assertIn(".chip-balance { max-width: 48px; font-size: 14px; }", mobile)
-        self.assertIn(".chip-center-button { padding: 5px 6px; font-size: 10px; }", mobile)
+        self.assertIn(".chip-center-button { min-width: 76px; padding: 5px 7px; font-size: 10px; }", mobile)
+        self.assertNotIn('content: "筹"', STYLES)
+        self.assertNotIn(".chip-center-label { font-size: 0; }", STYLES)
+        self.assertNotIn(".chip-center-label::after", STYLES)
+        self.assertIn("flex: none;\n  line-height: 1;\n  white-space: nowrap;", STYLES)
         self.assertIn("white-space: nowrap", mobile)
         self.assertNotIn(".brand > span:last-child { display: none; }", mobile)
 

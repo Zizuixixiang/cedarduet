@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.5";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.7";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
 
   function ensureStyle() {
@@ -251,15 +251,15 @@
       ariaLabel: "四人国标麻将桌",
     });
     context.board.classList.add("mahjong-board-layout");
-    const table = el("div", "mahjong-table mahjong-table-four-sides");
+    const table = el("div", "mahjong-table");
     const participants = [...(context.participants || [])].sort(
       (left, right) => Number(left.seat_index) - Number(right.seat_index)
     );
     participants.forEach((participant) => table.appendChild(seatNode(participant, context)));
     const center = el("main", "mahjong-center");
-    const discardTable = el("div", "mahjong-discard-table mahjong-four-way-discards");
+    center.appendChild(statusNode(context));
+    const discardTable = el("div", "mahjong-discard-table");
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
-    discardTable.appendChild(statusNode(context));
     center.appendChild(discardTable);
     table.appendChild(center);
     const ownHand = ownHandNode(context);

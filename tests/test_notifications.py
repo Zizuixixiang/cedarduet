@@ -866,6 +866,11 @@ class NotificationFrontendTests(unittest.TestCase):
         ):
             self.assertIn(f'id="{element_id}"', index)
         self.assertNotIn('id="gameUnreadBadge"', index)
+        self.assertIn('class="lobby-title-row"', index)
+        self.assertIn('min-width: 76px;', (root / "app/static/styles.css").read_text(encoding="utf-8"))
+        self.assertIn('line-height: 34px;', (root / "app/static/styles.css").read_text(encoding="utf-8"))
+        self.assertIn('min-height: 34px;', (root / "app/static/styles.css").read_text(encoding="utf-8"))
+        self.assertIn('line-height: 32px; font-size: 21px;', (root / "app/static/styles.css").read_text(encoding="utf-8"))
         top_actions = index[
             index.index('<div class="top-actions">'):
             index.index('</header>')

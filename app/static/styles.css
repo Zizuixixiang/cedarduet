@@ -206,11 +206,19 @@ button, select { cursor: pointer; }
   white-space: nowrap;
 }
 .chip-center-button {
+  min-width: 76px;
+  flex: 0 0 auto;
+  justify-content: center;
   padding: 5px 9px;
   color: #fff;
   background: rgba(134, 120, 160, .78);
   font-size: 10px;
   font-weight: 700;
+}
+.chip-center-label {
+  flex: none;
+  line-height: 1;
+  white-space: nowrap;
 }
 .unread-badge {
   min-width: 18px;
@@ -386,16 +394,24 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .lobby-title-row {
   min-width: 0;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
 }
-.lobby-header h1 { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); }
+.lobby-header h1 {
+  margin: 0;
+  line-height: 34px;
+  font-size: clamp(22px, 3vw, 30px);
+}
 .lobby-notification-bell {
   width: 34px;
-  height: 32px;
+  height: 34px;
   min-width: 34px;
+  flex: 0 0 34px;
+  margin: 0;
   border-color: var(--purple);
+  align-self: center;
 }
 .lobby-notification-bell svg { width: 20px; height: 20px; }
 .hero-pair { color: var(--pink-dark); font-size: 13px; line-height: 1.5; text-align: right; }
@@ -3375,8 +3391,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .chip-wallet-actions { gap: 4px; flex-wrap: nowrap; }
   .lobby-notification-bell {
     width: 32px;
-    height: 30px;
+    height: 32px;
     min-width: 32px;
+    flex-basis: 32px;
     border-width: 2px;
   }
   .lobby-notification-bell svg { width: 19px; height: 19px; }
@@ -3390,7 +3407,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   .chip-wallet-icon { width: 20px; height: 20px; font-size: 13px; }
   .chip-balance { max-width: 48px; font-size: 14px; }
-  .chip-center-button { padding: 5px 6px; font-size: 10px; }
+  .chip-center-button { min-width: 76px; padding: 5px 7px; font-size: 10px; }
   .chip-balance-link.long-balance .chip-balance { font-size: 11px; }
   .home-link { width: 24px; height: 24px; font-size: 15px; }
   .duel-main {
@@ -3401,7 +3418,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view { gap: 8px; }
   .gate-view { min-height: 420px; padding: 24px 16px; }
   .lobby-header { min-height: 46px; padding-inline: 1px; }
-  .lobby-header h1 { font-size: 21px; }
+  .lobby-title-row { min-height: 32px; }
+  .lobby-header h1 { line-height: 32px; font-size: 21px; }
   .hero-pair { max-width: 55%; font-size: 12px; }
   .section-panel { padding: 12px; }
   .create-panel { padding: 10px; }
@@ -3692,12 +3710,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     bottom: calc(var(--safe-bottom) + 16px);
     max-width: none;
   }
-}
-
-@media (max-width: 420px) {
-  .chip-center-button { width: 34px; justify-content: center; padding: 4px; }
-  .chip-center-label { font-size: 0; }
-  .chip-center-label::after { content: "筹"; font-size: 10px; }
 }
 
 @media (max-width: 340px) {

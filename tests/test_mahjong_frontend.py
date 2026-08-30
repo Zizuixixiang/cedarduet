@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.5";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.7";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -35,9 +35,9 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             "state.seat_winds",
             "state.dealer_player_id",
             "state.turn_player_id",
-            "mahjong-table-four-sides",
-            "mahjong-discard-table mahjong-four-way-discards",
-            "discardTable.appendChild(statusNode(context))",
+            'const table = el("div", "mahjong-table")',
+            'const discardTable = el("div", "mahjong-discard-table")',
+            "center.appendChild(statusNode(context))",
             "mahjong-center-status",
             "mahjong-tile-back",
             "mahjong-own-hand-scroll",
@@ -47,22 +47,22 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             self.assertIn(expected, SCRIPT)
         for area in ("grid-area: top", "grid-area: bottom", "grid-area: left", "grid-area: right"):
             self.assertIn(area, STYLES)
-        self.assertIn('"top top top"', STYLES)
+        self.assertIn('". top ."', STYLES)
         self.assertIn('"left center right"', STYLES)
-        self.assertIn('"dl status dr"', STYLES)
-        self.assertIn(".position-left .mahjong-tile-back", STYLES)
-        self.assertIn(".position-right .mahjong-tile-back", STYLES)
-        self.assertIn(".discard-left .mahjong-tile-face", STYLES)
-        self.assertIn(".discard-right .mahjong-tile-face", STYLES)
+        self.assertIn('"dl . dr"', STYLES)
+        self.assertIn("flex-direction: column;", STYLES)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto;", STYLES)
+        self.assertIn("grid-template-columns: repeat(2, auto);", STYLES)
+        self.assertIn(".mahjong-opponent-hand:empty", STYLES)
+        self.assertIn("grid-template-columns: 1fr auto;", STYLES)
+        self.assertNotIn("grid-template-columns: 1fr;", STYLES)
         self.assertIn(".mahjong-tile.last-discard", STYLES)
-        self.assertIn('"identity hand"', STYLES)
-        self.assertIn('"hand identity"', STYLES)
-        self.assertIn("grid-template-columns: minmax(17px, 1fr) var(--mj-back-h);", STYLES)
-        self.assertIn("grid-template-rows: auto minmax(48px, 1fr) auto;", STYLES)
-        self.assertIn("writing-mode: vertical-rl;", STYLES)
-        self.assertIn("text-orientation: mixed;", STYLES)
-        self.assertIn("max-width: none;", STYLES)
-        self.assertIn("--mj-side: 46px;", STYLES)
+        self.assertIn("--mj-side: 48px;", STYLES)
+        self.assertIn("--mj-tile-w: 15px;", STYLES)
+        self.assertIn("--mj-tile-w: 14px;", STYLES)
+        self.assertNotIn("writing-mode:", STYLES)
+        self.assertNotIn("text-orientation:", STYLES)
+        self.assertNotIn("rotate(", STYLES)
 
     def test_authoritative_actions_mobile_widths_and_no_page_overflow(self):
         self.assertIn("context.legalActions", SCRIPT)
@@ -179,9 +179,12 @@ assert.equal(nodes.filter(n=>hasClass(n,"mahjong-opponent-hand")).length,4);
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-tile-back")).length,38);
 assert.equal(nodes.filter(n=>n.tag==="button"&&hasClass(n,"mahjong-tile")).length,2);
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-discards")).length,4);
-const discardTable=nodes.find(n=>hasClass(n,"mahjong-four-way-discards"));assert.ok(discardTable);
+const discardTable=nodes.find(n=>hasClass(n,"mahjong-discard-table"));assert.ok(discardTable);
 const discardNodes=descendants(discardTable);
-assert.equal(discardNodes.filter(n=>hasClass(n,"mahjong-center-status")).length,1);
+const center=nodes.find(n=>hasClass(n,"mahjong-center"));assert.ok(center);
+assert.equal(center.children[0].classList.contains("mahjong-center-status"),true);
+assert.equal(center.children[1],discardTable);
+assert.equal(discardNodes.filter(n=>hasClass(n,"mahjong-center-status")).length,0);
 for(const position of ["bottom","right","top","left"]){assert.equal(discardNodes.filter(n=>hasClass(n,`discard-${position}`)).length,1);}
 assert.equal(discardNodes.filter(n=>hasClass(n,"last-discard")).length,1);
 assert.equal(styles.size,1);
