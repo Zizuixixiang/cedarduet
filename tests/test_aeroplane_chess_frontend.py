@@ -114,6 +114,16 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("min-width: 44px;", STYLES)
         self.assertIn("min-height: 44px;", STYLES)
         self.assertIn("touch-action: manipulation;", STYLES)
+        disabled_rule = STYLES[
+            STYLES.index(".aeroplane-token:disabled {"):
+            STYLES.index(".aeroplane-token.legal {")
+        ]
+        self.assertIn("pointer-events: none;", disabled_rule)
+        legal_rule = STYLES[
+            STYLES.index(".aeroplane-token.legal {"):
+            STYLES.index(".aeroplane-token.legal::before {")
+        ]
+        self.assertIn("z-index: calc(40 + var(--stack-order, 0));", legal_rule)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn("width: min(96vw, 680px);", mobile)
         self.assertIn("max-width: 100%;", mobile)
@@ -578,6 +588,59 @@ const stacked = descendants(harness.board).filter(
 assert.equal(stacked.length, 4);
 assert.equal(stacked.every((node) => node.dataset.stackSize === "4"), true);
 assert.equal(new Set(stacked.map((node) => `${node.style.left}:${node.style.top}`)).size, 4);
+''', state=state)
+
+    def test_legal_planes_below_disabled_stack_tokens_keep_exact_click_targets(self):
+        state = rolled_state()
+        for plane_id, route_step, ring_index in (
+            ("red-0", 5, 5),
+            ("red-1", 5, 5),
+            ("blue-3", 31, 5),
+        ):
+            player_id = "human-1" if plane_id.startswith("red") else "ai-1"
+            plane = next(
+                item for item in state["planes"][player_id]
+                if item["plane_id"] == plane_id
+            )
+            plane.update({
+                "zone": "track",
+                "route_step": route_step,
+                "ring_index": ring_index,
+                "home_lane_index": None,
+            })
+        state["movable_plane_ids"] = ["red-0", "red-1"]
+        state["legal_actions"] = [
+            {"action": "move", "plane_id": "red-0", "plane_index": 0},
+            {"action": "move", "plane_id": "red-1", "plane_index": 1},
+        ]
+        state["legal_moves"] = []
+        state["last_roll"]["value"] = 4
+        self.run_node(r'''
+(async () => {
+const harness = makeContext("human-1", true);
+renderer.renderBoard(harness.context);
+const stack = descendants(harness.board).filter(
+  (node) => hasClass(node, "aeroplane-token")
+    && node.dataset.logicalZone === "track"
+    && ["red-0", "red-1", "blue-3"].includes(node.dataset.planeId)
+);
+assert.equal(stack.length, 3);
+const legal = stack.filter((node) => hasClass(node, "legal"));
+const blocker = stack.find((node) => node.dataset.planeId === "blue-3");
+assert.equal(legal.length, 2);
+assert.equal(blocker.disabled, true);
+assert.equal(blocker.listeners.click, undefined);
+assert.equal(Number(blocker.dataset.stackIndex), 2);
+assert.equal(legal.every(
+  (node) => Number(node.dataset.stackIndex) < Number(blocker.dataset.stackIndex)
+), true);
+await legal.find((node) => node.dataset.planeId === "red-0").listeners.click();
+await legal.find((node) => node.dataset.planeId === "red-1").listeners.click();
+assert.equal(JSON.stringify(harness.submitted), JSON.stringify([
+  {action: "move", plane_id: "red-0", plane_index: 0},
+  {action: "move", plane_id: "red-1", plane_index: 1},
+]));
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 ''', state=state)
 
     def test_multiplayer_edge_identities_follow_rotated_airports(self):

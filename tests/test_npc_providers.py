@@ -14,12 +14,15 @@ from app.npc_providers import (
     CedarToyBridgeNpcProvider,
     DisabledNpcProvider,
     GLOBAL_PLAYER_RULES,
+    GLOBAL_SPEECH_RULES,
     NpcDecisionRequest,
     NpcProvider,
+    NpcSpeechRequest,
     OpenAICompatibleNpcProvider,
     ProviderDecision,
     get_npc_provider,
     parse_provider_decision,
+    parse_provider_speech,
     reset_npc_provider_cache,
 )
 from app.npc_runtime import reserve_npc_decision
@@ -40,6 +43,24 @@ def provider_request() -> NpcDecisionRequest:
         recent_public_events=[],
         public_actions=[{"actor": "human-1", "action": "pass"}],
         legal_actions=[{"action_id": "a_step", "action": {"action": "step"}}],
+    )
+
+
+def speech_request() -> NpcSpeechRequest:
+    return NpcSpeechRequest(
+        persona={"id": "quiet", "display_name": "测试", "persona": "人设"},
+        game_rules="完整规则",
+        participants=[{
+            "player_id": "npc:quiet", "display_name": "测试", "seat_index": 0,
+            "participant_kind": "system_npc", "activity_state": "active",
+            "participant_summary": {},
+        }],
+        public_state={"round": 3},
+        private_state={"hand": ["mine"]},
+        visible_timeline=[{
+            "sequence": 1, "event_type": "result",
+            "actor": {"player_id": "system"}, "text": "真实结果",
+        }],
     )
 
 
@@ -106,6 +127,33 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ProviderDecision("a_step", None),
         )
 
+    async def test_speech_only_contract_is_private_and_requires_one_message(self):
+        messages = speech_request().messages()
+        self.assertEqual(
+            messages[0], {"role": "system", "content": GLOBAL_SPEECH_RULES}
+        )
+        payload = json.loads(messages[1]["content"])
+        self.assertEqual(set(payload), {
+            "persona", "game_rules", "participants", "public_state",
+            "private_state", "visible_timeline",
+        })
+        self.assertEqual(payload["visible_timeline"][-1]["text"], "真实结果")
+        self.assertEqual(
+            parse_provider_speech('{"message":"  看到了。  "}'), "看到了。"
+        )
+        self.assertIsNone(parse_provider_speech('{"message":null}'))
+        for required in (
+            "不得把对手隐藏状态当作已知事实",
+            "不得以真实披露为目的",
+            "正常诈唬",
+            "不要返回分析、解释或思维过程",
+        ):
+            self.assertIn(required, GLOBAL_SPEECH_RULES)
+        for prohibited in (
+            "Yellow rolls", "I roll", "I move", "禁止复述动作", "尽量短"
+        ):
+            self.assertNotIn(prohibited, GLOBAL_SPEECH_RULES)
+
     async def test_disabled_is_default_and_exposes_no_configuration_secret(self):
         with patch.dict("os.environ", {"DUEL_NPC_PROVIDER": "disabled"}, clear=False):
             reset_npc_provider_cache()
@@ -123,14 +171,20 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             captured["url"] = str(request.url)
             captured["authorization"] = request.headers.get("authorization")
             captured["body"] = json.loads(request.content)
+            user_payload = json.loads(
+                captured["body"]["messages"][1]["content"]
+            )
+            content = (
+                '{"message":"OpenAI 发言"}'
+                if "visible_timeline" in user_payload
+                else '{"action_id":"a_step","message":"走"}'
+            )
             return httpx.Response(
                 200,
                 request=request,
                 json={
                     "choices": [{
-                        "message": {
-                            "content": '{"action_id":"a_step","message":"走"}'
-                        }
+                        "message": {"content": content}
                     }]
                 },
             )
@@ -162,17 +216,26 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("never-log-this-key", json.dumps(provider.capabilities()))
         self.assertIn("不要返回分析", messages[0]["content"])
         self.assertIn("never-log-this-key", serialized)  # transport header only
+        self.assertEqual(await provider.speak(speech_request()), "OpenAI 发言")
 
     async def test_bridge_and_openai_share_one_decision_shape(self):
-        captured = {}
+        captured = {"bodies": []}
 
         async def handler(request: httpx.Request):
-            captured["body"] = json.loads(request.content)
+            body = json.loads(request.content)
+            captured["body"] = body
+            captured["bodies"].append(body)
             captured["authorization"] = request.headers.get("authorization")
+            user_payload = json.loads(body["messages"][1]["content"])
+            content = (
+                '{"message":"落地后的发言"}'
+                if "visible_timeline" in user_payload
+                else '{"action_id":"a_step"}'
+            )
             return httpx.Response(
                 200,
                 request=request,
-                json={"content": '{"action_id":"a_step"}'},
+                json={"content": content},
             )
 
         provider = CedarToyBridgeNpcProvider(
@@ -189,6 +252,11 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["authorization"], "Bearer internal-test-token")
         self.assertEqual(captured["body"]["max_tokens"], 128)
         self.assertEqual(captured["body"]["timeout"], 7)
+        self.assertEqual(await provider.speak(speech_request()), "落地后的发言")
+        speech_payload = json.loads(
+            captured["bodies"][1]["messages"][1]["content"]
+        )
+        self.assertEqual(speech_payload["visible_timeline"][-1]["text"], "真实结果")
 
     async def test_http_provider_global_concurrency_limit_allows_parallel_rooms(self):
         active = 0

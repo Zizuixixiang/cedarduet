@@ -607,7 +607,7 @@ def _timeline_entry(row, room: dict) -> dict:
 
 def list_timeline(
     room_id: str,
-    limit: int = 200,
+    limit: int | None = 200,
     viewer_player_id: str | None = None,
     *,
     public_only: bool = False,
@@ -640,7 +640,7 @@ def list_timeline(
                 )
                 if entry is not None:
                     projected.append(entry)
-                    if len(projected) >= limit:
+                    if limit is not None and len(projected) >= limit:
                         break
             return list(reversed(projected))
         visibility_clause = (
@@ -649,24 +649,40 @@ def list_timeline(
             else "AND (visible_to_json IS NULL OR EXISTS ("
             "SELECT 1 FROM json_each(visible_to_json) WHERE json_each.value = ?))"
         )
-        params: tuple = (
-            (room_id, limit)
-            if public_only or viewer_player_id is None
-            else (room_id, _player_id(viewer_player_id), limit)
-        )
-        rows = conn.execute(
-            f"""
-            SELECT * FROM (
+        if limit is None:
+            params: tuple = (
+                (room_id,)
+                if public_only or viewer_player_id is None
+                else (room_id, _player_id(viewer_player_id))
+            )
+            rows = conn.execute(
+                f"""
                 SELECT * FROM room_messages
                 WHERE room_id = ?
                   {visibility_clause}
-                ORDER BY id DESC
-                LIMIT ?
+                ORDER BY id
+                """,
+                params,
+            ).fetchall()
+        else:
+            params = (
+                (room_id, limit)
+                if public_only or viewer_player_id is None
+                else (room_id, _player_id(viewer_player_id), limit)
             )
-            ORDER BY id
-            """,
-            params,
-        ).fetchall()
+            rows = conn.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT * FROM room_messages
+                    WHERE room_id = ?
+                      {visibility_clause}
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                ORDER BY id
+                """,
+                params,
+            ).fetchall()
         entries = [_timeline_entry(row, room) for row in rows]
         if viewer_player_id is None:
             return entries

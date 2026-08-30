@@ -158,15 +158,37 @@ class NpcTurnScheduler:
                 return "in_progress"
             if result.status not in {"applied", "already_applied"}:
                 return "idle"
-            if self._room_changed is not None:
-                try:
-                    self._room_changed(room_id)
-                except Exception:
-                    logger.exception(
-                        "system NPC revision notification failed for room %s",
-                        room_id,
+            self._notify_room_changed(room_id)
+            if result.speech_task is not None:
+                result.speech_task.add_done_callback(
+                    lambda task, changed_room_id=room_id: self._speech_finished(
+                        changed_room_id, task
                     )
+                )
         return "limit"
+
+    def _notify_room_changed(self, room_id: str) -> None:
+        if self._room_changed is None:
+            return
+        try:
+            self._room_changed(room_id)
+        except Exception:
+            logger.exception(
+                "system NPC revision notification failed for room %s", room_id
+            )
+
+    def _speech_finished(
+        self, room_id: str, task: asyncio.Task[bool]
+    ) -> None:
+        try:
+            sent = task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("system NPC speech task failed for room %s", room_id)
+            return
+        if sent:
+            self._notify_room_changed(room_id)
 
     async def _arm_in_progress_retry(self, room_id: str) -> None:
         async with self._registry_lock:

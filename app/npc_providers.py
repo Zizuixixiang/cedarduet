@@ -1,9 +1,9 @@
 """Server-only NPC completion providers.
 
 The provider boundary carries an already viewer-projected decision request and
-returns only a stable legal-action id plus an optional short message. Provider
-responses and secrets are never persisted here; room-level idempotency lives in
-``npc_runtime``.
+returns either a stable legal-action id plus an optional message, or one
+speech-only message after a completed turn. Provider responses and secrets are
+never persisted here; room-level idempotency lives in ``npc_runtime``.
 """
 
 from __future__ import annotations
@@ -33,6 +33,18 @@ GLOBAL_PLAYER_RULES = (
     "允许静默，此时 message 使用 null。只返回 JSON 对象："
     '{"action_id":"...","message":"简短中文一句"}；静默时返回 '
     '{"action_id":"...","message":null}。'
+    "不要返回分析、解释或思维过程。"
+)
+GLOBAL_SPEECH_RULES = (
+    "你是回合制游戏中的 NPC 玩家。对局动作已经由服务器执行；"
+    "现在根据你能看到的完整规则、当前局面、自己的私有状态和完整可见时间线，"
+    "生成一句符合 persona 的中文桌边发言。"
+    "只使用系统提供的己方私有信息、公共局面和其他玩家已公开或明确对你可见的信息；"
+    "允许依据公开信息正常推理和估计，但不得把对手隐藏状态当作已知事实。"
+    "不得以真实披露为目的直接报出自己的完整或具体隐藏牌、骰子及其他私有状态；"
+    "允许为了策略进行虚张声势、试探、模糊表达或真假难辨的误导，"
+    "这不禁止吹牛骰子等玩法中的正常诈唬。"
+    '只返回 JSON 对象：{"message":"中文桌边发言"}。'
     "不要返回分析、解释或思维过程。"
 )
 MAX_PROVIDER_MESSAGE_LENGTH = 200
@@ -84,6 +96,35 @@ class NpcDecisionRequest:
 
 
 @dataclass(frozen=True)
+class NpcSpeechRequest:
+    persona: dict[str, str]
+    game_rules: str
+    participants: list[dict[str, Any]]
+    public_state: dict[str, Any]
+    private_state: dict[str, Any]
+    visible_timeline: list[dict[str, Any]]
+
+    def messages(self) -> list[dict[str, str]]:
+        payload = {
+            "persona": self.persona,
+            "game_rules": self.game_rules,
+            "participants": self.participants,
+            "public_state": self.public_state,
+            "private_state": self.private_state,
+            "visible_timeline": self.visible_timeline,
+        }
+        return [
+            {"role": "system", "content": GLOBAL_SPEECH_RULES},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ),
+            },
+        ]
+
+
+@dataclass(frozen=True)
 class ProviderDecision:
     action_id: str
     message: str | None = None
@@ -111,6 +152,26 @@ def parse_provider_decision(content: str) -> ProviderDecision:
     return ProviderDecision(action_id.strip(), message)
 
 
+def parse_provider_speech(content: str) -> str | None:
+    if not isinstance(content, str) or not content.strip():
+        raise NpcProviderResponseError("NPC speech provider 返回空内容")
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise NpcProviderResponseError("NPC speech provider 必须返回 JSON") from exc
+    if not isinstance(value, dict) or set(value) != {"message"}:
+        raise NpcProviderResponseError("NPC speech provider 返回字段无效")
+    message = value.get("message")
+    if message is None:
+        return None
+    if not isinstance(message, str):
+        raise NpcProviderResponseError("NPC speech provider message 无效")
+    message = message.strip() or None
+    if message is not None and len(message) > MAX_PROVIDER_MESSAGE_LENGTH:
+        raise NpcProviderResponseError("NPC speech provider message 过长")
+    return message
+
+
 class NpcProvider:
     name = "disabled"
     available = False
@@ -118,6 +179,10 @@ class NpcProvider:
     max_concurrency = 0
 
     async def decide(self, request: NpcDecisionRequest) -> ProviderDecision:
+        del request
+        raise NpcProviderUnavailable(self.unavailable_reason)
+
+    async def speak(self, request: NpcSpeechRequest) -> str | None:
         del request
         raise NpcProviderUnavailable(self.unavailable_reason)
 
@@ -224,6 +289,24 @@ class OpenAICompatibleNpcProvider(_HttpNpcProvider):
             raise NpcProviderResponseError("OpenAI-compatible 响应结构无效") from exc
         return parse_provider_decision(content)
 
+    async def speak(self, request: NpcSpeechRequest) -> str | None:
+        value = await self._post_json(
+            self.endpoint,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            payload={
+                "model": self.model,
+                "messages": request.messages(),
+                "temperature": 0,
+                "max_tokens": self.max_tokens,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        try:
+            content = value["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise NpcProviderResponseError("OpenAI-compatible 响应结构无效") from exc
+        return parse_provider_speech(content)
+
 
 class CedarToyBridgeNpcProvider(_HttpNpcProvider):
     name = "cedartoy_bridge"
@@ -262,6 +345,21 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
         if not isinstance(content, str):
             raise NpcProviderResponseError("CedarToy bridge 响应结构无效")
         return parse_provider_decision(content)
+
+    async def speak(self, request: NpcSpeechRequest) -> str | None:
+        value = await self._post_json(
+            self.bridge_url,
+            headers={"Authorization": f"Bearer {self.bridge_token}"},
+            payload={
+                "messages": request.messages(),
+                "max_tokens": self.max_tokens,
+                "timeout": self.timeout,
+            },
+        )
+        content = value.get("content")
+        if not isinstance(content, str):
+            raise NpcProviderResponseError("CedarToy bridge 响应结构无效")
+        return parse_provider_speech(content)
 
 
 def _number(name: str, default: str, cast, minimum, maximum):

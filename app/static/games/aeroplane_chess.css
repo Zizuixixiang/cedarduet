@@ -332,13 +332,17 @@
 .aeroplane-token.color-blue { --plane-main: var(--aero-blue); --plane-dark: var(--aero-blue-dark); }
 .aeroplane-token.color-green { --plane-main: var(--aero-green); --plane-dark: var(--aero-green-dark); }
 
-.aeroplane-token:disabled { cursor: default; }
+.aeroplane-token:disabled {
+  cursor: default;
+  pointer-events: none;
+}
 
 .aeroplane-token.legal {
   width: 44px;
   min-width: 44px;
   min-height: 44px;
-  z-index: 12;
+  /* Above every possible 6-player × 4-plane visual stack (non-legal max 31). */
+  z-index: calc(40 + var(--stack-order, 0));
   cursor: pointer;
   background: transparent;
   filter: none;

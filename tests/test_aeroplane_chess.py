@@ -391,6 +391,28 @@ class AeroplaneChessRuleTests(unittest.TestCase):
             game.npc_legal_actions(state, seats[1], seats), []
         )
 
+        stacked_game, _rng, stacked_seats, stacked_state = self.make_game(
+            (4,), count=2
+        )
+        stacked_actor = self.actor(stacked_seats)
+        self.set_step(
+            stacked_game, stacked_state, stacked_actor["player_id"], 0, 5
+        )
+        self.set_step(
+            stacked_game, stacked_state, stacked_actor["player_id"], 1, 5
+        )
+        self.roll(stacked_game, stacked_state, stacked_actor)
+        stacked_actions = stacked_game.npc_legal_actions(
+            stacked_state, stacked_actor, stacked_seats
+        )
+        self.assertEqual(
+            [action["plane_id"] for action in stacked_actions],
+            ["red-0", "red-1"],
+        )
+        self.assertEqual(
+            [action["plane_index"] for action in stacked_actions], [0, 1]
+        )
+
     def test_multiplayer_stake_policy_is_complete_integer_and_zero_sum(self):
         game, _rng, seats, state = self.make_game((1,), count=4)
         deltas = game.settlement_deltas(

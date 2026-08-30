@@ -23,15 +23,24 @@ from .npc_personas import PersonaConfigError, get_persona
 from .npc_providers import (
     NpcDecisionRequest,
     NpcProvider,
+    NpcSpeechRequest,
     ProviderDecision,
     get_npc_provider,
 )
 from .npc_runtime import (
     NpcDecisionTicket,
+    NpcSpeechClaim,
+    begin_npc_full_turn,
+    complete_npc_full_turn,
     complete_npc_decision,
+    complete_npc_speech,
     fail_npc_decision,
+    fail_npc_speech,
     reserve_npc_decision,
 )
+
+
+_speech_tasks: set[asyncio.Task[bool]] = set()
 
 
 @dataclass(frozen=True)
@@ -41,6 +50,7 @@ class NpcTurnResult:
     action: dict[str, Any] | None
     message: str | None
     room: dict[str, Any] | None
+    speech_task: asyncio.Task[bool] | None = None
 
 
 def _load_room(room_id: str) -> dict[str, Any]:
@@ -80,7 +90,7 @@ def _participant_directory(projected_room: dict[str, Any]) -> list[dict[str, Any
     ]
 
 
-def _compact_public_events(
+def _compact_visible_events(
     events: list[dict[str, Any]], participants: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     participant_by_id = {item["player_id"]: item for item in participants}
@@ -120,15 +130,49 @@ def _compact_public_events(
             move_label = event.get("move_label")
             if isinstance(move_label, str) and move_label:
                 item["move_label"] = move_label
-            move = event.get("move")
-            if isinstance(move, dict):
-                item["move"] = deepcopy(move)
+        move = event.get("move")
+        if isinstance(move, dict):
+            item["move"] = deepcopy(move)
         compact.append(item)
     return compact
 
 
+def _authoritative_legal_actions(
+    room: dict[str, Any], actor: dict[str, Any]
+) -> list[dict[str, Any]]:
+    game = get_game(room["game_type"])
+    try:
+        actions = game.npc_legal_actions(
+            deepcopy(room["board_state"]),
+            deepcopy(actor),
+            deepcopy(room["participants"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"NPC 插件合法行动无效：{exc}") from exc
+    if (
+        not isinstance(actions, list)
+        or not actions
+        or any(not isinstance(item, dict) for item in actions)
+    ):
+        raise DuelError("NPC 插件必须提供至少一个合法行动")
+    return actions
+
+
+def _action_map(
+    legal_actions: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    mapped: dict[str, dict[str, Any]] = {}
+    for action in legal_actions:
+        action_id = _action_id(action)
+        if action_id in mapped and mapped[action_id] != action:
+            raise DuelError("NPC 合法行动 ID 冲突")
+        mapped[action_id] = deepcopy(action)
+    return mapped
+
+
 def _decision_request(
-    room: dict[str, Any], npc_player_id: str
+    room: dict[str, Any], npc_player_id: str,
+    legal_actions: list[dict[str, Any]],
 ) -> tuple[NpcDecisionRequest, dict[str, dict[str, Any]]]:
     game = get_game(room["game_type"])
     actor = next(
@@ -148,16 +192,13 @@ def _decision_request(
         participant_directory = _participant_directory(projected_room)
         public_state = deepcopy(projected_room["board_state"])
         private_state = deepcopy(projected_room["private_state"])
-        recent_public_events = _compact_public_events(
+        recent_public_events = _compact_visible_events(
             list_timeline(
                 room["room_id"], 20, npc_player_id, public_only=True
             ),
             participant_directory,
         )
         public_actions = game.npc_public_actions(
-            deepcopy(state), deepcopy(actor), participants
-        )
-        legal_actions = game.npc_legal_actions(
             deepcopy(state), deepcopy(actor), participants
         )
         game_rules = game.npc_compact_rules(
@@ -172,20 +213,14 @@ def _decision_request(
         or not isinstance(private_state, dict)
         or not isinstance(public_actions, list)
         or any(not isinstance(item, dict) for item in public_actions)
-        or not isinstance(legal_actions, list)
-        or not legal_actions
-        or any(not isinstance(item, dict) for item in legal_actions)
         or not isinstance(game_rules, str)
         or not game_rules.strip()
     ):
         raise DuelError("NPC 插件必须提供规则、状态和至少一个合法行动")
-    action_map: dict[str, dict[str, Any]] = {}
+    action_map = _action_map(legal_actions)
     exposed_actions = []
     for action in legal_actions:
         action_id = _action_id(action)
-        if action_id in action_map and action_map[action_id] != action:
-            raise DuelError("NPC 合法行动 ID 冲突")
-        action_map[action_id] = deepcopy(action)
         exposed_actions.append({"action_id": action_id, "action": deepcopy(action)})
     return (
         NpcDecisionRequest(
@@ -200,6 +235,94 @@ def _decision_request(
         ),
         action_map,
     )
+
+
+def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechRequest:
+    game = get_game(room["game_type"])
+    actor = next((
+        item for item in room["participants"]
+        if item["player_id"] == npc_player_id
+    ), None)
+    if actor is None or actor.get("participant_kind") != "system_npc":
+        raise DuelError("发言者不是系统 NPC", 409)
+    try:
+        persona = get_persona(actor["npc_persona_id"])
+        projected_room = project_room_for_viewer(room, npc_player_id)
+        participants = _participant_directory(projected_room)
+        visible_timeline = _compact_visible_events(
+            list_timeline(
+                room["room_id"], None, npc_player_id, public_only=False
+            ),
+            participants,
+        )
+    except PersonaConfigError as exc:
+        raise DuelError(str(exc), 503) from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"NPC 发言上下文无效：{exc}") from exc
+    return NpcSpeechRequest(
+        persona=persona.model_context(),
+        game_rules=str(room.get("rules_text") or game.rules_text),
+        participants=participants,
+        public_state=deepcopy(projected_room["board_state"]),
+        private_state=deepcopy(projected_room["private_state"]),
+        visible_timeline=visible_timeline,
+    )
+
+
+async def _attempt_npc_speech(
+    claim: NpcSpeechClaim, provider: NpcProvider
+) -> bool:
+    try:
+        room = _load_room(claim.room_id)
+        request = _speech_request(room, claim.npc_player_id)
+        message = await provider.speak(request)
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("NPC speech provider 未返回发言")
+        return complete_npc_speech(claim, message)
+    except asyncio.CancelledError:
+        fail_npc_speech(claim, "NPC speech cancelled")
+        raise
+    except Exception as exc:
+        fail_npc_speech(claim, str(exc))
+        return False
+
+
+def _schedule_npc_speech(
+    claim: NpcSpeechClaim, provider: NpcProvider
+) -> asyncio.Task[bool]:
+    task = asyncio.create_task(
+        _attempt_npc_speech(claim, provider),
+        name=(
+            f"npc-speech:{claim.room_id}:{claim.npc_player_id}:"
+            f"{claim.completion_revision}"
+        ),
+    )
+    _speech_tasks.add(task)
+    task.add_done_callback(_speech_tasks.discard)
+    return task
+
+
+async def wait_for_npc_speech_tasks() -> None:
+    """Test/shutdown helper; normal turn execution never waits for speech."""
+    while _speech_tasks:
+        await asyncio.gather(*list(_speech_tasks), return_exceptions=True)
+
+
+def _finish_npc_action(
+    updated: dict[str, Any], npc_player_id: str,
+    provider: NpcProvider | None,
+) -> asyncio.Task[bool] | None:
+    if (
+        updated.get("status") == "playing"
+        and updated.get("current_player_id") == npc_player_id
+    ):
+        return None
+    claim = complete_npc_full_turn(
+        updated["room_id"], npc_player_id, int(updated["revision"])
+    )
+    if claim is None:
+        return None
+    return _schedule_npc_speech(claim, provider or get_npc_provider())
 
 
 def _stored_decision(ticket: NpcDecisionTicket) -> tuple[dict[str, Any], str | None]:
@@ -230,6 +353,7 @@ async def run_current_npc_turn(
     )
     if actor is None or actor.get("participant_kind") != "system_npc":
         raise DuelError("当前行动者不是系统 NPC", 409)
+    begin_npc_full_turn(room["room_id"], room["revision"], npc_player_id)
     ticket = reserve_npc_decision(
         room["room_id"], room["revision"], npc_player_id
     )
@@ -244,23 +368,31 @@ async def run_current_npc_turn(
             latest = _load_room(room["room_id"])
             if latest["revision"] <= room["revision"]:
                 raise
+            speech_task = _finish_npc_action(latest, npc_player_id, provider)
             return NpcTurnResult(
-                "already_applied", "recovered", action, message, latest
+                "already_applied", "recovered", action, message, latest,
+                speech_task,
             )
-        return NpcTurnResult("applied", "recovered", action, message, updated)
+        speech_task = _finish_npc_action(updated, npc_player_id, provider)
+        return NpcTurnResult(
+            "applied", "recovered", action, message, updated, speech_task
+        )
     if not ticket.created:
         return NpcTurnResult("in_progress", "existing", None, None, None)
 
     game = get_game(room["game_type"])
     selected: ProviderDecision | None = None
+    try:
+        legal_actions = _authoritative_legal_actions(room, actor)
+        action_map = _action_map(legal_actions)
+    except Exception as exc:
+        fail_npc_decision(ticket, str(exc))
+        raise
     if game.uses_local_npc_strategy:
         try:
             actor_copy = deepcopy(actor)
             participants = deepcopy(room["participants"])
             state = deepcopy(room["board_state"])
-            legal_actions = game.npc_legal_actions(
-                deepcopy(state), deepcopy(actor_copy), deepcopy(participants)
-            )
             action = game.choose_local_npc_action(
                 state, actor_copy, participants
             )
@@ -270,15 +402,20 @@ async def run_current_npc_turn(
                 or not legal_actions
             ):
                 raise ValueError("本地 NPC 策略必须选择权威 legal_actions 中的动作")
-            action_map = {_action_id(item): deepcopy(item) for item in legal_actions}
             selected = ProviderDecision(_action_id(action), None)
             source = "local"
         except Exception as exc:
             fail_npc_decision(ticket, str(exc))
             raise
+    elif len(legal_actions) == 1:
+        forced_id = next(iter(action_map))
+        selected = ProviderDecision(forced_id, None)
+        source = "forced"
     else:
         try:
-            request, action_map = _decision_request(room, npc_player_id)
+            request, action_map = _decision_request(
+                room, npc_player_id, legal_actions
+            )
         except Exception as exc:
             fail_npc_decision(ticket, str(exc))
             raise
@@ -302,7 +439,7 @@ async def run_current_npc_turn(
             source = "fallback"
         else:
             source = active_provider.name
-        action = action_map[selected.action_id]
+    action = action_map[selected.action_id]
     completed = complete_npc_decision(
         ticket,
         action,
@@ -326,7 +463,12 @@ async def run_current_npc_turn(
         latest = _load_room(room["room_id"])
         if latest["revision"] <= room["revision"]:
             raise
+        speech_task = _finish_npc_action(latest, npc_player_id, provider)
         return NpcTurnResult(
-            "already_applied", "recovered", action, selected.message, latest
+            "already_applied", "recovered", action, selected.message, latest,
+            speech_task,
         )
-    return NpcTurnResult("applied", source, action, selected.message, updated)
+    speech_task = _finish_npc_action(updated, npc_player_id, provider)
+    return NpcTurnResult(
+        "applied", source, action, selected.message, updated, speech_task
+    )

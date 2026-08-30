@@ -170,7 +170,7 @@ app/
   games/xiangqi.py     象棋 GamePlugin 与房间状态适配
   games/xiangqi_engine.py  短生命周期 Node 规则引擎桥
   npc_personas.py      NPC 人设目录加载与严格校验
-  npc_runtime.py       NPC 决策 revision 幂等与合法行动校验契约
+  npc_runtime.py       NPC 决策幂等、完整回合计数与发言欠账契约
   npc_providers.py     disabled / OpenAI-compatible / CedarToy bridge provider
   npc_controller.py    查看者安全上下文、合法行动映射、重试与保底执行
   npc_scheduler.py     HTTP 后台投递、房间去重、连续回合与启动恢复
@@ -205,8 +205,10 @@ data/                   本地运行数据目录；真实数据库不会提交�
 - NPC provider 默认 `disabled`；独立部署可选 `openai_compatible`，官方实例可选
   内网 `cedartoy_bridge`。普通无 NPC 对局不依赖 provider。NPC 首要目标是理解
   规则并争取获胜；人设只影响合理行动间的选择、风险偏好和交流方式，不得为了
-  维持性格故意走明显坏棋。合法行动始终由插件规则引擎列出。
-- 每次 NPC 请求只含全局玩家规则、当前 persona、精简游戏规则、公开参与者目录、
+  维持性格故意走明显坏棋。合法行动始终由插件规则引擎列出；权威合法行动只有
+  一项时由 controller 直接执行，不调用决策 provider。围棋、军棋、火车牌、
+  德州扑克与麻将继续使用各自的进程内策略，只在需要补发言时单独调用 provider。
+- 常规 NPC 决策请求只含全局玩家规则、当前 persona、精简游戏规则、公开参与者目录、
   公共状态、按 sequence 取末尾 20 条房间公开事件、游戏专用公开行动、当前 NPC 私有状态和权威
   合法行动；事件读取不消费玩家游标。私聊和其他玩家隐藏状态不会进入请求，也不
   请求或保存思维链。NPC 可以依据公开信息正常推理和估计，但不得把对手隐藏状态
@@ -216,6 +218,13 @@ data/                   本地运行数据目录；真实数据库不会提交�
   非法或格式错误最多重试一次，仍失败则选择稳定排序后的合法保底行动。
   `room_id + revision + npc_id` 决策票据负责幂等；同一 revision 不重复调用，
   中断后过期预留只做本地保底恢复，不产生第二次 provider 请求或重复落子。
+- NPC 发言频率按行动权连续归属的一整个回合计数：额外行动仍属同一回合，直到
+  `current_player_id` 离开该 NPC 或对局终止。最多连续沉默两个完整回合；第三个
+  完整回合结束后若动作本身仍无发言，controller 会异步尝试 speech-only 调用。
+  该请求使用 NPC 视角下的完整当前公开状态、本人完整私有状态、完整规则、参与者与
+  persona，以及不截断但经过可见性投影的完整时间线，并包含刚落地的动作结果。
+  发言作为普通 `message` 事件进入时间线；失败不阻塞或回滚对局，持久化欠账会在
+  下一个完整回合重试，revision 状态同时防止 scheduler 重入造成重复发言。
   HTTP 状态推进只把当前系统 NPC 房间投递到后台，不等待模型响应；后台会连续
   执行系统 NPC 回合直至轮到人类/绑定小机、对局结束或达到单批安全上限。应用
   启动时会扫描并恢复已存在的进行中 NPC 回合，状态轮询的兜底投递仍共用同一

@@ -409,6 +409,26 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
             conn.close()
         self.assertEqual(statuses, ["completed", "completed"])
 
+    async def test_landed_background_speech_emits_one_room_notification(self):
+        notified = []
+        scheduler = NpcTurnScheduler(room_changed=notified.append)
+
+        async def sent():
+            return True
+
+        task = asyncio.create_task(sent())
+        await task
+        scheduler._speech_finished("ABCDEFGH", task)
+        self.assertEqual(notified, ["ABCDEFGH"])
+
+        async def failed():
+            return False
+
+        failed_task = asyncio.create_task(failed())
+        await failed_task
+        scheduler._speech_finished("ABCDEFGH", failed_task)
+        self.assertEqual(notified, ["ABCDEFGH"])
+
 
 if __name__ == "__main__":
     unittest.main()

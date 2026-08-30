@@ -123,6 +123,27 @@ CREATE TABLE IF NOT EXISTS npc_decisions (
 )
 """
 
+NPC_SPEECH_STATES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS npc_speech_states (
+    room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    npc_player_id TEXT NOT NULL,
+    silent_completed_turns INTEGER NOT NULL DEFAULT 0
+        CHECK (silent_completed_turns >= 0),
+    speech_pending INTEGER NOT NULL DEFAULT 0
+        CHECK (speech_pending IN (0, 1)),
+    active_turn_start_revision INTEGER,
+    last_completed_revision INTEGER,
+    last_attempt_revision INTEGER,
+    last_attempt_status TEXT
+        CHECK (last_attempt_status IN ('reserved', 'sent', 'failed', 'superseded')),
+    speech_attempted_at TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, npc_player_id),
+    FOREIGN KEY (room_id, npc_player_id)
+        REFERENCES room_participants(room_id, player_id) ON DELETE CASCADE
+)
+"""
+
 PARTICIPANT_KIND_TRIGGER_SCHEMA = """
 CREATE TRIGGER IF NOT EXISTS trg_room_participants_infer_legacy_kind
 AFTER INSERT ON room_participants
@@ -355,6 +376,7 @@ def init_db() -> None:
         conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
         conn.execute(ROOM_CONFIRMATIONS_SCHEMA)
         conn.execute(NPC_DECISIONS_SCHEMA)
+        conn.execute(NPC_SPEECH_STATES_SCHEMA)
         _repair_participant_child_foreign_keys(conn)
         cursor_columns = {
             row["name"]
