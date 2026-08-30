@@ -2744,6 +2744,10 @@ let room = {{viewer: {{player_id: "p1"}}, participants: [
   {{player_id: "p3", seat_index: 2, display_name: "丙", role: "ai"}},
 ]}};
 {functions}
+renderRecentChat([]);
+assert.equal(list.children.length, 0);
+assert.ok(!feed.classList.contains("hidden"));
+
 const events = [
   {{event_type: "message", text: "第一句", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
   {{event_type: "move", text: "落子附言也不能混入", sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
@@ -2771,7 +2775,15 @@ assert.equal(list.scrollTop, list.scrollHeight);
 
 renderRecentChat(events.filter((event) => event.event_type !== "message"));
 assert.equal(list.children.length, 0);
-assert.ok(feed.classList.contains("hidden"));
+assert.ok(!feed.classList.contains("hidden"));
+
+room = {{...room, participants: [
+  ...room.participants,
+  {{player_id: "p4", seat_index: 3, display_name: "丁", role: "ai"}},
+]}};
+renderRecentChat([]);
+assert.equal(list.children.length, 0);
+assert.ok(!feed.classList.contains("hidden"));
 
 room = {{...room, participants: room.participants.slice(0, 2)}};
 renderRecentChat(events);
@@ -2967,6 +2979,10 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             self.assertLessEqual(3 * 82 + 2 * 5, inner_width)
 
     def test_recent_chat_is_bounded_while_two_player_speech_can_still_wrap(self):
+        chat_area = STYLES[
+            STYLES.index(".multiplayer-presentation .game-chat-area {"):
+            STYLES.index(".recent-chat-feed {")
+        ]
         recent = STYLES[
             STYLES.index(".recent-chat-feed {"):
             STYLES.index(".chat-compose {")
@@ -2975,16 +2991,39 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             STYLES.index(".speech-bubble-text {"):
             STYLES.index(".ai-speech::before")
         ]
-        self.assertIn("max-height: 132px;", recent)
+        self.assertIn("width: min(700px, 100%);", chat_area)
+        self.assertIn("min-width: 0;", chat_area)
+        self.assertIn("display: grid;", chat_area)
+        self.assertIn("height: 118px;", recent)
+        self.assertIn("display: grid;", recent)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr);", recent)
+        self.assertIn("min-height: 0;", recent)
+        self.assertIn("align-content: start;", recent)
         self.assertIn("overflow-y: auto;", recent)
         self.assertIn("overflow-wrap: anywhere;", recent)
         self.assertIn("white-space: pre-wrap;", recent)
         self.assertNotIn("table", recent)
+        self.assertNotIn("position:", recent)
         self.assertIn("max-height: min(180px, 30vh);", text)
         self.assertIn("overflow-y: auto;", text)
         self.assertIn("white-space: pre-wrap;", text)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
-        self.assertIn(".recent-chat-messages { max-height: 116px;", mobile)
+        self.assertIn(
+            ".recent-chat-feed { height: 96px; padding: 5px 6px 6px; }",
+            mobile,
+        )
+        self.assertIn(".recent-chat-messages { gap: 2px; }", mobile)
+        self.assertIn(
+            ".multiplayer-presentation .game-chat-area { gap: 5px; }",
+            mobile,
+        )
+        self.assertIn(".chat-compose input { min-height: 38px;", mobile)
+        self.assertIn("min-width: 64px;", mobile)
+        for viewport in (320, 375):
+            content_width = viewport - 20 - 14
+            compose_input_width = content_width - 6 - 64
+            self.assertGreaterEqual(content_width, 286)
+            self.assertGreaterEqual(compose_input_width, 216)
 
     def test_liars_round_card_visibility_and_polling_safe_bid_draft(self):
         functions = "\n".join((
