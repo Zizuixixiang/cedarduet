@@ -113,12 +113,20 @@
 
 .position-left .mahjong-opponent-hand,
 .position-right .mahjong-opponent-hand {
-  height: 100%;
-  max-height: none;
+  width: var(--mj-back-h);
+  max-height: 100%;
+  align-self: center;
   flex-direction: column;
-  flex-wrap: wrap;
-  align-content: center;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: center;
+  gap: 0;
+  overflow: hidden;
+}
+.position-left .mahjong-opponent-hand .mahjong-tile-back,
+.position-right .mahjong-opponent-hand .mahjong-tile-back {
+  width: var(--mj-back-h);
+  height: var(--mj-back-w);
 }
 .mahjong-seat-melds { gap: 3px; }
 .mahjong-meld { display: inline-flex; gap: 1px; padding: 2px; border: 1px solid rgb(65 122 103 / 20%); border-radius: 4px; background: rgb(255 255 255 / 46%); }
@@ -328,8 +336,8 @@ button.mahjong-tile:disabled { cursor: default; opacity: 1; }
     --mj-side: clamp(54px, 14vw, 64px);
     --mj-tile-w: clamp(16px, 4.2vw, 19px);
     --mj-tile-h: clamp(23px, 6vw, 27px);
-    --mj-back-w: clamp(14px, 3.7vw, 17px);
-    --mj-back-h: clamp(22px, 5.7vw, 26px);
+    --mj-back-w: 14px;
+    --mj-back-h: 22px;
     min-height: 0;
     padding: 6px;
     gap: 4px;
@@ -342,21 +350,33 @@ button.mahjong-tile:disabled { cursor: default; opacity: 1; }
   .mahjong-seat-badges i { padding-inline: 2px; font-size: 8px; }
   .position-left .mahjong-seat-identity,
   .position-right .mahjong-seat-identity {
-    flex-direction: column;
-    align-items: center;
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "avatar name"
+      "badges badges";
+    align-items: start;
+    justify-items: center;
     gap: 2px;
   }
   .position-left .mahjong-seat-avatar,
-  .position-right .mahjong-seat-avatar { display: none; }
+  .position-right .mahjong-seat-avatar { grid-area: avatar; }
   .position-left .mahjong-seat-name,
   .position-right .mahjong-seat-name {
-    width: 100%;
-    max-width: 100%;
+    grid-area: name;
+    width: auto;
+    max-width: none;
+    min-height: 1em;
+    max-height: 48px;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
     text-align: center;
     white-space: nowrap;
   }
   .position-left .mahjong-seat-badges,
   .position-right .mahjong-seat-badges {
+    grid-area: badges;
     margin-left: 0;
     flex-wrap: wrap;
     justify-content: center;

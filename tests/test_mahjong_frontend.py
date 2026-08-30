@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.7";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.8";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -60,8 +60,8 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("--mj-side: 48px;", STYLES)
         self.assertIn("--mj-tile-w: 15px;", STYLES)
         self.assertIn("--mj-tile-w: 14px;", STYLES)
-        self.assertNotIn("writing-mode:", STYLES)
-        self.assertNotIn("text-orientation:", STYLES)
+        self.assertIn("writing-mode: vertical-rl;", STYLES)
+        self.assertIn("text-orientation: upright;", STYLES)
         self.assertNotIn("rotate(", STYLES)
 
     def test_authoritative_actions_mobile_widths_and_no_page_overflow(self):
@@ -82,6 +82,67 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn(".mahjong-control-hint.state-select", STYLES)
         self.assertIn("align-items: center;", STYLES)
         self.assertIn("font: 600 9px/1.3 system-ui, sans-serif;", STYLES)
+
+    def test_mobile_side_hands_are_vertical_rails_of_physically_sideways_backs(self):
+        rail_selector = (
+            ".position-left .mahjong-opponent-hand,\n"
+            ".position-right .mahjong-opponent-hand {"
+        )
+        rail_start = STYLES.index(rail_selector)
+        rail = STYLES[rail_start:STYLES.index("}", rail_start)]
+        self.assertIn("width: var(--mj-back-h);", rail)
+        self.assertIn("max-height: 100%;", rail)
+        self.assertIn("flex-direction: column;", rail)
+        self.assertIn("flex-wrap: nowrap;", rail)
+        self.assertIn("gap: 0;", rail)
+        self.assertIn("overflow: hidden;", rail)
+        self.assertNotIn("\n  height: 100%;", rail)
+        self.assertNotIn("flex-direction: row;", rail)
+        self.assertNotIn("mahjong-tile-back + .mahjong-tile-back", STYLES)
+
+        side_back_selector = (
+            ".position-left .mahjong-opponent-hand .mahjong-tile-back,\n"
+            ".position-right .mahjong-opponent-hand .mahjong-tile-back {"
+        )
+        side_back_start = STYLES.index(side_back_selector)
+        side_back = STYLES[side_back_start:STYLES.index("}", side_back_start)]
+        self.assertIn("width: var(--mj-back-h);", side_back)
+        self.assertIn("height: var(--mj-back-w);", side_back)
+        mobile_start = STYLES.index("@media (max-width: 600px)")
+        mobile = STYLES[mobile_start:]
+        self.assertIn("--mj-back-w: 14px;", mobile)
+        self.assertIn("--mj-back-h: 22px;", mobile)
+        side_back_width = 22
+        side_back_height = 14
+        self.assertGreater(side_back_width, side_back_height)
+        self.assertEqual(13 * side_back_height, 182)
+        self.assertIn("grid-template-rows: auto minmax(270px, auto) auto auto;", STYLES)
+
+        name_selector = (
+            ".position-left .mahjong-seat-name,\n"
+            "  .position-right .mahjong-seat-name {"
+        )
+        name_start = STYLES.index(name_selector)
+        name = STYLES[name_start:STYLES.index("}", name_start)]
+        self.assertIn("min-height: 1em;", name)
+        self.assertIn("writing-mode: vertical-rl;", name)
+        self.assertIn("text-orientation: upright;", name)
+        self.assertEqual(STYLES.count("writing-mode:"), 1)
+        self.assertEqual(STYLES.count("text-orientation:"), 1)
+
+        identity_selector = (
+            ".position-left .mahjong-seat-identity,\n"
+            "  .position-right .mahjong-seat-identity {"
+        )
+        identity_start = STYLES.index(identity_selector)
+        identity = STYLES[identity_start:STYLES.index("}", identity_start)]
+        self.assertIn("display: grid;", identity)
+        self.assertIn('"avatar name"', identity)
+        self.assertIn('"badges badges"', identity)
+        self.assertIn("grid-area: avatar;", STYLES)
+        self.assertIn("grid-area: name;", name)
+        self.assertIn("grid-area: badges;", STYLES)
+        self.assertNotIn("display: none;", identity)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
