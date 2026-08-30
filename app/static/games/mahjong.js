@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.8";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.9";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
 
   function ensureStyle() {

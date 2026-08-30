@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.8";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.9";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -52,7 +52,9 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('". bottom ."', STYLES)
         self.assertIn('"dl . dr"', STYLES)
         self.assertIn("flex-direction: column;", STYLES)
-        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto auto;", STYLES)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) auto auto;", STYLES)
+        self.assertIn('"identity hand"', STYLES)
+        self.assertIn('"hand identity"', STYLES)
         self.assertIn("grid-template-columns: repeat(2, auto);", STYLES)
         self.assertIn(".mahjong-opponent-hand:empty", STYLES)
         self.assertIn("grid-template-columns: 1fr auto;", STYLES)
@@ -151,29 +153,61 @@ class MahjongFrontendStructureTests(unittest.TestCase):
 
         name_selector = (
             ".position-left .mahjong-seat-name,\n"
-            "  .position-right .mahjong-seat-name {"
+            ".position-right .mahjong-seat-name {"
         )
         name_start = STYLES.index(name_selector)
         name = STYLES[name_start:STYLES.index("}", name_start)]
-        self.assertIn("min-height: 1em;", name)
+        self.assertIn("min-height: 0;", name)
+        self.assertIn("max-height: 100%;", name)
         self.assertIn("writing-mode: vertical-rl;", name)
         self.assertIn("text-orientation: upright;", name)
+        self.assertIn("line-height: 1;", name)
         self.assertEqual(STYLES.count("writing-mode:"), 1)
         self.assertEqual(STYLES.count("text-orientation:"), 1)
 
         identity_selector = (
             ".position-left .mahjong-seat-identity,\n"
-            "  .position-right .mahjong-seat-identity {"
+            ".position-right .mahjong-seat-identity {"
         )
         identity_start = STYLES.index(identity_selector)
         identity = STYLES[identity_start:STYLES.index("}", identity_start)]
         self.assertIn("display: grid;", identity)
-        self.assertIn('"avatar name"', identity)
-        self.assertIn('"badges badges"', identity)
+        self.assertIn("height: 100%;", identity)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto;", identity)
+        self.assertIn('"avatar"', identity)
+        self.assertIn('"name"', identity)
+        self.assertIn('"badges"', identity)
         self.assertIn("grid-area: avatar;", STYLES)
         self.assertIn("grid-area: name;", name)
         self.assertIn("grid-area: badges;", STYLES)
         self.assertNotIn("display: none;", identity)
+
+    def test_side_identity_and_hand_columns_are_mirrored_without_competing_for_width(self):
+        left_start = STYLES.index(".mahjong-seat.position-left {")
+        left = STYLES[left_start:STYLES.index("}", left_start)]
+        self.assertIn("grid-template-columns: minmax(0, 1fr) var(--mj-back-h);", left)
+        self.assertIn('"identity hand"', left)
+        self.assertIn('"melds melds"', left)
+        self.assertIn('"turn turn"', left)
+
+        right_selector = ".mahjong-seat.position-right {\n  grid-area: right;"
+        right_start = STYLES.index(right_selector)
+        right = STYLES[right_start:STYLES.index("}", right_start)]
+        self.assertIn("grid-template-columns: var(--mj-back-h) minmax(0, 1fr);", right)
+        self.assertIn('"hand identity"', right)
+        self.assertIn('"melds melds"', right)
+        self.assertIn('"turn turn"', right)
+
+        mobile = STYLES[STYLES.index("@media (max-width: 600px)"):]
+        self.assertIn(
+            ".mahjong-seat.position-left,\n"
+            "  .mahjong-seat.position-right { column-gap: 0; }",
+            mobile,
+        )
+        side_track_at_390 = 390 * 0.14
+        side_content_at_390 = side_track_at_390 - 8 - 2
+        identity_width_at_390 = side_content_at_390 - 22
+        self.assertGreaterEqual(identity_width_at_390, 20)
 
     def test_turn_indicator_is_independent_and_positioned_by_seat_edge(self):
         self.assertIn('el("span", "mahjong-turn-indicator", "行动")', SCRIPT)
