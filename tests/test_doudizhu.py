@@ -294,6 +294,198 @@ class DoudizhuGameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不一致"):
             self.game.validate_action(state, forged, self.table[0])
 
+    def test_rank_equivalent_single_uses_selected_physical_card_and_keeps_actions_compact(self):
+        state = self.playing_state([
+            ("S10", "H10", "D10"),
+            ("S4",),
+            ("S5",),
+        ])
+        state["trick"].update({
+            "leader_player_id": "ai-1",
+            "last_play": {
+                "sequence": 1,
+                "player_id": "ai-1",
+                "cards": cards("S9"),
+                "pattern": only_pattern(("9",)).public(),
+            },
+        })
+        singles = [
+            action for action in self.game.legal_actions_for(state, "human-1")
+            if action.get("pattern_type") == "solo"
+            and action.get("main_rank") == "10"
+        ]
+        self.assertEqual(len(singles), 1)
+        self.assertEqual(singles[0]["card_ids"], ["S10"])
+
+        move = {
+            "action": "play",
+            "action_id": singles[0]["action_id"],
+            "card_ids": ["D10"],
+        }
+        result = self.game.apply_action(state, move, self.table[0])
+        progressed = self.game.progress_after_action(
+            state, move, self.table[0], self.table, result
+        )
+        self.assertEqual(
+            {card["id"] for card in state["cards"]["hands"]["human-1"]},
+            {"S10", "H10"},
+        )
+        self.assertEqual([card["id"] for card in state["last_action"]["cards"]], ["D10"])
+        self.assertEqual(
+            [card["id"] for card in progressed.public_event["doudizhu_delta"]["cards"]],
+            ["D10"],
+        )
+
+    def test_rank_equivalent_pair_accepts_any_two_and_rejects_forged_replacements(self):
+        def pair_state():
+            value = self.playing_state([
+                ("S10", "H10", "D10", "SJ"),
+                ("S4",),
+                ("S5",),
+            ])
+            value["trick"].update({
+                "leader_player_id": "ai-1",
+                "last_play": {
+                    "sequence": 1,
+                    "player_id": "ai-1",
+                    "cards": cards("S9", "H9"),
+                    "pattern": only_pattern(("9", "9")).public(),
+                },
+            })
+            return value
+
+        state = pair_state()
+        pairs = [
+            action for action in self.game.legal_actions_for(state, "human-1")
+            if action.get("pattern_type") == "pair"
+            and action.get("main_rank") == "10"
+        ]
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0]["card_ids"], ["S10", "H10"])
+        move = {
+            "action": "play",
+            "action_id": pairs[0]["action_id"],
+            "card_ids": ["H10", "D10"],
+        }
+        result = self.game.apply_action(state, move, self.table[0])
+        self.game.progress_after_action(state, move, self.table[0], self.table, result)
+        self.assertEqual(
+            {card["id"] for card in state["cards"]["hands"]["human-1"]},
+            {"S10", "SJ"},
+        )
+        self.assertEqual(
+            {card["id"] for card in state["last_action"]["cards"]},
+            {"H10", "D10"},
+        )
+
+        canonical_state = pair_state()
+        canonical = self.action(
+            canonical_state, "human-1", "play", pattern_type="pair", main_rank="10"
+        )
+        for rejected, message in (
+            (["H10", "SJ"], "点数组合"),
+            (["H10", "H10"], "不能重复"),
+            (["H10", "C10"], "不全在"),
+        ):
+            with self.subTest(card_ids=rejected):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.game.validate_action(
+                        canonical_state,
+                        {
+                            "action": "play",
+                            "action_id": canonical["action_id"],
+                            "card_ids": rejected,
+                        },
+                        self.table[0],
+                    )
+        with self.assertRaisesRegex(ValueError, "未发布的字段"):
+            self.game.validate_action(
+                canonical_state,
+                {
+                    "action": "play",
+                    "action_id": canonical["action_id"],
+                    "card_ids": ["H10", "D10"],
+                    "selected_card_ids": ["H10", "D10"],
+                },
+                self.table[0],
+            )
+
+    def test_action_id_only_keeps_canonical_cards_and_complex_rank_multisets_resolve(self):
+        canonical_state = self.playing_state([
+            ("S10", "H10", "D10"),
+            ("S4",),
+            ("S5",),
+        ])
+        canonical_state["trick"].update({
+            "leader_player_id": "ai-1",
+            "last_play": {
+                "sequence": 1,
+                "player_id": "ai-1",
+                "cards": cards("S9"),
+                "pattern": only_pattern(("9",)).public(),
+            },
+        })
+        canonical = self.action(
+            canonical_state, "human-1", "play", pattern_type="solo", main_rank="10"
+        )
+        id_only = {"action": "play", "action_id": canonical["action_id"]}
+        result = self.game.apply_action(canonical_state, id_only, self.table[0])
+        self.game.progress_after_action(
+            canonical_state, id_only, self.table[0], self.table, result
+        )
+        self.assertEqual(
+            {card["id"] for card in canonical_state["cards"]["hands"]["human-1"]},
+            {"H10", "D10"},
+        )
+
+        straight_state = self.playing_state([
+            ("S3", "H3", "S4", "H4", "S5", "H5", "S6", "H6", "S7", "H7"),
+            ("S8",),
+            ("S9",),
+        ])
+        straight = self.action(
+            straight_state, "human-1", "play", pattern_type="solo_chain_5"
+        )
+        resolved_straight = self.game._resolve_action(
+            straight_state,
+            "human-1",
+            {
+                "action": "play",
+                "action_id": straight["action_id"],
+                "card_ids": ["H3", "H4", "H5", "H6", "H7"],
+            },
+        )
+        self.assertEqual(
+            resolved_straight["card_ids"], ["H3", "H4", "H5", "H6", "H7"]
+        )
+        self.assertEqual(resolved_straight["pattern_type"], "solo_chain_5")
+
+        trio_state = self.playing_state([
+            ("S6", "H6", "C6", "D6", "S9", "H9"),
+            ("S4",),
+            ("S5",),
+        ])
+        trio = self.action(
+            trio_state,
+            "human-1",
+            "play",
+            pattern_type="trio_solo",
+            main_rank="6",
+        )
+        resolved_trio = self.game._resolve_action(
+            trio_state,
+            "human-1",
+            {
+                "action": "play",
+                "action_id": trio["action_id"],
+                "card_ids": ["H6", "C6", "D6", "H9"],
+            },
+        )
+        self.assertEqual(
+            resolved_trio["card_ids"], ["H6", "C6", "D6", "H9"]
+        )
+        self.assertEqual((resolved_trio["pattern_type"], resolved_trio["main_rank"]), ("trio_solo", "6"))
+
     def test_cannot_beat_pass_rotation_and_two_passes_restore_lead(self):
         state = self.playing_state([
             ("S3", "S9"),
@@ -574,7 +766,7 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             "/mcp/play",
             json={
                 "action": "move", "player_id": "ai-1", "room_id": room_id,
-                "move": play,
+                "move": {"action": "play", "action_id": play["action_id"]},
             },
         )
         self.assertEqual(played.status_code, 200, played.text)

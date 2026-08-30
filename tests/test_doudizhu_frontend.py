@@ -23,7 +23,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "function renderControls(context)",
             "usesStandardMoveConfirmation: false",
             "ownsPrivateStatePresentation: true",
-            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.4";',
+            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.5";',
             'link.dataset.duelGameStyle = "doudizhu";',
         ):
             self.assertIn(expected, SCRIPT)
@@ -35,16 +35,22 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "context.legalActions",
             "action.action_id",
             "exactSelectedAction(context)",
+            "selectedPlayMove(context)",
+            "card_ids: [...selectedIds(context)]",
             "context.helpers.submitMove({...action})",
             'action.action === "bid"',
             'action.action === "pass"',
             "matches.length > 1",
             "selectedActionId",
+            "rankCountsForIds",
+            "rankCountsEqual",
+            "rankCountsSubset",
         ):
             self.assertIn(expected, SCRIPT)
         for forbidden in (
             "function classifyCards", "function canBeat", "RANK_VALUE",
             "BOMB_STRENGTH", "classify_ranks", "legal_rank_plays",
+            "function canonicalIds", "function isSubset",
         ):
             self.assertNotIn(forbidden, SCRIPT)
 
@@ -58,6 +64,8 @@ class DoudizhuFrontendTests(unittest.TestCase):
             self.assertIn(expected, SCRIPT + STYLES)
         self.assertIn(".filter((item) => item.player_id !== viewerId)", SCRIPT)
         self.assertIn("renderHand(documentRef, context, shell)", SCRIPT)
+        self.assertIn("context.helpers.renderParticipantAvatar", SCRIPT)
+        self.assertIn("renderAvatar(avatar, value)", SCRIPT)
 
     def test_mobile_hand_scroll_has_320_and_375_guards(self):
         for expected in (
@@ -202,13 +210,14 @@ class DoudizhuFrontendTests(unittest.TestCase):
         for expected in (
             ".doudizhu-controls.is-playing {",
             "min-height: 30px;",
-            "grid-template-columns: minmax(0, 1.35fr) minmax(74px, .65fr);",
+            "grid-template-columns: minmax(74px, .65fr) minmax(0, 1.35fr);",
             "min-height: 36px;",
             "padding: 5px 10px;",
         ):
             self.assertIn(expected, mobile)
         self.assertIn("min-height: 28px;", narrow)
         self.assertIn("min-height: 34px;", narrow)
+        self.assertIn("buttons.append(passButton, playButton);", SCRIPT)
         self.assertIn(".doudizhu-play-button:not(:disabled)", STYLES)
         self.assertIn(".doudizhu-pass-button:not(:disabled)", STYLES)
         self.assertIn(
@@ -391,6 +400,7 @@ function makeContext(stateOverrides = {}) {
   const board = new Element("div", document);
   const controls = new Element("div", document);
   const submitted = [];
+  const avatarCalls = [];
   const uiState = {};
   let rerenders = 0;
   const context = {
@@ -404,9 +414,14 @@ function makeContext(stateOverrides = {}) {
       canMove() { return context.canMove; },
       rerender() { rerenders += 1; return true; },
       async submitMove(move) { submitted.push(move); return true; },
+      renderParticipantAvatar(target, participant) {
+        avatarCalls.push(participant.player_id);
+        target.textContent = `avatar:${participant.player_id}`;
+        return true;
+      },
     },
   };
-  return {context, board, controls, submitted, uiState, rerenders: () => rerenders};
+  return {context, board, controls, submitted, avatarCalls, uiState, rerenders: () => rerenders};
 }
 '''.replace("STATE_JSON", json.dumps(state, ensure_ascii=False)).replace(
             "PRIVATE_JSON", json.dumps(private_state, ensure_ascii=False)
@@ -451,7 +466,40 @@ assert.deepEqual(
   revealedBottom.children.map((node) => node.dataset.cardId),
   bottomCards.map((card) => card.id)
 );
-assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.4");
+assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.5");
+''')
+
+    def test_seat_avatars_use_shared_helper_and_fall_back_to_first_character(self):
+        self.run_node(r'''
+const shared = makeContext();
+renderer.renderBoard(shared.context);
+assert.deepEqual(shared.avatarCalls, ["ai-1", "ai-2"]);
+assert.deepEqual(
+  descendants(shared.board)
+    .filter((node) => hasClass(node, "doudizhu-avatar"))
+    .map((node) => node.textContent),
+  ["avatar:ai-1", "avatar:ai-2"]
+);
+
+const missing = makeContext();
+delete missing.context.helpers.renderParticipantAvatar;
+renderer.renderBoard(missing.context);
+assert.deepEqual(
+  descendants(missing.board)
+    .filter((node) => hasClass(node, "doudizhu-avatar"))
+    .map((node) => node.textContent),
+  ["小", "小"]
+);
+
+const failed = makeContext();
+failed.context.helpers.renderParticipantAvatar = () => { throw new Error("avatar failed"); };
+renderer.renderBoard(failed.context);
+assert.deepEqual(
+  descendants(failed.board)
+    .filter((node) => hasClass(node, "doudizhu-avatar"))
+    .map((node) => node.textContent),
+  ["小", "小"]
+);
 ''')
 
     def test_private_hand_is_displayed_big_to_small_without_mutating_projection(self):
@@ -535,6 +583,124 @@ assert.equal(JSON.stringify(value.uiState.selectedCardIds), JSON.stringify(["HAN
 controls = descendants(value.controls);
 assert.equal(controls.find((node) => hasClass(node, "doudizhu-play-button")).disabled, true);
 assert.equal(controls.find((node) => hasClass(node, "doudizhu-pass-button")).disabled, false);
+''')
+
+    def test_rank_equivalent_single_and_pair_cards_are_selectable_and_submitted(self):
+        self.run_node(r'''
+(async () => {
+  function installRerender(value) {
+    value.context.helpers.rerender = () => {
+      value.board.replaceChildren();
+      value.controls.replaceChildren();
+      renderer.renderBoard(value.context);
+      renderer.renderControls(value.context);
+      return true;
+    };
+  }
+  function card(value, cardId) {
+    return descendants(value.board).find(
+      (node) => hasClass(node, "doudizhu-card") && node.dataset.cardId === cardId
+    );
+  }
+
+  privateState.hand = [
+    {id: "S10", suit: "spades", rank: "10"},
+    {id: "H10", suit: "hearts", rank: "10"},
+    {id: "D10", suit: "diamonds", rank: "10"},
+    {id: "SJ", suit: "spades", rank: "J"},
+  ];
+  privateState.legal_actions = [{
+    action: "play", action_id: "play:solo:7:S10", card_ids: ["S10"],
+    pattern_type: "solo", pattern_label: "单张", main_rank: "10",
+  }];
+  const single = makeContext({flow: {phase: "playing", round_number: 1, turn_number: 3}});
+  installRerender(single);
+  renderer.renderBoard(single.context);
+  renderer.renderControls(single.context);
+  assert.equal(card(single, "S10").disabled, false);
+  assert.equal(card(single, "H10").disabled, false);
+  assert.equal(card(single, "D10").disabled, false);
+  assert.equal(card(single, "SJ").disabled, true);
+  card(single, "D10").listeners.click();
+  const singleControls = descendants(single.controls);
+  const singleButtons = singleControls.find(
+    (node) => hasClass(node, "doudizhu-action-buttons")
+  );
+  assert.ok(hasClass(singleButtons.children[0], "doudizhu-pass-button"));
+  assert.ok(hasClass(singleButtons.children[1], "doudizhu-play-button"));
+  const singlePlay = singleControls.find((node) => hasClass(node, "doudizhu-play-button"));
+  assert.equal(singlePlay.disabled, false);
+  const singleSubmission = singlePlay.listeners.click();
+  assert.equal(singlePlay.listeners.click(), false);
+  await singleSubmission;
+  assert.equal(JSON.stringify(single.submitted), JSON.stringify([{
+    action: "play", action_id: "play:solo:7:S10", card_ids: ["D10"],
+  }]));
+
+  privateState.legal_actions = [{
+    action: "play", action_id: "play:pair:7:S10-H10", card_ids: ["S10", "H10"],
+    pattern_type: "pair", pattern_label: "对子", main_rank: "10",
+  }];
+  const pair = makeContext({flow: {phase: "playing", round_number: 1, turn_number: 3}});
+  installRerender(pair);
+  renderer.renderBoard(pair.context);
+  renderer.renderControls(pair.context);
+  card(pair, "H10").listeners.click();
+  assert.equal(card(pair, "S10").disabled, false);
+  assert.equal(card(pair, "D10").disabled, false);
+  card(pair, "D10").listeners.click();
+  assert.equal(card(pair, "S10").disabled, true);
+  assert.equal(card(pair, "H10").disabled, false);
+  assert.equal(card(pair, "D10").disabled, false);
+  const pairPlay = descendants(pair.controls).find(
+    (node) => hasClass(node, "doudizhu-play-button")
+  );
+  assert.equal(pairPlay.disabled, false);
+  await pairPlay.listeners.click();
+  assert.equal(JSON.stringify(pair.submitted), JSON.stringify([{
+    action: "play", action_id: "play:pair:7:S10-H10", card_ids: ["H10", "D10"],
+  }]));
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_rank_multiset_matching_preserves_complex_straight_selection(self):
+        self.run_node(r'''
+(async () => {
+  privateState.hand = [
+    {id: "S3", suit: "spades", rank: "3"}, {id: "H3", suit: "hearts", rank: "3"},
+    {id: "S4", suit: "spades", rank: "4"}, {id: "H4", suit: "hearts", rank: "4"},
+    {id: "S5", suit: "spades", rank: "5"}, {id: "H5", suit: "hearts", rank: "5"},
+    {id: "S6", suit: "spades", rank: "6"}, {id: "H6", suit: "hearts", rank: "6"},
+    {id: "S7", suit: "spades", rank: "7"}, {id: "H7", suit: "hearts", rank: "7"},
+  ];
+  privateState.legal_actions = [{
+    action: "play", action_id: "straight-canonical",
+    card_ids: ["S3", "S4", "S5", "S6", "S7"],
+    pattern_type: "solo_chain_5", pattern_label: "五张顺子", main_rank: "7",
+  }];
+  const value = makeContext({flow: {phase: "playing", round_number: 1, turn_number: 3}});
+  value.context.helpers.rerender = () => {
+    value.board.replaceChildren();
+    value.controls.replaceChildren();
+    renderer.renderBoard(value.context);
+    renderer.renderControls(value.context);
+    return true;
+  };
+  renderer.renderBoard(value.context);
+  renderer.renderControls(value.context);
+  for (const cardId of ["H3", "H4", "H5", "H6", "H7"]) {
+    descendants(value.board).find(
+      (node) => hasClass(node, "doudizhu-card") && node.dataset.cardId === cardId
+    ).listeners.click();
+  }
+  const play = descendants(value.controls).find((node) => hasClass(node, "doudizhu-play-button"));
+  assert.equal(play.disabled, false);
+  await play.listeners.click();
+  assert.equal(JSON.stringify(value.submitted), JSON.stringify([{
+    action: "play", action_id: "straight-canonical",
+    card_ids: ["H3", "H4", "H5", "H6", "H7"],
+  }]));
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
 
     def test_local_selection_and_pattern_rerenders_preserve_page_scroll_y(self):

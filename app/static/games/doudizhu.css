@@ -194,6 +194,13 @@
   font-weight: 800;
 }
 
+.doudizhu-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
 .role-landlord .doudizhu-avatar {
   color: #fff7e6;
   background: #a82d38;
@@ -804,7 +811,7 @@ button.doudizhu-card:focus-visible,
 
   .doudizhu-controls.is-playing .doudizhu-action-buttons {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(74px, .65fr);
+    grid-template-columns: minmax(74px, .65fr) minmax(0, 1.35fr);
     gap: 5px;
   }
 

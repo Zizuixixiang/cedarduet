@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 from copy import deepcopy
 from typing import Any
 
@@ -246,6 +247,12 @@ class Doudizhu(GamePlugin):
     def _cards_for_ids(
         state: dict[str, Any], player_id: str, card_ids: list[str]
     ) -> list[dict[str, Any]]:
+        if not isinstance(card_ids, list) or not all(
+            isinstance(card_id, str) and card_id for card_id in card_ids
+        ):
+            raise ValueError("所选牌 ID 必须是非空字符串列表")
+        if len(set(card_ids)) != len(card_ids):
+            raise ValueError("所选牌 ID 不能重复")
         hands = state.get("cards", {}).get("hands", {})
         hand = hands.get(player_id)
         if not isinstance(hand, list):
@@ -370,11 +377,31 @@ class Doudizhu(GamePlugin):
             matches = []
         if len(matches) != 1:
             raise ValueError("行动必须原样匹配服务端当前发布的一项合法动作")
-        resolved = matches[0]
-        if set(move) - set(resolved):
+        canonical = matches[0]
+        if set(move) - set(canonical):
             raise ValueError("行动包含服务端未发布的字段")
-        if move.get("action") != resolved["action"]:
+        if move.get("action") != canonical["action"]:
             raise ValueError("action 与 action_id 不一致")
+        resolved = deepcopy(canonical)
+        if (
+            isinstance(action_id, str)
+            and canonical["action"] == "play"
+            and "card_ids" in move
+        ):
+            requested_ids = move["card_ids"]
+            if not isinstance(requested_ids, list):
+                raise ValueError("所选牌 ID 必须是非空字符串列表")
+            if len(requested_ids) != len(canonical["card_ids"]):
+                raise ValueError("所选物理牌张数与服务端发布动作不一致")
+            selected_cards = cls._cards_for_ids(state, player_id, requested_ids)
+            canonical_cards = cls._cards_for_ids(
+                state, player_id, canonical["card_ids"]
+            )
+            if Counter(
+                str(card["rank"]) for card in selected_cards
+            ) != Counter(str(card["rank"]) for card in canonical_cards):
+                raise ValueError("所选物理牌点数组合与服务端发布动作不一致")
+            resolved["card_ids"] = list(requested_ids)
         for key, value in move.items():
             if key in resolved and value != resolved[key]:
                 raise ValueError("客户端动作内容与服务端发布值不一致")

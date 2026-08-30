@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.4";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.5";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -54,8 +54,8 @@
     return value && (value.display_name || value.player_id) || "玩家";
   }
 
-  function initials(name) {
-    return [...String(name || "玩")].slice(-2).join("");
+  function avatarFallback(name) {
+    return [...String(name || "").trim()][0] || "玩";
   }
 
   function roleFor(context, playerId) {
@@ -162,10 +162,6 @@
       .filter((action) => action && action.action === "play" && Array.isArray(action.card_ids));
   }
 
-  function canonicalIds(ids) {
-    return [...ids].map(String).sort().join("|");
-  }
-
   function selectedIds(context) {
     const handIds = new Set(
       ((context.privateState && context.privateState.hand) || []).map((card) => String(card.id))
@@ -177,10 +173,61 @@
     return context.uiState.selectedCardIds;
   }
 
+  function handRanksById(context) {
+    return new Map(
+      ((context.privateState && context.privateState.hand) || [])
+        .map((card) => [String(card.id), String(card.rank)])
+    );
+  }
+
+  function rankCountsForIds(cardIds, ranksById) {
+    const counts = new Map();
+    for (const rawId of cardIds) {
+      const rank = ranksById.get(String(rawId));
+      if (rank === undefined) return null;
+      counts.set(rank, (counts.get(rank) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function rankCountsEqual(left, right) {
+    if (!left || !right || left.size !== right.size) return false;
+    for (const [rank, count] of left) {
+      if (right.get(rank) !== count) return false;
+    }
+    return true;
+  }
+
+  function rankCountsSubset(subset, values) {
+    if (!subset || !values) return false;
+    for (const [rank, count] of subset) {
+      if ((values.get(rank) || 0) < count) return false;
+    }
+    return true;
+  }
+
+  function selectionMatchesAction(context, cardIds, action) {
+    const ranksById = handRanksById(context);
+    return rankCountsEqual(
+      rankCountsForIds(cardIds, ranksById),
+      rankCountsForIds(action.card_ids, ranksById)
+    );
+  }
+
+  function selectionFitsAction(context, cardIds, action) {
+    const ranksById = handRanksById(context);
+    return rankCountsSubset(
+      rankCountsForIds(cardIds, ranksById),
+      rankCountsForIds(action.card_ids, ranksById)
+    );
+  }
+
   function matchingSelectedActions(context) {
-    const key = canonicalIds(selectedIds(context));
-    if (!key) return [];
-    return playActions(context).filter((action) => canonicalIds(action.card_ids) === key);
+    const selected = selectedIds(context);
+    if (!selected.length) return [];
+    return playActions(context).filter(
+      (action) => selectionMatchesAction(context, selected, action)
+    );
   }
 
   function exactSelectedAction(context) {
@@ -189,9 +236,14 @@
     return matches.find((action) => action.action_id === context.uiState.selectedActionId) || null;
   }
 
-  function isSubset(subset, values) {
-    const source = new Set(values.map(String));
-    return subset.every((item) => source.has(String(item)));
+  function selectedPlayMove(context) {
+    const action = exactSelectedAction(context);
+    if (!action) return null;
+    return {
+      action: action.action,
+      action_id: action.action_id,
+      card_ids: [...selectedIds(context)],
+    };
   }
 
   function renderSeat(documentRef, context, value, passIds) {
@@ -203,8 +255,18 @@
     seat.dataset.playerId = playerId;
     seat.classList.toggle("current", context.room.current_player_id === playerId);
     seat.classList.toggle("passed", passIds.has(playerId));
-    const avatar = element(documentRef, "span", "doudizhu-avatar", initials(name));
+    const fallback = avatarFallback(name);
+    const avatar = element(documentRef, "span", "doudizhu-avatar", fallback);
     avatar.setAttribute("aria-hidden", "true");
+    const renderAvatar = context.helpers && context.helpers.renderParticipantAvatar;
+    if (typeof renderAvatar === "function") {
+      try {
+        if (renderAvatar(avatar, value) === false) avatar.textContent = fallback;
+      } catch (_error) {
+        avatar.replaceChildren();
+        avatar.textContent = fallback;
+      }
+    }
     const copy = element(documentRef, "div", "doudizhu-seat-copy");
     const heading = element(documentRef, "div", "doudizhu-seat-heading");
     heading.append(
@@ -290,7 +352,7 @@
     const displayHand = cardsForDisplay(hand);
     const selected = selectedIds(context);
     const legal = playActions(context);
-    const selectableIds = new Set(legal.flatMap((action) => action.card_ids.map(String)));
+    const selectedSet = new Set(selected);
     const zone = element(documentRef, "section", "doudizhu-hand-zone");
     const label = element(documentRef, "div", "doudizhu-hand-label");
     const viewerId = context.viewer && context.viewer.player_id;
@@ -314,7 +376,9 @@
     }, {passive: true});
     displayHand.forEach((card, index) => {
       const cardId = String(card.id);
-      const selectable = selectableIds.has(cardId);
+      const selectable = selectedSet.has(cardId) || legal.some(
+        (action) => selectionFitsAction(context, [...selected, cardId], action)
+      );
       const cardNode = createCard(documentRef, card, {
         interactive: true,
         selected: selected.includes(cardId),
@@ -481,7 +545,7 @@
     const exact = exactSelectedAction(context);
     const legal = playActions(context);
     const possible = selected.length
-      ? legal.filter((action) => isSubset(selected, action.card_ids))
+      ? legal.filter((action) => selectionFitsAction(context, selected, action))
       : legal;
     const passAction = (context.legalActions || []).find((action) => action.action === "pass");
     const status = element(documentRef, "div", "doudizhu-selection-status");
@@ -532,13 +596,13 @@
     const playButton = element(documentRef, "button", "doudizhu-play-button", "出牌");
     playButton.type = "button";
     playButton.disabled = !context.canMove || !exact || Boolean(context.uiState.submitting);
-    playButton.addEventListener("click", () => submitAction(context, exactSelectedAction(context)));
+    playButton.addEventListener("click", () => submitAction(context, selectedPlayMove(context)));
     const passButton = element(documentRef, "button", "doudizhu-pass-button", "过");
     passButton.type = "button";
     passButton.disabled = !context.canMove || !passAction || Boolean(context.uiState.submitting);
     passButton.setAttribute("aria-label", passAction ? "本轮过牌" : "引牌时不能过牌");
     passButton.addEventListener("click", () => submitAction(context, passAction));
-    buttons.append(playButton, passButton);
+    buttons.append(passButton, playButton);
     panel.appendChild(buttons);
   }
 
