@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.3";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.4";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -90,6 +90,23 @@
         : HAND_DISPLAY_ORDER.length;
       return leftPosition - rightPosition || left.index - right.index;
     }).map((entry) => entry.card);
+  }
+
+  function localRerender(context) {
+    const documentRef = context.board.ownerDocument || window.document;
+    const windowRef = documentRef && documentRef.defaultView || window;
+    const rawScrollX = Number(windowRef && (windowRef.scrollX ?? windowRef.pageXOffset));
+    const rawScrollY = Number(windowRef && (windowRef.scrollY ?? windowRef.pageYOffset));
+    const scrollX = Number.isFinite(rawScrollX) ? rawScrollX : 0;
+    const scrollY = Number.isFinite(rawScrollY) ? rawScrollY : 0;
+    const rendered = context.helpers.rerender();
+    if (!rendered || !windowRef || typeof windowRef.scrollTo !== "function") return rendered;
+    const restore = () => windowRef.scrollTo(scrollX, scrollY);
+    restore();
+    if (typeof windowRef.requestAnimationFrame === "function") {
+      windowRef.requestAnimationFrame(restore);
+    }
+    return rendered;
   }
 
   function createCard(documentRef, card, options = {}) {
@@ -316,7 +333,7 @@
           ? current.filter((id) => id !== cardId)
           : [...current, cardId];
         context.uiState.selectedActionId = null;
-        context.helpers.rerender();
+        localRerender(context);
       });
       scroller.appendChild(cardNode);
     });
@@ -422,7 +439,7 @@
       button.addEventListener("click", () => {
         if (!context.helpers.canMove() || context.uiState.submitting) return;
         context.uiState.selectedBidActionId = isSelected ? null : action.action_id;
-        context.helpers.rerender();
+        localRerender(context);
       });
       buttons.appendChild(button);
     });
@@ -451,7 +468,7 @@
     cancelButton.addEventListener("click", () => {
       if (context.uiState.submitting) return;
       context.uiState.selectedBidActionId = null;
-      context.helpers.rerender();
+      localRerender(context);
     });
     confirmation.append(confirmButton, cancelButton);
     panel.appendChild(confirmation);
@@ -504,7 +521,7 @@
         choice.classList.toggle("selected", context.uiState.selectedActionId === action.action_id);
         choice.addEventListener("click", () => {
           context.uiState.selectedActionId = action.action_id;
-          context.helpers.rerender();
+          localRerender(context);
         });
         choices.appendChild(choice);
       });

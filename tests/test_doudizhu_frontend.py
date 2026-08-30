@@ -23,7 +23,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "function renderControls(context)",
             "usesStandardMoveConfirmation: false",
             "ownsPrivateStatePresentation: true",
-            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.3";',
+            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.4";',
             'link.dataset.duelGameStyle = "doudizhu";',
         ):
             self.assertIn(expected, SCRIPT)
@@ -82,6 +82,33 @@ class DoudizhuFrontendTests(unittest.TestCase):
         ]
         self.assertNotIn("aspect-ratio: var(", board_rule)
         self.assertNotIn("overflow: hidden", board_rule)
+
+    def test_local_selection_disables_scroll_anchoring_without_locking_page_scroll(self):
+        anchor_rule = STYLES[
+            STYLES.index(".board.doudizhu,\n.doudizhu-hand-zone,\n.doudizhu-controls {"):
+            STYLES.index(
+                "}",
+                STYLES.index(".board.doudizhu,\n.doudizhu-hand-zone,\n.doudizhu-controls {")
+            )
+        ]
+        self.assertIn("overflow-anchor: none;", anchor_rule)
+        self.assertNotIn("position: fixed", anchor_rule)
+        local_rerender = SCRIPT[
+            SCRIPT.index("function localRerender(context)"):
+            SCRIPT.index("function createCard", SCRIPT.index("function localRerender(context)"))
+        ]
+        self.assertIn("windowRef.scrollY ?? windowRef.pageYOffset", local_rerender)
+        self.assertIn("windowRef.scrollTo(scrollX, scrollY)", local_rerender)
+        self.assertIn("windowRef.requestAnimationFrame(restore)", local_rerender)
+        self.assertIn(
+            "button.doudizhu-card.selected {\n  transform: translateY(-11px);",
+            STYLES,
+        )
+        submit_action = SCRIPT[
+            SCRIPT.index("function submitAction(context, action)"):
+            SCRIPT.index("function renderBidControls", SCRIPT.index("function submitAction(context, action)"))
+        ]
+        self.assertNotIn("localRerender(context)", submit_action)
 
     def test_disabled_private_cards_stay_fully_legible(self):
         disabled_rule = STYLES[
@@ -319,10 +346,28 @@ const document = {
   getElementById(id) { return styleNodes.get(id) || null; },
 };
 let renderer = null;
-const window = {document, DuelGameUI: {register(gameType, value) {
-  assert.equal(gameType, "doudizhu");
-  renderer = value;
-}}};
+let pageScrollX = 0;
+let pageScrollY = 0;
+const scrollCalls = [];
+const window = {
+  document,
+  get scrollX() { return pageScrollX; },
+  get scrollY() { return pageScrollY; },
+  get pageXOffset() { return pageScrollX; },
+  get pageYOffset() { return pageScrollY; },
+  scrollCalls,
+  scrollTo(left, top) {
+    pageScrollX = Number(left) || 0;
+    pageScrollY = Number(top) || 0;
+    scrollCalls.push([pageScrollX, pageScrollY]);
+  },
+  requestAnimationFrame(callback) { callback(); return scrollCalls.length; },
+  DuelGameUI: {register(gameType, value) {
+    assert.equal(gameType, "doudizhu");
+    renderer = value;
+  }},
+};
+document.defaultView = window;
 vm.runInNewContext(fs.readFileSync("app/static/games/doudizhu.js", "utf8"), {
   window, document, console, Math, Set, Map, Number, String, Boolean, Array, Object, Promise,
 });
@@ -406,7 +451,7 @@ assert.deepEqual(
   revealedBottom.children.map((node) => node.dataset.cardId),
   bottomCards.map((card) => card.id)
 );
-assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.3");
+assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.4");
 ''')
 
     def test_private_hand_is_displayed_big_to_small_without_mutating_projection(self):
@@ -492,6 +537,69 @@ assert.equal(controls.find((node) => hasClass(node, "doudizhu-play-button")).dis
 assert.equal(controls.find((node) => hasClass(node, "doudizhu-pass-button")).disabled, false);
 ''')
 
+    def test_local_selection_and_pattern_rerenders_preserve_page_scroll_y(self):
+        self.run_node(r'''
+privateState.legal_actions = [
+  {
+    action: "play", action_id: "pair-3-a", card_ids: ["HAND-0", "HAND-13"],
+    pattern_label: "对子解释 A", main_rank: "3",
+  },
+  {
+    action: "play", action_id: "pair-3-b", card_ids: ["HAND-0", "HAND-13"],
+    pattern_label: "对子解释 B", main_rank: "3",
+  },
+  {action: "pass", action_id: "pass"},
+];
+const value = makeContext({
+  flow: {phase: "playing", round_number: 1, turn_number: 3},
+  current_trick: {
+    leader_player_id: "ai-1",
+    last_play: {
+      player_id: "ai-1", cards: [{id: "TABLE-4", suit: "spades", rank: "4"}],
+      pattern: {label: "单张"},
+    },
+    pass_player_ids: [],
+  },
+});
+value.context.helpers.rerender = () => {
+  window.scrollTo(0, 19);
+  value.board.replaceChildren();
+  value.controls.replaceChildren();
+  renderer.renderBoard(value.context);
+  renderer.renderControls(value.context);
+  return true;
+};
+renderer.renderBoard(value.context);
+
+function handScroller() {
+  return descendants(value.board).find((node) => hasClass(node, "doudizhu-hand-scroll"));
+}
+function clickCard(cardId, expectedY) {
+  window.scrollTo(0, expectedY);
+  window.scrollCalls.length = 0;
+  handScroller().children.find((node) => node.dataset.cardId === cardId).listeners.click();
+  assert.equal(window.scrollY, expectedY);
+  assert.deepEqual(window.scrollCalls.at(-1), [0, expectedY]);
+}
+
+clickCard("HAND-13", 641);
+assert.equal(JSON.stringify(value.uiState.selectedCardIds), JSON.stringify(["HAND-13"]));
+clickCard("HAND-13", 641);
+assert.equal(JSON.stringify(value.uiState.selectedCardIds), JSON.stringify([]));
+
+clickCard("HAND-13", 688);
+clickCard("HAND-0", 688);
+let controls = descendants(value.controls);
+const choices = controls.filter((node) => hasClass(node, "doudizhu-pattern-choice"));
+assert.equal(choices.length, 2);
+window.scrollTo(0, 733);
+window.scrollCalls.length = 0;
+choices[1].listeners.click();
+assert.equal(window.scrollY, 733);
+assert.deepEqual(window.scrollCalls.at(-1), [0, 733]);
+assert.equal(value.uiState.selectedActionId, "pair-3-b");
+''')
+
     def test_bid_option_only_selects_then_confirmation_submits_once(self):
         self.run_node(r'''
 (async () => {
@@ -512,10 +620,12 @@ assert.equal(controls.find((node) => hasClass(node, "doudizhu-pass-button")).dis
   const confirm = nodes.find((node) => hasClass(node, "doudizhu-bid-confirm-button"));
   assert.ok(confirm);
   assert.equal(confirm.textContent, "确认叫 2 分");
+  window.scrollCalls.length = 0;
   const firstSubmission = confirm.listeners.click();
   const duplicateSubmission = confirm.listeners.click();
   assert.equal(duplicateSubmission, false);
   await firstSubmission;
+  assert.equal(window.scrollCalls.length, 0);
   assert.equal(value.submitted.length, 1);
   assert.equal(JSON.stringify(value.submitted[0]), JSON.stringify({
     action: "bid", action_id: "bid:2", score: 2, label: "2分",

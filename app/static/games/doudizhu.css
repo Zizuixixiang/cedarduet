@@ -18,6 +18,12 @@
   box-sizing: border-box;
 }
 
+.board.doudizhu,
+.doudizhu-hand-zone,
+.doudizhu-controls {
+  overflow-anchor: none;
+}
+
 .doudizhu-game {
   --felt: #135345;
   --felt-deep: #082f29;
