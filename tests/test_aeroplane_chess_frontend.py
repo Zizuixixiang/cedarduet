@@ -80,7 +80,18 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("<img", SCRIPT.lower())
         self.assertNotIn("background-image: url", STYLES.lower())
         self.assertNotIn("aeroplane-token-cockpit", SCRIPT + STYLES)
-        self.assertIn("L58 34 L58 40", SCRIPT)
+        self.assertIn(
+            'd: "M32 4 C35 4 37 8 37 13 L37 23 L58 34 L58 40 L37 35 '
+            'L36 51 L45 57 L45 61 L32 57 L19 61 L19 57 L28 51 L27 35 L6 '
+            '40 L6 34 L27 23 L27 13 C27 8 29 4 32 4 Z"',
+            SCRIPT,
+        )
+        self.assertIn(
+            'd: "M32 3 C35 3 36 8 36 13 L36 24 L57 34 L57 38 L36 34 '
+            'L35 51 L44 57 L44 59 L32 56 L20 59 L20 57 L29 51 L28 34 L7 '
+            '38 L7 34 L28 24 L28 13 C28 8 29 3 32 3 Z"',
+            SCRIPT,
+        )
         self.assertIn('"data-ring-index": ringIndex', SCRIPT)
         self.assertIn("const TRACK_EDGE_MIN = 8;", SCRIPT)
         self.assertIn("const TRACK_EDGE_MAX = 92;", SCRIPT)
@@ -125,6 +136,13 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         )
         self.assertIn("width: var(--aeroplane-token-size);", STYLES)
         self.assertIn(".aeroplane-token.legal .aeroplane-token-svg", STYLES)
+        self.assertIn("width: calc(var(--aeroplane-token-size) + 3px);", STYLES)
+        self.assertIn("border: 1px solid rgba(73, 56, 74, .62);", STYLES)
+        self.assertIn("stroke-width: 2.6;", STYLES)
+        self.assertIn("paint-order: stroke fill;", STYLES)
+        self.assertNotIn("drop-shadow(0 0 3px", STYLES)
+        self.assertNotIn("drop-shadow(0 0 8px", STYLES)
+        self.assertIn(".aeroplane-activity.npc-feedback-active {", STYLES)
         for viewport in (320, 360, 375, 390, 430, 599):
             board_width = min(viewport * 0.96, 680)
             cell_width = board_width * 0.052
@@ -170,6 +188,12 @@ class ClassList {
   constructor(owner) { this.owner = owner; this.names = new Set(); }
   set(value) { this.names = new Set(String(value || "").split(/\s+/).filter(Boolean)); }
   add(...names) { names.forEach((name) => this.names.add(name)); }
+  remove(...names) { names.forEach((name) => this.names.delete(name)); }
+  toggle(name, force) {
+    const enabled = force === undefined ? !this.names.has(name) : Boolean(force);
+    if (enabled) this.names.add(name); else this.names.delete(name);
+    return enabled;
+  }
   contains(name) { return this.names.has(name); }
 }
 class Element {
@@ -197,17 +221,29 @@ class Element {
   addEventListener(name, listener) { this.listeners[name] = listener; }
 }
 const styleNodes = new Map();
+const queryNodes = new Map();
+const feedbackDelays = [];
+let feedbackTimeoutObserver = null;
 const document = {
   head: {appendChild(element) { if (element.id) styleNodes.set(element.id, element); }},
   createElement(tag) { return new Element(tag); },
   createElementNS(_namespace, tag) { return new Element(tag); },
   getElementById(id) { return styleNodes.get(id) || null; },
+  querySelector(selector) { return queryNodes.get(selector) || null; },
 };
 let renderer = null;
-const window = {document, DuelGameUI: {register(gameType, candidate) {
-  assert.equal(gameType, "aeroplane_chess");
-  renderer = candidate;
-}}};
+const window = {
+  document,
+  setTimeout(callback, delay) {
+    feedbackDelays.push(delay);
+    if (feedbackTimeoutObserver) feedbackTimeoutObserver(delay);
+    callback();
+  },
+  DuelGameUI: {register(gameType, candidate) {
+    assert.equal(gameType, "aeroplane_chess");
+    renderer = candidate;
+  }},
+};
 vm.runInNewContext(fs.readFileSync("app/static/games/aeroplane_chess.js", "utf8"), {
   window, document, console, Math, Set, Map, Number, String, Boolean, Array, Object, Promise,
 });
@@ -346,6 +382,7 @@ function makeContext(viewerId, canMove = true) {
 
     def test_npc_transition_feedback_keeps_roll_and_move_results_visible(self):
         self.run_node(r'''
+(async () => {
 const previousTimeline = [{sequence: 20, event_type: "message", text: "此前"}];
 const nextTimeline = [
   ...previousTimeline,
@@ -356,39 +393,104 @@ const nextTimeline = [
   },
   {
     sequence: 22, revision_at_send: 8, event_type: "result",
-    text: "掷出 4 点但没有可移动飞机，服务端已自动结束本回合。",
-    move: {aeroplane_delta: {action: "roll", value: 4, auto_pass: true}},
+    text: "掷出 4 点，请从 2 架可移动飞机中选择。",
+    move: {aeroplane_delta: {action: "roll", value: 4, auto_pass: false}},
   },
   {
     sequence: 23, revision_at_send: 9, event_type: "move",
-    sender: {name: "真人", participant_kind: "human"},
-    move: {action: "roll"},
-  },
-  {
-    sequence: 24, revision_at_send: 9, event_type: "result",
-    text: "掷出 2 点。",
-    move: {aeroplane_delta: {action: "roll", value: 2}},
-  },
-  {
-    sequence: 25, revision_at_send: 10, event_type: "move",
     sender: {name: "许知衡", participant_kind: "system_npc"},
     move: {action: "move", plane_id: "blue-0"},
   },
   {
+    sequence: 24, revision_at_send: 9, event_type: "result",
+    text: "蓝方 1 号机前进 4 点，并触发跳跃。",
+    move: {aeroplane_delta: {action: "move", die: 4, plane_id: "blue-0"}},
+  },
+  {
+    sequence: 25, revision_at_send: 10, event_type: "move",
+    sender: {name: "许知衡", participant_kind: "system_npc"},
+    move: {action: "roll"},
+  },
+  {
     sequence: 26, revision_at_send: 10, event_type: "result",
-    text: "蓝方 1 号机前进 6 点，并触发跳跃。",
-    move: {aeroplane_delta: {action: "move", die: 6, plane_id: "blue-0"}},
+    text: "掷出 2 点但没有可移动飞机，服务端已自动结束本回合。",
+    move: {aeroplane_delta: {action: "roll", value: 2, auto_pass: true}},
+  },
+  {
+    sequence: 27, revision_at_send: 11, event_type: "move",
+    sender: {name: "真人", participant_kind: "human"},
+    move: {action: "roll"},
+  },
+  {
+    sequence: 28, revision_at_send: 11, event_type: "result",
+    text: "掷出 6 点。",
+    move: {aeroplane_delta: {action: "roll", value: 6}},
   },
 ];
 const beats = renderer.transitionFeedbackBeats({previousTimeline, nextTimeline});
-assert.equal(beats.length, 2);
-assert.equal(
-  beats[0].text,
-  "许知衡掷出 4 点，但没有可移动飞机，服务端已自动结束本回合。"
-);
-assert.equal(beats[1].text, "许知衡：蓝方 1 号机前进 6 点，并触发跳跃。");
-assert.equal(beats.every((beat) => beat.durationMs === 450), true);
+assert.deepEqual(JSON.parse(JSON.stringify(beats)), [
+  {phase: "roll", text: "许知衡掷出 4 点", dieValue: 4, durationMs: 850},
+  {
+    phase: "move",
+    text: "许知衡：蓝方 1 号机前进 4 点，并触发跳跃。",
+    dieValue: 4,
+    durationMs: 750,
+  },
+  {phase: "roll", text: "许知衡掷出 2 点", dieValue: 2, durationMs: 850},
+  {
+    phase: "result",
+    text: "许知衡：没有可移动飞机，服务端已自动结束本回合。",
+    dieValue: 2,
+    durationMs: 750,
+  },
+]);
 assert.equal(typeof renderer.transitionFeedback, "function");
+
+const activity = new Element("div");
+activity.className = "aeroplane-activity";
+const die = new Element("span");
+die.className = "aeroplane-die compact empty";
+for (let index = 0; index < 9; index += 1) {
+  const pip = new Element("span");
+  pip.className = "aeroplane-pip";
+  die.appendChild(pip);
+}
+const activityCopy = new Element("span");
+const headingCopy = new Element("span");
+activity.append(die, activityCopy);
+queryNodes.set(".aeroplane-activity", activity);
+queryNodes.set(".aeroplane-activity > span:last-child", activityCopy);
+queryNodes.set(".aeroplane-board-heading > span:last-child", headingCopy);
+queryNodes.set(".aeroplane-activity .aeroplane-die", die);
+
+const snapshots = [];
+feedbackTimeoutObserver = () => snapshots.push({
+  text: activityCopy.textContent,
+  heading: headingCopy.textContent,
+  phase: activity.dataset.npcFeedbackPhase,
+  pips: die.children.map((pip, index) => (
+    pip.classList.contains("on") ? index + 1 : null
+  )).filter(Boolean),
+  active: activity.classList.contains("npc-feedback-active"),
+});
+await renderer.transitionFeedback({document, previousTimeline, nextTimeline});
+assert.deepEqual(feedbackDelays, [850, 750, 850, 750]);
+assert.equal(
+  JSON.stringify(snapshots.map((item) => item.text)),
+  JSON.stringify(Array.from(beats, (item) => item.text))
+);
+assert.equal(
+  JSON.stringify(snapshots.map((item) => item.heading)),
+  JSON.stringify(Array.from(beats, (item) => item.text))
+);
+assert.deepEqual(snapshots.map((item) => item.phase), ["roll", "move", "roll", "result"]);
+assert.deepEqual(snapshots[0].pips, [1, 3, 7, 9]);
+assert.deepEqual(snapshots[2].pips, [1, 9]);
+assert.equal(snapshots.every((item) => item.active), true);
+assert.equal(die.attributes["aria-label"], "2 点");
+assert.equal(activity.classList.contains("npc-feedback-active"), false);
+assert.equal("npcFeedbackPhase" in activity.dataset, false);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
 
     def test_awaiting_roll_control_submits_only_roll_action(self):

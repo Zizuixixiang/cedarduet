@@ -19,6 +19,8 @@
     5: [1, 3, 5, 7, 9],
     6: [1, 3, 4, 6, 7, 9],
   };
+  const NPC_ROLL_FEEDBACK_MS = 850;
+  const NPC_ACTION_FEEDBACK_MS = 750;
   const AIRPORT_POINTS = {
     red: [[6.75, 87.75], [12.25, 87.75], [6.75, 93.25], [12.25, 93.25]],
     yellow: [[6.75, 6.75], [12.25, 6.75], [6.75, 12.25], [12.25, 12.25]],
@@ -279,20 +281,46 @@
       const name = npcByRevision.get(revision);
       const delta = event.move && event.move.aeroplane_delta;
       if (event.event_type !== "result" || !name || !delta) return;
-      let text = "";
       if (delta.action === "roll") {
         const value = Number(delta.value) || "?";
         const prefix = `${name}掷出 ${value} 点`;
         const note = String(event.text || "").trim();
         const repeatedPrefix = new RegExp(`^掷出\\s*${value}\\s*点[，,。.]?\\s*`);
-        const detail = note.replace(repeatedPrefix, "");
-        text = detail ? `${prefix}，${detail}` : prefix;
+        const detail = note.replace(repeatedPrefix, "").replace(/^但\s*/, "");
+        beats.push({
+          phase: "roll",
+          text: prefix,
+          dieValue: value,
+          durationMs: NPC_ROLL_FEEDBACK_MS,
+        });
+        if ((delta.auto_pass || delta.penalty) && detail) {
+          beats.push({
+            phase: "result",
+            text: `${name}：${detail}`,
+            dieValue: value,
+            durationMs: NPC_ACTION_FEEDBACK_MS,
+          });
+        }
       } else if (delta.action === "move") {
-        text = `${name}：${String(event.text || "完成移动").trim()}`;
+        beats.push({
+          phase: "move",
+          text: `${name}：${String(event.text || "完成移动").trim()}`,
+          dieValue: Number(delta.die) || null,
+          durationMs: NPC_ACTION_FEEDBACK_MS,
+        });
       }
-      if (text) beats.push({text, durationMs: 450});
     });
-    return beats.slice(-4);
+    return beats;
+  }
+
+  function updateFeedbackDie(die, value) {
+    if (!die) return;
+    const active = new Set(PIP_POSITIONS[value] || []);
+    die.classList.toggle("empty", !value);
+    die.setAttribute("aria-label", value ? `${value} 点` : "尚未掷骰");
+    Array.from(die.children || []).forEach((pip, index) => {
+      pip.classList.toggle("on", active.has(index + 1));
+    });
   }
 
   async function transitionFeedback({
@@ -304,17 +332,29 @@
     if (!beats.length || !documentRef || typeof documentRef.querySelector !== "function") {
       return;
     }
+    const activity = documentRef.querySelector(".aeroplane-activity");
     const activityCopy = documentRef.querySelector(
       ".aeroplane-activity > span:last-child"
     );
     const headingCopy = documentRef.querySelector(
       ".aeroplane-board-heading > span:last-child"
     );
-    if (!activityCopy) return;
-    for (const beat of beats) {
-      activityCopy.textContent = beat.text;
-      if (headingCopy) headingCopy.textContent = beat.text;
-      await new Promise((resolve) => window.setTimeout(resolve, beat.durationMs));
+    const die = documentRef.querySelector(
+      ".aeroplane-activity .aeroplane-die"
+    );
+    if (!activity || !activityCopy) return;
+    activity.classList.add("npc-feedback-active");
+    try {
+      for (const beat of beats) {
+        activity.dataset.npcFeedbackPhase = beat.phase;
+        activityCopy.textContent = beat.text;
+        if (headingCopy) headingCopy.textContent = beat.text;
+        updateFeedbackDie(die, beat.dieValue);
+        await new Promise((resolve) => window.setTimeout(resolve, beat.durationMs));
+      }
+    } finally {
+      activity.classList.remove("npc-feedback-active");
+      delete activity.dataset.npcFeedbackPhase;
     }
   }
 

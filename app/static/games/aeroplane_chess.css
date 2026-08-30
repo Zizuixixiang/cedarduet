@@ -305,9 +305,26 @@
   border-radius: 50%;
   color: var(--plane-main);
   background: transparent;
-  filter: drop-shadow(0 2px 1px rgba(54, 38, 50, .34));
+  filter: none;
+  isolation: isolate;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+
+.aeroplane-token::before {
+  content: "";
+  width: calc(var(--aeroplane-token-size) + 3px);
+  height: calc(var(--aeroplane-token-size) + 3px);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(73, 56, 74, .62);
+  border-radius: 50%;
+  background: rgba(255, 253, 247, .72);
+  box-shadow: 0 1px 1px rgba(45, 30, 41, .3);
+  pointer-events: none;
 }
 
 .aeroplane-token.color-red { --plane-main: var(--aero-red); --plane-dark: var(--aero-red-dark); }
@@ -327,6 +344,12 @@
   filter: none;
 }
 
+.aeroplane-token.legal::before {
+  border: 2px solid #b97824;
+  background: #fff7cd;
+  box-shadow: 0 0 0 2px rgba(255, 237, 154, .82);
+}
+
 .aeroplane-token.legal:hover .aeroplane-token-svg,
 .aeroplane-token.legal:focus-visible .aeroplane-token-svg {
   transform: translateY(-2px) scale(1.08);
@@ -340,17 +363,18 @@
 .aeroplane-token-svg {
   width: 100%;
   height: 100%;
+  position: relative;
+  z-index: 1;
   display: block;
   overflow: visible;
+  filter: drop-shadow(0 1px .5px rgba(54, 38, 50, .38));
   transition: transform 130ms ease;
 }
 
 .aeroplane-token.legal .aeroplane-token-svg {
   width: var(--aeroplane-token-size);
   height: var(--aeroplane-token-size);
-  filter:
-    drop-shadow(0 2px 1px rgba(54, 38, 50, .38))
-    drop-shadow(0 0 3px rgba(255, 208, 68, .95));
+  filter: drop-shadow(0 1px .5px rgba(54, 38, 50, .42));
 }
 
 .aeroplane-token-shadow {
@@ -361,8 +385,9 @@
 .aeroplane-token-body {
   fill: var(--plane-main);
   stroke: var(--plane-dark);
-  stroke-width: 2;
+  stroke-width: 2.6;
   stroke-linejoin: round;
+  paint-order: stroke fill;
 }
 
 .aeroplane-token-shine {
@@ -421,6 +446,23 @@
   overflow-wrap: anywhere;
   white-space: normal;
   line-height: 1.4;
+}
+
+.aeroplane-activity.npc-feedback-active {
+  border-color: #b97824;
+  background: #fff8dd;
+  box-shadow: inset 3px 0 0 #c88b49;
+  color: #49384a;
+}
+
+.aeroplane-activity.npc-feedback-active > span:last-child {
+  font-weight: 800;
+}
+
+.aeroplane-activity[data-npc-feedback-phase="roll"] .aeroplane-die {
+  border-color: #b97824;
+  color: #49384a;
+  background: #fffdf5;
 }
 
 .aeroplane-die {
@@ -518,8 +560,8 @@
 }
 
 @keyframes aeroplane-return-flash {
-  0%, 100% { filter: drop-shadow(0 3px 2px rgba(54, 38, 50, .36)); }
-  50% { filter: drop-shadow(0 0 8px #d34754); }
+  0%, 100% { filter: drop-shadow(0 1px .5px rgba(54, 38, 50, .38)); }
+  50% { filter: drop-shadow(0 0 1px #d34754); }
 }
 
 @media (prefers-reduced-motion: reduce) {
