@@ -465,7 +465,7 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(script.status_code, 200, script.text)
         self.assertEqual(stylesheet.status_code, 200, stylesheet.text)
         self.assertIn('DuelGameUI.register("mahjong"', script.text)
-        self.assertIn("@media (max-width: 320px)", stylesheet.text)
+        self.assertIn("@media (max-width: 340px)", stylesheet.text)
 
         full_request = {
             "action": "state", "player_id": "ai-m", "room_id": room["room_id"],

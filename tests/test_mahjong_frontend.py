@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.3";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.5";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -35,7 +35,11 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             "state.seat_winds",
             "state.dealer_player_id",
             "state.turn_player_id",
-            "mahjong-discard-table",
+            "mahjong-table-four-sides",
+            "mahjong-discard-table mahjong-four-way-discards",
+            "discardTable.appendChild(statusNode(context))",
+            "mahjong-center-status",
+            "mahjong-tile-back",
             "mahjong-own-hand-scroll",
             "context.privateState.hand",
             "state.melds",
@@ -43,6 +47,22 @@ class MahjongFrontendStructureTests(unittest.TestCase):
             self.assertIn(expected, SCRIPT)
         for area in ("grid-area: top", "grid-area: bottom", "grid-area: left", "grid-area: right"):
             self.assertIn(area, STYLES)
+        self.assertIn('"top top top"', STYLES)
+        self.assertIn('"left center right"', STYLES)
+        self.assertIn('"dl status dr"', STYLES)
+        self.assertIn(".position-left .mahjong-tile-back", STYLES)
+        self.assertIn(".position-right .mahjong-tile-back", STYLES)
+        self.assertIn(".discard-left .mahjong-tile-face", STYLES)
+        self.assertIn(".discard-right .mahjong-tile-face", STYLES)
+        self.assertIn(".mahjong-tile.last-discard", STYLES)
+        self.assertIn('"identity hand"', STYLES)
+        self.assertIn('"hand identity"', STYLES)
+        self.assertIn("grid-template-columns: minmax(17px, 1fr) var(--mj-back-h);", STYLES)
+        self.assertIn("grid-template-rows: auto minmax(48px, 1fr) auto;", STYLES)
+        self.assertIn("writing-mode: vertical-rl;", STYLES)
+        self.assertIn("text-orientation: mixed;", STYLES)
+        self.assertIn("max-width: none;", STYLES)
+        self.assertIn("--mj-side: 46px;", STYLES)
 
     def test_authoritative_actions_mobile_widths_and_no_page_overflow(self):
         self.assertIn("context.legalActions", SCRIPT)
@@ -53,11 +73,15 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("overflow-x: auto;", STYLES)
         self.assertIn("touch-action: pan-x;", STYLES)
         self.assertIn("@media (max-width: 375px)", STYLES)
-        self.assertIn("@media (max-width: 320px)", STYLES)
+        self.assertIn("@media (max-width: 600px)", STYLES)
+        self.assertIn("@media (max-width: 340px)", STYLES)
         self.assertIn("min-width: 0;", STYLES)
         self.assertIn("overflow: hidden;", STYLES)
         self.assertIn("min-height: 44px;", STYLES)
         self.assertIn("button.mahjong-tile:disabled { cursor: default; opacity: 1; }", STYLES)
+        self.assertIn(".mahjong-control-hint.state-select", STYLES)
+        self.assertIn("align-items: center;", STYLES)
+        self.assertIn("font: 600 9px/1.3 system-ui, sans-serif;", STYLES)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -127,7 +151,7 @@ const participants=[
 ];
 function makeContext(){
  const board=new Element("div",document),controls=new Element("div",document),submitted=[],uiState={};let rerenders=0;
- const context={board,controls,state,privateState,participants,viewer:{player_id:"viewer",seat:2},room:{current_player_id:"viewer",status:"playing"},canMove:true,legalActions:privateState.legal_actions,uiState,
+ const context={board,controls,state,privateState,participants,viewer:{player_id:"viewer",seat:2},room:{current_player_id:"viewer",status:"playing"},canMove:true,isTerminal:false,legalActions:privateState.legal_actions,uiState,
  helpers:{setBoardLayout(value){board.attributes.ariaLabel=value.ariaLabel;},rerender(){rerenders+=1;},async submitMove(move){submitted.push(move);},renderParticipantAvatar(target,item){target.textContent=item.display_name.slice(0,1);}}};
  return {context,board,controls,submitted,uiState,rerenders:()=>rerenders};
 }
@@ -147,10 +171,19 @@ assert.equal(nodes.filter(n=>hasClass(n,"mahjong-seat")).length,4);
 for(const position of ["bottom","right","top","left"]){assert.equal(nodes.filter(n=>hasClass(n,`position-${position}`)).length,1);}
 const bottom=nodes.find(n=>hasClass(n,"position-bottom"));assert.equal(bottom.dataset.playerId,"viewer");
 const top=nodes.find(n=>hasClass(n,"position-top"));assert.equal(top.dataset.playerId,"east");
+const left=nodes.find(n=>hasClass(n,"position-left"));
+const right=nodes.find(n=>hasClass(n,"position-right"));
+assert.equal(descendants(left).find(n=>hasClass(n,"mahjong-seat-name")).textContent,"南座");
+assert.equal(descendants(right).find(n=>hasClass(n,"mahjong-seat-name")).textContent,"北座");
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-opponent-hand")).length,4);
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-tile-back")).length,38);
 assert.equal(nodes.filter(n=>n.tag==="button"&&hasClass(n,"mahjong-tile")).length,2);
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-discards")).length,4);
+const discardTable=nodes.find(n=>hasClass(n,"mahjong-four-way-discards"));assert.ok(discardTable);
+const discardNodes=descendants(discardTable);
+assert.equal(discardNodes.filter(n=>hasClass(n,"mahjong-center-status")).length,1);
+for(const position of ["bottom","right","top","left"]){assert.equal(discardNodes.filter(n=>hasClass(n,`discard-${position}`)).length,1);}
+assert.equal(discardNodes.filter(n=>hasClass(n,"last-discard")).length,1);
 assert.equal(styles.size,1);
 ''')
 
@@ -185,6 +218,73 @@ assert.equal(styles.size,1);
   {action:"act",action_id:"discard:h1"},{action:"act",action_id:"concealed:1"}
  ]));
 })().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+
+    def test_control_hints_distinguish_selection_waiting_and_terminal_states(self):
+        self.run_node(r'''
+const value=makeContext();
+value.context.legalActions=[{action:"act",action_id:"discard:h1",kind:"discard",label:"打 2万"}];
+renderer.renderControls(value.context);let nodes=descendants(value.controls);
+let hint=nodes.find(n=>hasClass(n,"mahjong-control-hint"));
+assert.equal(hint.textContent,"请选择一张手牌打出");
+assert.equal(hint.attributes.role,"status");
+assert.equal(nodes.filter(n=>hasClass(n,"mahjong-action")).length,0);
+
+value.context.canMove=false;renderer.renderControls(value.context);nodes=descendants(value.controls);
+hint=nodes.find(n=>hasClass(n,"mahjong-control-hint"));
+assert.equal(hint.textContent,"等待其他玩家行动");
+
+value.context.isTerminal=true;renderer.renderControls(value.context);nodes=descendants(value.controls);
+hint=nodes.find(n=>hasClass(n,"mahjong-control-hint"));
+assert.equal(hint.textContent,"本手已结束");
+
+value.context.isTerminal=false;value.context.canMove=true;
+value.context.legalActions=[{action:"act",action_id:"pass:1",kind:"pass",label:"过"}];
+renderer.renderControls(value.context);nodes=descendants(value.controls);
+assert.ok(nodes.find(n=>n.dataset.actionId==="pass:1"));
+assert.equal(nodes.filter(n=>hasClass(n,"mahjong-control-hint")).length,0);
+''')
+
+    def test_all_authoritative_action_kinds_render_and_hu_uses_hu_copy(self):
+        self.run_node(r'''
+const value=makeContext();
+value.context.legalActions=[
+ {action:"act",action_id:"discard:h1",kind:"discard",label:"打 2万"},
+ {action:"act",action_id:"chi:123",kind:"chi",label:"吃 1万 2万 3万"},
+ {action:"act",action_id:"chi:234",kind:"chi",label:"吃 2万 3万 4万"},
+ {action:"act",action_id:"peng:2",kind:"peng",label:"碰 2万"},
+ {action:"act",action_id:"ming_gang:2",kind:"ming_gang",label:"明杠 2万"},
+ {action:"act",action_id:"concealed:2",kind:"concealed_gang",label:"暗杠 2万"},
+ {action:"act",action_id:"added:2",kind:"added_gang",label:"加杠 2万"},
+ {action:"act",action_id:"hu:self",kind:"hu",label:"和（12 番）",public_label:"和牌",total_fan:12},
+ {action:"act",action_id:"pass:2",kind:"pass",label:"过"},
+];
+renderer.renderControls(value.context);let nodes=descendants(value.controls);
+const buttons=nodes.filter(n=>hasClass(n,"mahjong-action"));
+assert.equal(buttons.length,8);
+assert.deepEqual(
+ buttons.map(n=>n.dataset.actionId).sort(),
+ ["added:2","chi:123","chi:234","concealed:2","hu:self","ming_gang:2","pass:2","peng:2"].sort()
+);
+assert.equal(nodes.filter(n=>n.dataset.actionId==="discard:h1").length,0);
+assert.equal(nodes.find(n=>n.dataset.actionId==="hu:self").textContent,"胡（12 番）");
+assert.equal(nodes.find(n=>hasClass(n,"mahjong-control-hint")).textContent,"请选择一张手牌打出");
+
+nodes.find(n=>n.dataset.actionId==="hu:self").listeners.click();
+renderer.renderControls(value.context);nodes=descendants(value.controls);
+assert.equal(nodes.find(n=>hasClass(n,"mahjong-confirmation-copy")).textContent,"已选择：胡（12 番）");
+nodes.find(n=>hasClass(n,"mahjong-confirm-cancel")).listeners.click();
+assert.equal(value.uiState.mahjongPendingActionId,undefined);
+
+value.uiState.mahjongSelectedTileId="h1";
+renderer.renderControls(value.context);nodes=descendants(value.controls);
+assert.ok(nodes.find(n=>n.dataset.actionId==="discard:h1"));
+assert.equal(nodes.filter(n=>hasClass(n,"mahjong-control-hint")).length,0);
+
+value.context.legalActions=[{action:"act",action_id:"hu:fallback",kind:"hu",public_label:"和牌"}];
+delete value.uiState.mahjongSelectedTileId;
+renderer.renderControls(value.context);nodes=descendants(value.controls);
+assert.equal(nodes.find(n=>n.dataset.actionId==="hu:fallback").textContent,"胡牌");
 ''')
 
     def test_terminal_hands_and_concealed_kong_faces_are_reviewable(self):

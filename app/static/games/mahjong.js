@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.3";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.1.5";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
 
   function ensureStyle() {
@@ -251,15 +251,15 @@
       ariaLabel: "四人国标麻将桌",
     });
     context.board.classList.add("mahjong-board-layout");
-    const table = el("div", "mahjong-table");
+    const table = el("div", "mahjong-table mahjong-table-four-sides");
     const participants = [...(context.participants || [])].sort(
       (left, right) => Number(left.seat_index) - Number(right.seat_index)
     );
     participants.forEach((participant) => table.appendChild(seatNode(participant, context)));
     const center = el("main", "mahjong-center");
-    center.appendChild(statusNode(context));
-    const discardTable = el("div", "mahjong-discard-table");
+    const discardTable = el("div", "mahjong-discard-table mahjong-four-way-discards");
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
+    discardTable.appendChild(statusNode(context));
     center.appendChild(discardTable);
     table.appendChild(center);
     const ownHand = ownHandNode(context);
@@ -297,8 +297,29 @@
     }
   }
 
+  function actionDisplayLabel(action) {
+    const fallback = String(
+      action.label || action.public_label || action.kind || "行动"
+    );
+    if (action.kind !== "hu") return fallback;
+    const explicitFan = action.total_fan;
+    if (explicitFan !== null && explicitFan !== undefined) {
+      const fan = Number(explicitFan);
+      if (Number.isFinite(fan)) return `胡（${fan} 番）`;
+    }
+    for (const source of [action.label, action.public_label]) {
+      const match = String(source || "").match(/(\d+)\s*番/);
+      if (match) return `胡（${match[1]} 番）`;
+    }
+    return "胡牌";
+  }
+
   function actionButton(action, context, {requiresConfirmation = false} = {}) {
-    const button = el("button", `mahjong-action kind-${action.kind || "act"}`, action.label || action.public_label || action.kind || "行动");
+    const button = el(
+      "button",
+      `mahjong-action kind-${action.kind || "act"}`,
+      actionDisplayLabel(action)
+    );
     button.type = "button";
     button.disabled = !context.canMove;
     button.dataset.actionId = action.action_id;
@@ -320,9 +341,30 @@
     return button;
   }
 
+  function controlHint(text, state) {
+    const hint = el(
+      "span",
+      `mahjong-waiting mahjong-control-hint state-${state}`,
+      text
+    );
+    hint.setAttribute("role", "status");
+    return hint;
+  }
+
   function renderControls(context) {
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const controls = el("div", "mahjong-controls");
+    if (context.isTerminal) {
+      delete context.uiState.mahjongPendingActionId;
+      controls.appendChild(controlHint("本手已结束", "terminal"));
+      context.controls.replaceChildren(controls);
+      return;
+    }
+    if (!context.canMove) {
+      controls.appendChild(controlHint("等待其他玩家行动", "waiting"));
+      context.controls.replaceChildren(controls);
+      return;
+    }
     const pendingAction = legal.find(
       (action) => CONFIRMED_ACTION_KINDS.has(action.kind)
         && action.action_id === context.uiState.mahjongPendingActionId
@@ -344,14 +386,19 @@
         requiresConfirmation: CONFIRMED_ACTION_KINDS.has(action.kind),
       }))
     );
+    const hasDiscard = legal.some((action) => action.kind === "discard");
+    if (hasDiscard && !discard && !pendingAction) {
+      controls.appendChild(controlHint("请选择一张手牌打出", "select"));
+    }
     if (pendingAction) {
+      const pendingLabel = actionDisplayLabel(pendingAction);
       const confirmation = el("div", "mahjong-confirmation");
       confirmation.setAttribute("role", "group");
       confirmation.setAttribute("aria-label", "确认麻将响应");
       confirmation.appendChild(el(
         "span",
         "mahjong-confirmation-copy",
-        `已选择：${pendingAction.label || pendingAction.public_label || pendingAction.kind}`
+        `已选择：${pendingLabel}`
       ));
       const cancel = el("button", "mahjong-confirm-cancel", "取消");
       cancel.type = "button";
@@ -363,7 +410,7 @@
       const confirm = el(
         "button",
         "mahjong-confirm-submit",
-        `确认${pendingAction.label || pendingAction.public_label || pendingAction.kind}`
+        `确认${pendingLabel}`
       );
       confirm.type = "button";
       confirm.addEventListener("click", async () => {
@@ -373,7 +420,7 @@
       controls.appendChild(confirmation);
     }
     if (!controls.children.length) {
-      controls.appendChild(el("span", "mahjong-waiting", "等待其他玩家行动"));
+      controls.appendChild(controlHint("等待其他玩家行动", "waiting"));
     }
     context.controls.replaceChildren(controls);
   }

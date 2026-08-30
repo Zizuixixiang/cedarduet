@@ -57,9 +57,9 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         self.assertIn("aspect-ratio: auto;", outer)
         self.assertIn("height: auto;", outer)
         self.assertIn("overflow: visible;", outer)
-        mobile = styles[styles.index("@media (max-width: 375px)") :]
+        mobile = styles[styles.index("@media (max-width: 600px)") :]
         self.assertIn("min-height: 0;", mobile)
-        self.assertIn("grid-template-rows: auto minmax(230px, auto) auto auto;", mobile)
+        self.assertIn("grid-template-rows: auto minmax(270px, auto) auto auto;", mobile)
 
     def test_uno_and_blackjack_own_their_private_state_presentation(self):
         for game_type in ("uno", "blackjack"):
