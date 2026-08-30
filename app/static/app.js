@@ -3283,6 +3283,13 @@ function renderRulesText(value) {
   container.replaceChildren(fragment);
 }
 
+function roomActionNotice(targetRoom, message, humanCanMove) {
+  const renderer = registeredGameUIRenderer(targetRoom.game_type);
+  if (renderer && renderer.usesEmbeddedActionFeedback === true) return "";
+  if (isTerminal(targetRoom)) return roomTurnText(targetRoom);
+  return message || (humanCanMove ? "现在轮到你落子" : "");
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
   const becameTerminal = Boolean(
     room
@@ -3333,9 +3340,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   renderRetention(room);
   showWaitModeModalOnce(room);
   showNotice(
-    isTerminal(room)
-      ? roomTurnText(room)
-      : (message || (humanCanMove ? "现在轮到你落子" : "")),
+    roomActionNotice(room, message, humanCanMove),
     false,
     humanCanMove && !isTerminal(room)
   );

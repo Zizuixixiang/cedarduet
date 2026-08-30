@@ -26,6 +26,12 @@ class SixRng:
         return 6
 
 
+class ThreeRng:
+    def randint(self, minimum, maximum):
+        del minimum, maximum
+        return 3
+
+
 def rolled_state():
     participants = [
         {"player_id": "human-1", "token": "red"},
@@ -45,6 +51,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
+        self.assertIn("usesEmbeddedActionFeedback: true", SCRIPT)
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("helpers.submitMove", SCRIPT)
         self.assertIn("context.legalActions", SCRIPT)
@@ -53,11 +60,30 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("aeroplane", PUBLIC_STYLES.lower())
         self.assertNotIn("/static/games/aeroplane_chess.js", HTML)
         self.assertEqual(APP_SCRIPT.count("await showRoomTransitionFeedback("), 2)
+        action_notice = APP_SCRIPT[
+            APP_SCRIPT.index("function roomActionNotice("):
+            APP_SCRIPT.index("function renderGame(")
+        ]
+        self.assertIn("renderer.usesEmbeddedActionFeedback === true", action_notice)
+        self.assertIn('return "";', action_notice)
+        for function_name, end_name in (
+            ("async function refreshRoom(", "async function submitMove("),
+            ("async function submitMove(", "async function acknowledgeLiarsRound("),
+        ):
+            section = APP_SCRIPT[
+                APP_SCRIPT.index(function_name):APP_SCRIPT.index(end_name)
+            ]
+            self.assertLess(
+                section.index("await showRoomTransitionFeedback("),
+                section.index("renderGame("),
+            )
+            for unexpected in ("scrollIntoView", "window.scrollTo", ".focus("):
+                self.assertNotIn(unexpected, section)
 
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.6";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.7";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -152,20 +178,29 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             STYLES.index(".aeroplane-token.color-red")
         ]
         self.assertIn("background: transparent;", token_base)
-        self.assertIn("box-shadow: none;", token_base)
+        self.assertIn("border: 1.5px solid var(--plane-dark);", token_base)
+        self.assertIn("0 0 0 1px rgba(255, 255, 255, .76)", token_base)
         self.assertNotIn("rgba(255, 253, 247, .72)", token_base)
         legal_base = STYLES[
             STYLES.index(".aeroplane-token.legal::before {"):
             STYLES.index(".aeroplane-token.legal:hover")
         ]
         self.assertIn("background: transparent;", legal_base)
-        self.assertIn("0 0 0 1px", legal_base)
+        self.assertIn("border: 2px solid #a96516;", legal_base)
+        self.assertIn("0 0 0 2px", legal_base)
+        last_moved = STYLES[
+            STYLES.index(".aeroplane-token.last-moved {"):
+            STYLES.index(".aeroplane-token.recently-returned")
+        ]
+        self.assertIn("box-shadow: none;", last_moved)
+        self.assertIn(".aeroplane-token.last-moved::before", last_moved)
         self.assertIn("stroke-width: 2.6;", STYLES)
         self.assertIn("paint-order: stroke fill;", STYLES)
         self.assertIn("drop-shadow(0 0 .35px", STYLES)
         self.assertNotIn("drop-shadow(0 0 3px", STYLES)
         self.assertNotIn("drop-shadow(0 0 8px", STYLES)
         self.assertNotIn(".aeroplane-token.arrived-home", STYLES)
+        self.assertNotIn("aeroplane-move-badge", SCRIPT + STYLES)
         self.assertIn(".aeroplane-activity.npc-feedback-active {", STYLES)
         home_runway = STYLES[
             STYLES.index(".aeroplane-home-runway {"):
@@ -177,6 +212,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             cell_width = board_width * 0.052
             token_width = min(max(12, viewport * 0.0365), 17)
             self.assertLess(token_width, cell_width)
+            self.assertLessEqual(token_width + 3, cell_width)
         for viewport in (360, 375, 390, 430):
             board_width = viewport * 0.96
             track_side = board_width * 0.84
@@ -431,6 +467,7 @@ function makeContext(viewerId, canMove = true) {
   const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
   assert.equal(tokens.length, 8);
   assert.equal(tokens.every((node) => node.tag === "button"), true);
+  assert.equal(tokens.every((node) => node.children.length === 1), true);
   assert.equal(tokens.every((node) => hasClass(node.children[0], "aeroplane-token-svg")), true);
   assert.equal(tokens.every((node) => node.children[0].children.length === 3), true);
   assert.equal(
@@ -459,7 +496,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.6");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.7");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -513,19 +550,19 @@ const nextTimeline = [
 ];
 const beats = renderer.transitionFeedbackBeats({previousTimeline, nextTimeline});
 assert.deepEqual(JSON.parse(JSON.stringify(beats)), [
-  {phase: "roll", text: "许知衡掷出 4 点", dieValue: 4, durationMs: 850},
+  {phase: "roll", text: "许知衡掷出 4 点", dieValue: 4, durationMs: 1200},
   {
     phase: "move",
     text: "许知衡：蓝方 1 号机前进 4 点，并触发跳跃。",
     dieValue: 4,
-    durationMs: 750,
+    durationMs: 1200,
   },
-  {phase: "roll", text: "许知衡掷出 2 点", dieValue: 2, durationMs: 850},
+  {phase: "roll", text: "许知衡掷出 2 点", dieValue: 2, durationMs: 1200},
   {
     phase: "result",
     text: "许知衡：没有可移动飞机，服务端已自动结束本回合。",
     dieValue: 2,
-    durationMs: 750,
+    durationMs: 1200,
   },
 ]);
 assert.equal(typeof renderer.transitionFeedback, "function");
@@ -558,7 +595,7 @@ feedbackTimeoutObserver = () => snapshots.push({
   active: activity.classList.contains("npc-feedback-active"),
 });
 await renderer.transitionFeedback({document, previousTimeline, nextTimeline});
-assert.deepEqual(feedbackDelays, [850, 750, 850, 750]);
+assert.deepEqual(feedbackDelays, [1200, 1200, 1200, 1200]);
 assert.equal(
   JSON.stringify(snapshots.map((item) => item.text)),
   JSON.stringify(Array.from(beats, (item) => item.text))
@@ -598,11 +635,52 @@ assert.equal("npcFeedbackPhase" in activity.dataset, false);
     (node) => hasClass(node, "aeroplane-action-copy")
   );
   assert.equal(controlCopy.children[0].textContent, "轮到你掷骰");
-  rollButton.listeners.click();
-  await Promise.resolve();
+  const pendingRoll = rollButton.listeners.click();
+  assert.equal(rollButton.disabled, true);
+  assert.equal(rollButton.textContent, "掷骰");
+  await pendingRoll;
   assert.equal(JSON.stringify(harness.submitted), JSON.stringify([{action: "roll"}]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
+
+    def test_bounce_legal_target_uses_authoritative_return_cell(self):
+        participants = [
+            {
+                "player_id": "human-1", "display_name": "南山",
+                "token": "red", "seat_index": 0,
+                "participant_kind": "human",
+            },
+            {
+                "player_id": "ai-1", "display_name": "小机",
+                "token": "blue", "seat_index": 1,
+                "participant_kind": "system_npc",
+            },
+        ]
+        game = AeroplaneChess(ThreeRng())
+        state = game.initialize(participants)
+        game._set_plane_step(
+            state["planes"]["human-1"][0],
+            "red",
+            FINISH_ROUTE_STEP - 1,
+        )
+        game.apply_action(state, {"action": "roll"}, participants[0])
+        self.run_node(r'''
+const harness = makeContext("human-1", true);
+renderer.renderBoard(harness.context);
+const nodes = descendants(harness.board);
+const legal = nodes.filter(
+  (node) => hasClass(node, "aeroplane-token") && hasClass(node, "legal")
+);
+assert.equal(legal.length, 1);
+assert.equal(legal[0].dataset.planeId, "red-0");
+assert.equal(legal[0].children.length, 1);
+const target = nodes.find((node) => hasClass(node, "aeroplane-legal-target"));
+assert.equal(target.style.left, "50%");
+assert.equal(target.style.top, "65.1%");
+assert.equal(state.legal_moves[0].bounced, true);
+assert.equal(state.legal_moves[0].bounce_steps, 2);
+assert.equal(state.legal_moves[0].to.home_lane_index, 5);
+''', state=state, participants=participants)
 
     def test_waiting_copy_names_player_and_duel_stats_are_removed(self):
         self.run_node(r'''

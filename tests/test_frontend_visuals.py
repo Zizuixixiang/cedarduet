@@ -247,6 +247,35 @@ assert.equal(gameUsesStandardMoveConfirmation("liars_dice"), false);
 '''
         self.run_node(harness)
 
+    def test_embedded_action_feedback_avoids_variable_height_global_notice(self):
+        sources = "\n".join((
+            function_source("registeredGameUIRenderer"),
+            function_source("roomActionNotice"),
+        ))
+        harness = r'''
+const assert = require("node:assert/strict");
+const renderers = new Map([
+  ["embedded", {usesEmbeddedActionFeedback: true}],
+  ["generic", {}],
+]);
+const window = {DuelGameUI: {get: (gameType) => renderers.get(gameType) || null}};
+const isTerminal = (room) => room.status === "finished";
+const roomTurnText = () => "对局已结束";
+''' + sources + r'''
+const embedded = {game_type: "embedded", status: "playing"};
+const generic = {game_type: "generic", status: "playing"};
+const longMoveResult = "人类落子成功，已通知等待中的 AI。掷出 6 点，请从 4 架可移动飞机中选择。";
+assert.equal(roomActionNotice(embedded, "现在轮到你落子", true), "");
+assert.equal(roomActionNotice(embedded, longMoveResult, true), "");
+assert.equal(roomActionNotice(generic, longMoveResult, true), longMoveResult);
+assert.equal(roomActionNotice(generic, "", true), "现在轮到你落子");
+assert.equal(
+  roomActionNotice({game_type: "generic", status: "finished"}, "", false),
+  "对局已结束"
+);
+'''
+        self.run_node(harness)
+
     def test_register_get_duplicate_guard_and_convention_loader(self):
         harness = r'''
 const assert = require("node:assert/strict");
@@ -669,12 +698,16 @@ class FrontendBoardVisualTests(unittest.TestCase):
 
     def test_only_current_human_turn_gets_stronger_turn_prompts(self):
         render_game = function_source("renderGame")
+        action_notice = function_source("roomActionNotice")
         notice = function_source("showNotice")
         self.assertIn("#turn.my-turn", STYLES)
         self.assertIn("#gameMessage.my-turn", STYLES)
         self.assertIn("const humanCanMove = canHumanMove()", render_game)
         self.assertIn('classList.toggle("my-turn", humanCanMove)', render_game)
-        self.assertIn('humanCanMove ? "现在轮到你落子" : ""', render_game)
+        self.assertIn('humanCanMove ? "现在轮到你落子" : ""', action_notice)
+        self.assertIn(
+            "roomActionNotice(room, message, humanCanMove)", render_game
+        )
         self.assertIn("humanCanMove && !isTerminal(room)", render_game)
         self.assertIn(
             'classList.toggle("my-turn", Boolean(emphasize) && !error)',
@@ -898,6 +931,7 @@ class BoardPollingRenderTests(unittest.TestCase):
             function_source("registeredGameUIRenderer"),
             function_source("gameUsesStandardMoveConfirmation"),
             function_source("syncMoveConfirmationVisibility"),
+            function_source("roomActionNotice"),
             function_source("renderGame"),
         ))
         harness = f"""

@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.6";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.7";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -19,8 +19,8 @@
     5: [1, 3, 5, 7, 9],
     6: [1, 3, 4, 6, 7, 9],
   };
-  const NPC_ROLL_FEEDBACK_MS = 850;
-  const NPC_ACTION_FEEDBACK_MS = 750;
+  const NPC_ROLL_FEEDBACK_MS = 1200;
+  const NPC_ACTION_FEEDBACK_MS = 1200;
   const AIRPORT_POINTS = {
     red: [[6.75, 87.75], [12.25, 87.75], [6.75, 93.25], [12.25, 93.25]],
     yellow: [[6.75, 6.75], [12.25, 6.75], [6.75, 12.25], [12.25, 12.25]],
@@ -710,11 +710,6 @@
       );
       token.appendChild(createPlaneGraphic(documentRef));
       if (legal) {
-        const badge = documentRef.createElement("span");
-        badge.className = "aeroplane-move-badge";
-        badge.textContent = String((state.last_roll || {}).value || "");
-        badge.setAttribute("aria-hidden", "true");
-        token.appendChild(badge);
         token.addEventListener("click", async () => {
           if (!helpers || typeof helpers.submitMove !== "function") return;
           if (typeof helpers.canMove === "function" && !helpers.canMove()) return;
@@ -876,6 +871,7 @@
     participantPresentation: "board-edge",
     glyph: "飞",
     usesStandardMoveConfirmation: false,
+    usesEmbeddedActionFeedback: true,
     boardLabel: "飞行棋棋盘",
     ensureStylesheet,
     renderBoard,

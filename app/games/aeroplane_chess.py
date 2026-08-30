@@ -58,9 +58,9 @@ class AeroplaneChess(GamePlugin):
         "- 连续第三个 6 不允许移动：本轮前两个 6 实际移动过的飞机全部回机场，随后立即结束回合；此前造成的碰撞不撤销。\n"
         "- 落在己方颜色的普通跳跃格会自动前跳 4 格。每色相对路线第 21 格是跨盘飞跃格，直达第 33 格；从前一同色格自动跳到第 21 格时也继续飞跃，飞跃落到第 33 格后不再追加普通跳跃。\n"
         "- 骰点落点、普通跳跃落点、飞跃跨越点和飞跃落点都会结算碰撞；普通环线同格的所有对手机全部回机场。\n"
-        "- 机场、起飞区、己方 6 格终点航道与中心都是安全区。绕完环线后进入终点航道，只能以精确点数到达中心；点数超出时该飞机不可选择，不反弹。\n\n"
+        "- 机场、起飞区、己方 6 格终点航道与中心都是安全区。绕完环线后进入终点航道：点数刚好时到达中心；点数超出时先到中心，再按超出点数沿终点航道反向退回。\n\n"
         "【胜负】\n"
-        "首位让 4 架飞机全部到达中心的玩家获胜。本版不采用偶数起飞、叠机同行、点数过大反弹等可选规则；骰子结果会随局面保存，刷新不会重掷。"
+        "首位让 4 架飞机全部到达中心的玩家获胜。本版不采用偶数起飞、叠机同行等可选规则；终点按上述规则反弹。骰子结果会随局面保存，刷新不会重掷。"
     )
     move_format = (
         '掷骰：{"move":{"action":"roll"},"revision":当前版本}；掷骰后只能从'
@@ -274,18 +274,34 @@ class AeroplaneChess(GamePlugin):
             raw_step = 0
         else:
             raw_step = route_step + die
-            if raw_step > FINISH_ROUTE_STEP:
-                return None
 
-        landings = [{
-            "kind": "takeoff" if route_step == -1 else "dice",
-            "location": cls._location(color, raw_step),
-        }]
+        bounce_steps = max(0, raw_step - FINISH_ROUTE_STEP)
+        target_step = (
+            FINISH_ROUTE_STEP - bounce_steps
+            if bounce_steps
+            else raw_step
+        )
+        if bounce_steps:
+            landings = [
+                {
+                    "kind": "dice",
+                    "location": cls._location(color, FINISH_ROUTE_STEP),
+                },
+                {
+                    "kind": "bounce",
+                    "steps": bounce_steps,
+                    "location": cls._location(color, target_step),
+                },
+            ]
+        else:
+            landings = [{
+                "kind": "takeoff" if route_step == -1 else "dice",
+                "location": cls._location(color, target_step),
+            }]
         collision_steps: list[tuple[str, int]] = []
-        if 1 <= raw_step <= RING_LENGTH:
-            collision_steps.append(("dice", raw_step))
+        if 1 <= target_step <= RING_LENGTH:
+            collision_steps.append(("dice", target_step))
 
-        target_step = raw_step
         if target_step in OWN_COLOR_JUMP_STEPS:
             target_step += 4
             landings.append({
@@ -328,6 +344,8 @@ class AeroplaneChess(GamePlugin):
             "landings": landings,
             "capture_plane_ids": captures,
             "capture_events": capture_events,
+            "bounced": bool(bounce_steps),
+            "bounce_steps": bounce_steps,
             "reached_home": target_step == FINISH_ROUTE_STEP,
         }
 
@@ -613,6 +631,8 @@ class AeroplaneChess(GamePlugin):
             "capture_events": movement["capture_events"],
             "captured_plane_ids": returned,
             "returned_plane_ids": returned,
+            "bounced": movement["bounced"],
+            "bounce_steps": movement["bounce_steps"],
             "reached_home": movement["reached_home"],
         }
         self._append_history(state, action)
@@ -646,13 +666,19 @@ class AeroplaneChess(GamePlugin):
         if returned:
             effects.append(f"击落 {len(returned)} 架")
         suffix = f"，{'、'.join(effects)}" if effects else ""
-        note = (
-            f"{arrival_note}。" if movement["reached_home"]
-            else (
+        if movement["reached_home"]:
+            note = f"{arrival_note}。"
+        elif movement["bounced"]:
+            note = (
+                f"{COLOR_LABELS[color]} {plane['plane_index'] + 1} 号机"
+                f"掷出 {die} 点，到达中心后反弹 {movement['bounce_steps']} 格，"
+                f"停在终点航道第 {movement['to']['home_lane_index']} 格。"
+            )
+        else:
+            note = (
                 f"{COLOR_LABELS[color]} {plane['plane_index'] + 1} 号机"
                 f"前进 {die} 点{suffix}。"
             )
-        )
         if die == 6:
             self._set_awaiting_roll(state)
             return MoveResult(state=state, retain_turn=True, note=note + " 可继续掷骰。")
@@ -694,7 +720,8 @@ class AeroplaneChess(GamePlugin):
             keys = (
                 "action", "color", "plane_id", "plane_index", "die",
                 "from", "to", "landings", "capture_events",
-                "captured_plane_ids", "returned_plane_ids", "reached_home",
+                "captured_plane_ids", "returned_plane_ids", "bounced",
+                "bounce_steps", "reached_home",
             )
         applied.public_event = {
             "aeroplane_delta": {
@@ -782,7 +809,8 @@ class AeroplaneChess(GamePlugin):
         del state, actor, participants
         return (
             "标准飞行棋：6 才能起飞且移动后续掷，第三个连续 6 由服务端自动惩罚；"
-            "环线碰撞会送回全部同格对手机，同色格与跨盘飞跃自动结算，终点必须精确。"
+            "环线碰撞会送回全部同格对手机，同色格与跨盘飞跃自动结算；"
+            "终点点数超出时先到中心，再按超出点数沿终点航道反向退回。"
             "不要推导规则或构造动作，只能原样选择服务端 authoritative legal_actions。"
         )
 

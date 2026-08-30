@@ -100,10 +100,16 @@ class AeroplaneChessRuleTests(unittest.TestCase):
         self.assertTrue(item["supports_multiplayer_stakes"])
         rules = GAMES["aeroplane_chess"].rules_text
         for phrase in (
-            "只有掷出 6", "连续第三个 6", "不组成叠机单位", "精确点数",
-            "不采用偶数起飞", "刷新不会重掷",
+            "只有掷出 6", "连续第三个 6", "不组成叠机单位",
+            "超出点数", "反向退回", "不采用偶数起飞", "刷新不会重掷",
         ):
             self.assertIn(phrase, rules)
+        self.assertNotIn("超出时该飞机不可选择", rules)
+        compact_rules = GAMES["aeroplane_chess"].npc_compact_rules(
+            {}, participants(2)[1], participants(2)
+        )
+        self.assertIn("超出点数", compact_rules)
+        self.assertIn("反向退回", compact_rules)
 
     def test_two_three_four_player_color_and_path_mapping(self):
         expectations = {
@@ -184,7 +190,7 @@ class AeroplaneChessRuleTests(unittest.TestCase):
         actor = self.actor(seats)
         for index in range(4):
             self.set_step(
-                game, state, actor["player_id"], index, FINISH_ROUTE_STEP - 1
+                game, state, actor["player_id"], index, FINISH_ROUTE_STEP
             )
         result = self.roll(game, state, actor)
         self.assertTrue(result.retain_turn)
@@ -341,20 +347,65 @@ class AeroplaneChessRuleTests(unittest.TestCase):
         self.assertEqual(self.plane(state, blue["player_id"])["zone"], "home_lane")
         self.assertEqual(state["last_action"]["captured_plane_ids"], [])
 
-    def test_home_requires_exact_roll_and_fourth_plane_wins(self):
-        game, _rng, seats, state = self.make_game((2,), count=2)
-        actor = self.actor(seats)
-        for index in range(4):
-            self.set_step(
-                game, state, actor["player_id"], index, FINISH_ROUTE_STEP - 1
-            )
-        passed = self.roll(game, state, actor)
-        self.assertFalse(passed.retain_turn)
-        self.assertEqual(state["movable_plane_ids"], [])
-        self.assertTrue(all(
-            plane["route_step"] == FINISH_ROUTE_STEP - 1
-            for plane in state["planes"][actor["player_id"]]
-        ))
+    def test_home_lane_overshoot_bounces_and_exact_roll_still_wins(self):
+        for die, expected_step, expected_bounce, expected_lane in (
+            (2, FINISH_ROUTE_STEP - 1, 1, 6),
+            (3, FINISH_ROUTE_STEP - 2, 2, 5),
+            (6, FINISH_ROUTE_STEP - 5, 5, 2),
+        ):
+            with self.subTest(die=die):
+                game, _rng, seats, state = self.make_game((die,), count=2)
+                actor = self.actor(seats)
+                for index in range(1, 4):
+                    self.set_step(
+                        game,
+                        state,
+                        actor["player_id"],
+                        index,
+                        FINISH_ROUTE_STEP,
+                    )
+                self.set_step(
+                    game,
+                    state,
+                    actor["player_id"],
+                    0,
+                    FINISH_ROUTE_STEP - 1,
+                )
+                rolled = self.roll(game, state, actor)
+                self.assertTrue(rolled.retain_turn)
+                self.assertEqual(state["movable_plane_ids"], ["red-0"])
+                legal = state["legal_moves"][0]
+                self.assertEqual(legal["to"]["route_step"], expected_step)
+                self.assertTrue(legal["bounced"])
+                self.assertEqual(legal["bounce_steps"], expected_bounce)
+                self.assertEqual(
+                    [landing["kind"] for landing in legal["landings"]],
+                    ["dice", "bounce"],
+                )
+                self.assertEqual(
+                    legal["landings"][0]["location"]["zone"], "home"
+                )
+                self.assertEqual(
+                    legal["landings"][1]["location"]["route_step"],
+                    expected_step,
+                )
+                moved = self.move(game, state, actor, 0)
+                moved = game.progress_after_action(
+                    state,
+                    {"action": "move", "plane_id": "red-0", "plane_index": 0},
+                    actor,
+                    seats,
+                    moved,
+                )
+                plane = self.plane(state, actor["player_id"], 0)
+                self.assertEqual(plane["route_step"], expected_step)
+                self.assertEqual(plane["home_lane_index"], expected_lane)
+                self.assertIn(f"反弹 {expected_bounce} 格", moved.note)
+                self.assertIn(f"终点航道第 {expected_lane} 格", moved.note)
+                delta = moved.public_event["aeroplane_delta"]
+                self.assertTrue(delta["bounced"])
+                self.assertEqual(delta["bounce_steps"], expected_bounce)
+                self.assertFalse(delta["reached_home"])
 
         game, _rng, seats, state = self.make_game((1,), count=2)
         actor = self.actor(seats)
