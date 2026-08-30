@@ -2764,14 +2764,14 @@ assert.equal(content.children.length, 0);
         self.assertIn("height: 27px;", compact)
         self.assertIn("gap: 4px;", compact)
 
-    def test_recent_chat_feed_only_keeps_public_message_events(self):
+    def test_recent_chat_feed_keeps_latest_public_player_speech(self):
         functions = "\n".join((
             function_source("participantByPlayerId"),
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
             function_source("speechSenderRole"),
             function_source("speechSenderPlayerId"),
-            function_source("recentMessageEvents"),
+            function_source("recentSpeechEvents"),
             function_source("timelineSpeakerName"),
             function_source("renderRecentChat"),
         ))
@@ -2815,31 +2815,36 @@ assert.equal(list.children.length, 0);
 assert.ok(!feed.classList.contains("hidden"));
 
 const events = [
-  {{event_type: "message", text: "第一句", sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
-  {{event_type: "move", text: "落子附言也不能混入", sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
-  {{event_type: "resign", text: "认输", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
-  {{event_type: "leave", text: "离桌", sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
+  {{event_type: "message", text: "最早消息", is_public: true, sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
+  {{event_type: "move", text: "最早落子附言", move_label: "A1", is_public: true, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  {{event_type: "resign", text: "认输附言", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
+  {{event_type: "leave", text: "离桌附言", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
   {{event_type: "message", text: "私聊", is_public: false, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
-  ...Array.from({{length: 5}}, (_, index) => ({{
-    event_type: "message", text: `公开 ${{index + 2}}`,
-    sender: {{player_id: index % 2 ? "p2" : "p3", role: "ai", seat: index % 2 ? 1 : 2}},
-  }})),
+  {{event_type: "move", text: "私密落子附言", move_label: "B2", is_public: false, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  {{event_type: "result", text: "系统胜负结果", display_text: "系统胜负结果", is_public: true, sender: {{player_id: "system", name: "裁判", role: "system"}}}},
+  {{event_type: "message", text: "系统通知", is_public: true, sender_role: "system", sender: "system"}},
+  {{event_type: "move", text: "   ", move_label: "C3", is_public: true, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  {{event_type: "message", text: "公开消息", is_public: true, sender: {{player_id: "p1", name: "甲", role: "human", seat: 0}}}},
+  {{event_type: "move", text: "第二个落子附言", move_label: "D4", is_public: true, sender: {{player_id: "p2", name: "乙", role: "ai", seat: 1}}}},
+  {{event_type: "message", text: "最后消息", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
 ];
 renderRecentChat(events);
 assert.equal(list.children.length, 5);
 assert.deepEqual(
   list.children.map((item) => item.children[1].textContent),
-  ["公开 2", "公开 3", "公开 4", "公开 5", "公开 6"]
+  ["认输附言", "离桌附言", "公开消息", "第二个落子附言", "最后消息"]
 );
 assert.deepEqual(
   list.children.map((item) => item.children[0].textContent),
-  ["丙", "乙", "丙", "乙", "丙"]
+  ["丙", "丙", "甲", "乙", "丙"]
 );
 assert.ok(list.children[0].classList.contains("seat-2"));
+assert.ok(list.children[3].classList.contains("seat-1"));
+assert.ok(!list.children.some((item) => item.children[1].textContent.includes("D4")));
 assert.ok(!feed.classList.contains("hidden"));
 assert.equal(list.scrollTop, list.scrollHeight);
 
-renderRecentChat(events.filter((event) => event.event_type !== "message"));
+renderRecentChat(events.filter((event) => event.event_type === "result"));
 assert.equal(list.children.length, 0);
 assert.ok(!feed.classList.contains("hidden"));
 
@@ -3053,6 +3058,18 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             STYLES.index(".recent-chat-feed {"):
             STYLES.index(".chat-compose {")
         ]
+        message = STYLES[
+            STYLES.index(".recent-chat-message {"):
+            STYLES.index(".recent-chat-speaker {")
+        ]
+        speaker = STYLES[
+            STYLES.index(".recent-chat-speaker {"):
+            STYLES.index(".recent-chat-copy {")
+        ]
+        copy = STYLES[
+            STYLES.index(".recent-chat-copy {"):
+            STYLES.index(".multiplayer-presentation .game-compose")
+        ]
         text = STYLES[
             STYLES.index(".speech-bubble-text {"):
             STYLES.index(".ai-speech::before")
@@ -3070,6 +3087,13 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("white-space: pre-wrap;", recent)
         self.assertNotIn("table", recent)
         self.assertNotIn("position:", recent)
+        self.assertIn("display: flex;", message)
+        self.assertIn("justify-content: flex-start;", message)
+        self.assertNotIn("grid-template-columns:", message)
+        self.assertIn("flex: 0 1 auto;", speaker)
+        self.assertIn("text-align: left;", speaker)
+        self.assertIn("flex: 1 1 0;", copy)
+        self.assertIn("text-align: left;", copy)
         self.assertIn("max-height: min(180px, 30vh);", text)
         self.assertIn("overflow-y: auto;", text)
         self.assertIn("white-space: pre-wrap;", text)
@@ -3083,6 +3107,11 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             ".multiplayer-presentation .game-chat-area { gap: 5px; }",
             mobile,
         )
+        mobile_message = mobile[
+            mobile.index(".recent-chat-message {"):
+            mobile.index(".chat-compose input")
+        ]
+        self.assertNotIn("grid-template-columns:", mobile_message)
         self.assertIn(".chat-compose input { min-height: 38px;", mobile)
         self.assertIn("min-width: 64px;", mobile)
         for viewport in (320, 375):

@@ -2589,9 +2589,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .recent-chat-message {
   min-width: 0;
   padding: 3px 5px;
-  display: grid;
-  grid-template-columns: minmax(58px, 92px) minmax(0, 1fr);
+  display: flex;
   align-items: start;
+  justify-content: flex-start;
   gap: 7px;
   color: var(--seat-ink, var(--purple-darker));
   background: var(--seat-soft, rgba(230, 223, 240, .35));
@@ -2600,13 +2600,19 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1.4;
 }
 .recent-chat-speaker {
+  min-width: 0;
+  max-width: 42%;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
   white-space: nowrap;
 }
 .recent-chat-copy {
   min-width: 0;
+  flex: 1 1 0;
   overflow-wrap: anywhere;
+  text-align: left;
   white-space: pre-wrap;
 }
 .multiplayer-presentation .game-compose { width: 100%; margin-top: 0; }
@@ -3335,7 +3341,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .recent-chat-messages { gap: 2px; }
   .recent-chat-message {
     padding: 3px 4px;
-    grid-template-columns: minmax(52px, 78px) minmax(0, 1fr);
     gap: 5px;
     font-size: 11px;
   }

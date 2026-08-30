@@ -2484,13 +2484,14 @@ function renderTimeline(timeline = []) {
   list.scrollTop = list.scrollHeight;
 }
 
-function recentMessageEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
+function recentSpeechEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
   return timeline.filter((event) => (
     event
-    && event.event_type === "message"
     && typeof event.text === "string"
     && Boolean(event.text.trim())
     && event.is_public !== false
+    && speechSenderRole(event) !== "system"
+    && speechSenderPlayerId(event) !== "system"
   )).slice(-limit);
 }
 
@@ -2509,7 +2510,7 @@ function renderRecentChat(timeline = []) {
   const feed = $("recentChatFeed");
   const list = $("recentChatMessages");
   const multiplayer = isMultiplayerRoom(room);
-  const messages = multiplayer ? recentMessageEvents(timeline) : [];
+  const messages = multiplayer ? recentSpeechEvents(timeline) : [];
   list.replaceChildren();
   feed.classList.toggle("hidden", !multiplayer);
   if (!multiplayer || !messages.length) return;
