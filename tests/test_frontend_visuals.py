@@ -3077,7 +3077,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("width: min(700px, 100%);", chat_area)
         self.assertIn("min-width: 0;", chat_area)
         self.assertIn("display: grid;", chat_area)
-        self.assertIn("height: 118px;", recent)
+        self.assertIn("height: 96px;", recent)
         self.assertIn("display: grid;", recent)
         self.assertIn("grid-template-rows: auto minmax(0, 1fr);", recent)
         self.assertIn("min-height: 0;", recent)
@@ -3099,7 +3099,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("white-space: pre-wrap;", text)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn(
-            ".recent-chat-feed { height: 96px; padding: 5px 6px 6px; }",
+            ".recent-chat-feed { height: 88px; padding: 5px 6px 6px; }",
             mobile,
         )
         self.assertIn(".recent-chat-messages { gap: 2px; }", mobile)
