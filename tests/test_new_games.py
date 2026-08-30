@@ -259,6 +259,7 @@ class RegistryErrorTests(unittest.TestCase):
             "connect4", "banqi", "checkers", "chess", "dots_boxes",
             "liars_dice", "yahtzee", "jungle", "junqi", "xiangqi",
             "aeroplane_chess", "chinese_checkers", "uno", "blackjack",
+            "texas_holdem",
 
             "gandengyan", "train_cards", "doudizhu", "guandan",
 

@@ -213,6 +213,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             "aeroplane_chess": "planes",
             "banqi": "board",
             "blackjack": "players",
+            "texas_holdem": "players",
             "tictactoe": "board",
             "gomoku": "board",
             "gandengyan": "current_trick",
@@ -293,6 +294,10 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 elif game_type == "blackjack":
                     self.assertNotIn("card_id", json.dumps(board))
                     self.assertEqual(board["dealer"]["hand"][1], {"hidden": True})
+                elif game_type == "texas_holdem":
+                    self.assertNotIn("engine_state", board)
+                    self.assertEqual(len(snapshot["private_state"]["hand"]), 2)
+                    self.assertEqual(board["showdown"], {})
                 elif game_type == "banqi":
                     self.assertEqual(
                         {cell for row in board["board"] for cell in row},

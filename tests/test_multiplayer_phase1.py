@@ -317,6 +317,14 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         )
         self.assertTrue(production["blackjack"]["supports_npcs"])
         self.assertFalse(production["blackjack"]["supports_stakes"])
+        self.assertEqual(production["texas_holdem"]["category"], "card")
+        self.assertEqual(
+            production["texas_holdem"]["allowed_player_counts"],
+            [2, 3, 4, 5, 6],
+        )
+        self.assertTrue(production["texas_holdem"]["supports_npcs"])
+        self.assertTrue(production["texas_holdem"]["uses_local_npc_strategy"])
+        self.assertFalse(production["texas_holdem"]["supports_stakes"])
         self.assertEqual(production["aeroplane_chess"]["category"], "board")
         self.assertEqual(
             production["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4]
