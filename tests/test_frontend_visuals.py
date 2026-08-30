@@ -68,7 +68,15 @@ class GameUIExtensionContractTests(unittest.TestCase):
         registered = function_source("renderRegisteredGameUI")
         self.assertIn("renderer.renderBoard(context)", registered)
         self.assertIn("renderer.renderControls(context)", registered)
-        self.assertIn("renderer.usesStandardMoveConfirmation === false", registered)
+        self.assertIn("syncMoveConfirmationVisibility(renderer)", registered)
+        confirmation_policy = function_source(
+            "gameUsesStandardMoveConfirmation"
+        )
+        self.assertIn(
+            "renderer.usesStandardMoveConfirmation !== false",
+            confirmation_policy,
+        )
+        self.assertIn('gameType !== "liars_dice"', confirmation_policy)
         self.assertIn("width: min(610px, 100%);", STYLES[
             STYLES.index(".game-controls {"):
             STYLES.index("}", STYLES.index(".game-controls {"))
@@ -195,6 +203,46 @@ class GameUIRegistryRuntimeTests(unittest.TestCase):
             f"JavaScript assertion failed:\n{completed.stderr}",
         )
 
+    def test_standard_move_confirmation_policy_covers_all_renderer_modes(self):
+        sources = "\n".join((
+            function_source("registeredGameUIRenderer"),
+            function_source("gameUsesStandardMoveConfirmation"),
+        ))
+        harness = r'''
+const assert = require("node:assert/strict");
+const falseRendererTypes = [
+  "aeroplane_chess", "blackjack", "doudizhu", "gandengyan",
+  "guandan", "mahjong", "texas_holdem", "train_cards", "uno",
+  "yahtzee", "zhajinhua",
+];
+const defaultRendererTypes = ["banqi", "checkers"];
+const trueRendererTypes = ["chess", "chinese_checkers", "go", "junqi"];
+const legacyStandardTypes = [
+  "tictactoe", "gomoku", "othello", "connect4", "jungle", "xiangqi",
+  "dots_boxes",
+];
+const renderers = new Map();
+falseRendererTypes.forEach((gameType) => {
+  renderers.set(gameType, {usesStandardMoveConfirmation: false});
+});
+defaultRendererTypes.forEach((gameType) => renderers.set(gameType, {}));
+trueRendererTypes.forEach((gameType) => {
+  renderers.set(gameType, {usesStandardMoveConfirmation: true});
+});
+const window = {DuelGameUI: {get: (gameType) => renderers.get(gameType) || null}};
+''' + sources + r'''
+falseRendererTypes.forEach((gameType) => {
+  assert.equal(gameUsesStandardMoveConfirmation(gameType), false, gameType);
+});
+[
+  ...legacyStandardTypes, ...defaultRendererTypes, ...trueRendererTypes,
+].forEach((gameType) => {
+  assert.equal(gameUsesStandardMoveConfirmation(gameType), true, gameType);
+});
+assert.equal(gameUsesStandardMoveConfirmation("liars_dice"), false);
+'''
+        self.run_node(harness)
+
     def test_register_get_duplicate_guard_and_convention_loader(self):
         harness = r'''
 const assert = require("node:assert/strict");
@@ -257,6 +305,8 @@ loading.then((loaded) => {
     def test_app_dispatches_registered_renderer_and_falls_back_without_one(self):
         sources = "\n".join((
             function_source("registeredGameUIRenderer"),
+            function_source("gameUsesStandardMoveConfirmation"),
+            function_source("syncMoveConfirmationVisibility"),
             function_source("registeredGameUIStateFor"),
             function_source("createGameUIContext"),
             function_source("renderRegisteredGameUI"),
@@ -797,11 +847,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('["bid", "challenge"].includes(movePayload.action)', submit)
         self.assertIn('move: {action: "acknowledge_round"}', submit)
         render_game = function_source("renderGame")
-        self.assertIn(
-            '$("moveConfirm").classList.toggle('
-            '"hidden", room.game_type === "liars_dice")',
-            render_game,
-        )
+        self.assertIn("syncMoveConfirmationVisibility()", render_game)
         self.assertIn('id="moveConfirm" class="move-confirm"', HTML)
         self.assertIn('<option value="dice">骰</option>', HTML)
         self.assertIn(
@@ -812,8 +858,13 @@ class FrontendBoardVisualTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for frontend rendering tests")
 class BoardPollingRenderTests(unittest.TestCase):
-    def test_same_room_revision_preserves_board_but_updates_timeline(self):
-        renderer = function_source("renderGame")
+    def test_same_revision_preserves_board_and_renderer_confirmation_policy(self):
+        sources = "\n".join((
+            function_source("registeredGameUIRenderer"),
+            function_source("gameUsesStandardMoveConfirmation"),
+            function_source("syncMoveConfirmationVisibility"),
+            function_source("renderGame"),
+        ))
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
@@ -844,6 +895,12 @@ let selectedXiangqiCell = {{row: 2, col: 2}};
 let pendingMove = {{row: 0, col: 0}};
 let boardRenderCount = 0;
 let participantRenderCount = 0;
+const renderers = new Map([
+  ["uno", {{usesStandardMoveConfirmation: false}}],
+]);
+const window = {{
+  DuelGameUI: {{get: (gameType) => renderers.get(gameType) || null}},
+}};
 const isTerminal = (targetRoom) => ["finished", "archived"].includes(targetRoom.status);
 const canHumanMove = () => true;
 const statusLabel = (status) => status;
@@ -863,6 +920,7 @@ const renderRecentChat = () => {{}};
 const renderRulesText = () => {{}};
 const renderBoard = () => {{
   boardRenderCount += 1;
+  syncMoveConfirmationVisibility();
   elements.board.replaceChildren({{revision: room.revision}});
 }};
 const renderTimeline = (timeline) => {{
@@ -870,12 +928,12 @@ const renderTimeline = (timeline) => {{
 }};
 const stopPolling = () => {{}};
 const openResultModal = () => {{}};
-{renderer}
+{sources}
 const firstRoom = {{
-  room_id: "DICE1",
+  room_id: "UNO1",
   revision: 7,
-  game_type: "liars_dice",
-  game_name: "吹牛骰子",
+  game_type: "uno",
+  game_name: "UNO",
   status: "playing",
   participants: [{{player_id: "human-1"}}],
   board_state: {{}},
@@ -912,11 +970,19 @@ assert.notEqual(elements.board.children[0], originalBoardNode);
 assert.equal(elements.board.children[0].revision, 8);
 
 renderGame(
-  {{...firstRoom, room_id: "BOARD1", game_type: "gomoku", game_name: "五子棋", revision: 8}},
+  {{...firstRoom, room_id: "DICE1", game_type: "liars_dice", game_name: "吹牛骰子", revision: 1}},
   "",
   [],
 );
 assert.equal(boardRenderCount, 3);
+assert.equal(elements.moveConfirm.classList.contains("hidden"), true);
+
+renderGame(
+  {{...firstRoom, room_id: "BOARD1", game_type: "gomoku", game_name: "五子棋", revision: 1}},
+  "",
+  [],
+);
+assert.equal(boardRenderCount, 4);
 assert.equal(elements.moveConfirm.classList.contains("hidden"), false);
 """
         completed = subprocess.run(

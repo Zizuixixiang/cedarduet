@@ -2197,6 +2197,23 @@ function registeredGameUIRenderer(gameType) {
   return registry.get(gameType);
 }
 
+function gameUsesStandardMoveConfirmation(
+  gameType,
+  renderer = registeredGameUIRenderer(gameType)
+) {
+  if (renderer) return renderer.usesStandardMoveConfirmation !== false;
+  return gameType !== "liars_dice";
+}
+
+function syncMoveConfirmationVisibility(
+  renderer = registeredGameUIRenderer(room.game_type)
+) {
+  $("moveConfirm").classList.toggle(
+    "hidden",
+    !gameUsesStandardMoveConfirmation(room.game_type, renderer)
+  );
+}
+
 function registeredGameUIStateFor(targetRoom) {
   const stateKey = [
     targetRoom.game_type,
@@ -2326,9 +2343,7 @@ function renderRegisteredGameUI(renderer, board, timeline = currentTimeline) {
   const hasCustomControls = typeof renderer.renderControls === "function";
   controls.classList.toggle("hidden", !hasCustomControls);
   if (hasCustomControls) renderer.renderControls(context);
-  $("moveConfirm").classList.toggle(
-    "hidden", renderer.usesStandardMoveConfirmation === false
-  );
+  syncMoveConfirmationVisibility(renderer);
   updateMoveConfirmation();
 }
 
@@ -2341,8 +2356,8 @@ function renderBoard(timeline = currentTimeline) {
   board.removeAttribute("style");
   controls.replaceChildren();
   controls.classList.add("hidden");
-  $("moveConfirm").classList.toggle("hidden", room.game_type === "liars_dice");
   const renderer = registeredGameUIRenderer(room.game_type);
+  syncMoveConfirmationVisibility(renderer);
   if (renderer) {
     renderRegisteredGameUI(renderer, board, timeline);
     return;
@@ -2932,7 +2947,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   currentTimeline = timeline;
   const humanCanMove = canHumanMove();
   showView("gameView");
-  $("moveConfirm").classList.toggle("hidden", room.game_type === "liars_dice");
+  syncMoveConfirmationVisibility();
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
