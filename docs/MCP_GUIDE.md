@@ -263,6 +263,7 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 质疑动作在一个 SQLite 写事务内完成 `bidding -> revealing -> bidding/finished`：公开
 本轮全部骰子、判断叫点、扣除一枚、标记淘汰、确定下一轮首位并重掷存活者骰子。
 上一轮揭骰保存在公共 `last_round_result`，新一轮当前骰子不会进入公共状态。
+仅真实终局会额外发布 `terminal_dice`，用于复盘各席最终骰子。
 
 首次 bootstrap 的安全投影形状：
 
@@ -382,6 +383,8 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 原始 `cards`、shoe 计数或任何 `card_id`，增量 move 事件也只包含 `hit/stand`。
 `private_state` 至少包含查看者自己的权威 `hand`、`value`、`status` 和
 `legal_actions`。NPC 只能选择同一份服务端合法行动，不接收或推导 shoe 内容。
+正常结算和房间级终局（例如认输归档）都会翻开庄家暗牌，但仍不公开 shoe 或
+`card_id`。
 
 由于每名玩家分别与庄家比较，通用单赢家字段以 terminal `draw=true` 收口；真实结果
 在 `room.result` 与公共 `board_state.game_result` 中完整返回：
@@ -408,7 +411,8 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 牌面。裁判的 `uno_delta` 用当前 `hand_counts/deck_count/phase` 同步摸牌后果；出牌时
 另含 `top_discard/current_color/direction`，罚牌、WDF 质疑和抓 UNO 只给公共人数、
 张数与结果。`pending_wild_draw_four.was_legal` 和任何新摸牌身份都不会进入公共投影或
-事件。完整功能牌与终局规则仍以 bootstrap `rules_text` 为准。
+事件。仅真实终局会发布按原手牌稳定顺序排列的 `terminal_hands`，牌堆内容仍隐藏。
+完整功能牌与终局规则仍以 bootstrap `rules_text` 为准。
 
 ## 干瞪眼 `gandengyan`
 
@@ -416,31 +420,32 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 `card_ids` 在打出后成为公开信息；裁判 `gandengyan_delta` 补充权威牌型、倍率和公共
 手牌张数。其余人全过时，delta 以 `trick_end` 给出本墩赢家/下一领牌、各席摸牌张数、
 剩余牌堆和更新后的手牌张数，绝不包含新摸牌身份。炸弹、跟牌与筹码倍率细则看
-bootstrap 规则。
+bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游戏牌力从左强到右弱
+排列；牌堆剩余内容继续隐藏。
 
 ## 开火车 `train_cards`
 
-2–6 人，只有一个权威动作 `flip`。牌堆顺序始终隐藏；公共增量只发布本次翻出的牌、公开牌列、是否发生同点收牌、收牌数量及各席剩余张数。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。带 stake 时每名败者扣一个 stake，唯一赢家获得其余席位的总和；循环/动作上限导致的平局全部结算 0。
+2–6 人，只有一个权威动作 `flip`。进行中牌堆顺序始终隐藏；公共增量只发布本次翻出的牌、公开牌列、是否发生同点收牌、收牌数量及各席剩余张数。仅真实终局以 `terminal_hands` 公开各席剩余牌，未翻牌堆仍不公开。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。带 stake 时每名败者扣一个 stake，唯一赢家获得其余席位的总和；循环/动作上限导致的平局全部结算 0。
 
 ## 斗地主 `doudizhu`
 
-固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。地主确定前 3 张底牌隐藏，确定后公开；其他人的手牌始终只显示张数。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
+固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
 
 ## 掼蛋 `guandan`
 
-固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。为控制上下文体积，本人合法行动以短 `action_id` 发布：只提交 `{"action":"act","action_id":"g_..."}`，不要重建牌型或 `card_ids`。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；他人手牌不进入 bootstrap、delta 或 full_state。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
+固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。为控制上下文体积，本人合法行动以短 `action_id` 发布：只提交 `{"action":"act","action_id":"g_..."}`，不要重建牌型或 `card_ids`。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；进行中他人手牌不进入 bootstrap、delta 或 full_state，真实终局才以 `terminal_hands` 公开剩余牌。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
 
 ## 炸金花 `zhajinhua`
 
-2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。带 stake 时每个虚拟下注单位价值一个 stake，终局按各席实际投入零和结算；精确并列退还，单席最大亏损 64×stake。
+2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。强制比牌终局按规则亮牌，弃牌或未展示席位不因复盘而强制公开。带 stake 时每个虚拟下注单位价值一个 stake，终局按各席实际投入零和结算；精确并列退还，单席最大亏损 64×stake。
 
 ## 军棋 `junqi`
 
-固定双人暗棋陆战军棋。布阵阶段只从本人私有合法行动选择 `swap/shuffle/ready/auto_setup`；进入行棋后再从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。带 stake 时按双人标准赢家 +stake、败者 -stake。
+固定双人暗棋陆战军棋。布阵阶段只从本人私有合法行动选择 `swap/shuffle/ready/auto_setup`；进入行棋后再从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔在进行中不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示，真实终局再公开棋盘上全部剩余军衔。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。带 stake 时按双人标准赢家 +stake、败者 -stake。
 
 ## 德州扑克 `texas_holdem`
 
-2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
+2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。进行中底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。showdown 只公开按规则应亮的仍有资格席位，fold/muck 不因终局复盘而强制公开。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
 
 ## 围棋 `go`
 
@@ -448,13 +453,14 @@ bootstrap 规则。
 
 ## 麻将 `mahjong`
 
-固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
+固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。进行中摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。真实终局以 `terminal_hands` 公开各席剩余牌并补全暗杠，牌墙内容继续隐藏。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
 
 ## 翻翻棋 `banqi`
 
 `flip` 的普通 move 只有坐标；紧随的 `banqi_delta` 给出该格实际翻开的公开棋子，首翻
 还给出行动者定色。`move` delta 给出移动棋、公开被吃棋或 `captured="hidden"` 哨兵，
 不会泄露暗子真实身份。full_state 的 8×4 `board` 用 `hidden` 表示所有仍未翻开的棋。
+仅真实终局会返回全部棋子身份，用于终局棋盘复盘。
 
 ## 飞行棋 `aeroplane_chess`
 

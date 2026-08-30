@@ -723,6 +723,26 @@ class Uno(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        terminal = (
+            state.get("flow", {}).get("phase") == "finished"
+            and state.get("winner_player_id") is not None
+        )
+        return self._project_public_state(state, participants, terminal=terminal)
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         cards = public_card_state(state)
         pending = deepcopy(state.get("pending_wild_draw_four"))
@@ -732,7 +752,7 @@ class Uno(GamePlugin):
         public_note = state.get("last_action_note", "")
         if isinstance(last_action, dict) and last_action.get("action") == "draw":
             public_note = "摸了 1 张牌。" if last_action.get("draw_count") else "摸牌堆无可用牌。"
-        return {
+        projected = {
             "board_kind": "uno",
             "flow": deepcopy(state["flow"]),
             "hand_counts": cards["hand_counts"],
@@ -751,6 +771,13 @@ class Uno(GamePlugin):
             },
             "last_action_note": public_note,
         }
+        if terminal:
+            hands = (state.get("cards") or {}).get("hands", {})
+            projected["terminal_hands"] = {
+                player_id: deepcopy(hands.get(player_id, []))
+                for player_id in state.get("participant_order", [])
+            }
+        return projected
 
     def private_state(
         self,

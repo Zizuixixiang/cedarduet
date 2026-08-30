@@ -328,6 +328,50 @@ button.uno-card {
 .uno-hand-scroll .uno-card + .uno-card { margin-left: -13px; }
 .uno-empty-hand { width: 100%; margin: auto; text-align: center; }
 
+.uno-terminal-review {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  color: #f8f6ef;
+  border: 1px solid rgba(255,212,93,.52);
+  border-radius: 8px;
+  background: rgba(0,0,0,.24);
+}
+.uno-terminal-title { color: #ffd45d; font-size: 10px; }
+.uno-terminal-rows { min-width: 0; display: grid; gap: 4px; }
+.uno-terminal-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+.uno-terminal-name {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uno-terminal-cards {
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+.uno-terminal-cards .uno-card.compact {
+  width: 36px;
+  height: 52px;
+  flex-basis: 36px;
+}
+.uno-terminal-cards .uno-card-face { font-size: 16px; }
+.uno-terminal-cards .uno-card-corner { font-size: 8px; }
+.uno-terminal-cards .uno-card-corner.top { top: 3px; left: 3px; }
+.uno-terminal-cards .uno-card-corner.bottom { right: 3px; bottom: 3px; }
+.uno-terminal-empty { color: rgba(255,255,255,.8); font-size: 9px; }
+
 .game-controls:has(.uno-controls) {
   width: min(100%, 860px);
   max-width: 100%;
@@ -419,4 +463,5 @@ button.uno-card {
   .uno-card { width: 62px; height: 92px; }
   .uno-pile { min-width: 76px; font-size: 10px; }
   .uno-action { width: 100%; }
+  .uno-terminal-row { grid-template-columns: 60px minmax(0, 1fr); }
 }

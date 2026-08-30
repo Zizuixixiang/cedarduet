@@ -235,6 +235,26 @@ class BlackjackFrameworkTests(unittest.TestCase):
             [{"action": "hit"}, {"action": "stand"}],
         )
 
+    def test_room_terminal_projection_reveals_hole_after_resignation(self):
+        script = deal_script(["8", "9"], "10", ["7", "6"], "5")
+        room, _game, _rng = self.create(script)
+        raw_hole = room["board_state"]["cards"]["hands"][DEALER_ID][1]
+        playing = framework.project_room_for_viewer(room, "human-1")["board_state"]
+        self.assertTrue(playing["dealer"]["hole_hidden"])
+        self.assertEqual(playing["dealer"]["hand"][1], {"hidden": True})
+
+        resigned = framework.resign(room["room_id"], "human", "human-1")
+        self.assertEqual(resigned["status"], "finished")
+        self.assertFalse(resigned["board_state"]["dealer_hole_revealed"])
+        terminal = framework.project_room_for_viewer(
+            resigned, "human-1"
+        )["board_state"]
+        self.assertFalse(terminal["dealer"]["hole_hidden"])
+        self.assertEqual(terminal["dealer"]["hand"][1], {
+            "rank": raw_hole["rank"], "suit": raw_hole["suit"],
+        })
+        self.assertNotIn(raw_hole["card_id"], json.dumps(terminal))
+
     def test_hit_retains_turn_then_bust_ends_hand_and_advances(self):
         script = deal_script(["10", "9"], "10", ["6", "8"], "7", "K")
         room, _game, _rng = self.create(script)

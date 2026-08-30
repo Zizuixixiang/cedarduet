@@ -706,11 +706,31 @@ class Gandengyan(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        terminal = (
+            state.get("flow", {}).get("phase") == "finished"
+            and state.get("winner_player_id") is not None
+        )
+        return self._project_public_state(state, participants, terminal=terminal)
+
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._project_public_state(state, participants, terminal=True)
+
+    def _project_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+        *,
+        terminal: bool,
+    ) -> dict[str, Any]:
         del participants
         card_state = public_card_state(state)
         trick = state.get("trick") or {}
         last_play = trick.get("last_play")
-        return {
+        projected = {
             "board_kind": "gandengyan",
             "flow": deepcopy(state["flow"]),
             "current_trick": {
@@ -725,6 +745,15 @@ class Gandengyan(GamePlugin):
             "max_multiplier": int(state.get("max_multiplier", MAX_MULTIPLIER)),
             "last_action_note": state.get("last_action_note", ""),
         }
+        if terminal:
+            hands = (state.get("cards") or {}).get("hands", {})
+            projected["terminal_hands"] = {
+                player_id: deepcopy(sorted(
+                    hands.get(player_id, []), key=_card_sort_key, reverse=True
+                ))
+                for player_id in state.get("participant_order", [])
+            }
+        return projected
 
     def private_state(
         self,

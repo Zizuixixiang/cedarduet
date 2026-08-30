@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-gandengyan-styles";
-  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.2";
+  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.3";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -310,6 +310,36 @@
       scroller.appendChild(element(documentRef, "span", "gandengyan-empty-hand", "手牌已出完"));
     }
     handZone.append(label, scroller);
+    const terminalHands = context.state && context.state.terminal_hands;
+    if (terminalHands && typeof terminalHands === "object") {
+      const review = element(documentRef, "section", "gandengyan-terminal-review");
+      review.appendChild(element(
+        documentRef, "strong", "gandengyan-terminal-title", "终局剩余手牌"
+      ));
+      const rows = element(documentRef, "div", "gandengyan-terminal-rows");
+      (context.participants || []).forEach((participant) => {
+        const cards = Array.isArray(terminalHands[participant.player_id])
+          ? terminalHands[participant.player_id]
+          : [];
+        const row = element(documentRef, "section", "gandengyan-terminal-row");
+        row.dataset.playerId = participant.player_id;
+        row.appendChild(element(
+          documentRef,
+          "span",
+          "gandengyan-terminal-name",
+          `${participant.display_name || participant.player_id} · ${cards.length} 张`
+        ));
+        const faces = element(documentRef, "div", "gandengyan-terminal-cards");
+        cards.forEach((card) => faces.appendChild(createCard(documentRef, card)));
+        if (!cards.length) {
+          faces.appendChild(element(documentRef, "span", "gandengyan-terminal-empty", "0 张 · 已出完"));
+        }
+        row.appendChild(faces);
+        rows.appendChild(row);
+      });
+      review.appendChild(rows);
+      handZone.appendChild(review);
+    }
     shell.appendChild(handZone);
     return scroller;
   }

@@ -608,6 +608,36 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertEqual(farmer_summary["partner_player_id"], "ai-2")
         self.assertNotIn("S4", json.dumps(self.game.npc_public_actions(state, self.table[1], self.table)))
 
+    def test_terminal_projection_reveals_all_remaining_hands_high_to_low_only(self):
+        state = self.playing_state([
+            ("S3",),
+            ("S3", "H2", "JOKER-B"),
+            ("SK", "HA"),
+        ])
+        playing = self.game.public_state(state, self.table)
+        self.assertNotIn("terminal_hands", playing)
+        self.assertNotIn("S3", json.dumps(playing, ensure_ascii=False))
+
+        _action, _result = self.apply(state, "human-1", "play", card_ids=["S3"])
+        terminal = self.game.public_state(state, self.table)
+        self.assertEqual(terminal["terminal_hands"]["human-1"], [])
+        self.assertEqual(
+            [card["rank"] for card in terminal["terminal_hands"]["ai-1"]],
+            ["big_joker", "2", "3"],
+        )
+        self.assertEqual(
+            [card["rank"] for card in terminal["terminal_hands"]["ai-2"]],
+            ["A", "K"],
+        )
+        self.assertNotIn("deck", terminal)
+
+        resigned_review = self.game.terminal_public_state(
+            self.playing_state([("S4",), ("H5",), ("C6",)]), self.table
+        )
+        self.assertEqual(set(resigned_review["terminal_hands"]), {
+            "human-1", "ai-1", "ai-2",
+        })
+
 
 class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

@@ -385,6 +385,52 @@
   margin-left: clamp(-16px, -2vw, -8px);
 }
 
+.gandengyan-terminal-review {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  border: 1px solid rgba(231,189,101,.4);
+  border-radius: 9px;
+  background: rgba(4,34,28,.56);
+}
+.gandengyan-terminal-title { color: #ffe3a3; font-size: 10px; }
+.gandengyan-terminal-rows { min-width: 0; display: grid; gap: 4px; }
+.gandengyan-terminal-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+.gandengyan-terminal-name {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gandengyan-terminal-cards {
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+.gandengyan-terminal-cards .gandengyan-card {
+  width: 30px;
+  min-width: 30px;
+  height: 44px;
+  min-height: 44px;
+  padding: 2px;
+  border-radius: 4px;
+}
+.gandengyan-terminal-cards .gandengyan-card-corner { top: 2px; left: 3px; }
+.gandengyan-terminal-cards .gandengyan-card-rank { font-size: 9px; }
+.gandengyan-terminal-cards .gandengyan-card-suit { font-size: 8px; }
+.gandengyan-terminal-cards .gandengyan-card-center { font-size: 14px; }
+.gandengyan-terminal-empty { color: #cfe0d8; font-size: 9px; }
+
 .gandengyan-card {
   width: clamp(58px, 10vw, 78px);
   height: clamp(88px, 15vw, 116px);
@@ -658,6 +704,10 @@ button.gandengyan-card:focus-visible {
 
   .gandengyan-action-buttons {
     width: 100%;
+  }
+
+  .gandengyan-terminal-row {
+    grid-template-columns: 62px minmax(0, 1fr);
   }
 
   .gandengyan-play-button,

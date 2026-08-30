@@ -425,6 +425,53 @@
   margin-left: clamp(-24px, -3vw, -10px);
 }
 
+.doudizhu-terminal-review {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  border: 1px solid rgba(232,189,96,.4);
+  border-radius: 9px;
+  background: rgba(2,35,29,.56);
+}
+
+.doudizhu-terminal-title { color: #ffe3a3; font-size: 10px; }
+.doudizhu-terminal-rows { min-width: 0; display: grid; gap: 4px; }
+.doudizhu-terminal-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+.doudizhu-terminal-name {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doudizhu-terminal-cards {
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+.doudizhu-terminal-cards .doudizhu-card {
+  width: 30px;
+  min-width: 30px;
+  height: 44px;
+  min-height: 44px;
+  padding: 2px;
+  border-radius: 4px;
+}
+.doudizhu-terminal-cards .doudizhu-card-corner { top: 2px; left: 3px; }
+.doudizhu-terminal-cards .doudizhu-card-rank { font-size: 9px; }
+.doudizhu-terminal-cards .doudizhu-card-suit { font-size: 8px; }
+.doudizhu-terminal-cards .doudizhu-card-center { margin-top: 5px; font-size: 14px; }
+.doudizhu-terminal-empty { color: #cce0d7; font-size: 9px; }
+
 .doudizhu-card {
   width: clamp(57px, 10vw, 76px);
   height: clamp(86px, 15vw, 112px);
@@ -905,6 +952,10 @@ button.doudizhu-card:focus-visible,
 
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
     margin-left: -16px;
+  }
+
+  .doudizhu-terminal-row {
+    grid-template-columns: 62px minmax(0, 1fr);
   }
 
   .doudizhu-controls.is-playing .doudizhu-selection-status {

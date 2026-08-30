@@ -369,6 +369,41 @@ class GandengyanRuleTests(unittest.TestCase):
             self.game.npc_legal_actions(state, table[1], table),
         )
 
+    def test_terminal_projection_reveals_hands_strong_to_weak_but_not_deck(self):
+        table, state = self.custom_state(
+            [("S3",), ("S4", "H2", "JOKER-B"), ("S5", "HA")],
+            deck=("S6", "H6", "C6"),
+        )
+        playing = self.game.public_state(state, table)
+        self.assertNotIn("terminal_hands", playing)
+        playing_json = json.dumps(playing, ensure_ascii=False)
+        self.assertNotIn('"S4"', playing_json)
+        self.assertNotIn('"S6"', playing_json)
+
+        applied = self.game.apply_action(
+            state, {"action": "play", "card_ids": ["S3"]}, table[0]
+        )
+        self.assertIsNotNone(applied.result)
+        terminal = self.game.public_state(state, table)
+        self.assertEqual(terminal["terminal_hands"]["human-1"], [])
+        self.assertEqual(
+            [card["rank"] for card in terminal["terminal_hands"]["ai-1"]],
+            ["big_joker", "2", "4"],
+        )
+        self.assertEqual(
+            [card["rank"] for card in terminal["terminal_hands"]["ai-2"]],
+            ["A", "5"],
+        )
+        terminal_json = json.dumps(terminal, ensure_ascii=False)
+        for deck_card_id in ("S6", "H6", "C6"):
+            self.assertNotIn(f'"{deck_card_id}"', terminal_json)
+        self.assertNotIn("deck", terminal)
+
+        room_terminal = self.game.terminal_public_state(
+            self.custom_state([("S7",), ("H8",)])[1], seats(2)
+        )
+        self.assertEqual(set(room_terminal["terminal_hands"]), {"human-1", "ai-1"})
+
     def test_npc_receives_only_authoritative_legal_actions(self):
         table, state = self.custom_state([("S3", "H3"), ("S4", "H4", "S8")])
         state["trick"]["last_play"] = {

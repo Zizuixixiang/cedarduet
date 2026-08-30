@@ -36,7 +36,7 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 - `go`：固定双人 19×19 围棋
 - `mahjong`：固定四人国标麻将（136 张、无花）
 
-支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏只把本人手牌/骰子/暗棋身份放进 `private_state`；NPC 与网页端同样只能消费服务端发布的权威合法行动。
+支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏在对局进行中只把本人手牌/骰子/暗棋身份放进 `private_state`；真实终局可按各游戏规则发布专用复盘字段，德州扑克与炸金花仍保留弃牌/muck 隐私。NPC 与网页端同样只能消费服务端发布的权威合法行动。
 
 当前 25 款中只有 `blackjack`（21点）和 `yahtzee`（快艇骰子）固定为 0 筹码娱乐局；其余游戏均可按 catalog 创建带 `stake` 的房间。新增八款采用明确零和策略：开火车按每名败者一个 stake；斗地主按最终叫分/炸弹倍率在地主与两农民间结算；掼蛋按两人队伍胜负结算；军棋、围棋走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake；德州扑克把 stake 视为每席完整买入，终局按最终内部栈比例分配真实总买入池。
 

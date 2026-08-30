@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-uno-styles";
-  const STYLE_HREF = "/static/games/uno.css?v=1.0.1";
+  const STYLE_HREF = "/static/games/uno.css?v=1.0.2";
   const COLORS = ["red", "yellow", "green", "blue"];
   const COLOR_LABELS = {
     red: "红色",
@@ -334,6 +334,44 @@
       scroller.appendChild(empty);
     }
     area.append(heading, scroller);
+    const terminalHands = state && state.terminal_hands;
+    if (terminalHands && typeof terminalHands === "object") {
+      const review = documentRef.createElement("section");
+      review.className = "uno-terminal-review";
+      const reviewTitle = documentRef.createElement("strong");
+      reviewTitle.className = "uno-terminal-title";
+      reviewTitle.textContent = "终局剩余手牌";
+      const rows = documentRef.createElement("div");
+      rows.className = "uno-terminal-rows";
+      (context.participants || []).forEach((participant) => {
+        const cards = Array.isArray(terminalHands[participant.player_id])
+          ? terminalHands[participant.player_id]
+          : [];
+        const row = documentRef.createElement("section");
+        row.className = "uno-terminal-row";
+        row.dataset.playerId = participant.player_id;
+        const name = documentRef.createElement("span");
+        name.className = "uno-terminal-name";
+        name.textContent = `${participant.display_name || participant.player_id} · ${cards.length} 张`;
+        const faces = documentRef.createElement("div");
+        faces.className = "uno-terminal-cards";
+        cards.forEach((card) => {
+          const face = createCard(documentRef, card);
+          face.classList.add("compact");
+          faces.appendChild(face);
+        });
+        if (!cards.length) {
+          const empty = documentRef.createElement("span");
+          empty.className = "uno-terminal-empty";
+          empty.textContent = "0 张 · 已出完";
+          faces.appendChild(empty);
+        }
+        row.append(name, faces);
+        rows.appendChild(row);
+      });
+      review.append(reviewTitle, rows);
+      area.appendChild(review);
+    }
     shell.appendChild(area);
     return scroller;
   }

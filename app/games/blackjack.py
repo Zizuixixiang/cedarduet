@@ -594,6 +594,18 @@ class Blackjack(GamePlugin):
             "last_action_note": str(state.get("last_action_note") or ""),
         }
 
+    def terminal_public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        # Normal settlement already flips this flag. The room lifecycle can
+        # also finish through resignation/archival while the plugin phase is
+        # still playing, and a genuinely terminal review must reveal the hole.
+        terminal_state = deepcopy(state)
+        terminal_state["dealer_hole_revealed"] = True
+        return self.public_state(terminal_state, participants)
+
     def private_state(
         self,
         state: dict[str, Any],

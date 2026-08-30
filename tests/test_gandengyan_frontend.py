@@ -25,9 +25,11 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.2";', SCRIPT
+            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.3";', SCRIPT
         )
         self.assertIn('link.dataset.duelGameStyle = "gandengyan";', SCRIPT)
+        self.assertIn("terminal_hands", SCRIPT)
+        self.assertIn(".gandengyan-terminal-cards", STYLES)
         self.assertNotIn("gandengyan", APP_SCRIPT)
         self.assertIn("renderer.ownsPrivateStatePresentation === true", APP_SCRIPT)
         self.assertNotIn("/static/games/gandengyan.js", HTML)
@@ -248,7 +250,42 @@ assert.equal(JSON.stringify(descendants(fallback.board).filter(
 ).map((node) => node.textContent)), JSON.stringify(["小", "小"]));
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
-assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.2");
+assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.3");
+''')
+
+    def test_terminal_review_shows_all_hands_strongest_on_the_left(self):
+        self.run_node(r'''
+const playing = makeContext();
+renderer.renderBoard(playing.context);
+let nodes = descendants(playing.board);
+assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-terminal-review")).length, 0);
+assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card-back")).length, 8);
+
+const terminal = makeContext([]);
+terminal.context.state = {...state, flow: {phase: "finished"}, terminal_hands: {
+  "human-1": [],
+  "ai-1": [
+    {id: "JOKER-B", suit: "joker", rank: "big_joker"},
+    {id: "H2", suit: "hearts", rank: "2"},
+    {id: "S4", suit: "spades", rank: "4"},
+  ],
+  "ai-2": [
+    {id: "HA", suit: "hearts", rank: "A"},
+    {id: "S5", suit: "spades", rank: "5"},
+  ],
+}};
+terminal.context.room.status = "finished";
+terminal.context.canMove = false;
+renderer.renderBoard(terminal.context);
+nodes = descendants(terminal.board);
+const rows = nodes.filter((node) => hasClass(node, "gandengyan-terminal-row"));
+assert.equal(rows.length, 3);
+assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", "ai-2"]);
+assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-terminal-empty")).length, 1);
+const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
+assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
+  "JOKER-B", "H2", "S4",
+]);
 ''')
 
     def test_multi_selection_submits_exact_server_action_and_pass_is_separate(self):

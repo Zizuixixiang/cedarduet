@@ -24,8 +24,10 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.1";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.2";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "uno";', SCRIPT)
+        self.assertIn("terminal_hands", SCRIPT)
+        self.assertIn(".uno-terminal-cards", STYLES)
         self.assertNotIn("uno", APP_SCRIPT.lower())
         self.assertNotIn("uno", PUBLIC_STYLES.lower())
         self.assertNotIn("/static/games/uno.js", HTML)
@@ -203,7 +205,41 @@ renderer.renderBoard(fallback.context);
 assert.equal(JSON.stringify(descendants(fallback.board).filter(
   (node) => hasClass(node, "uno-opponent-avatar")
 ).map((node) => node.textContent)), JSON.stringify(["小", "北"]));
-assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.1");
+assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.2");
+''')
+
+    def test_terminal_review_keeps_natural_order_and_playing_shows_only_backs(self):
+        self.run_node(r'''
+const playing = makeContext([]);
+renderer.renderBoard(playing.context);
+let nodes = descendants(playing.board);
+assert.equal(nodes.filter((node) => hasClass(node, "uno-terminal-review")).length, 0);
+assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent-backs")).length, 2);
+assert.equal(nodes.filter((node) => hasClass(node, "is-back")).length, 7);
+
+const terminal = makeContext([]);
+terminal.context.state = {...terminal.context.state, terminal_hands: {
+  "human-1": [],
+  "ai-1": [
+    {id: "blue-number-9-1", color: "blue", kind: "number", value: 9},
+    {id: "yellow-skip-1", color: "yellow", kind: "skip"},
+  ],
+  "ai-2": [
+    {id: "wild-1", color: null, kind: "wild"},
+    {id: "green-number-2-1", color: "green", kind: "number", value: 2},
+  ],
+}};
+terminal.context.room.status = "finished";
+terminal.context.canMove = false;
+renderer.renderBoard(terminal.context);
+nodes = descendants(terminal.board);
+const rows = nodes.filter((node) => hasClass(node, "uno-terminal-row"));
+assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", "ai-2"]);
+assert.equal(nodes.filter((node) => hasClass(node, "uno-terminal-empty")).length, 1);
+const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
+assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
+  "blue-number-9-1", "yellow-skip-1",
+]);
 ''')
 
     def test_wild_color_and_uno_submit_exact_authoritative_action(self):

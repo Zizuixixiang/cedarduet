@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.5";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.6";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -405,6 +405,36 @@
       scroller.appendChild(element(documentRef, "span", "doudizhu-empty-hand", "等待开局或手牌已出完"));
     }
     zone.append(label, scroller);
+    const terminalHands = context.state && context.state.terminal_hands;
+    if (terminalHands && typeof terminalHands === "object") {
+      const review = element(documentRef, "section", "doudizhu-terminal-review");
+      review.appendChild(element(
+        documentRef, "strong", "doudizhu-terminal-title", "终局剩余手牌"
+      ));
+      const rows = element(documentRef, "div", "doudizhu-terminal-rows");
+      (context.participants || []).forEach((item) => {
+        const cards = Array.isArray(terminalHands[item.player_id])
+          ? cardsForDisplay(terminalHands[item.player_id])
+          : [];
+        const row = element(documentRef, "section", "doudizhu-terminal-row");
+        row.dataset.playerId = item.player_id;
+        row.appendChild(element(
+          documentRef,
+          "span",
+          "doudizhu-terminal-name",
+          `${item.display_name || item.player_id} · ${cards.length} 张`
+        ));
+        const faces = element(documentRef, "div", "doudizhu-terminal-cards");
+        cards.forEach((card) => faces.appendChild(createCard(documentRef, card)));
+        if (!cards.length) {
+          faces.appendChild(element(documentRef, "span", "doudizhu-terminal-empty", "0 张 · 已出完"));
+        }
+        row.appendChild(faces);
+        rows.appendChild(row);
+      });
+      review.appendChild(rows);
+      zone.appendChild(review);
+    }
     shell.appendChild(zone);
     return scroller;
   }

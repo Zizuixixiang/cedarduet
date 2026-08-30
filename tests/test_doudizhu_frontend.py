@@ -23,7 +23,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "function renderControls(context)",
             "usesStandardMoveConfirmation: false",
             "ownsPrivateStatePresentation: true",
-            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.5";',
+            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.6";',
             'link.dataset.duelGameStyle = "doudizhu";',
         ):
             self.assertIn(expected, SCRIPT)
@@ -60,12 +60,15 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "roles_by_player", "role-landlord", "farmerPartnerId", "对家",
             "bottom_revealed", "bottom_cards", "doudizhu-trick-cards",
             "pass_player_ids", "doudizhu-hand-scroll", "我的手牌",
+            "terminal_hands", "doudizhu-terminal-review",
         ):
             self.assertIn(expected, SCRIPT + STYLES)
         self.assertIn(".filter((item) => item.player_id !== viewerId)", SCRIPT)
         self.assertIn("renderHand(documentRef, context, shell)", SCRIPT)
         self.assertIn("context.helpers.renderParticipantAvatar", SCRIPT)
         self.assertIn("renderAvatar(avatar, value)", SCRIPT)
+        self.assertIn(".doudizhu-terminal-cards", STYLES)
+        self.assertIn("overflow-x: auto;", STYLES)
 
     def test_mobile_hand_scroll_has_320_and_375_guards(self):
         for expected in (
@@ -466,7 +469,49 @@ assert.deepEqual(
   revealedBottom.children.map((node) => node.dataset.cardId),
   bottomCards.map((card) => card.id)
 );
-assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.5");
+assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.6");
+''')
+
+    def test_terminal_review_shows_every_remaining_hand_high_to_low(self):
+        self.run_node(r'''
+const playing = makeContext();
+renderer.renderBoard(playing.context);
+let nodes = descendants(playing.board);
+assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-terminal-review")).length, 0);
+assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-seat")).length, 2);
+assert.ok(nodes.filter((node) => hasClass(node, "doudizhu-seat-state")).every(
+  (node) => /17 张/.test(node.textContent)
+));
+
+const terminalHands = {
+  "human-1": [],
+  "ai-1": [
+    {id: "S3", suit: "spades", rank: "3"},
+    {id: "H2", suit: "hearts", rank: "2"},
+    {id: "JOKER-B", suit: "joker", rank: "big_joker"},
+  ],
+  "ai-2": [
+    {id: "SK", suit: "spades", rank: "K"},
+    {id: "HA", suit: "hearts", rank: "A"},
+  ],
+};
+const terminal = makeContext({
+  flow: {phase: "finished"}, terminal_hands: terminalHands,
+  hand_counts: {"human-1": 0, "ai-1": 3, "ai-2": 2},
+});
+terminal.context.room.status = "finished";
+terminal.context.canMove = false;
+renderer.renderBoard(terminal.context);
+nodes = descendants(terminal.board);
+const rows = nodes.filter((node) => hasClass(node, "doudizhu-terminal-row"));
+assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", "ai-2"]);
+assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-terminal-empty")).length, 1);
+const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
+assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
+  "JOKER-B", "H2", "S3",
+]);
+const aiTwo = rows.find((node) => node.dataset.playerId === "ai-2");
+assert.deepEqual(aiTwo.children[1].children.map((node) => node.dataset.cardId), ["HA", "SK"]);
 ''')
 
     def test_seat_avatars_use_shared_helper_and_fall_back_to_first_character(self):

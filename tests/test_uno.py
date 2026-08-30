@@ -465,6 +465,51 @@ class UnoRulesTests(unittest.TestCase):
         for action in legal:
             self.game.validate_action(npc_state, action, self.players[1])
 
+    def test_terminal_projection_reveals_stable_hands_without_deck_contents(self):
+        state = self.scenario({
+            "player-1": ["red-number-7-1"],
+            "player-2": ["blue-number-9-1", "yellow-skip-1"],
+            "player-3": ["wild-1", "green-number-2-1"],
+        }, "red-number-5-1", deck=[
+            "yellow-number-1-1", "blue-reverse-1",
+        ])
+        playing = self.game.public_state(state, self.players)
+        self.assertNotIn("terminal_hands", playing)
+        self.assertNotIn("blue-number-9-1", json.dumps(playing))
+
+        result = self.game.apply_action(
+            state,
+            {"action": "play", "card_id": "red-number-7-1"},
+            self.players[0],
+        )
+        self.assertIsNotNone(result.result)
+        terminal = self.game.public_state(state, self.players)
+        self.assertEqual(terminal["terminal_hands"]["player-1"], [])
+        self.assertEqual(
+            [card["id"] for card in terminal["terminal_hands"]["player-2"]],
+            ["blue-number-9-1", "yellow-skip-1"],
+        )
+        self.assertEqual(
+            [card["id"] for card in terminal["terminal_hands"]["player-3"]],
+            ["wild-1", "green-number-2-1"],
+        )
+        terminal_json = json.dumps(terminal)
+        self.assertNotIn("yellow-number-1-1", terminal_json)
+        self.assertNotIn("blue-reverse-1", terminal_json)
+        self.assertNotIn("deck", terminal)
+
+        resigned_review = self.game.terminal_public_state(
+            self.scenario({
+                "player-1": ["red-number-1-1"],
+                "player-2": ["green-number-3-1"],
+                "player-3": ["blue-number-4-1"],
+            }, "red-number-5-1"),
+            self.players,
+        )
+        self.assertEqual(set(resigned_review["terminal_hands"]), {
+            "player-1", "player-2", "player-3",
+        })
+
     def test_multiplayer_winner_take_all_settlement(self):
         participants = seats(6)
         deltas = self.game.settlement_deltas(
