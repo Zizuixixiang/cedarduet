@@ -159,12 +159,14 @@ class ZhajinhuaCoreTests(unittest.TestCase):
         result = self.game.apply_action(state, move, actor)
         return self.game.progress_after_action(state, move, actor, roster, result)
 
-    def test_catalog_supports_two_through_six_without_wallet_stakes(self):
+    def test_catalog_supports_two_through_six_with_custom_wallet_stakes(self):
         item = {entry["game_type"]: entry for entry in game_catalog()}["zhajinhua"]
         self.assertEqual(item["display_name"], "炸金花")
         self.assertEqual(item["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(item["supports_npcs"])
-        self.assertFalse(item["supports_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertTrue(item["uses_custom_stake_settlement"])
         for count in (2, 3, 6):
             with self.subTest(count=count):
                 roster, state = self.new_state(count)
@@ -177,6 +179,69 @@ class ZhajinhuaCoreTests(unittest.TestCase):
                 self.assertEqual(len(dealt), len(set(dealt)))
                 self.assertEqual(state["pot"], count)
                 self.assertEqual(len(roster), count)
+
+    def test_terminal_contributions_settle_exactly_for_two_three_and_six(self):
+        cases = (
+            (2, [4, 9], "player-0", 3, {"player-0": 27, "player-1": -27}),
+            (
+                3,
+                [64, 2, 7],
+                "player-1",
+                5,
+                {"player-0": -320, "player-1": 355, "player-2": -35},
+            ),
+            (
+                6,
+                [1, 2, 4, 8, 16, 64],
+                "player-4",
+                2,
+                {
+                    "player-0": -2,
+                    "player-1": -4,
+                    "player-2": -8,
+                    "player-3": -16,
+                    "player-4": 158,
+                    "player-5": -128,
+                },
+            ),
+        )
+        for count, contributions, winner, stake, expected in cases:
+            with self.subTest(count=count):
+                roster, state = self.new_state(count)
+                for player_id, contribution in zip(
+                    state["participant_order"], contributions
+                ):
+                    state["player_state_by_player"][player_id][
+                        "contribution"
+                    ] = contribution
+                state["pot"] = sum(contributions)
+                deltas = self.game.settlement_deltas(
+                    state,
+                    {"winner_player_id": winner, "draw": False},
+                    roster,
+                    stake,
+                )
+                self.assertEqual(deltas, expected)
+                self.assertEqual(set(deltas), {item["player_id"] for item in roster})
+                self.assertEqual(sum(deltas.values()), 0)
+                self.assertGreaterEqual(min(deltas.values()), -64 * stake)
+
+    def test_round_cap_exact_tie_refunds_every_virtual_wager(self):
+        roster, state = self.new_state(6)
+        contributions = [64, 63, 32, 17, 8, 1]
+        for player_id, contribution in zip(
+            state["participant_order"], contributions
+        ):
+            state["player_state_by_player"][player_id]["contribution"] = contribution
+        state["pot"] = sum(contributions)
+        deltas = self.game.settlement_deltas(
+            state,
+            {"draw": True, "finish_reason": "round_cap_tie"},
+            roster,
+            11,
+        )
+        self.assertEqual(deltas, {item["player_id"]: 0 for item in roster})
+        self.assertEqual(sum(deltas.values()), 0)
 
     def test_peek_reveals_only_to_self_and_retains_turn(self):
         roster, state = self.new_state()
@@ -373,12 +438,51 @@ class ZhajinhuaFrameworkTests(unittest.TestCase):
         self.assertFalse(eliminated["active"])
         self.assertEqual(eliminated["activity_state"], "eliminated")
 
-    def test_real_stake_is_rejected(self):
-        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码结算"):
-            framework.create_room(
-                "zhajinhua", "human_first", "human", "player-0", "player-1",
-                stake=1,
-            )
+    def test_real_stake_room_is_accepted_and_attached_only_at_terminal(self):
+        room = framework.create_room(
+            "zhajinhua", "human_first", "human", "player-0", "player-1",
+            stake=3,
+        )
+        self.assertEqual(room["status"], "pending")
+        self.assertIsNone(room["result"])
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "player-1", "accept"
+        )
+        self.assertEqual(room["status"], "playing")
+        self.assertIsNone(room["result"])
+        conn = database.connect()
+        try:
+            before_terminal = conn.execute(
+                "SELECT COUNT(*) FROM chip_ledger WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(before_terminal, 0)
+        room = framework.play_move(
+            room["room_id"], "human", "player-0", {"action": "fold"}
+        )
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(
+            room["result"]["settlement_deltas"],
+            {"player-0": -3, "player-1": 3},
+        )
+        self.assertTrue(room["result"]["settlement_zero_sum"])
+        conn = database.connect()
+        try:
+            batches = conn.execute(
+                "SELECT COUNT(*) FROM chip_settlement_batches "
+                "WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+            terminal_ledger = conn.execute(
+                "SELECT COUNT(*) FROM chip_ledger WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(batches, 1)
+        self.assertEqual(terminal_ledger, 2)
 
 
 class ZhajinhuaMcpTests(unittest.IsolatedAsyncioTestCase):

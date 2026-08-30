@@ -12,7 +12,7 @@ from app import database, framework
 from app import main as main_module
 from app.npc_controller import run_current_npc_turn
 from app.games import GAMES, game_catalog
-from app.games.texas_holdem import BIG_BLIND, TexasHoldem
+from app.games.texas_holdem import BIG_BLIND, INITIAL_STACK, TexasHoldem
 from third_party.pypokerengine.engine.card import Card
 from third_party.pypokerengine.engine.game_evaluator import GameEvaluator
 from third_party.pypokerengine.engine.hand_evaluator import HandEvaluator
@@ -91,6 +91,19 @@ class TexasHoldemCoreTests(unittest.TestCase):
         engine["table"].deck.deck = cards("C3") + list(reversed(board_cards))
         state["engine_state"] = self.game._serialize_engine(engine)
 
+    def settle_final_stacks(self, stacks, stake, result=None, roster=None):
+        if roster is None:
+            roster, state = self.new_state(len(stacks))
+        else:
+            state = self.game.initialize_for_first_player(roster, "player-0")
+        engine = self.game._deserialize_engine(state)
+        for player, stack in zip(engine["table"].seats.players, stacks):
+            player.stack = stack
+        state["engine_state"] = self.game._serialize_engine(engine)
+        return self.game.settlement_deltas(
+            state, result or {"draw": False}, roster, stake
+        )
+
     def test_catalog_and_real_vendored_runtime_cover_two_three_and_six(self):
         item = {entry["game_type"]: entry for entry in game_catalog()}[
             "texas_holdem"
@@ -99,7 +112,9 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertEqual(item["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(item["supports_npcs"])
         self.assertTrue(item["uses_local_npc_strategy"])
-        self.assertFalse(item["supports_stakes"])
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertTrue(item["uses_custom_stake_settlement"])
         self.assertEqual(
             HandEvaluator.__module__,
             "third_party.pypokerengine.engine.hand_evaluator",
@@ -121,6 +136,75 @@ class TexasHoldemCoreTests(unittest.TestCase):
                     200 * count,
                 )
                 self.assertEqual(len(roster), count)
+
+    def test_final_stack_conversion_for_two_three_and_six_is_exact(self):
+        cases = (
+            (2, [0, 400], 3, {"player-0": -3, "player-1": 3}),
+            (
+                3,
+                [50, 200, 350],
+                7,
+                {"player-0": -5, "player-1": 0, "player-2": 5},
+            ),
+            (
+                6,
+                [0, 100, 150, 200, 250, 500],
+                13,
+                {
+                    "player-0": -13,
+                    "player-1": -6,
+                    "player-2": -3,
+                    "player-3": 0,
+                    "player-4": 3,
+                    "player-5": 19,
+                },
+            ),
+        )
+        for count, stacks, stake, expected in cases:
+            with self.subTest(count=count):
+                self.assertEqual(sum(stacks), count * INITIAL_STACK)
+                deltas = self.settle_final_stacks(stacks, stake)
+                self.assertEqual(deltas, expected)
+                self.assertEqual(sum(deltas.values()), 0)
+                self.assertTrue(all(delta >= -stake for delta in deltas.values()))
+
+    def test_stake_below_200_uses_stable_seat_order_for_equal_remainders(self):
+        roster = list(reversed(participants(3)))
+        deltas = self.settle_final_stacks(
+            [100, 100, 400], 1, roster=roster
+        )
+        self.assertEqual(
+            deltas,
+            {"player-0": 0, "player-1": -1, "player-2": 1},
+        )
+        self.assertEqual(sum(deltas.values()), 0)
+
+    def test_side_pot_all_in_and_split_draw_follow_final_stack_ownership(self):
+        side_pot = self.settle_final_stacks(
+            [350, 200, 50],
+            40,
+            result={
+                "draw": False,
+                "pots": [
+                    {"winner_uuids": ["player-0"]},
+                    {"winner_uuids": ["player-1"]},
+                ],
+            },
+        )
+        self.assertEqual(
+            side_pot, {"player-0": 30, "player-1": 0, "player-2": -30}
+        )
+        split_draw = self.settle_final_stacks(
+            [100, 250, 250],
+            7,
+            result={"draw": True, "tied_player_ids": ["player-1", "player-2"]},
+        )
+        self.assertEqual(
+            split_draw, {"player-0": -4, "player-1": 2, "player-2": 2}
+        )
+        for deltas, stake in ((side_pot, 40), (split_draw, 7)):
+            self.assertEqual(sum(deltas.values()), 0)
+            self.assertTrue(all(delta >= -stake for delta in deltas.values()))
 
     def test_heads_up_button_blinds_and_both_action_orders(self):
         roster, state = self.new_state(2)
@@ -299,6 +383,43 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertEqual([pot["name"] for pot in public["pots"]], ["main", "side_1"])
         self.assertEqual(sum(item["stack"] for item in public["players"].values()), 350)
 
+    def test_all_in_side_pot_terminal_stacks_drive_real_settlement(self):
+        roster, state = self.new_state(3)
+        self.rig_stacks(state, [100, 200, 300])
+        self.rig_cards(
+            state,
+            [("SA", "HA"), ("SK", "HK"), ("S8", "H6")],
+            ("C2", "D7", "H9", "SJ", "CQ"),
+        )
+        self.apply(state, roster, next(
+            item for item in self.game.private_state(
+                state, roster[0], roster
+            )["legal_actions"]
+            if item["action"] == "all_in"
+        ))
+        self.apply(state, roster, next(
+            item for item in self.game.private_state(
+                state, roster[1], roster
+            )["legal_actions"]
+            if item["action"] == "all_in"
+        ))
+        finished = self.apply(state, roster)
+        self.assertEqual(
+            [pot["amount"] for pot in finished.result["pots"]], [300, 200]
+        )
+        self.assertEqual(
+            finished.result["final_internal_stacks_by_player"],
+            {"player-0": 300, "player-1": 200, "player-2": 100},
+        )
+        deltas = self.game.settlement_deltas(
+            state, finished.result, roster, 40
+        )
+        self.assertEqual(
+            deltas, {"player-0": 20, "player-1": 0, "player-2": -20}
+        )
+        self.assertEqual(sum(deltas.values()), 0)
+        self.assertTrue(all(delta >= -40 for delta in deltas.values()))
+
     def test_board_only_best_hand_splits_pot_despite_different_holes(self):
         roster, state = self.new_state(3)
         self.rig_cards(
@@ -423,11 +544,72 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
         self.assertEqual(refreshed["board_state"], current["board_state"])
         self.assertEqual(refreshed["private_state"], current["private_state"])
 
-        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码结算"):
-            framework.create_room(
-                "texas_holdem", "human_first", "human", "stake-human", "stake-ai",
-                stake=1,
-            )
+    def test_real_buy_in_room_is_accepted_and_attached_only_at_terminal(self):
+        room = framework.create_room(
+            "texas_holdem", "human_first", "human", "stake-human", "stake-ai",
+            stake=40,
+        )
+        self.assertEqual(room["status"], "pending")
+        self.assertIsNone(room["result"])
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "stake-ai", "accept"
+        )
+        self.assertEqual(room["status"], "playing")
+        self.assertIsNone(room["result"])
+        conn = database.connect()
+        try:
+            before_terminal = conn.execute(
+                "SELECT COUNT(*) FROM chip_ledger WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(before_terminal, 0)
+        room = framework.play_move(
+            room["room_id"], "human", "stake-human", {"action": "fold"}
+        )
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(
+            room["result"]["final_internal_stacks_by_player"],
+            {"stake-human": 195, "stake-ai": 205},
+        )
+        self.assertEqual(
+            room["result"]["settlement_deltas"],
+            {"stake-human": -1, "stake-ai": 1},
+        )
+        self.assertTrue(room["result"]["settlement_zero_sum"])
+        conn = database.connect()
+        try:
+            batches = conn.execute(
+                "SELECT COUNT(*) FROM chip_settlement_batches "
+                "WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+            terminal_ledger = conn.execute(
+                "SELECT COUNT(*) FROM chip_ledger WHERE reference_id = ?",
+                (room["room_id"],),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(batches, 1)
+        self.assertEqual(terminal_ledger, 2)
+
+    def test_real_buy_in_resignation_settles_committed_internal_pot(self):
+        room = framework.create_room(
+            "texas_holdem", "human_first", "human", "resign-human", "resign-ai",
+            stake=40,
+        )
+        framework.respond_to_invitation(
+            room["room_id"], "ai", "resign-ai", "accept"
+        )
+        room = framework.resign(room["room_id"], "human", "resign-human")
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["winner_player_id"], "resign-ai")
+        self.assertEqual(
+            room["result"]["settlement_deltas"],
+            {"resign-human": -1, "resign-ai": 1},
+        )
+        self.assertEqual(sum(room["result"]["settlement_deltas"].values()), 0)
 
     def test_framework_fold_ends_single_hand_and_keeps_holes_out_of_public_result(self):
         room = framework.create_room(
