@@ -1,0 +1,303 @@
+.board.junqi {
+  --junqi-paper: #e8d8b5;
+  --junqi-ink: #40372e;
+  width: min(94vw, 410px);
+  max-width: 100%;
+  aspect-ratio: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--junqi-ink);
+  background: #655647;
+  border: 4px solid #3e352e;
+  border-radius: 15px;
+  box-shadow: 0 8px 0 rgba(61, 50, 43, .16), 0 18px 32px rgba(55, 45, 39, .18);
+  font-family: system-ui, sans-serif;
+  touch-action: manipulation;
+}
+
+.junqi-player-strip {
+  min-width: 0;
+  min-height: 40px;
+  padding: 4px 7px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: #f9f5ed;
+  background: #4b443c;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 8px;
+}
+.junqi-player-strip.current {
+  box-shadow: inset 0 0 0 2px #f3cf6e;
+}
+.junqi-player-strip.color-b { border-left: 5px solid #5ca8ca; }
+.junqi-player-strip.color-r { border-left: 5px solid #cf665e; }
+.junqi-player-avatar {
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #eee7d8;
+  border: 2px solid rgba(255, 255, 255, .76);
+  border-radius: 50%;
+  color: #443b34;
+  font-size: 13px;
+}
+.junqi-player-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.junqi-player-copy { min-width: 0; display: grid; gap: 1px; }
+.junqi-player-title { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.junqi-player-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.junqi-camp-chip {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+.color-b .junqi-camp-chip { color: #8bd4f0; }
+.color-r .junqi-camp-chip { color: #f39a91; }
+.junqi-player-status { color: #d7ccbd; font-size: 9px; }
+
+.junqi-field {
+  width: 100%;
+  aspect-ratio: 5 / 10.35;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(12, minmax(0, 1fr));
+  gap: 0;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, transparent 49%, rgba(87, 72, 55, .5) 49% 51%, transparent 51%) 0 0 / 20% 100%,
+    linear-gradient(0deg, transparent 49%, rgba(87, 72, 55, .42) 49% 51%, transparent 51%) 0 0 / 100% calc(100% / 11),
+    repeating-linear-gradient(45deg, rgba(101, 82, 60, .035) 0 2px, transparent 2px 8px),
+    var(--junqi-paper);
+  border: 3px solid #3e352e;
+  border-radius: 9px;
+}
+.junqi-field::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 47.7% 0;
+  height: 4.6%;
+  background: linear-gradient(#9bc4ca, #c8e0dd 48%, #92bbc1 52%, #7da9ae);
+  border-block: 1px solid rgba(48, 87, 91, .48);
+}
+
+.junqi-square {
+  min-width: 0;
+  min-height: 0;
+  padding: 2px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  color: var(--junqi-ink);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.junqi-square:disabled { opacity: 1; cursor: default; }
+.junqi-square:not(:disabled) { cursor: pointer; }
+.junqi-square:not(:disabled):hover,
+.junqi-square:not(:disabled):focus-visible {
+  z-index: 8;
+  background: rgba(255, 246, 211, .45);
+  box-shadow: inset 0 0 0 2px rgba(72, 60, 48, .68);
+}
+.junqi-square.is-rail::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 11% 6%;
+  border: 2px dashed rgba(58, 64, 57, .5);
+  border-radius: 5px;
+}
+.junqi-square.is-bunker::after,
+.junqi-square.is-headquarters::after {
+  content: "";
+  width: 68%;
+  aspect-ratio: 1;
+  position: absolute;
+  z-index: -1;
+  border: 2px solid rgba(91, 72, 55, .6);
+}
+.junqi-square.is-bunker::after {
+  transform: rotate(45deg);
+  background: rgba(119, 148, 106, .16);
+  border-radius: 20%;
+}
+.junqi-square.is-headquarters::after {
+  background: rgba(150, 101, 76, .13);
+  border-radius: 3px;
+}
+.junqi-terrain-label {
+  position: relative;
+  z-index: 1;
+  color: rgba(65, 58, 48, .55);
+  font-size: clamp(10px, 3.3vw, 15px);
+  font-weight: 900;
+  pointer-events: none;
+}
+.junqi-coordinate {
+  position: absolute;
+  z-index: 1;
+  left: 3px;
+  top: 1px;
+  color: rgba(59, 49, 42, .5);
+  font-size: clamp(6px, 1.8vw, 8px);
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.junqi-piece {
+  width: min(84%, 58px);
+  height: 72%;
+  min-height: 24px;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border: 2px solid #443a31;
+  border-radius: 5px;
+  box-shadow: 0 2px 0 rgba(50, 40, 33, .42), inset 0 0 0 1px rgba(255, 255, 255, .34);
+  pointer-events: none;
+}
+.junqi-piece.color-b {
+  color: #174d6a;
+  background: linear-gradient(155deg, #e9f4f5, #a8d1df);
+  border-color: #275f79;
+}
+.junqi-piece.color-r {
+  color: #7b2825;
+  background: linear-gradient(155deg, #f8e8db, #dfa49b);
+  border-color: #823d38;
+}
+.junqi-piece.is-hidden {
+  color: rgba(255, 255, 255, .83);
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 3px, transparent 3px 7px),
+    #584e44;
+  border-color: #352f2a;
+  box-shadow: 0 2px 0 rgba(34, 29, 25, .5), inset 0 0 0 2px rgba(239, 222, 190, .18);
+}
+.junqi-piece-face {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-size: clamp(9px, 3.1vw, 14px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+.junqi-piece.is-hidden .junqi-piece-face {
+  font-family: serif;
+  font-size: clamp(13px, 4.1vw, 19px);
+  letter-spacing: 0;
+}
+.junqi-square.selected-origin .junqi-piece {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 0 rgba(50, 40, 33, .42), 0 0 0 3px #f5d46e;
+}
+.junqi-square.selected-target { background: rgba(244, 210, 96, .3); }
+.junqi-square.last-action-origin { background: rgba(92, 117, 129, .12); }
+.junqi-square.last-action-target { box-shadow: inset 0 0 0 3px rgba(194, 113, 73, .52); }
+.junqi-legal-marker {
+  width: 12px;
+  height: 12px;
+  position: absolute;
+  z-index: 6;
+  right: 4px;
+  bottom: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.junqi-legal-marker.move {
+  background: #287b77;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.82);
+}
+.junqi-legal-marker.capture {
+  width: 68%;
+  height: 68%;
+  right: 16%;
+  bottom: 16%;
+  background: transparent;
+  border: 3px solid #a5332e;
+}
+
+.junqi-controls { width: min(410px, 100%); margin: 0 auto; display: grid; gap: 7px; }
+.junqi-setup-hint,
+.junqi-battle-result {
+  margin: 0;
+  padding: 7px 9px;
+  color: #4b4037;
+  background: #f6eddd;
+  border: 2px solid #766553;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.junqi-setup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.junqi-control { min-width: 0; min-height: 40px; padding: 5px 7px; font-size: 10px; }
+.junqi-control.primary { grid-column: 1 / -1; }
+.junqi-control.selected { box-shadow: inset 0 0 0 3px #f5d46e; }
+.junqi-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+.junqi-legend span {
+  padding: 3px 7px;
+  color: #4b4037;
+  background: #efe5d1;
+  border: 1px solid #8b7862;
+  border-radius: 999px;
+  font-family: system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+}
+.junqi-legend .rail { border-style: dashed; }
+
+@media (max-width: 599px) {
+  .board.junqi {
+    width: min(96vw, 360px);
+    padding: 4px;
+    gap: 4px;
+    border-width: 3px;
+    border-radius: 11px;
+  }
+  .junqi-player-strip { min-height: 36px; padding: 3px 6px; }
+  .junqi-player-avatar { width: 26px; height: 26px; }
+  .junqi-field { border-width: 2px; }
+  .junqi-piece { width: 86%; height: 72%; min-height: 23px; border-width: 1.5px; }
+  .junqi-legal-marker.capture { border-width: 2px; }
+  .junqi-setup-actions { gap: 4px; }
+}
+
+@media (max-width: 340px) {
+  .board.junqi { width: min(97vw, 310px); }
+  .junqi-player-name { font-size: 10px; }
+  .junqi-player-status, .junqi-camp-chip { font-size: 8px; }
+  .junqi-piece-face { font-size: 9px; }
+  .junqi-coordinate { font-size: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .junqi-piece { transition: none; }
+}
