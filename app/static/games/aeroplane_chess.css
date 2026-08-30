@@ -206,7 +206,7 @@
 .aeroplane-home-runway {
   fill: none;
   stroke-width: 7.2;
-  stroke-linecap: round;
+  stroke-linecap: butt;
   opacity: .2;
 }
 

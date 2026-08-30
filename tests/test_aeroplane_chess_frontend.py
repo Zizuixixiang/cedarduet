@@ -57,7 +57,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.5";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.6";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -167,6 +167,11 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("drop-shadow(0 0 8px", STYLES)
         self.assertNotIn(".aeroplane-token.arrived-home", STYLES)
         self.assertIn(".aeroplane-activity.npc-feedback-active {", STYLES)
+        home_runway = STYLES[
+            STYLES.index(".aeroplane-home-runway {"):
+            STYLES.index(".aeroplane-home-runway.color-red")
+        ]
+        self.assertIn("stroke-linecap: butt;", home_runway)
         for viewport in (320, 360, 375, 390, 430, 599):
             board_width = min(viewport * 0.96, 680)
             cell_width = board_width * 0.052
@@ -185,6 +190,12 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             self.assertGreaterEqual(airport_outer_slot_center, 22)
             self.assertGreater(track_edge_center, 22)
             self.assertGreater(track_side / board_width, .8)
+        for viewport in (320, 360, 375, 390, 430):
+            board_width = viewport * 0.96
+            final_cell_to_center_shape = board_width * 0.015
+            final_cell_to_home_core = board_width * 0.053
+            self.assertGreaterEqual(final_cell_to_center_shape, 4.5)
+            self.assertGreaterEqual(final_cell_to_home_core, 16)
 
 
 @unittest.skipUnless(NODE, "node is required for renderer DOM tests")
@@ -375,6 +386,48 @@ function makeContext(viewerId, canMove = true) {
     Number(redFirstHome.attributes.x) + Number(redFirstHome.attributes.width) / 2,
     Number(redFirstHome.attributes.y) + Number(redFirstHome.attributes.height) / 2,
   ], [50, 85.5]);
+  const laneCenter = (color, index) => {
+    const cell = nodes.find((node) => (
+      hasClass(node, "aeroplane-home-lane")
+        && hasClass(node, `color-${color}`)
+        && node.attributes["data-lane-index"] === String(index)
+    ));
+    return [
+      Number(cell.attributes.x) + Number(cell.attributes.width) / 2,
+      Number(cell.attributes.y) + Number(cell.attributes.height) / 2,
+    ];
+  };
+  const finalLaneCenters = {
+    red: laneCenter("red", 6),
+    yellow: laneCenter("yellow", 6),
+    blue: laneCenter("blue", 6),
+    green: laneCenter("green", 6),
+  };
+  assert.deepEqual(finalLaneCenters, {
+    red: [50, 60],
+    yellow: [40, 50],
+    blue: [50, 40],
+    green: [60, 50],
+  });
+  assert.deepEqual(
+    Object.values(finalLaneCenters).map(([x, y]) => Math.hypot(x - 50, y - 50)),
+    [10, 10, 10, 10]
+  );
+  for (const color of ["red", "yellow", "blue", "green"]) {
+    const radialDistances = Array.from({length: 6}, (_, index) => {
+      const [x, y] = laneCenter(color, index + 1);
+      return Math.hypot(x - 50, y - 50);
+    });
+    const gaps = radialDistances.slice(0, -1).map(
+      (distance, index) => Number((distance - radialDistances[index + 1]).toFixed(1))
+    );
+    assert.deepEqual(gaps, [5.1, 5.1, 5.1, 5.1, 5.1]);
+  }
+  const finalCellHalfSize = 2.5;
+  const centerShapeRadius = 6;
+  const homeCoreRadius = 2.2;
+  assert.equal(10 - finalCellHalfSize - centerShapeRadius, 1.5);
+  assert.equal(10 - finalCellHalfSize - homeCoreRadius, 5.3);
   const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token"));
   assert.equal(tokens.length, 8);
   assert.equal(tokens.every((node) => node.tag === "button"), true);
@@ -406,7 +459,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.5");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.6");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
