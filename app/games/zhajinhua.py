@@ -54,8 +54,9 @@ class Zhajinhua(GamePlugin):
     allowed_player_counts = (2, 3, 4, 5, 6)
     recommended_players = 4
     supports_npcs = True
-    supports_stakes = False
-    supports_multiplayer_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
+    uses_custom_stake_settlement = True
     mcp_immediate_public_events = True
     rules_text = (
         "【固定牌型版本】\n"
@@ -79,10 +80,14 @@ class Zhajinhua(GamePlugin):
         "含底注；无法承担任何付费行动时仍可弃牌。每轮指所有仍在局玩家各完成一次跟、加、弃或比；"
         "看牌不计轮次。完成第 20 轮仍有多人时强制摊牌，仅此时公开仍在局玩家的三张牌；"
         "最高者获胜，最高牌完全相同则记为并列平局。\n\n"
-        "【虚拟筹码】\n"
-        "底池始终等于所有玩家本局虚拟投入之和，且每人投入不超过 64。"
-        "这些单位只决定本局可选行为和结果展示，不读取、不锁定、不增减双弈钱包；"
-        "本游戏第一版只支持 0 筹码娱乐房。"
+        "【虚拟下注与真实筹码】\n"
+        "底池始终等于所有玩家本局虚拟投入之和，且每人投入不超过 64。房间 stake "
+        "是每个虚拟下注单位对应的真实娱乐筹码：底注为 1，因此底注等于 stake；"
+        "单人最大真实亏损为 64×stake。牌局进行中只维护虚拟投入与虚拟底池，不读取、"
+        "锁定或移动钱包筹码，也不存在钱包底池。唯一赢家产生后，每名负者的终局差额为"
+        "－虚拟投入×stake，赢家获得其他所有人的同额总和；完成第 20 轮后的最高牌精确"
+        "并列则退还全部虚拟下注，所有钱包差额均为 0。钱包只在终局通过零和结算一次性"
+        "变动；0 stake 娱乐房始终不变动钱包。"
     )
     move_format = (
         '看牌：{"move":{"action":"peek"},"revision":当前版本}；'
@@ -341,13 +346,23 @@ class Zhajinhua(GamePlugin):
         cls, state: dict[str, Any], winner_player_id: str, reason: str
     ) -> dict[str, Any]:
         result_text = (
-            f"仅剩一名未弃牌玩家；虚拟底池 {state['pot']} 单位归属赢家（不影响钱包）。"
+            f"仅剩一名未弃牌玩家；虚拟底池 {state['pot']} 单位归属赢家。若房间 stake "
+            "大于 0，终局按各席虚拟投入×stake 一次性零和结算；牌局中没有钱包底池。"
         )
         result = {
             "winner_player_id": winner_player_id,
             "draw": False,
             "finish_reason": reason,
             "virtual_pot": int(state["pot"]),
+            "virtual_contributions_by_player": {
+                player_id: int(cls._player_state(state, player_id)["contribution"])
+                for player_id in state["participant_order"]
+            },
+            "stake_settlement": {
+                "virtual_unit_value": "room_stake",
+                "timing": "terminal_only",
+                "wallet_pot_during_hand": False,
+            },
             "result_text": result_text,
         }
         state["winner_player_id"] = winner_player_id
@@ -387,7 +402,10 @@ class Zhajinhua(GamePlugin):
                 "draw": False,
                 "finish_reason": "round_cap_showdown",
                 "virtual_pot": int(state["pot"]),
-                "result_text": "完成第 20 轮，强制摊牌决出唯一最高牌。",
+                "result_text": (
+                    "完成第 20 轮，强制摊牌决出唯一最高牌；若房间 stake 大于 0，"
+                    "终局按各席虚拟投入×stake 一次性零和结算。"
+                ),
             }
             state["winner_player_id"] = winners[0]
         else:
@@ -396,9 +414,21 @@ class Zhajinhua(GamePlugin):
                 "tied_player_ids": winners,
                 "finish_reason": "round_cap_tie",
                 "virtual_pot": int(state["pot"]),
-                "result_text": "完成第 20 轮，最高牌比较点数完全相同，并列平局。",
+                "result_text": (
+                    "完成第 20 轮，最高牌比较点数完全相同，并列平局；全部虚拟下注"
+                    "视为退还，所有钱包结算差额均为 0。"
+                ),
             }
             state["winner_player_id"] = None
+        result["virtual_contributions_by_player"] = {
+            player_id: int(cls._player_state(state, player_id)["contribution"])
+            for player_id in state["participant_order"]
+        }
+        result["stake_settlement"] = {
+            "virtual_unit_value": "room_stake",
+            "timing": "terminal_only",
+            "wallet_pot_during_hand": False,
+        }
         state["finish_reason"] = str(result["finish_reason"])
         state["game_result"] = deepcopy(result)
         state["turn_player_id"] = None
@@ -566,6 +596,50 @@ class Zhajinhua(GamePlugin):
         result = state.get("game_result")
         return deepcopy(result) if isinstance(result, dict) else None
 
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        if isinstance(stake, bool) or not isinstance(stake, int) or stake <= 0:
+            raise ValueError("炸金花房间 stake 必须是正整数")
+        player_ids = [str(item["player_id"]) for item in participants]
+        if len(player_ids) != len(set(player_ids)) or not 2 <= len(player_ids) <= 6:
+            raise ValueError("炸金花结算参与者必须是 2–6 个唯一席位")
+        self._assert_virtual_conservation(state)
+        players = state.get("player_state_by_player", {})
+        if set(players) != set(player_ids):
+            raise ValueError("炸金花虚拟投入必须完整覆盖终局参与者")
+
+        if result.get("draw"):
+            if result.get("finish_reason") != "round_cap_tie":
+                raise ValueError("炸金花仅允许轮次封顶的精确并列作为钱包平局")
+            return {player_id: 0 for player_id in player_ids}
+
+        winner = result.get("winner_player_id")
+        if winner not in player_ids:
+            raise ValueError("炸金花终局必须有一名有效唯一赢家")
+        contributions = {
+            player_id: int(self._player_state(state, player_id)["contribution"])
+            for player_id in player_ids
+        }
+        deltas = {
+            player_id: -contributions[player_id] * stake
+            for player_id in player_ids
+            if player_id != winner
+        }
+        deltas[str(winner)] = (
+            int(state["pot"]) - contributions[str(winner)]
+        ) * stake
+        ordered = {player_id: int(deltas[player_id]) for player_id in player_ids}
+        if sum(ordered.values()) != 0:
+            raise ValueError("炸金花终局真实筹码结算不守恒")
+        if any(delta < -VIRTUAL_BUDGET * stake for delta in ordered.values()):
+            raise ValueError("炸金花终局真实亏损超过 64×stake")
+        return ordered
+
     def check_winner(self, state: dict[str, Any]) -> str | None:
         result = state.get("game_result")
         return "draw" if isinstance(result, dict) and result.get("draw") else None
@@ -654,6 +728,8 @@ class Zhajinhua(GamePlugin):
             "固定炸金花：豹子>同花顺>金花>顺子>对子>散牌；A23 最小顺，AKQ 最大顺；"
             "不比花色、无 235 特权，完全同点数时主动比牌方出局。未看牌付闷注档，"
             "已看牌付双倍；虚拟投入每人封顶 64、闷注最高 8、20 轮强制摊牌。"
+            "房间 stake 等于每个虚拟单位的真实价值，最大亏损 64×stake；仅在终局"
+            "一次性零和结算，轮次封顶的最高牌精确并列则全部退款。"
             "不要自行计算下注档位或目标，只能原样选择 authoritative legal_actions。"
         )
 

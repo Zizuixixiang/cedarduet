@@ -83,5 +83,6 @@ def game_catalog() -> list[dict]:
             "uses_local_npc_strategy": plugin.uses_local_npc_strategy,
             "supports_stakes": plugin.supports_stakes,
             "supports_multiplayer_stakes": plugin.supports_multiplayer_stakes,
+            "uses_custom_stake_settlement": plugin.uses_custom_stake_settlement,
         })
     return catalog

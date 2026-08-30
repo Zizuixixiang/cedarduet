@@ -48,7 +48,7 @@ HAND_LABELS = {
 
 
 class TexasHoldem(GamePlugin):
-    """One production-style, wallet-less no-limit Texas Hold'em hand."""
+    """One production-style no-limit Texas Hold'em hand."""
 
     game_type = "texas_holdem"
     display_name = "德州扑克"
@@ -59,15 +59,17 @@ class TexasHoldem(GamePlugin):
     recommended_players = 4
     supports_npcs = True
     uses_local_npc_strategy = True
-    supports_stakes = False
-    supports_multiplayer_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
+    uses_custom_stake_settlement = True
     mcp_immediate_public_events = True
     rules_text = (
         "【单手牌与内部筹码】\n"
         "2–6 人，只进行一手 No-Limit Texas Hold'em。每席固定 200 内部筹码，"
-        "小盲 5、大盲 10、无 ante；牌局结算后房间立即结束。内部筹码只在本房间"
-        "记账，底池与席位筹码始终守恒，不读取、不锁定、不增减双弈钱包，因此只"
-        "允许 0 筹码娱乐房。\n\n"
+        "小盲 5、大盲 10、无 ante；牌局结算后房间立即结束。这 200 枚是归一化的"
+        "内部牌局筹码；房间 stake 是每名参与者投入真实娱乐筹码池的完整买入额，"
+        "不是每枚内部筹码的单价，因此每席最大真实亏损仅为 stake。牌局进行中只维护"
+        "内部栈与内部底池，不读取、锁定或移动钱包筹码，也不存在钱包底池。\n\n"
         "【按钮、盲注与行动顺序】\n"
         "多人桌按钮左侧依次为小盲、大盲，preflop 从大盲左侧开始；flop、turn、"
         "river 均从按钮左侧首个仍可行动席位开始。Heads-up 时按钮同时是小盲并"
@@ -83,7 +85,13 @@ class TexasHoldem(GamePlugin):
         "弃牌只剩一人时立即结算且不公开任何底牌。多人 all-in 按总投入自动分 main/"
         "side pots，弃牌者无获奖资格；平分底池，无法整除的 odd chip 从按钮左侧首位"
         "符合资格的赢家开始分配。摊牌比较每人七张牌中的最佳五张；A 可作顺子低端。"
-        "摊牌仅公开仍未弃牌且参与裁判的底牌，folded 手牌永不公开。"
+        "摊牌仅公开仍未弃牌且参与裁判的底牌，folded 手牌永不公开。\n\n"
+        "【真实买入终局结算】\n"
+        "引擎派奖后，各席最终内部栈总和必须为人数×200；真实总买入池人数×stake 按"
+        "最终栈持有比例分配，即理想实收为 final_stack×stake/200。整数筹码采用确定性"
+        "最大余数法分配，余数并列时按参与者座位顺序；因此平分、多赢家、边池和全下"
+        "都以最终引擎栈归属为准，不能因 result.draw 而退款。钱包只在终局通过零和"
+        "settlement_deltas 一次性变动。"
     )
     move_format = (
         "只能依据 private_state.legal_actions 行动。check/fold 原样提交；call/all_in "
@@ -577,11 +585,27 @@ class TexasHoldem(GamePlugin):
             "total_pot": total_pot,
             "contributions_by_player": contributions,
             "payout_by_player": prize_by_player,
+            "final_internal_stacks_by_player": {
+                str(player.uuid): int(player.stack)
+                for player in engine["table"].seats.players
+            },
+            "stake_settlement": {
+                "real_buy_in_per_player": "room_stake",
+                "ideal_payout_formula": "final_internal_stack*room_stake/200",
+                "rounding": "largest_remainder",
+                "remainder_tie_break": "participant_seat_order",
+                "timing": "terminal_only",
+                "wallet_pot_during_hand": False,
+            },
             "pots": deepcopy(round_result["pots"]),
             "result_text": (
-                f"摊牌结算 {total_pot} 内部筹码。"
+                f"摊牌结算 {total_pot} 内部筹码；终局按最终内部栈比例分配真实总买入池，"
+                "房间 stake 是每席完整买入（单席最多亏 stake，并非内部筹码单价）；"
+                "以座位顺序确定最大余数取整，钱包仅在此时一次性零和变动。"
                 if finish_reason == "showdown"
-                else f"其余玩家均弃牌，未公开底牌；结算 {total_pot} 内部筹码。"
+                else f"其余玩家均弃牌，未公开底牌；结算 {total_pot} 内部筹码。终局按"
+                "最终内部栈比例分配真实总买入池；stake 是每席完整买入且单席最多亏"
+                " stake，钱包仅在此时一次性零和变动。"
             ),
         })
         state["game_result"] = deepcopy(result)
@@ -643,6 +667,127 @@ class TexasHoldem(GamePlugin):
         del participants
         result = state.get("game_result")
         return deepcopy(result) if isinstance(result, dict) else None
+
+    @staticmethod
+    def _participant_ids_in_seat_order(
+        participants: list[dict[str, Any]],
+    ) -> list[str]:
+        indexed = list(enumerate(participants))
+
+        def seat_key(item: tuple[int, dict[str, Any]]) -> tuple[int, int]:
+            index, participant = item
+            seat = participant.get("seat_index")
+            return (
+                seat
+                if isinstance(seat, int) and not isinstance(seat, bool)
+                else index,
+                index,
+            )
+
+        return [
+            str(participant["player_id"])
+            for _index, participant in sorted(indexed, key=seat_key)
+        ]
+
+    @classmethod
+    def _apportion_real_payouts(
+        cls,
+        final_stacks_by_player: dict[str, int],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        if isinstance(stake, bool) or not isinstance(stake, int) or stake <= 0:
+            raise ValueError("德州扑克房间 stake 必须是正整数买入额")
+        player_ids = cls._participant_ids_in_seat_order(participants)
+        if len(player_ids) != len(set(player_ids)) or not 2 <= len(player_ids) <= 6:
+            raise ValueError("德州扑克结算参与者必须是 2–6 个唯一席位")
+        if set(final_stacks_by_player) != set(player_ids):
+            raise ValueError("德州扑克终局内部栈必须完整覆盖所有参与者")
+        if any(
+            isinstance(stack, bool) or not isinstance(stack, int) or stack < 0
+            for stack in final_stacks_by_player.values()
+        ):
+            raise ValueError("德州扑克终局内部栈必须是非负整数")
+        expected_internal_total = len(player_ids) * INITIAL_STACK
+        if sum(final_stacks_by_player.values()) != expected_internal_total:
+            raise ValueError("德州扑克终局内部栈总和必须等于人数×200")
+
+        payouts: dict[str, int] = {}
+        remainders: dict[str, int] = {}
+        for player_id in player_ids:
+            payout, remainder = divmod(
+                final_stacks_by_player[player_id] * stake,
+                INITIAL_STACK,
+            )
+            payouts[player_id] = payout
+            remainders[player_id] = remainder
+        real_pool = len(player_ids) * stake
+        remaining = real_pool - sum(payouts.values())
+        if not 0 <= remaining < len(player_ids):
+            raise ValueError("德州扑克真实买入池取整余数无效")
+        seat_position = {
+            player_id: index for index, player_id in enumerate(player_ids)
+        }
+        ranked = sorted(
+            player_ids,
+            key=lambda player_id: (
+                -remainders[player_id], seat_position[player_id]
+            ),
+        )
+        for player_id in ranked[:remaining]:
+            payouts[player_id] += 1
+        if sum(payouts.values()) != real_pool:
+            raise ValueError("德州扑克真实买入池分配不守恒")
+        return {player_id: payouts[player_id] for player_id in player_ids}
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        engine = self._deserialize_engine(state)
+        final_stacks = {
+            str(player.uuid): player.stack
+            for player in engine["table"].seats.players
+        }
+        expected_internal_total = len(participants) * INITIAL_STACK
+        if sum(final_stacks.values()) != expected_internal_total:
+            contributions = {
+                str(player.uuid): player.pay_info.amount
+                for player in engine["table"].seats.players
+            }
+            if (
+                any(
+                    isinstance(amount, bool) or not isinstance(amount, int)
+                    or amount < 0
+                    for amount in contributions.values()
+                )
+                or sum(final_stacks.values()) + sum(contributions.values())
+                != expected_internal_total
+            ):
+                raise ValueError("德州扑克终局前内部栈与底池不守恒")
+            winner = result.get("winner_player_id")
+            if result.get("draw") or winner not in final_stacks:
+                raise ValueError("未完成引擎派奖的德州扑克终局必须有唯一赢家")
+            # Framework-level resignation/leave can end a hand without asking
+            # PyPokerEngine to apply one final fold.  Its exact engine-equivalent
+            # payout is the whole committed pot to the sole remaining player;
+            # every seat retains its uncommitted internal stack.
+            final_stacks[str(winner)] += sum(contributions.values())
+        payouts = self._apportion_real_payouts(
+            final_stacks, participants, stake
+        )
+        deltas = {
+            player_id: payout - stake
+            for player_id, payout in payouts.items()
+        }
+        if sum(deltas.values()) != 0:
+            raise ValueError("德州扑克终局真实筹码差额不守恒")
+        if any(delta < -stake for delta in deltas.values()):
+            raise ValueError("德州扑克单席真实亏损超过 stake 买入额")
+        return deltas
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         result = state.get("game_result")
@@ -785,7 +930,9 @@ class TexasHoldem(GamePlugin):
     ) -> str:
         del state, actor, participants
         return (
-            "单手牌 NLHE，200 内部筹码，盲注 5/10。不要自行推导下注边界；"
+            "单手牌 NLHE，200 内部筹码，盲注 5/10。房间 stake 是每席完整真实买入，"
+            "不是内部筹码单价，最大亏损为 stake；仅在终局按最终内部栈比例和座位顺序"
+            "最大余数取整做一次性零和结算。不要自行推导下注边界；"
             "只能原样选择 authoritative legal_actions 中的对象。"
         )
 

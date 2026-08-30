@@ -234,7 +234,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(games["texas_holdem"]["supports_npcs"])
         self.assertTrue(games["texas_holdem"]["uses_local_npc_strategy"])
-        self.assertFalse(games["texas_holdem"]["supports_stakes"])
+        self.assertTrue(games["texas_holdem"]["supports_stakes"])
+        self.assertTrue(games["texas_holdem"]["supports_multiplayer_stakes"])
+        self.assertTrue(games["texas_holdem"]["uses_custom_stake_settlement"])
         self.assertEqual(
             games["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4]
         )
@@ -268,7 +270,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             games["zhajinhua"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
         self.assertTrue(games["zhajinhua"]["supports_npcs"])
-        self.assertFalse(games["zhajinhua"]["supports_stakes"])
+        self.assertTrue(games["zhajinhua"]["supports_stakes"])
+        self.assertTrue(games["zhajinhua"]["supports_multiplayer_stakes"])
+        self.assertTrue(games["zhajinhua"]["uses_custom_stake_settlement"])
         self.assertEqual(
             [item["room_id"] for item in payload["rooms"]],
             [active["room_id"], finished["room_id"]],

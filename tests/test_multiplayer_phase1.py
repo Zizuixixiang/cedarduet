@@ -335,7 +335,13 @@ class MultiplayerFrameworkTests(unittest.TestCase):
         )
         self.assertTrue(production["texas_holdem"]["supports_npcs"])
         self.assertTrue(production["texas_holdem"]["uses_local_npc_strategy"])
-        self.assertFalse(production["texas_holdem"]["supports_stakes"])
+        self.assertTrue(production["texas_holdem"]["supports_stakes"])
+        self.assertTrue(
+            production["texas_holdem"]["supports_multiplayer_stakes"]
+        )
+        self.assertTrue(
+            production["texas_holdem"]["uses_custom_stake_settlement"]
+        )
         self.assertEqual(production["aeroplane_chess"]["category"], "board")
         self.assertEqual(
             production["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4]
