@@ -1161,12 +1161,19 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .layout-multiplayer .room-participants {
   width: min(700px, 100%);
+  min-width: 0;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  justify-content: safe center;
   gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+  scrollbar-width: thin;
 }
-.layout-multiplayer .room-participant { width: 100%; }
+.layout-multiplayer .room-participant { flex: 0 0 116px; }
 .layout-multiplayer .board-zone {
   min-width: 0;
   display: grid;
@@ -3217,6 +3224,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .multiplayer-options {
     grid-template-columns: minmax(96px, .75fr) minmax(0, 1.25fr);
   }
+  .layout-multiplayer .room-participants {
+    padding: 2px 2px 7px;
+    justify-content: flex-start;
+  }
+  .layout-multiplayer .room-participant { flex-basis: 112px; }
   .room-participant {
     width: min(118px, 100%);
     min-height: 50px;

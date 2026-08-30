@@ -421,7 +421,10 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
         self.assertIn(".table-layout.layout-multiplayer", styles)
         self.assertIn(".layout-multiplayer .room-participants", styles)
-        self.assertIn("repeat(auto-fit, minmax(82px, 1fr))", styles)
+        self.assertIn("flex-wrap: nowrap", styles)
+        self.assertIn("overflow-x: auto", styles)
+        self.assertIn("overscroll-behavior-inline: contain", styles)
+        self.assertNotIn("repeat(auto-fit, minmax(82px, 1fr))", styles)
 
 
 class NpcApiContractTests(unittest.IsolatedAsyncioTestCase):

@@ -1525,7 +1525,11 @@ const elements = {{
 }};
 const $ = (id) => elements[id];
 const PARTICIPANT_PRESENTATIONS = new Set(["generic", "embedded", "board-edge"]);
-const registeredGameUIRenderer = () => null;
+const renderers = new Map([
+  ["liars_dice", {{participantPresentation: "generic"}}],
+  ["train_cards", {{participantPresentation: "generic"}}],
+]);
+const registeredGameUIRenderer = (gameType) => renderers.get(gameType) || null;
 {functions}
 const expected = new Map([
   [2, "layout-duel"],
@@ -1534,23 +1538,25 @@ const expected = new Map([
   [5, "layout-multiplayer"],
   [6, "layout-multiplayer"],
 ]);
-for (const [count, layout] of expected) {{
-  applyParticipantLayout({{
-    game_type: "dots_boxes",
-    participants: Array.from({{length: count}}, () => ({{}})),
-  }});
-  assert.equal(elements.tableLayout.className, `table-layout ${{layout}} count-${{count}}`);
-  assert.equal(elements.tableLayout.dataset.playerCount, String(count));
-  assert.equal(elements.battleStage.dataset.playerCount, String(count));
-  assert.equal(
-    elements.tableLayout.dataset.participantPresentation,
-    count === 2 ? "duel" : "generic"
-  );
-  assert.equal(elements.sharedSpeechSlot.classList.contains("hidden"), true);
-  assert.equal(
-    elements.battleStage.classList.contains("multiplayer-presentation"),
-    count > 2
-  );
+for (const gameType of ["liars_dice", "train_cards", "dots_boxes"]) {{
+  for (const [count, layout] of expected) {{
+    applyParticipantLayout({{
+      game_type: gameType,
+      participants: Array.from({{length: count}}, () => ({{}})),
+    }});
+    assert.equal(elements.tableLayout.className, `table-layout ${{layout}} count-${{count}}`);
+    assert.equal(elements.tableLayout.dataset.playerCount, String(count));
+    assert.equal(elements.battleStage.dataset.playerCount, String(count));
+    assert.equal(
+      elements.tableLayout.dataset.participantPresentation,
+      count === 2 ? "duel" : "generic"
+    );
+    assert.equal(elements.sharedSpeechSlot.classList.contains("hidden"), true);
+    assert.equal(
+      elements.battleStage.classList.contains("multiplayer-presentation"),
+      count > 2
+    );
+  }}
 }}
 """
         self.run_node(harness)
@@ -2375,18 +2381,24 @@ for (const count of [3, 4, 5, 6]) {{
 """
         self.run_node(harness)
 
-        self.assertIn(
-            ".layout-multiplayer .room-participants {\n"
-            "  width: min(700px, 100%);\n"
-            "  margin: 0 auto;\n"
-            "  display: grid;\n"
-            "  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));",
-            STYLES,
-        )
-        self.assertIn(
-            ".layout-multiplayer .room-participant { width: 100%; }",
-            STYLES,
-        )
+        roster = STYLES[
+            STYLES.index(".layout-multiplayer .room-participants {"):
+            STYLES.index(".layout-multiplayer .board-zone {")
+        ]
+        for declaration in (
+            "display: flex;",
+            "flex-wrap: nowrap;",
+            "overflow-x: auto;",
+            "overscroll-behavior-inline: contain;",
+            "touch-action: pan-x;",
+            "scrollbar-width: thin;",
+            "flex: 0 0 116px;",
+        ):
+            self.assertIn(declaration, roster)
+        self.assertNotIn("display: grid;", roster)
+        self.assertNotIn("grid-template-columns:", roster)
+        self.assertNotIn("flex-wrap: wrap;", roster)
+        self.assertNotIn("repeat(auto-fit, minmax(82px, 1fr))", STYLES)
         self.assertNotIn(".table-layout.count-3 .room-participant:nth-child", STYLES)
 
     def test_game_options_are_rebuilt_from_catalog_player_counts(self):
@@ -3159,11 +3171,15 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn('id="viewerParticipant"', HTML)
         self.assertIn(".table-layout.layout-multiplayer", STYLES)
         self.assertIn(".layout-multiplayer .room-participants", STYLES)
-        self.assertIn(
-            "grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));",
-            STYLES,
-        )
-        self.assertIn(".layout-multiplayer .room-participant { width: 100%; }", STYLES)
+        roster = STYLES[
+            STYLES.index(".layout-multiplayer .room-participants {"):
+            STYLES.index(".layout-multiplayer .board-zone {")
+        ]
+        self.assertIn("display: flex;", roster)
+        self.assertIn("flex-wrap: nowrap;", roster)
+        self.assertIn("overflow-x: auto;", roster)
+        self.assertIn(".layout-multiplayer .room-participant { flex: 0 0 116px; }", roster)
+        self.assertNotIn("grid-template-columns:", roster)
         board_zone = STYLES[
             STYLES.index(".layout-multiplayer .board-zone {"):
             STYLES.index(".layout-multiplayer .board-frame")
@@ -3171,6 +3187,15 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn("min-width: 0;", board_zone)
         self.assertIn("overflow: visible;", board_zone)
         mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
+        mobile_roster = mobile[
+            mobile.index(".layout-multiplayer .room-participants {"):
+            mobile.index("  .room-participant {")
+        ]
+        self.assertIn("padding: 2px 2px 7px;", mobile_roster)
+        self.assertIn("justify-content: flex-start;", mobile_roster)
+        self.assertIn("flex-basis: 112px;", mobile_roster)
+        self.assertNotIn("display: grid;", mobile_roster)
+        self.assertNotIn("flex-wrap: wrap;", mobile_roster)
         self.assertIn(".viewer-participant-row { padding: 0 2px; gap: 8px; }", mobile)
         viewer_slot = mobile[
             mobile.index(".viewer-participant-slot {"):
@@ -3192,8 +3217,9 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
         self.assertIn(".recent-chat-message {", mobile)
         for viewport in (320, 375):
             inner_width = viewport - 20 - 14
+            three_seat_row_width = 3 * 112 + 2 * 5
             self.assertGreaterEqual(inner_width, 286)
-            self.assertLessEqual(3 * 82 + 2 * 5, inner_width)
+            self.assertGreater(three_seat_row_width, inner_width)
 
     def test_recent_chat_is_bounded_while_two_player_speech_can_still_wrap(self):
         chat_area = STYLES[
