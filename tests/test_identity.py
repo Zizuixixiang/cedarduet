@@ -376,7 +376,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
         self.assertIn("/static/app.js?v=0.9.1", html)
-        self.assertIn("/static/styles.css?v=0.9.1", html)
+        self.assertIn("/static/styles.css?v=0.9.2", html)
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
             html.index("/static/app.js?v=0.9.1"),

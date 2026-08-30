@@ -2,9 +2,11 @@
   width: min(100%, 980px);
   max-width: 100%;
   min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   display: block;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -265,6 +267,7 @@
 .texas-action.action-fold { border-color: #85505a; background: #8e3442; box-shadow: 0 3px 0 #5c2029; }
 .texas-action.action-all_in,
 .texas-action.is-primary { border-color: #805d24; color: #34230e; background: #e1bd62; box-shadow: 0 3px 0 #9c7634; }
+.texas-action.is-selected { outline: 3px solid #e1bd62; outline-offset: 2px; }
 .texas-action:disabled { opacity: .48; box-shadow: none; }
 .texas-action:focus-visible { outline: 3px solid #e9bf51; outline-offset: 2px; }
 .texas-range-action {
@@ -281,6 +284,31 @@
 .texas-range-action input { width: 100%; min-width: 0; accent-color: #1b6b50; }
 .texas-range-action .texas-action { grid-row: 1 / span 2; grid-column: 2; min-width: 0; }
 .texas-range-value { color: #8a5c18; font-weight: 800; }
+.texas-confirmation {
+  width: min(100%, 430px);
+  margin-inline: auto;
+  padding: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  color: #4f443b;
+  background: #fffaf0;
+  border: 2px solid #d3b66f;
+  border-radius: 10px;
+  font: 700 11px/1.35 system-ui, sans-serif;
+}
+.texas-confirmation-copy { min-width: 0; }
+.texas-confirm-cancel,
+.texas-confirm-submit {
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid #72512c;
+  border-radius: 8px;
+  font-weight: 750;
+}
+.texas-confirm-cancel { color: #5a5055; background: #eee8ed; }
+.texas-confirm-submit { color: #fff; background: #8e3442; }
 
 @media (max-width: 620px) {
   .texas-table { min-height: 475px; border-width: 8px; }
@@ -296,6 +324,9 @@
   .texas-actions { align-items: stretch; }
   .texas-action { flex: 1 1 72px; min-width: 68px; }
   .texas-range-action { flex: 1 1 100%; min-width: 100%; }
+  .texas-confirmation { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 5px; }
+  .texas-confirm-cancel,
+  .texas-confirm-submit { min-height: 36px; padding-inline: 7px; font-size: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

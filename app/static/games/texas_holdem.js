@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-texas-holdem-styles";
-  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.0";
+  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.1";
   const SUIT_TEXT = {
     spades: "S",
     hearts: "H",
@@ -279,6 +279,35 @@
     const documentRef = context.controls.ownerDocument || context.document || window.document;
     ensureStylesheet(documentRef);
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
+    const uiState = context.uiState || {};
+    const riskyActions = new Set(["fold", "call", "all_in"]);
+    const pendingAction = legal.find(
+      (action) => riskyActions.has(action.action)
+        && action.action === uiState.texasPendingAction
+    ) || null;
+    if (uiState.texasPendingAction && !pendingAction) {
+      delete uiState.texasPendingAction;
+    }
+    const rerender = () => {
+      if (context.helpers && typeof context.helpers.rerender === "function") {
+        context.helpers.rerender();
+      }
+    };
+    const submitOnce = async (move, button) => {
+      if (uiState.texasSubmitting || !context.helpers.canMove()) return false;
+      uiState.texasSubmitting = true;
+      button.disabled = true;
+      let submitted = false;
+      try {
+        submitted = await context.helpers.submitMove(move);
+        return submitted;
+      } finally {
+        if (!submitted) {
+          uiState.texasSubmitting = false;
+          button.disabled = !context.helpers.canMove();
+        }
+      }
+    };
     const shell = element(documentRef, "section", "texas-controls");
     shell.setAttribute("aria-label", "德州扑克服务端合法行动");
     shell.appendChild(element(
@@ -307,13 +336,10 @@
         button.dataset.action = action.action;
         button.disabled = !context.canMove;
         button.addEventListener("click", async () => {
-          if (!context.helpers.canMove()) return;
-          button.disabled = true;
-          const submitted = await context.helpers.submitMove({
+          await submitOnce({
             action: action.action,
             amount: Number(input.value),
-          });
-          if (!submitted && context.helpers.canMove()) button.disabled = false;
+          }, button);
         });
         label.appendChild(value);
         group.append(label, input, button);
@@ -328,16 +354,59 @@
       );
       button.type = "button";
       button.dataset.action = action.action;
+      button.classList.toggle(
+        "is-selected",
+        Boolean(pendingAction && pendingAction.action === action.action)
+      );
+      if (riskyActions.has(action.action)) {
+        button.setAttribute(
+          "aria-pressed",
+          String(Boolean(pendingAction && pendingAction.action === action.action))
+        );
+      }
       button.disabled = !context.canMove;
       button.addEventListener("click", async () => {
-        if (!context.helpers.canMove()) return;
-        button.disabled = true;
-        const submitted = await context.helpers.submitMove({...action});
-        if (!submitted && context.helpers.canMove()) button.disabled = false;
+        if (uiState.texasSubmitting || !context.helpers.canMove()) return;
+        if (riskyActions.has(action.action)) {
+          uiState.texasPendingAction = action.action;
+          rerender();
+          return;
+        }
+        await submitOnce({...action}, button);
       });
       actions.appendChild(button);
     });
     shell.appendChild(actions);
+    if (pendingAction) {
+      const confirmation = element(documentRef, "div", "texas-confirmation");
+      confirmation.setAttribute("role", "group");
+      confirmation.setAttribute("aria-label", "确认德州扑克行动");
+      confirmation.appendChild(element(
+        documentRef,
+        "span",
+        "texas-confirmation-copy",
+        `已选择：${actionLabel(pendingAction)}`
+      ));
+      const cancel = element(documentRef, "button", "texas-confirm-cancel", "取消");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => {
+        if (uiState.texasSubmitting) return;
+        delete uiState.texasPendingAction;
+        rerender();
+      });
+      const confirm = element(
+        documentRef,
+        "button",
+        "texas-confirm-submit",
+        `确认${actionLabel(pendingAction)}`
+      );
+      confirm.type = "button";
+      confirm.addEventListener("click", async () => {
+        await submitOnce({...pendingAction}, confirm);
+      });
+      confirmation.append(cancel, confirm);
+      shell.appendChild(confirmation);
+    }
     context.controls.replaceChildren(shell);
     return true;
   }

@@ -1129,6 +1129,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   display: grid;
   gap: 14px;
 }
+.battle-stage.multiplayer-presentation {
+  gap: 10px;
+  overflow: visible;
+}
 .table-layout {
   width: 100%;
   min-width: 0;
@@ -1146,7 +1150,15 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 5px;
 }
 .layout-multiplayer .room-participant { width: 100%; }
-.layout-multiplayer .board-zone { min-width: 0; }
+.layout-multiplayer .board-zone {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  overflow: visible;
+}
+.layout-multiplayer .board-frame { overflow: visible; }
+.layout-multiplayer .game-controls,
+.layout-multiplayer .move-confirm { margin-top: 0; }
 .player-row {
   width: min(700px, 100%);
   min-height: 64px;
@@ -2475,6 +2487,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: #f9e1e7;
   box-shadow: inset 0 -3px 0 var(--pink-dark);
 }
+.yahtzee-scorecard thead th.viewer { outline: 2px solid var(--purple-dark); outline-offset: -2px; }
 .yahtzee-scorecard td.filled { color: var(--purple-darker); font-weight: 800; }
 .yahtzee-scorecard td.unused { color: #bbb3bf; background: rgba(230, 223, 240, .14); }
 .yahtzee-category-row.section-start th,
@@ -2492,8 +2505,32 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-weight: 800;
 }
 .yahtzee-score-button:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); }
+.yahtzee-score-button.selected { outline: 3px solid var(--purple-darker); outline-offset: 2px; }
 .yahtzee-score-button:focus-visible { outline: 3px solid var(--purple-dark); outline-offset: 2px; }
 .yahtzee-score-button:disabled { cursor: wait; opacity: .48; }
+.yahtzee-score-confirmation {
+  padding: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--purple-darker);
+  background: var(--purple-light);
+  border: 2px solid var(--purple);
+  font-size: 11px;
+  font-weight: 800;
+}
+.yahtzee-score-confirmation-copy { min-width: 0; }
+.yahtzee-score-cancel,
+.yahtzee-score-submit {
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 2px solid var(--purple-darker);
+  font-size: 10px;
+  font-weight: 800;
+}
+.yahtzee-score-cancel { color: var(--purple-darker); background: #fff; }
+.yahtzee-score-submit { color: #fff; background: var(--pink-dark); }
 .yahtzee-summary-row th,
 .yahtzee-summary-row td { background: rgba(230, 223, 240, .3); font-weight: 700; }
 .yahtzee-summary-upper_bonus th,
@@ -2517,8 +2554,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   width: min(700px, 100%);
   min-width: 0;
   margin: 0 auto;
+  padding-top: 8px;
   display: grid;
   gap: 6px;
+  border-top: 2px solid rgba(134, 120, 160, .25);
+  overflow: visible;
 }
 .recent-chat-feed {
   min-width: 0;
@@ -2568,7 +2608,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.multiplayer-presentation .game-compose { width: 100%; margin-top: 0; }
+.multiplayer-presentation .game-compose {
+  width: 100%;
+  min-width: 0;
+  margin-top: 0;
+}
 .chat-compose {
   width: min(700px, 100%);
   margin: 2px auto 0;
@@ -3192,6 +3236,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   .result-banner-copy { text-align: center; }
   .battle-stage { padding: 10px 7px 12px; gap: 8px; }
+  .battle-stage.multiplayer-presentation { gap: 7px; }
   .viewer-participant-row { padding: 0 2px; gap: 8px; }
   .viewer-participant-slot {
     width: min(180px, 62%);
@@ -3276,6 +3321,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .yahtzee-scratch-toggle { min-width: 0; padding: 5px; font-size: 10px; }
   .yahtzee-score-heading { display: grid; gap: 3px; }
   .yahtzee-joker-notice { padding: 6px 7px; font-size: 10px; }
+  .yahtzee-score-confirmation { gap: 5px; padding: 5px; }
+  .yahtzee-score-cancel,
+  .yahtzee-score-submit { min-height: 34px; padding-inline: 6px; }
   .yahtzee-scorecard { min-width: max(540px, calc(184px + var(--yahtzee-player-count) * 76px)); }
   .yahtzee-scorecard th,
   .yahtzee-scorecard td { height: 36px; padding: 4px 6px; }
@@ -3285,7 +3333,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .move-confirm span { flex: 1; align-self: center; font-size: 12px; }
   .move-confirm .pixel-btn { min-width: 88px; }
   .chat-compose { gap: 6px; }
-  .multiplayer-presentation .game-chat-area { gap: 5px; }
+  .multiplayer-presentation .game-chat-area { padding-top: 6px; gap: 5px; }
   .recent-chat-feed { padding: 5px 6px 6px; }
   .recent-chat-messages { max-height: 116px; gap: 2px; }
   .recent-chat-message {

@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.0";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.1.1";', SCRIPT)
         self.assertNotIn("mahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
@@ -46,7 +46,8 @@ class MahjongFrontendStructureTests(unittest.TestCase):
 
     def test_authoritative_actions_mobile_widths_and_no_page_overflow(self):
         self.assertIn("context.legalActions", SCRIPT)
-        self.assertIn('submitMove({action: "act", action_id: action.action_id})', SCRIPT)
+        self.assertIn('action_id: action.action_id', SCRIPT)
+        self.assertIn('context.board.classList.add("mahjong-board-layout")', SCRIPT)
         self.assertNotIn("MahjongFanCalculator", SCRIPT)
         self.assertNotIn("function canHu", SCRIPT)
         self.assertIn("overflow-x: auto;", STYLES)
@@ -140,6 +141,7 @@ function makeContext(){
     def test_viewer_is_bottom_real_winds_stay_fixed_and_only_own_faces_show(self):
         self.run_node(r'''
 const value=makeContext();renderer.renderBoard(value.context);const nodes=descendants(value.board);
+assert.ok(hasClass(value.board,"mahjong-board-layout"));
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-seat")).length,4);
 for(const position of ["bottom","right","top","left"]){assert.equal(nodes.filter(n=>hasClass(n,`position-${position}`)).length,1);}
 const bottom=nodes.find(n=>hasClass(n,"position-bottom"));assert.equal(bottom.dataset.playerId,"viewer");
@@ -151,15 +153,28 @@ assert.equal(nodes.filter(n=>hasClass(n,"mahjong-discards")).length,4);
 assert.equal(styles.size,1);
 ''')
 
-    def test_selection_and_controls_submit_only_authoritative_action_id(self):
+    def test_discard_is_explicit_and_kong_requires_cancelable_confirmation(self):
         self.run_node(r'''
 (async()=>{
  const value=makeContext();renderer.renderBoard(value.context);let nodes=descendants(value.board);
  const tile=nodes.find(n=>n.tag==="button"&&n.dataset.cardId==="h1");tile.listeners.click();
  assert.equal(value.uiState.mahjongSelectedTileId,"h1");assert.equal(value.rerenders(),1);
- renderer.renderControls(value.context);const controls=descendants(value.controls);
+ renderer.renderControls(value.context);let controls=descendants(value.controls);
  const discard=controls.find(n=>n.dataset.actionId==="discard:h1");await discard.listeners.click();
- const kong=controls.find(n=>n.dataset.actionId==="concealed:1");await kong.listeners.click();
+ let kong=controls.find(n=>n.dataset.actionId==="concealed:1");await kong.listeners.click();
+ assert.equal(value.submitted.length,1);
+ assert.equal(value.uiState.mahjongPendingActionId,"concealed:1");
+
+ renderer.renderControls(value.context);controls=descendants(value.controls);
+ const cancel=controls.find(n=>hasClass(n,"mahjong-confirm-cancel"));cancel.listeners.click();
+ assert.equal(value.submitted.length,1);
+ assert.equal(value.uiState.mahjongPendingActionId,undefined);
+
+ renderer.renderControls(value.context);controls=descendants(value.controls);
+ kong=controls.find(n=>n.dataset.actionId==="concealed:1");kong.listeners.click();
+ renderer.renderControls(value.context);controls=descendants(value.controls);
+ const confirm=controls.find(n=>hasClass(n,"mahjong-confirm-submit"));
+ await Promise.all([confirm.listeners.click(),confirm.listeners.click()]);
  assert.equal(JSON.stringify(value.submitted),JSON.stringify([
   {action:"act",action_id:"discard:h1"},{action:"act",action_id:"concealed:1"}
  ]));

@@ -1,6 +1,9 @@
 .board.aeroplane_chess {
   width: min(94vw, 680px);
   max-width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   display: block;
   padding: 0;
   overflow: visible;

@@ -24,7 +24,7 @@ class TrainCardsFrontendStructureTests(unittest.TestCase):
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/train_cards.css?v=1.0.0";', SCRIPT
+            'const STYLE_HREF = "/static/games/train_cards.css?v=1.0.1";', SCRIPT
         )
         self.assertIn('link.dataset.duelGameStyle = "train_cards";', SCRIPT)
         self.assertNotIn("/static/games/train_cards.js", HTML)
@@ -197,7 +197,7 @@ assert.equal(all.filter((node) => hasClass(node, "train-card")).length, 3);
 assert.equal(all.filter((node) => hasClass(node, "train-cards-wagon")).length, 3);
 assert.equal(all.filter((node) => /opponent|seat/.test(node.className)).length, 0);
 assert.equal(board.layout.ariaLabel, "开火车公开牌列");
-assert.equal(styleNodes.get("duel-game-train-cards-styles").href, "/static/games/train_cards.css?v=1.0.0");
+assert.equal(styleNodes.get("duel-game-train-cards-styles").href, "/static/games/train_cards.css?v=1.0.1");
 const button = descendants(controls).find((node) => hasClass(node, "train-cards-flip-button"));
 assert.ok(button);
 assert.equal(button.disabled, false);

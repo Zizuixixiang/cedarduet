@@ -18,6 +18,7 @@ class BlackjackFrontendTests(unittest.TestCase):
     def test_renderer_is_registry_loaded_and_owns_idempotent_css(self):
         self.assertIn('window.DuelGameUI.register("blackjack", {', RENDERER)
         self.assertIn('participantPresentation: "embedded"', RENDERER)
+        self.assertIn("ownsPrivateStatePresentation: true", RENDERER)
         self.assertIn("usesStandardMoveConfirmation: false", RENDERER)
         self.assertIn("renderBoard,", RENDERER)
         self.assertIn("renderControls,", RENDERER)

@@ -2,9 +2,11 @@
   width: min(100%, 880px);
   max-width: 100%;
   min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   display: block;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;

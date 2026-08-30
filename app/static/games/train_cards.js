@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-train-cards-styles";
-  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.0";
+  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.1";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",

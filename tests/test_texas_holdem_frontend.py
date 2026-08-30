@@ -21,7 +21,7 @@ class TexasHoldemFrontendStaticTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.0";',
+            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.1";',
             SCRIPT,
         )
         self.assertNotIn("/static/games/texas_holdem.js", HTML)
@@ -149,20 +149,23 @@ function makeContext() {
   const board = new Element("div", document);
   const controls = new Element("div", document);
   const submitted = [];
+  const uiState = {};
+  let rerenders = 0;
   const context = {
     board, controls, document, state, privateState, participants,
     viewer: {player_id: "human-1"}, canMove: true, isTerminal: false,
     room: {current_player_id: "human-1", status: "playing"},
-    legalActions: privateState.legal_actions,
+    legalActions: privateState.legal_actions, uiState,
     helpers: {
       canMove() { return true; },
+      rerender() { rerenders += 1; },
       renderParticipantAvatar(target, participant) {
         target.textContent = String(participant.display_name || "?")[0]; return true;
       },
       async submitMove(move) { submitted.push(move); return true; },
     },
   };
-  return {context, board, controls, submitted};
+  return {context, board, controls, submitted, uiState, rerenders: () => rerenders};
 }
 '''.replace("PARTICIPANTS", json.dumps(participants, ensure_ascii=False)).replace(
             "STATE", json.dumps(state, ensure_ascii=False)
@@ -198,20 +201,45 @@ renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 ''', participant_count=count)
 
-    def test_controls_submit_authoritative_call_and_bounded_raise(self):
+    def test_risky_actions_require_confirmation_can_cancel_and_do_not_double_submit(self):
         self.run_node(r'''
 (async () => {
   const value = makeContext();
   renderer.renderControls(value.context);
-  const nodes = descendants(value.controls);
-  const call = nodes.find((node) => node.dataset.action === "call");
+  let nodes = descendants(value.controls);
+  let call = nodes.find((node) => node.dataset.action === "call");
   await call.click();
+  assert.equal(value.submitted.length, 0);
+  assert.equal(value.uiState.texasPendingAction, "call");
+  assert.equal(value.rerenders(), 1);
+
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  const cancel = nodes.find((node) => node.classList.contains("texas-confirm-cancel"));
+  await cancel.click();
+  assert.equal(value.submitted.length, 0);
+  assert.equal(value.uiState.texasPendingAction, undefined);
+
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  call = nodes.find((node) => node.dataset.action === "call");
+  await call.click();
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  const confirm = nodes.find((node) => node.classList.contains("texas-confirm-submit"));
+  await Promise.all([confirm.click(), confirm.click()]);
+  assert.equal(JSON.stringify(value.submitted), JSON.stringify([
+    {action: "call", amount: 10, to_amount: 20, all_in: false}
+  ]));
+
+  const ranged = makeContext();
+  renderer.renderControls(ranged.context);
+  nodes = descendants(ranged.controls);
   const slider = nodes.find((node) => node.dataset.actionAmount === "raise");
   slider.value = "45";
   const raise = nodes.find((node) => node.dataset.action === "raise");
   await raise.click();
-  assert.equal(JSON.stringify(value.submitted), JSON.stringify([
-    {action: "call", amount: 10, to_amount: 20, all_in: false},
+  assert.equal(JSON.stringify(ranged.submitted), JSON.stringify([
     {action: "raise", amount: 45},
   ]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });

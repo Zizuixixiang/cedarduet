@@ -32,7 +32,7 @@ class ZhajinhuaFrontendStructureTests(unittest.TestCase):
     def test_renderer_only_submits_authoritative_actions(self):
         for expected in (
             "context.legalActions",
-            "context.helpers.submitMove({...action})",
+            "context.helpers.submitMove(move)",
             'action.action === "compare"',
             "action.target_player_id",
             "action.cost",
@@ -177,20 +177,23 @@ function makeContext() {
   const board = new Element("div", document);
   const controls = new Element("div", document);
   const submitted = [];
+  const uiState = {};
+  let rerenders = 0;
   const context = {
     board, controls, state, privateState, participants,
     viewer: {player_id: "human-1"}, canMove: true, isTerminal: false,
     room: {current_player_id: "human-1", status: "playing"},
-    legalActions: privateState.legal_actions,
+    legalActions: privateState.legal_actions, uiState,
     helpers: {
       canMove() { return true; },
+      rerender() { rerenders += 1; },
       renderParticipantAvatar(target, participant) {
         target.textContent = String(participant.display_name || "?")[0]; return true;
       },
       async submitMove(move) { submitted.push(move); return true; },
     },
   };
-  return {context, board, controls, submitted};
+  return {context, board, controls, submitted, uiState, rerenders: () => rerenders};
 }
 '''.replace("PARTICIPANTS", json.dumps(participants, ensure_ascii=False)).replace(
             "STATE", json.dumps(state, ensure_ascii=False)
@@ -220,18 +223,36 @@ renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 ''')
 
-    def test_seen_private_cards_render_face_up_and_actions_submit_exact_objects(self):
+    def test_seen_cards_and_risky_action_confirmation_cancel_and_submit_guard(self):
         self.run_node(r'''
 (async () => {
   const value = makeContext();
   renderer.renderBoard(value.context);
   renderer.renderControls(value.context);
-  const nodes = [...descendants(value.board), ...descendants(value.controls)];
+  let nodes = [...descendants(value.board), ...descendants(value.controls)];
   assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-card-back")).length, 6);
   assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-card-rank")).length, 3);
-  const compare = nodes.find((node) => node.dataset.action === "compare");
+  let compare = nodes.find((node) => node.dataset.action === "compare");
   assert.equal(compare.dataset.targetPlayerId, "ai-1");
   await compare.click();
+  assert.equal(value.submitted.length, 0);
+  assert.equal(value.uiState.zhajinhuaPendingActionKey, "compare:ai-1");
+
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  const cancel = nodes.find((node) => hasClass(node, "zhajinhua-confirm-cancel"));
+  await cancel.click();
+  assert.equal(value.submitted.length, 0);
+  assert.equal(value.uiState.zhajinhuaPendingActionKey, undefined);
+
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  compare = nodes.find((node) => node.dataset.action === "compare");
+  await compare.click();
+  renderer.renderControls(value.context);
+  nodes = descendants(value.controls);
+  const confirm = nodes.find((node) => hasClass(node, "zhajinhua-confirm-submit"));
+  await Promise.all([confirm.click(), confirm.click()]);
   assert.equal(JSON.stringify(value.submitted), JSON.stringify([
     {action: "compare", target_player_id: "ai-1", cost: 2}
   ]));

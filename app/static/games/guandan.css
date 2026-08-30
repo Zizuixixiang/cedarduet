@@ -6,6 +6,12 @@
   --guandan-felt-dark: #0c2d28;
   --guandan-team-a: #5ec7b7;
   --guandan-team-b: #efaa72;
+  width: min(100%, 980px);
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
+  display: block;
   padding: 0;
   overflow: visible;
   background: transparent;

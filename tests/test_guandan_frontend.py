@@ -21,7 +21,7 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.0";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.1";', SCRIPT)
         self.assertNotIn("guandan", APP_SCRIPT)
         self.assertNotIn("guandan.js", HTML)
         self.assertNotIn("guandan.css", HTML)

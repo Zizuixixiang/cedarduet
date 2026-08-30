@@ -2935,7 +2935,12 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             STYLES,
         )
         self.assertIn(".layout-multiplayer .room-participant { width: 100%; }", STYLES)
-        self.assertIn(".layout-multiplayer .board-zone { min-width: 0; }", STYLES)
+        board_zone = STYLES[
+            STYLES.index(".layout-multiplayer .board-zone {"):
+            STYLES.index(".layout-multiplayer .board-frame")
+        ]
+        self.assertIn("min-width: 0;", board_zone)
+        self.assertIn("overflow: visible;", board_zone)
         mobile = STYLES[STYLES.index("@media (max-width: 860px)"):]
         self.assertIn(".viewer-participant-row { padding: 0 2px; gap: 8px; }", mobile)
         viewer_slot = mobile[

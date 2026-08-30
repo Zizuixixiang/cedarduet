@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-guandan-styles";
-  const STYLE_HREF = "/static/games/guandan.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/guandan.css?v=0.1.1";
   const SUITS = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",

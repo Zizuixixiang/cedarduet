@@ -49,6 +49,7 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         for category in category_keys:
             self.assertIn(f'"{category}"', RENDERER)
         self.assertIn("participants.forEach((participant) =>", RENDERER)
+        self.assertIn('isViewer ? "（你）" : ""', RENDERER)
         self.assertIn("state.scorecards", RENDERER)
         self.assertIn("state.score_previews", RENDERER)
         self.assertIn("context.legalActions", RENDERER)
@@ -57,7 +58,7 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         self.assertIn('"Joker 回合按规则计分"', RENDERER)
         self.assertIn('"划掉类别，记 0 分"', RENDERER)
         self.assertIn('action: "score"', RENDERER)
-        self.assertIn('...(scratch.checked ? {zero: true} : {})', RENDERER)
+        self.assertIn('...(uiState.yahtzeeScratch ? {zero: true} : {})', RENDERER)
         self.assertIn('action: "roll", held_mask: heldMask', RENDERER)
         self.assertIn('"上半区奖励", "upper_bonus"', RENDERER)
         self.assertIn('"重复快艇奖励", "yahtzee_bonus"', RENDERER)
@@ -170,9 +171,11 @@ const state = {
 const context = {
   board, state, participants, canMove: true,
   room: {current_player_id: "human-1", participants},
+  uiState: {},
   helpers: {
     submitMove: async (move) => { submitted.push(move); return true; },
     canMove: () => true,
+    rerender: () => true,
   },
 };
 const descendants = (root) => [root, ...root.children.flatMap(descendants)];
@@ -195,8 +198,30 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   );
   const scratch = all.find((item) => item.tag === "input");
   scratch.checked = true;
-  const score = all.find((item) => item.classList.contains("yahtzee-score-button"));
+  let score = all.find((item) => item.classList.contains("yahtzee-score-button"));
   await score.click();
+  assert.equal(submitted.length, 1);
+  assert.equal(context.uiState.yahtzeePendingCategory, "ones");
+  assert.equal(context.uiState.yahtzeeScratch, true);
+
+  board.children = [];
+  sandbox.renderer.renderBoard(context);
+  let next = descendants(board);
+  const cancel = next.find((item) => item.classList.contains("yahtzee-score-cancel"));
+  await cancel.click();
+  assert.equal(submitted.length, 1);
+  assert.equal(context.uiState.yahtzeePendingCategory, undefined);
+
+  board.children = [];
+  sandbox.renderer.renderBoard(context);
+  next = descendants(board);
+  score = next.find((item) => item.classList.contains("yahtzee-score-button"));
+  await score.click();
+  board.children = [];
+  sandbox.renderer.renderBoard(context);
+  next = descendants(board);
+  const confirm = next.find((item) => item.classList.contains("yahtzee-score-submit"));
+  await Promise.all([confirm.click(), confirm.click()]);
   assert.equal(submitted[1].action, "score");
   assert.equal(submitted[1].category, "ones");
   assert.equal(submitted[1].zero, true);

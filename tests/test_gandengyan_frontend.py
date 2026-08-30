@@ -25,7 +25,7 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.0";', SCRIPT
+            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.1";', SCRIPT
         )
         self.assertIn('link.dataset.duelGameStyle = "gandengyan";', SCRIPT)
         self.assertNotIn("gandengyan", APP_SCRIPT)
@@ -219,7 +219,7 @@ assert.equal(value.board.dataset.multiplier, "4");
 assert.equal(styleNodes.size, 1);
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
-assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.0");
+assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.1");
 ''')
 
     def test_multi_selection_submits_exact_server_action_and_pass_is_separate(self):

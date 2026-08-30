@@ -91,6 +91,7 @@
     } = context;
     const documentRef = context.document || window.document;
     const submitMove = helpers && helpers.submitMove;
+    const uiState = context.uiState || {};
     const participants = Array.isArray(context.participants)
       ? context.participants
       : (Array.isArray(room.participants) ? room.participants : []);
@@ -112,6 +113,24 @@
       {length: 5},
       (_, index) => Boolean(state.held_mask && state.held_mask[index])
     );
+    const currentCard = (state.scorecards || {})[room.current_player_id] || {};
+    const scoreActionIsLegal = (categoryKey) => (
+      !hasAuthoritativeActions
+        ? !Object.prototype.hasOwnProperty.call(currentCard, categoryKey)
+        : legalActions.some((action) => (
+          action.action === "score" && action.category === categoryKey
+        ))
+    );
+    const pendingCategory = categories.find((category) => (
+      category.key === uiState.yahtzeePendingCategory
+      && humanCanMove
+      && dice.length === 5
+      && !Object.prototype.hasOwnProperty.call(currentCard, category.key)
+      && scoreActionIsLegal(category.key)
+    )) || null;
+    if (uiState.yahtzeePendingCategory && !pendingCategory) {
+      delete uiState.yahtzeePendingCategory;
+    }
     const root = documentRef.createElement("section");
     root.className = "yahtzee-game";
     root.style.setProperty("--yahtzee-player-count", String(participants.length || 2));
@@ -181,6 +200,12 @@
     const scratch = documentRef.createElement("input");
     scratch.type = "checkbox";
     scratch.disabled = !humanCanMove || dice.length !== 5 || jokerActive;
+    scratch.checked = !jokerActive && Boolean(uiState.yahtzeeScratch);
+    scratch.addEventListener("change", () => {
+      uiState.yahtzeeScratch = Boolean(scratch.checked);
+      delete uiState.yahtzeePendingCategory;
+      if (helpers && typeof helpers.rerender === "function") helpers.rerender();
+    });
     const scratchText = documentRef.createElement("span");
     scratchText.textContent = jokerActive
       ? "Joker 回合按规则计分"
@@ -222,9 +247,15 @@
     participants.forEach((participant) => {
       const header = documentRef.createElement("th");
       header.scope = "col";
-      header.textContent = playerName(participant);
+      const isViewer = participants.length > 2
+        && context.viewer
+        && participant.player_id === context.viewer.player_id;
+      header.textContent = `${playerName(participant)}${isViewer ? "（你）" : ""}`;
       header.title = playerName(participant);
-      header.className = participant.player_id === room.current_player_id ? "current" : "";
+      header.className = [
+        participant.player_id === room.current_player_id ? "current" : "",
+        isViewer ? "viewer" : "",
+      ].filter(Boolean).join(" ");
       headerRow.appendChild(header);
     });
     const actionHeader = documentRef.createElement("th");
@@ -259,32 +290,32 @@
       const actionCell = documentRef.createElement("td");
       actionCell.className = "yahtzee-score-action";
       const preview = (state.score_previews || {})[category.key];
-      const currentCard = (state.scorecards || {})[room.current_player_id] || {};
       const categoryUnused = !Object.prototype.hasOwnProperty.call(
         currentCard, category.key
       );
-      const scoreIsLegal = !hasAuthoritativeActions
-        ? categoryUnused
-        : legalActions.some((action) => (
-          action.action === "score" && action.category === category.key
-        ));
+      const scoreIsLegal = scoreActionIsLegal(category.key);
       if (humanCanMove && dice.length === 5 && categoryUnused && scoreIsLegal) {
         const scoreButton = documentRef.createElement("button");
         scoreButton.type = "button";
         scoreButton.className = "yahtzee-score-button";
+        scoreButton.classList.toggle(
+          "selected",
+          Boolean(pendingCategory && pendingCategory.key === category.key)
+        );
         scoreButton.textContent = preview === undefined ? "记分" : `${preview} 分`;
+        scoreButton.setAttribute(
+          "aria-pressed",
+          String(Boolean(pendingCategory && pendingCategory.key === category.key))
+        );
         scoreButton.setAttribute(
           "aria-label",
           `${category.label}，本轮预估 ${preview === undefined ? 0 : preview} 分，点击填写`
         );
-        scoreButton.addEventListener("click", async () => {
-          scoreButton.disabled = true;
-          const submitted = await submitMove({
-            action: "score",
-            category: category.key,
-            ...(scratch.checked ? {zero: true} : {}),
-          });
-          if (!submitted) scoreButton.disabled = false;
+        scoreButton.addEventListener("click", () => {
+          if (uiState.yahtzeeSubmitting) return;
+          uiState.yahtzeeScratch = Boolean(scratch.checked);
+          uiState.yahtzeePendingCategory = category.key;
+          if (helpers && typeof helpers.rerender === "function") helpers.rerender();
         });
         actionCell.appendChild(scoreButton);
       } else {
@@ -302,6 +333,53 @@
     scroller.appendChild(table);
     scoreSection.append(scoreHeading);
     if (jokerNotice) scoreSection.append(jokerNotice);
+    if (pendingCategory) {
+      const confirmation = documentRef.createElement("div");
+      confirmation.className = "yahtzee-score-confirmation";
+      confirmation.setAttribute("role", "group");
+      confirmation.setAttribute("aria-label", "确认填写快艇计分类别");
+      const confirmationCopy = documentRef.createElement("span");
+      confirmationCopy.className = "yahtzee-score-confirmation-copy";
+      const preview = (state.score_previews || {})[pendingCategory.key];
+      confirmationCopy.textContent = uiState.yahtzeeScratch
+        ? `已选择：划掉${pendingCategory.label}，记 0 分`
+        : `已选择：${pendingCategory.label}，记 ${preview === undefined ? 0 : preview} 分`;
+      const cancel = documentRef.createElement("button");
+      cancel.type = "button";
+      cancel.className = "yahtzee-score-cancel";
+      cancel.textContent = "取消";
+      cancel.addEventListener("click", () => {
+        if (uiState.yahtzeeSubmitting) return;
+        delete uiState.yahtzeePendingCategory;
+        if (helpers && typeof helpers.rerender === "function") helpers.rerender();
+      });
+      const confirm = documentRef.createElement("button");
+      confirm.type = "button";
+      confirm.className = "yahtzee-score-submit";
+      confirm.textContent = "确认填写";
+      confirm.addEventListener("click", async () => {
+        if (uiState.yahtzeeSubmitting) return;
+        const canMoveNow = helpers && typeof helpers.canMove === "function"
+          ? helpers.canMove()
+          : humanCanMove;
+        if (!canMoveNow) return;
+        uiState.yahtzeeSubmitting = true;
+        confirm.disabled = true;
+        cancel.disabled = true;
+        const submitted = await submitMove({
+          action: "score",
+          category: pendingCategory.key,
+          ...(uiState.yahtzeeScratch ? {zero: true} : {}),
+        });
+        if (!submitted) {
+          uiState.yahtzeeSubmitting = false;
+          confirm.disabled = false;
+          cancel.disabled = false;
+        }
+      });
+      confirmation.append(confirmationCopy, cancel, confirm);
+      scoreSection.append(confirmation);
+    }
     scoreSection.append(scroller);
     root.append(rollPanel, scoreSection);
     board.appendChild(root);

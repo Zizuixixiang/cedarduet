@@ -271,6 +271,7 @@
 
   window.DuelGameUI.register("blackjack", {
     participantPresentation: "embedded",
+    ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false,
     renderBoard,
     renderControls,

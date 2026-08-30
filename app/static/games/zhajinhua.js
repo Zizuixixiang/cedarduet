@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-zhajinhua-styles";
-  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.0";
+  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.1";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -289,10 +289,43 @@
     return action.action;
   }
 
+  function actionKey(action) {
+    return [action.action, action.target_player_id || ""].join(":");
+  }
+
   function renderControls(context) {
     const documentRef = context.controls.ownerDocument || window.document;
     ensureStylesheet(documentRef);
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
+    const uiState = context.uiState || {};
+    const riskyActions = new Set(["call", "raise", "compare", "fold"]);
+    const pendingAction = legal.find(
+      (action) => riskyActions.has(action.action)
+        && actionKey(action) === uiState.zhajinhuaPendingActionKey
+    ) || null;
+    if (uiState.zhajinhuaPendingActionKey && !pendingAction) {
+      delete uiState.zhajinhuaPendingActionKey;
+    }
+    const rerender = () => {
+      if (context.helpers && typeof context.helpers.rerender === "function") {
+        context.helpers.rerender();
+      }
+    };
+    const submitOnce = async (move, button) => {
+      if (uiState.zhajinhuaSubmitting || !context.helpers.canMove()) return false;
+      uiState.zhajinhuaSubmitting = true;
+      button.disabled = true;
+      let submitted = false;
+      try {
+        submitted = await context.helpers.submitMove(move);
+        return submitted;
+      } finally {
+        if (!submitted) {
+          uiState.zhajinhuaSubmitting = false;
+          button.disabled = !context.helpers.canMove();
+        }
+      }
+    };
     const shell = element(documentRef, "section", "zhajinhua-controls");
     shell.setAttribute("aria-label", "炸金花服务端合法行动");
     const status = element(
@@ -317,19 +350,56 @@
       if (action.target_player_id) {
         button.dataset.targetPlayerId = String(action.target_player_id);
       }
+      const selected = Boolean(
+        pendingAction && actionKey(pendingAction) === actionKey(action)
+      );
+      button.classList.toggle("is-selected", selected);
+      if (riskyActions.has(action.action)) {
+        button.setAttribute("aria-pressed", String(selected));
+      }
       button.disabled = !context.canMove;
       button.addEventListener("click", async () => {
-        if (button.disabled) return;
-        button.disabled = true;
-        try {
-          await context.helpers.submitMove({...action});
-        } finally {
-          button.disabled = !context.helpers.canMove();
+        if (button.disabled || uiState.zhajinhuaSubmitting) return;
+        if (riskyActions.has(action.action)) {
+          uiState.zhajinhuaPendingActionKey = actionKey(action);
+          rerender();
+          return;
         }
+        await submitOnce({...action}, button);
       });
       actions.appendChild(button);
     });
     shell.append(status, actions);
+    if (pendingAction) {
+      const confirmation = element(documentRef, "div", "zhajinhua-confirmation");
+      confirmation.setAttribute("role", "group");
+      confirmation.setAttribute("aria-label", "确认炸金花行动");
+      confirmation.appendChild(element(
+        documentRef,
+        "span",
+        "zhajinhua-confirmation-copy",
+        `已选择：${actionText(context, pendingAction)}`
+      ));
+      const cancel = element(documentRef, "button", "zhajinhua-confirm-cancel", "取消");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => {
+        if (uiState.zhajinhuaSubmitting) return;
+        delete uiState.zhajinhuaPendingActionKey;
+        rerender();
+      });
+      const confirm = element(
+        documentRef,
+        "button",
+        "zhajinhua-confirm-submit",
+        `确认${actionText(context, pendingAction)}`
+      );
+      confirm.type = "button";
+      confirm.addEventListener("click", async () => {
+        await submitOnce({...pendingAction}, confirm);
+      });
+      confirmation.append(cancel, confirm);
+      shell.appendChild(confirmation);
+    }
     context.controls.replaceChildren(shell);
     return true;
   }

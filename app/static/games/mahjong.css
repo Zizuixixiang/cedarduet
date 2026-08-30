@@ -1,8 +1,16 @@
 .mahjong-board-layout {
-  width: 100%;
+  width: min(100%, 980px);
   max-width: 980px;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   margin-inline: auto;
-  overflow: hidden;
+  padding: 0;
+  display: block;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .mahjong-table {
@@ -208,17 +216,44 @@ button.mahjong-tile:disabled { cursor: default; opacity: .92; }
 }
 .mahjong-action.kind-hu { background: #d2695f; border-color: #a64d46; color: white; }
 .mahjong-action.kind-pass { background: #e6ece8; color: #46564e; }
+.mahjong-action.selected { outline: 3px solid #f7cf61; outline-offset: 2px; }
 .mahjong-action:disabled { cursor: default; opacity: .5; }
 .mahjong-waiting { padding: 9px; color: #6a756e; }
+.mahjong-confirmation {
+  flex: 1 1 100%;
+  width: min(100%, 430px);
+  margin-inline: auto;
+  padding: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  color: #173b31;
+  background: #f5fbf7;
+  border: 2px solid #c39b36;
+  border-radius: 9px;
+  font: 700 11px/1.35 system-ui, sans-serif;
+}
+.mahjong-confirmation-copy { min-width: 0; }
+.mahjong-confirm-cancel,
+.mahjong-confirm-submit {
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid #2c6b58;
+  border-radius: 7px;
+  font-weight: 750;
+}
+.mahjong-confirm-cancel { color: #46564e; background: #e6ece8; }
+.mahjong-confirm-submit { color: #fff; background: #b74f48; }
 
 @media (max-width: 375px) {
   .mahjong-table {
     --mj-side: 54px;
-    min-height: 520px;
+    min-height: 0;
     padding: 5px;
     gap: 4px;
     border-radius: 12px;
-    grid-template-rows: auto minmax(300px, 1fr) auto auto;
+    grid-template-rows: auto minmax(230px, auto) auto auto;
   }
   .mahjong-seat { min-height: 56px; padding: 3px; }
   .mahjong-seat-avatar { width: 20px; height: 20px; flex-basis: 20px; }
@@ -231,10 +266,13 @@ button.mahjong-tile:disabled { cursor: default; opacity: .92; }
   .mahjong-tile-back { width: 8px; height: 16px; }
   .mahjong-own-hand-scroll .mahjong-tile { width: 29px; height: 42px; font-size: 12px; }
   .mahjong-discard-table { grid-template-columns: 45px minmax(0, 1fr) 45px; }
+  .mahjong-confirmation { gap: 5px; padding: 5px; }
+  .mahjong-confirm-cancel,
+  .mahjong-confirm-submit { min-height: 36px; padding-inline: 7px; font-size: 10px; }
 }
 
 @media (max-width: 320px) {
-  .mahjong-table { --mj-side: 46px; min-height: 500px; padding: 4px; gap: 3px; }
+  .mahjong-table { --mj-side: 46px; min-height: 0; padding: 4px; gap: 3px; }
   .mahjong-seat-name { max-width: 28px; }
   .mahjong-seat-avatar { width: 18px; height: 18px; flex-basis: 18px; }
   .mahjong-seat-badges .mahjong-turn { display: none; }

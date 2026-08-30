@@ -435,6 +435,7 @@
 
   const renderer = {
     participantPresentation: "embedded",
+    ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false,
     renderBoard,
     renderControls,

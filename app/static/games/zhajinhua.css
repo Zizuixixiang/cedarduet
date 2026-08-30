@@ -2,9 +2,11 @@
   width: min(100%, 880px);
   max-width: 100%;
   min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   display: block;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -324,8 +326,34 @@
   background: linear-gradient(145deg, #eee8ed, #c9c0c8);
   box-shadow: 0 3px 0 #988d96;
 }
+.zhajinhua-action.is-selected { outline: 3px solid #e5bc5f; outline-offset: 2px; }
 .zhajinhua-action:disabled { cursor: not-allowed; opacity: .46; box-shadow: none; }
 .zhajinhua-action:focus-visible { outline: 3px solid #e5bc5f; outline-offset: 2px; }
+.zhajinhua-confirmation {
+  width: min(100%, 440px);
+  margin-inline: auto;
+  padding: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  color: #4f443b;
+  background: #fffaf0;
+  border: 2px solid #d3b66f;
+  border-radius: 10px;
+  font: 700 11px/1.35 system-ui, sans-serif;
+}
+.zhajinhua-confirmation-copy { min-width: 0; }
+.zhajinhua-confirm-cancel,
+.zhajinhua-confirm-submit {
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid #72512c;
+  border-radius: 8px;
+  font-weight: 750;
+}
+.zhajinhua-confirm-cancel { color: #5a5055; background: #eee8ed; }
+.zhajinhua-confirm-submit { color: #fff; background: #8e3442; }
 
 @media (max-width: 599px) {
   .board.zhajinhua { width: 100%; max-width: 100%; }
@@ -353,6 +381,9 @@
   .zhajinhua-card { width: clamp(42px, 14vw, 50px); height: clamp(60px, 19vw, 70px); }
   .zhajinhua-actions { gap: 6px; }
   .zhajinhua-action { min-width: calc(50% - 5px); padding-inline: 7px; }
+  .zhajinhua-confirmation { gap: 5px; padding: 5px; }
+  .zhajinhua-confirm-cancel,
+  .zhajinhua-confirm-submit { min-height: 36px; padding-inline: 7px; font-size: 10px; }
 }
 
 @media (max-width: 320px) {
