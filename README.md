@@ -8,21 +8,35 @@ CedarDuet 本体是一个独立的 FastAPI/ASGI 项目，包含棋局引擎、�
 
 ## 当前游戏
 
+当前生产目录共 **25 款**：
+
 - `tictactoe`：3×3 井字棋
 - `gomoku`：15×15 五子棋，无禁手
-- `othello`：8×8 黑白棋，支持自动跳过与终局数子
+- `othello`：8×8 黑白棋
 - `connect4`：7×6 四子连珠
-- `checkers`：8×8 西洋跳棋（English draughts / American checkers）
-- `dots_boxes`：2–4 人点格棋，支持系统 NPC
-- `liars_dice`：2–6 人吹牛骰子，支持系统 NPC 与私密骰子投影
-- `blackjack`：2–6 人共同对虚拟庄家的 21 点，支持系统 NPC，仅娱乐局
 - `jungle`：7×9 斗兽棋
-- `xiangqi`：9 路 10 行象棋，固定人类与真实绑定小机双人对局
-- `aeroplane_chess`：2–4 人标准中国飞行棋，支持系统 NPC 与多人筹码
+- `xiangqi`：中国象棋
+- `checkers`：English draughts / American checkers 西洋跳棋
+- `chess`：国际象棋
+- `banqi`：翻翻棋
+- `dots_boxes`：2–4 人点格棋
+- `aeroplane_chess`：2–4 人飞行棋
+- `chinese_checkers`：2/3/4/6 人中国跳棋
+- `liars_dice`：2–6 人吹牛骰子
+- `yahtzee`：2–6 人快艇骰子
+- `uno`：2–6 人 UNO
+- `blackjack`：2–6 人 21 点
+- `gandengyan`：2–4 人干瞪眼
+- `train_cards`：2–6 人开火车
+- `doudizhu`：固定 3 人斗地主
+- `guandan`：固定 4 人、对家组队的掼蛋升级赛
+- `zhajinhua`：2–6 人炸金花
+- `junqi`：固定双人暗棋陆战军棋
+- `texas_holdem`：2–6 人无限注德州扑克
+- `go`：固定双人 19×19 围棋
+- `mahjong`：固定四人国标麻将（136 张、无花）
 
-井字棋、五子棋、黑白棋、四子连珠、西洋跳棋、斗兽棋和象棋继续严格双人。点格棋权威声明
-`allowed_player_counts=(2,3,4)`，吹牛骰子声明 `(2,3,4,5,6)`；两者是第一批
-多人/NPC 框架验收游戏。
+支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏只把本人手牌/骰子/暗棋身份放进 `private_state`；NPC 与网页端同样只能消费服务端发布的权威合法行动。
 
 ### 21点固定规则与状态接口
 
@@ -696,6 +710,24 @@ python3 tests/play_tictactoe.py
 仓库提供 `duel.supervisord.conf.example` 作为模板。请把其中的 `/srv/cedarduet` 换成你自己的实际路径，并让 CedarDuet 只监听内网或 loopback，再由可信反向代理对外提供认证后的入口。
 
 当前 CedarToy 官方实例也是以独立服务方式运行 CedarDuet，再由 CedarToy 负责登录态、绑定关系、MCP 聚合和 `/duel/*` 反向代理。
+
+## 第三方规则引擎与致谢
+
+CedarDuet 自身使用仓库根目录的 PolyForm Noncommercial License；`third_party/` 中的第三方代码仍分别遵循其原许可证。运行时 vendored 的规则核心如下，完整来源、固定版本/commit、保留文件和本地修改见 [`third_party/THIRD_PARTY_NOTICES.md`](third_party/THIRD_PARTY_NOTICES.md) 以及各目录的 `NOTICE.md` / `LICENSE`。
+
+| 游戏 | 第三方规则核心 | 固定版本 / revision | 许可证 | CedarDuet 负责的主要部分 |
+|---|---|---|---|---|
+| 中国象棋 | `xiangqi.js` | `f9019ac…` | BSD-2-Clause | 房间、持久化、MCP、UI、桥接 |
+| 国际象棋 | `chess.js` | v1.4.0 / `ce1ff9e` | BSD-2-Clause | FIDE 和棋适配、房间、MCP、UI |
+| 斗地主 | `onestraw/doudizhu` | PyPI 0.1.5 | MIT | 叫分、地主/底牌、物理牌映射、回合、MCP、UI |
+| 掼蛋 | `Choysang/rlcard-guandan` | v0.1.0 / `42f83aa…` | MIT | 持久化、隐私投影、MCP、NPC、UI、团队结果适配 |
+| 炸金花 | `Golden Flower` evaluator | `35e74e9…` | MIT | 下注流程、隐私、比牌流程、MCP、UI |
+| 军棋 | `online-junqi` | `f5ba2e8…` | MIT | 暗信息投影、房间、MCP、NPC、UI、Node 桥接 |
+| 德州扑克 | `PyPokerEngine` | `a52a048…` | MIT | 现代 no-limit 约束、隐私、房间、MCP、NPC、UI |
+| 围棋 | `Tenuki` | 0.3.1 / `aeedb4c…` | MIT | 固定中国规则配置、死子确认、持久化、MCP、UI |
+| 麻将 | `PyMahjongGB` | 1.4.0 / `bb404f3…` | MIT | 摸打/吃碰杠/响应流程、隐私、MCP、NPC、UI |
+
+开火车等未列入上表的游戏没有把第三方规则代码打包进运行时；若开发期只使用外部项目做规则对照或 differential/property 测试，不会把它冒充为项目运行依赖。
 
 ## License
 
