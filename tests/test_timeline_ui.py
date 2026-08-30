@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import unittest
@@ -50,7 +51,7 @@ class ResultModalLayoutTests(unittest.TestCase):
         self.assertIn('id="resultPreserveCheckbox" type="checkbox"', retention_option)
         self.assertIn("保留本局棋谱和聊天记录", retention_option)
         self.assertIn('id="resultRetentionHint"', retention_option)
-        self.assertIn("终局 7 天后自动删除", retention_option)
+        self.assertIn("自动删除时间加载中", retention_option)
         self.assertNotIn("preserveResultButton", modal)
         self.assertNotIn("skipPreserveButton", modal)
         self.assertLess(
@@ -93,7 +94,13 @@ class ResultModalLayoutTests(unittest.TestCase):
         )
         harness = f"""
 const assert = require("node:assert/strict");
-let room = {{room_id: "ROOM1", status: "finished", preserved: false}};
+Date.now = () => new Date("2026-09-05T00:00:00+08:00").getTime();
+let room = {{
+  room_id: "ROOM1",
+  status: "finished",
+  preserved: false,
+  auto_delete_at: "2026-09-07T00:00:00+08:00",
+}};
 let shouldFail = true;
 let requested = null;
 const elements = {{
@@ -107,9 +114,15 @@ const $ = (id) => elements[id];
 const request = async (path, options) => {{
   requested = {{path, options}};
   if (shouldFail) throw new Error("网络失败");
+  const preserved = JSON.parse(options.body).preserved;
   return {{
-    room: {{room_id: "ROOM1", status: "finished", preserved: true}},
-    message: "已保留",
+    room: {{
+      room_id: "ROOM1",
+      status: "finished",
+      preserved,
+      auto_delete_at: preserved ? null : "2026-09-07T00:00:00+08:00",
+    }},
+    message: preserved ? "已保留" : "已恢复自动删除",
     timeline: [],
   }};
 }};
@@ -120,13 +133,15 @@ const toast = () => {{}};
 (async () => {{
   renderRetention(room);
   assert.equal(elements.resultPreserveCheckbox.checked, false);
-  assert.equal(elements.resultRetentionHint.textContent, "终局 7 天后自动删除");
+  assert.equal(elements.resultRetentionHint.textContent, "2 天后自动删除");
+  assert.equal(elements.roomRetentionStatus.textContent, "2 天后自动删除");
+  assert.ok(elements.roomRetentionStatus.title.includes("2026/9/7"));
 
   elements.resultPreserveCheckbox.checked = true;
   await changeResultPreservation();
   assert.equal(elements.resultPreserveCheckbox.checked, false);
   assert.equal(elements.resultPreserveCheckbox.disabled, false);
-  assert.equal(elements.resultRetentionHint.textContent, "终局 7 天后自动删除");
+  assert.equal(elements.resultRetentionHint.textContent, "2 天后自动删除");
   assert.equal(elements.resultModalMessage.textContent, "网络失败");
 
   shouldFail = false;
@@ -137,6 +152,12 @@ const toast = () => {{}};
   assert.equal(elements.resultPreserveCheckbox.checked, true);
   assert.equal(elements.resultRetentionHint.textContent, "已保留，不会自动删除");
   assert.equal(elements.resultModalMessage.textContent, "");
+
+  elements.resultPreserveCheckbox.checked = false;
+  await changeResultPreservation();
+  assert.deepEqual(JSON.parse(requested.options.body), {{preserved: false}});
+  assert.equal(elements.resultPreserveCheckbox.checked, false);
+  assert.equal(elements.resultRetentionHint.textContent, "2 天后自动删除");
 }})().catch((error) => {{ console.error(error); process.exit(1); }});
 """
         completed = subprocess.run(
@@ -145,6 +166,7 @@ const toast = () => {{}};
             check=False,
             capture_output=True,
             text=True,
+            env={**os.environ, "TZ": "Asia/Shanghai"},
         )
         self.assertEqual(
             completed.returncode,

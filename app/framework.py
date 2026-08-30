@@ -18,8 +18,16 @@ PAIR_ACTIVE_ROOM_LIMIT = 3
 GLOBAL_ACTIVE_ROOM_LIMIT = 500
 STALE_ROOM_DAYS = 7
 TERMINAL_RETENTION_DAYS = 7
-# Temporarily keep every terminal room until the 0.9.0 retention rollout is announced.
-TERMINAL_AUTO_DELETE_ENABLED = False
+SHANGHAI_TIMEZONE = timezone(timedelta(hours=8))
+# The rollout starts at Shanghai midnight. Earlier terminal rooms share one
+# grace deadline; rooms ending at or after the cutoff retain their own 7 days.
+TERMINAL_RETENTION_ROLLOUT_CUTOFF = datetime(
+    2026, 8, 31, tzinfo=SHANGHAI_TIMEZONE
+)
+TERMINAL_LEGACY_GRACE_DEADLINE = datetime(
+    2026, 9, 7, tzinfo=SHANGHAI_TIMEZONE
+)
+TERMINAL_AUTO_DELETE_ENABLED = True
 MAX_MESSAGE_LENGTH = 500
 AI_ROOM_LIST_DEFAULT_LIMIT = 50
 AI_ROOM_LIST_MAX_LIMIT = 100
@@ -433,6 +441,20 @@ def advance_turn(
     raise DuelError("没有可继续行动的参与者", 409)
 
 
+def _terminal_auto_delete_at(terminal_at: object) -> datetime | None:
+    try:
+        terminal_time = datetime.fromisoformat(
+            str(terminal_at).replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return None
+    if terminal_time.tzinfo is None:
+        terminal_time = terminal_time.replace(tzinfo=timezone.utc)
+    if terminal_time < TERMINAL_RETENTION_ROLLOUT_CUTOFF:
+        return TERMINAL_LEGACY_GRACE_DEADLINE
+    return terminal_time + timedelta(days=TERMINAL_RETENTION_DAYS)
+
+
 def _add_retention_metadata(room: dict) -> None:
     room["preserved"] = bool(room.get("preserved", False))
     room["auto_delete_at"] = None
@@ -443,17 +465,10 @@ def _add_retention_metadata(room: dict) -> None:
         or not terminal_at
     ):
         return
-    try:
-        terminal_time = datetime.fromisoformat(
-            str(terminal_at).replace("Z", "+00:00")
-        )
-    except ValueError:
+    auto_delete_at = _terminal_auto_delete_at(terminal_at)
+    if auto_delete_at is None:
         return
-    if terminal_time.tzinfo is None:
-        terminal_time = terminal_time.replace(tzinfo=timezone.utc)
-    room["auto_delete_at"] = (
-        terminal_time + timedelta(days=TERMINAL_RETENTION_DAYS)
-    ).isoformat(timespec="seconds")
+    room["auto_delete_at"] = auto_delete_at.isoformat(timespec="seconds")
 
 
 def _message_text(value: str | None, *, required: bool = False) -> str:
@@ -1344,30 +1359,49 @@ def _delete_expired_terminal_rooms(conn, room_id: str | None = None) -> int:
     if not TERMINAL_AUTO_DELETE_ENABLED:
         return 0
 
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=TERMINAL_RETENTION_DAYS)
-    ).isoformat(timespec="seconds")
-    params: list[str] = [cutoff]
+    params: list[str] = []
     room_clause = ""
     if room_id is not None:
         room_clause = " AND room_id = ?"
         params.append(room_id)
-    cursor = conn.execute(
+    rows = conn.execute(
         f"""
-        DELETE FROM rooms
+        SELECT room_id, terminal_at
+        FROM rooms
         WHERE status IN ('finished', 'archived')
           AND preserved = 0
           AND terminal_at IS NOT NULL
-          AND datetime(terminal_at) <= datetime(?)
           {room_clause}
         """,
         params,
+    ).fetchall()
+    now = datetime.now(timezone.utc)
+    expired_room_ids = [
+        row["room_id"]
+        for row in rows
+        if (
+            (deadline := _terminal_auto_delete_at(row["terminal_at"]))
+            is not None
+            and deadline <= now
+        )
+    ]
+    if not expired_room_ids:
+        return 0
+    placeholders = ",".join("?" for _ in expired_room_ids)
+    cursor = conn.execute(
+        f"""
+        DELETE FROM rooms
+        WHERE room_id IN ({placeholders})
+          AND status IN ('finished', 'archived')
+          AND preserved = 0
+        """,
+        expired_room_ids,
     )
     return cursor.rowcount
 
 
 def _maintain_rooms(conn, room_id: str | None = None) -> tuple[int, int]:
-    """Archive stale active rooms and run gated terminal-room retention."""
+    """Archive stale active rooms and apply terminal-room retention."""
     _expire_pending_invitations(conn, room_id)
     archived = _archive_stale_rooms(conn, room_id)
     deleted = _delete_expired_terminal_rooms(conn, room_id)
@@ -1884,11 +1918,18 @@ def respond_to_invitation(
             _close_room_invitation_notifications(
                 conn, room, player_ids={player_id}, read_at=timestamp
             )
+            game_name = get_game(room["game_type"]).display_name
+            stake_text = (
+                f" {room['stake']} 筹码" if room["stake"] > 0 else ""
+            )
             _notify_game_participants(
                 conn,
                 room,
                 event_type="invitation_rejected",
-                summary=f"对方拒绝了 {room['stake']} 筹码邀请",
+                summary=(
+                    f"{_participant_display_name(room, player_id)} 拒绝了"
+                    f"{game_name}{stake_text}邀请，房间 {room_id} 已取消"
+                ),
                 event_key=f"game:invitation_rejected:{room_id}:{player_id}",
                 exclude_player_ids={player_id},
                 created_at=timestamp,

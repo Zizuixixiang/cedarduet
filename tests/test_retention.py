@@ -12,6 +12,7 @@ from app import main as main_module
 
 
 FIXED_NOW = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+LEGACY_GRACE_DEADLINE = framework.TERMINAL_LEGACY_GRACE_DEADLINE
 
 
 class FrozenDateTime(datetime):
@@ -33,6 +34,9 @@ class RetentionFrameworkTests(unittest.TestCase):
         )
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
+        self.datetime_patch = patch.object(framework, "datetime", FrozenDateTime)
+        self.datetime_patch.start()
+        self.addCleanup(self.datetime_patch.stop)
         database.init_db()
 
     def terminal_room(self, suffix: str) -> dict:
@@ -125,64 +129,174 @@ class RetentionFrameworkTests(unittest.TestCase):
         with patch.object(framework, "datetime", FrozenDateTime):
             rooms = framework.list_human_rooms("human-old")
         self.assertEqual([item["room_id"] for item in rooms], ["OLDROOM1"])
+        self.assertEqual(
+            rooms[0]["auto_delete_at"],
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
+        )
         self.assertTrue(self.room_exists("OLDROOM1"))
 
-    def test_expired_finished_rooms_are_not_automatically_deleted(self):
-        survives = self.terminal_room("inside")
-        at_boundary = self.terminal_room("boundary")
-        long_expired = self.terminal_room("long-expired")
-        self.set_terminal_at(
-            survives["room_id"], FIXED_NOW - timedelta(days=7) + timedelta(seconds=1)
+    def test_reinitialization_does_not_rewrite_existing_terminal_at(self):
+        room = self.terminal_room("terminal-stable")
+        original_terminal_at = datetime(
+            2026, 8, 12, 3, 4, 5, tzinfo=timezone.utc
         )
-        self.set_terminal_at(
-            at_boundary["room_id"], FIXED_NOW - timedelta(days=7)
-        )
-        self.set_terminal_at(
-            long_expired["room_id"], FIXED_NOW - timedelta(days=30)
-        )
+        self.set_terminal_at(room["room_id"], original_terminal_at)
 
-        with patch.object(framework, "datetime", FrozenDateTime):
-            inside_rooms = framework.list_human_rooms("human-inside")
-            framework.list_human_rooms("human-boundary")
-            framework.get_room(long_expired["room_id"])
+        database.init_db()
 
+        with database.connect() as conn:
+            stored_terminal_at = conn.execute(
+                "SELECT terminal_at FROM rooms WHERE room_id = ?",
+                (room["room_id"],),
+            ).fetchone()["terminal_at"]
         self.assertEqual(
-            [room["room_id"] for room in inside_rooms], [survives["room_id"]]
+            stored_terminal_at,
+            original_terminal_at.isoformat(timespec="seconds"),
         )
-        self.assertTrue(self.room_exists(survives["room_id"]))
-        self.assertTrue(self.room_exists(at_boundary["room_id"]))
-        self.assertTrue(self.room_exists(long_expired["room_id"]))
 
-    def test_new_finished_room_remains_after_retention_window(self):
+    def test_old_unpreserved_room_uses_grace_deadline_and_keeps_terminal_at(self):
+        room = self.terminal_room("legacy")
+        original_terminal_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        self.set_terminal_at(room["room_id"], original_terminal_at)
+
+        FrozenDateTime.current = (
+            LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+            - timedelta(seconds=1)
+        )
+        with patch.object(framework, "datetime", FrozenDateTime):
+            listed = framework.list_human_rooms("human-legacy")
+
+        self.assertEqual([item["room_id"] for item in listed], [room["room_id"]])
+        self.assertEqual(
+            listed[0]["terminal_at"],
+            original_terminal_at.isoformat(timespec="seconds"),
+        )
+        self.assertEqual(
+            listed[0]["auto_delete_at"],
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
+        )
+
+        FrozenDateTime.current = LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+        with patch.object(framework, "datetime", FrozenDateTime):
+            self.assertEqual(framework.list_human_rooms("human-legacy"), [])
+        self.assertFalse(self.room_exists(room["room_id"]))
+
+    def test_old_preserved_room_survives_after_grace_deadline(self):
+        room = self.terminal_room("legacy-kept")
+        original_terminal_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        self.set_terminal_at(room["room_id"], original_terminal_at)
+        framework.set_room_preserved(room["room_id"], "human-legacy-kept", True)
+
+        FrozenDateTime.current = (
+            LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+            + timedelta(days=30)
+        )
+        with patch.object(framework, "datetime", FrozenDateTime):
+            listed = framework.list_human_rooms("human-legacy-kept")
+
+        self.assertEqual([item["room_id"] for item in listed], [room["room_id"]])
+        self.assertTrue(listed[0]["preserved"])
+        self.assertIsNone(listed[0]["auto_delete_at"])
+        self.assertEqual(
+            listed[0]["terminal_at"],
+            original_terminal_at.isoformat(timespec="seconds"),
+        )
+
+    def test_new_finished_room_uses_its_own_seven_day_deadline(self):
+        new_terminal_at = (
+            framework.TERMINAL_RETENTION_ROLLOUT_CUTOFF.astimezone(timezone.utc)
+            + timedelta(hours=12)
+        )
+        FrozenDateTime.current = new_terminal_at
         with patch.object(framework, "datetime", FrozenDateTime):
             room = self.terminal_room("new-terminal")
 
-        FrozenDateTime.current = FIXED_NOW + timedelta(days=30)
+        expected_deadline = new_terminal_at + timedelta(days=7)
+        self.assertEqual(
+            room["terminal_at"], new_terminal_at.isoformat(timespec="seconds")
+        )
+        self.assertEqual(
+            room["auto_delete_at"], expected_deadline.isoformat(timespec="seconds")
+        )
+
+        FrozenDateTime.current = expected_deadline - timedelta(seconds=1)
         with patch.object(framework, "datetime", FrozenDateTime):
             fetched = framework.get_room(room["room_id"])
-
         self.assertEqual(fetched["status"], "finished")
-        self.assertTrue(self.room_exists(room["room_id"]))
 
-    def test_cancelled_preservation_does_not_resume_automatic_deletion(self):
-        room = self.terminal_room("kept")
-        framework.set_room_preserved(room["room_id"], "human-kept", True)
-        self.set_terminal_at(room["room_id"], FIXED_NOW - timedelta(days=30))
-
+        FrozenDateTime.current = expected_deadline
         with patch.object(framework, "datetime", FrozenDateTime):
-            kept = framework.list_human_rooms("human-kept")
+            self.assertEqual(framework.list_human_rooms("human-new-terminal"), [])
+        self.assertFalse(self.room_exists(room["room_id"]))
+
+    def test_rollout_cutoff_is_new_room_boundary(self):
+        just_before = (
+            framework.TERMINAL_RETENTION_ROLLOUT_CUTOFF
+            - timedelta(seconds=1)
+        )
+        at_cutoff = framework.TERMINAL_RETENTION_ROLLOUT_CUTOFF
+        self.assertTrue(framework.TERMINAL_AUTO_DELETE_ENABLED)
+        self.assertEqual(
+            at_cutoff.isoformat(timespec="seconds"),
+            "2026-08-31T00:00:00+08:00",
+        )
+        self.assertEqual(
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
+            "2026-09-07T00:00:00+08:00",
+        )
+        self.assertEqual(
+            framework._terminal_auto_delete_at(just_before.isoformat()),
+            LEGACY_GRACE_DEADLINE,
+        )
+        self.assertEqual(
+            framework._terminal_auto_delete_at(at_cutoff.isoformat()),
+            at_cutoff + timedelta(days=7),
+        )
+        self.assertEqual(
+            framework._terminal_auto_delete_at(
+                just_before.astimezone(timezone.utc).isoformat()
+            ),
+            LEGACY_GRACE_DEADLINE,
+        )
+        self.assertEqual(
+            framework._terminal_auto_delete_at(
+                at_cutoff.astimezone(timezone.utc).isoformat()
+            ),
+            at_cutoff.astimezone(timezone.utc) + timedelta(days=7),
+        )
+
+    def test_cancelled_preservation_restores_legacy_deadline(self):
+        room = self.terminal_room("kept")
+        original_terminal_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        self.set_terminal_at(room["room_id"], original_terminal_at)
+        framework.set_room_preserved(room["room_id"], "human-kept", True)
+
+        FrozenDateTime.current = (
+            LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+            - timedelta(days=1)
+        )
+        with patch.object(framework, "datetime", FrozenDateTime):
             cancelled = framework.set_room_preserved(
                 room["room_id"], "human-kept", False
             )
-            self.assertFalse(cancelled["preserved"])
-            framework.list_human_rooms("human-kept")
 
-        self.assertTrue(kept[0]["preserved"])
-        self.assertIsNone(kept[0]["auto_delete_at"])
-        self.assertTrue(self.room_exists(room["room_id"]))
         self.assertFalse(cancelled["preserved"])
+        self.assertEqual(
+            cancelled["auto_delete_at"],
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
+        )
+        self.assertEqual(
+            cancelled["terminal_at"],
+            original_terminal_at.isoformat(timespec="seconds"),
+        )
+        self.assertTrue(self.room_exists(room["room_id"]))
 
-    def test_expired_archived_room_is_not_automatically_deleted(self):
+        FrozenDateTime.current = LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+        with patch.object(framework, "datetime", FrozenDateTime):
+            self.assertEqual(framework.list_human_rooms("human-kept"), [])
+        self.assertFalse(self.room_exists(room["room_id"]))
+
+    def test_old_archived_room_uses_same_grace_boundary(self):
         room = framework.create_room(
             "gomoku", "human_first", "human", "human-archive",
             opponent_id="ai-archive",
@@ -202,23 +316,26 @@ class RetentionFrameworkTests(unittest.TestCase):
                 room["room_id"], "human", "human-archive"
             )
         self.assertEqual(archived["status"], "archived")
-        self.assertEqual(archived["terminal_at"], FIXED_NOW.isoformat(timespec="seconds"))
+        self.assertEqual(
+            archived["terminal_at"], FIXED_NOW.isoformat(timespec="seconds")
+        )
         self.assertEqual(
             archived["auto_delete_at"],
-            (FIXED_NOW + timedelta(days=7)).isoformat(timespec="seconds"),
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
         )
 
-        FrozenDateTime.current = FIXED_NOW + timedelta(days=7) - timedelta(seconds=1)
+        FrozenDateTime.current = (
+            LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
+            - timedelta(seconds=1)
+        )
         with patch.object(framework, "datetime", FrozenDateTime):
             self.assertEqual(
                 framework.get_room(room["room_id"])["status"], "archived"
             )
-        FrozenDateTime.current = FIXED_NOW + timedelta(days=7)
+        FrozenDateTime.current = LEGACY_GRACE_DEADLINE.astimezone(timezone.utc)
         with patch.object(framework, "datetime", FrozenDateTime):
-            self.assertEqual(
-                framework.get_room(room["room_id"])["status"], "archived"
-            )
-        self.assertTrue(self.room_exists(room["room_id"]))
+            self.assertEqual(framework.list_human_rooms("human-archive"), [])
+        self.assertFalse(self.room_exists(room["room_id"]))
 
 
 class RetentionApiTests(unittest.IsolatedAsyncioTestCase):
@@ -228,6 +345,9 @@ class RetentionApiTests(unittest.IsolatedAsyncioTestCase):
             database, "DB_PATH", Path(self.temporary.name) / "test.db"
         )
         self.db_patch.start()
+        FrozenDateTime.current = FIXED_NOW
+        self.datetime_patch = patch.object(framework, "datetime", FrozenDateTime)
+        self.datetime_patch.start()
         database.init_db()
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=main_module.app),
@@ -236,6 +356,7 @@ class RetentionApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.aclose()
+        self.datetime_patch.stop()
         self.db_patch.stop()
         self.temporary.cleanup()
 
@@ -284,6 +405,19 @@ class RetentionApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(preserved.status_code, 200, preserved.text)
         self.assertTrue(preserved.json()["room"]["preserved"])
         self.assertIsNone(preserved.json()["room"]["auto_delete_at"])
+
+        cancelled = await self.client.post(
+            f"/api/rooms/{terminal['room_id']}/retention",
+            headers=self.headers("human-owner"),
+            json={"preserved": False},
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertFalse(cancelled.json()["room"]["preserved"])
+        self.assertEqual(
+            cancelled.json()["room"]["auto_delete_at"],
+            LEGACY_GRACE_DEADLINE.isoformat(timespec="seconds"),
+        )
+        self.assertIn("已恢复自动删除", cancelled.json()["message"])
 
     async def test_manual_delete_checks_owner_status_and_cascades(self):
         terminal = self.new_room("delete")

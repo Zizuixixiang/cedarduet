@@ -21,10 +21,23 @@ let latestUnreadRevision = -1;
 let latestUnreadSummary = null;
 const pendingUnreadAcks = new Map();
 const deferredUnreadAcks = new Set();
+let notificationHistory = [];
+let notificationRefreshRequest = 0;
+let notificationHistoryError = "";
+let notificationModalOpenedManually = false;
+const pendingNotificationIdAcks = new Map();
+const automaticNotificationIds = new Set();
 
 const WAIT_HINT_STORAGE_PREFIX = "duel:wait-mode-hint";
 const WAIT_HINT_FOREVER = "forever";
 const UNREAD_SYNC_STORAGE_KEY = "duel:unread-sync";
+const ROOM_QUERY_PARAM = "room";
+const NOTIFICATION_CATEGORY_LABELS = Object.freeze({
+  game: "对局",
+  loan: "借款",
+  exchange: "兑换",
+  achievement: "成就",
+});
 const LEGACY_GAME_UI_TYPES = new Set([
   "tictactoe", "gomoku", "othello", "connect4",
   "dots_boxes", "liars_dice", "jungle", "xiangqi",
@@ -76,6 +89,32 @@ const XIANGQI_PALACE_LINES = new Map([
 
 function apiPath(path) {
   return window.location.pathname.startsWith("/duel") ? `/duel${path}` : path;
+}
+
+function roomIdFromLocation() {
+  const value = new URL(window.location.href).searchParams.get(ROOM_QUERY_PARAM);
+  return value ? value.trim() : "";
+}
+
+function writeRoomRoute(roomId, {mode = "push", backToLobby = false} = {}) {
+  const url = new URL(window.location.href);
+  const nextRoomId = String(roomId || "").trim();
+  if (nextRoomId) url.searchParams.set(ROOM_QUERY_PARAM, nextRoomId);
+  else url.searchParams.delete(ROOM_QUERY_PARAM);
+  const nextState = {
+    ...(window.history.state || {}),
+    duelView: nextRoomId ? "room" : "lobby",
+    duelRoomId: nextRoomId || null,
+    duelBackToLobby: Boolean(nextRoomId && backToLobby),
+  };
+  const method = mode === "replace" ? "replaceState" : "pushState";
+  window.history[method](nextState, "", url);
+}
+
+function ensureInitialRouteState() {
+  if (window.history.state && window.history.state.duelView) return;
+  const routeRoomId = roomIdFromLocation();
+  writeRoomRoute(routeRoomId, {mode: "replace", backToLobby: false});
 }
 
 async function request(path, options = {}) {
@@ -144,13 +183,155 @@ function publishUnreadChange() {
   }
 }
 
-async function refreshHumanUnreadState() {
-  if (document.hidden) return;
-  try {
-    await request("/api/notifications/unread");
-  } catch (_error) {
-    // A later focus, visibility change, or explicit visit retries the refresh.
+function notificationCategoryLabel(category) {
+  return NOTIFICATION_CATEGORY_LABELS[category] || "通知";
+}
+
+function formatNotificationTime(value) {
+  const parsed = new Date(value);
+  if (!value || Number.isNaN(parsed.getTime())) return String(value || "");
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function renderNotificationItems(items) {
+  const list = $("notificationList");
+  list.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "notification-empty";
+    empty.textContent = notificationHistoryError || "暂无通知";
+    list.appendChild(empty);
+    return;
   }
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = `notification-item${item.unread ? " unread" : ""}`;
+    article.dataset.notificationId = String(item.id);
+
+    const title = document.createElement("h3");
+    title.textContent = notificationCategoryLabel(item.category);
+    const meta = document.createElement("time");
+    meta.className = "notification-meta";
+    meta.dateTime = String(item.created_at || "");
+    meta.textContent = formatNotificationTime(item.created_at);
+    const summary = document.createElement("p");
+    summary.className = "notification-summary";
+    summary.textContent = String(item.summary || "");
+    article.append(title, meta, summary);
+    list.appendChild(article);
+  });
+}
+
+function showNotificationModal(items, automatic = false) {
+  notificationModalOpenedManually = !automatic;
+  $("notificationModalTitle").textContent = automatic ? "新对局通知" : "对局通知";
+  $("notificationModalHint").textContent = automatic
+    ? "以下通知仅自动展示一次，可随时点铃铛重新查看。"
+    : "打开列表后，当时未读的通知会标记为已读。";
+  renderNotificationItems(items);
+  $("notificationModal").classList.remove("hidden");
+  $("notificationModal").setAttribute("aria-hidden", "false");
+  $("closeNotificationModalButton").focus();
+}
+
+function closeNotificationModal() {
+  const wasOpen = !$("notificationModal").classList.contains("hidden");
+  $("notificationModal").classList.add("hidden");
+  $("notificationModal").setAttribute("aria-hidden", "true");
+  if (wasOpen && notificationModalOpenedManually) $("notificationBell").focus();
+  notificationModalOpenedManually = false;
+}
+
+async function markHumanNotificationIdsRead(notificationIds) {
+  const uniqueIds = [...new Set(notificationIds)]
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+    .sort((left, right) => left - right);
+  if (!identity || !uniqueIds.length) return false;
+  const ackKey = uniqueIds.join(",");
+  if (pendingNotificationIdAcks.has(ackKey)) {
+    return pendingNotificationIdAcks.get(ackKey);
+  }
+  const pending = (async () => {
+    try {
+      await request("/api/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({notification_ids: uniqueIds}),
+      });
+      const readIds = new Set(uniqueIds);
+      notificationHistory.forEach((item) => {
+        if (readIds.has(item.id)) item.unread = false;
+      });
+      publishUnreadChange();
+      return true;
+    } catch (error) {
+      toast(error.message || "通知已读状态保存失败");
+      return false;
+    } finally {
+      pendingNotificationIdAcks.delete(ackKey);
+    }
+  })();
+  pendingNotificationIdAcks.set(ackKey, pending);
+  return pending;
+}
+
+async function refreshHumanUnreadState({autoPopup = true} = {}) {
+  if (document.hidden || !identity) return false;
+  const requestId = ++notificationRefreshRequest;
+  try {
+    const data = await request("/api/notifications/unread");
+    const revision = Number(data.unread_revision);
+    if (
+      requestId !== notificationRefreshRequest
+      || (Number.isSafeInteger(revision) && revision < latestUnreadRevision)
+    ) return false;
+    notificationHistoryError = "";
+    notificationHistory = Array.isArray(data.notifications)
+      ? data.notifications.filter((item) => item && item.category === "game")
+      : [];
+    const unread = notificationHistory.filter((item) => (
+      item.unread
+      && Number.isSafeInteger(item.id)
+      && !automaticNotificationIds.has(item.id)
+    ));
+    if (autoPopup && unread.length) {
+      const ids = unread.map((item) => item.id);
+      ids.forEach((id) => automaticNotificationIds.add(id));
+      showNotificationModal(unread, true);
+      try {
+        await markHumanNotificationIdsRead(ids);
+      } finally {
+        ids.forEach((id) => automaticNotificationIds.delete(id));
+      }
+    }
+    return true;
+  } catch (_error) {
+    if (requestId === notificationRefreshRequest) {
+      notificationHistoryError = "通知加载失败，请稍后再试";
+    }
+    // A later focus, visibility change, or explicit visit retries the refresh.
+    return false;
+  }
+}
+
+async function openNotificationList() {
+  if (!identity) return;
+  const refreshed = await refreshHumanUnreadState({autoPopup: false});
+  if (!refreshed && !notificationHistory.length) {
+    toast(notificationHistoryError || "通知加载失败，请稍后再试");
+    return;
+  }
+  showNotificationModal(notificationHistory, false);
+  const unreadIds = notificationHistory
+    .filter((item) => item.unread)
+    .map((item) => item.id);
+  await markHumanNotificationIdsRead(unreadIds);
 }
 
 function unreadCount(summary, category) {
@@ -160,7 +341,7 @@ function unreadCount(summary, category) {
 function setUnreadBadge(elementId, count, label) {
   const badge = $(elementId);
   if (!badge) return;
-  badge.textContent = String(count);
+  badge.textContent = count > 99 ? "99+" : String(count);
   badge.classList.toggle("hidden", count <= 0);
   badge.setAttribute("aria-label", `${label}（未读${count}）`);
 }
@@ -170,8 +351,14 @@ function renderUnreadBadges(unread) {
   const chipCenter = unreadCount(unread, "loan")
     + unreadCount(unread, "exchange")
     + unreadCount(unread, "achievement");
-  setUnreadBadge("gameUnreadBadge", game, "对局");
+  setUnreadBadge("gameUnreadBadge", 0, "对局");
   setUnreadBadge("chipCenterUnreadBadge", chipCenter, "筹码中心");
+  setUnreadBadge("notificationUnreadBadge", game, "对局通知");
+  const bell = $("notificationBell");
+  if (bell) {
+    bell.disabled = !identity;
+    bell.setAttribute("aria-label", `对局通知（未读${game}）`);
+  }
 }
 
 async function ackHumanNotifications(category, referenceId = null) {
@@ -516,8 +703,9 @@ function relativeTime(value) {
 function retentionTextFor(targetRoom) {
   if (!isTerminal(targetRoom)) return "";
   if (targetRoom.preserved) return "已保留 · 不会自动删除";
+  if (!targetRoom.auto_delete_at) return "自动删除时间待确认";
   const deadline = new Date(targetRoom.auto_delete_at).getTime();
-  if (!Number.isFinite(deadline)) return "终局 7 天后自动删除";
+  if (!Number.isFinite(deadline)) return "自动删除时间待确认";
   const remaining = deadline - Date.now();
   if (remaining <= 0) return "即将自动删除";
   const days = Math.ceil(remaining / 86400000);
@@ -754,10 +942,11 @@ function renderPendingInvitations(invitations = [], outgoingRooms = []) {
     copy.className = "pending-copy";
     const title = document.createElement("strong");
     title.className = "pending-title";
-    title.textContent = `${invitation.initiator_name} 发起的${invitation.game_name}`;
+    title.textContent = `发起方：${invitation.initiator_name}`;
+    title.title = title.textContent;
     const meta = document.createElement("span");
     meta.className = "pending-meta";
-    meta.textContent = `发起方：${invitation.initiator_name} · 棋种：${invitation.game_name} · ${invitation.stake_label}`;
+    meta.textContent = `棋种：${invitation.game_name} · ${invitation.stake_label}`;
     copy.append(title, meta);
     const accept = document.createElement("button");
     accept.className = "pixel-btn";
@@ -803,6 +992,7 @@ async function respondToInvitation(roomId, decision) {
     });
     if (decision === "accept" && data.room) {
       renderGame(data.room, data.message, data.timeline);
+      writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true});
       await ackHumanNotifications("game", roomId);
       startRoomPolling();
       return;
@@ -837,24 +1027,25 @@ async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {
   }
 }
 
-function syncResultPreservationChoice(preserved, disabled = false) {
-  $("resultPreserveCheckbox").checked = Boolean(preserved);
+function syncResultPreservationChoice(targetRoom, disabled = false) {
+  const preserved = Boolean(targetRoom && targetRoom.preserved);
+  $("resultPreserveCheckbox").checked = preserved;
   $("resultPreserveCheckbox").disabled = disabled;
   $("resultRetentionHint").textContent = preserved
     ? "已保留，不会自动删除"
-    : "终局 7 天后自动删除";
+    : retentionTextFor(targetRoom);
 }
 
 async function changeResultPreservation() {
   const checkbox = $("resultPreserveCheckbox");
   if (!room || !isTerminal(room)) {
-    syncResultPreservationChoice(Boolean(room && room.preserved), true);
+    syncResultPreservationChoice(room, true);
     return;
   }
+  const previousRoom = room;
   const roomId = room.room_id;
-  const previousValue = Boolean(room.preserved);
   const requestedValue = checkbox.checked;
-  syncResultPreservationChoice(requestedValue, true);
+  syncResultPreservationChoice({...room, preserved: requestedValue}, true);
   $("resultModalMessage").textContent = "";
   const updated = await updateRoomPreservation(
     roomId,
@@ -864,10 +1055,8 @@ async function changeResultPreservation() {
   const sameTerminalRoom = Boolean(
     room && room.room_id === roomId && isTerminal(room)
   );
-  const authoritativeValue = updated && sameTerminalRoom
-    ? Boolean(room.preserved)
-    : previousValue;
-  syncResultPreservationChoice(authoritativeValue, !sameTerminalRoom);
+  const authoritativeRoom = updated && sameTerminalRoom ? room : previousRoom;
+  syncResultPreservationChoice(authoritativeRoom, !sameTerminalRoom);
   if (updated && sameTerminalRoom) {
     $("resultModalMessage").textContent = "";
   }
@@ -1397,12 +1586,15 @@ async function loadIdentity({quiet = false} = {}) {
     const data = await request("/api/whoami");
     if (!data.bound) {
       identity = null;
+      notificationHistory = [];
       room = null;
       stopPolling();
       $("pairLabel").textContent = "LOGIN REQUIRED";
+      renderUnreadBadges(null);
       showView("unboundView");
       return;
     }
+    const initialIdentityLoad = !identity;
     identity = data;
     syncUnreadStateToIdentity();
     await loadCatalogGameRenderers(data.games || []);
@@ -1420,14 +1612,18 @@ async function loadIdentity({quiet = false} = {}) {
     renderRooms(remainingRooms);
     if (!room) {
       showView("lobbyView");
-      if (!quiet) await ackHumanNotifications("game");
     }
     if (!quiet) showNotice("");
+    if (initialIdentityLoad) {
+      await refreshHumanUnreadState({autoPopup: true});
+    }
   } catch (error) {
     identity = null;
+    notificationHistory = [];
     room = null;
     stopPolling();
     $("pairLabel").textContent = "OFFLINE";
+    renderUnreadBadges(null);
     showView("unboundView");
     if (!quiet) toast(error.message);
   }
@@ -1462,6 +1658,7 @@ async function createRoom() {
       return;
     }
     renderGame(data.room, data.message, data.timeline);
+    writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true});
     startRoomPolling();
   } catch (error) {
     showNotice(error.message, true);
@@ -1470,18 +1667,39 @@ async function createRoom() {
   }
 }
 
-async function openRoom(roomId) {
+async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {}) {
   try {
     const data = await request(`/api/rooms/${roomId}`);
     renderGame(data.room, data.message, data.timeline);
+    if (historyMode === "push") {
+      writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true});
+    } else if (historyMode === "replace") {
+      writeRoomRoute(data.room.room_id, {mode: "replace", backToLobby: false});
+    }
     await ackHumanNotifications("game", roomId);
     if (!isTerminal(data.room)) startRoomPolling();
   } catch (error) {
+    if (routeRestore) {
+      room = null;
+      writeRoomRoute(null, {mode: "replace"});
+      await loadIdentity({quiet: true});
+      toast(error.message);
+      return;
+    }
     showNotice(error.message, true);
   }
 }
 
-async function backToLobby() {
+async function backToLobby({fromHistory = false} = {}) {
+  if (
+    !fromHistory
+    && window.history.state
+    && window.history.state.duelView === "room"
+    && window.history.state.duelBackToLobby
+  ) {
+    window.history.back();
+    return;
+  }
   room = null;
   selectedJungleCell = null;
   selectedXiangqiCell = null;
@@ -1490,9 +1708,10 @@ async function backToLobby() {
   stopPolling();
   hideWaitModeModal();
   closeHistory();
+  closeNotificationModal();
+  if (!fromHistory) writeRoomRoute(null, {mode: "replace"});
   showView("lobbyView");
   await loadIdentity({quiet: true});
-  await ackHumanNotifications("game");
 }
 
 function canHumanMove() {
@@ -3006,7 +3225,7 @@ function renderRetention(targetRoom) {
     ? "取消保留"
     : "保留此对局";
   $("togglePreserveButton").disabled = !terminal;
-  syncResultPreservationChoice(targetRoom.preserved, !terminal);
+  syncResultPreservationChoice(targetRoom, !terminal);
 }
 
 function renderRulesText(value) {
@@ -3311,12 +3530,17 @@ async function rematch() {
     if (data.room.status === "pending") {
       room = null;
       stopPolling();
+      writeRoomRoute(null, {mode: "replace"});
       showView("lobbyView");
       await loadIdentity({quiet: true});
       showNotice(data.message);
       return;
     }
     renderGame(data.room, data.message, data.timeline);
+    writeRoomRoute(data.room.room_id, {
+      mode: "replace",
+      backToLobby: Boolean(window.history.state && window.history.state.duelBackToLobby),
+    });
     startRoomPolling();
   } catch (error) {
     $("resultModalMessage").textContent = error.message;
@@ -3367,6 +3591,8 @@ $("gameType").addEventListener("change", configureParticipantPicker);
 $("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
+$("notificationBell").addEventListener("click", openNotificationList);
+$("closeNotificationModalButton").addEventListener("click", closeNotificationModal);
 $("backButton").addEventListener("click", backToLobby);
 $("refreshButton").addEventListener("click", () => refreshRoom());
 $("copyRoomButton").addEventListener("click", () => copyRoomNumber());
@@ -3386,6 +3612,9 @@ $("closeWaitModalForeverButton").addEventListener("click", () => {
 });
 $("waitModeModal").addEventListener("click", (event) => {
   if (event.target === $("waitModeModal")) hideWaitModeModal();
+});
+$("notificationModal").addEventListener("click", (event) => {
+  if (event.target === $("notificationModal")) closeNotificationModal();
 });
 document.addEventListener("click", (event) => {
   if (!eventStartedInsideMachinePicker(event)) closeMachineMultiPicker();
@@ -3414,24 +3643,47 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeMachineMultiPicker();
     hideWaitModeModal();
+    closeNotificationModal();
     closeRules();
     closeHistory();
   }
 });
 window.addEventListener("storage", (event) => {
-  if (event.key === UNREAD_SYNC_STORAGE_KEY) void refreshHumanUnreadState();
+  if (event.key === UNREAD_SYNC_STORAGE_KEY) {
+    void refreshHumanUnreadState({autoPopup: true});
+  }
 });
-window.addEventListener("focus", () => void refreshHumanUnreadState());
-window.addEventListener("pageshow", () => void refreshHumanUnreadState());
+window.addEventListener("focus", () => {
+  void refreshHumanUnreadState({autoPopup: true});
+});
+window.addEventListener("pageshow", () => {
+  void refreshHumanUnreadState({autoPopup: true});
+});
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
-  void refreshHumanUnreadState().then(() => {
+  void refreshHumanUnreadState({autoPopup: true}).then(() => {
     if (!identity || document.hidden || !deferredUnreadAcks.size) return;
     if (room) void refreshRoom();
     else void loadIdentity();
   });
 });
 
+window.addEventListener("popstate", () => {
+  const routeRoomId = roomIdFromLocation();
+  if (routeRoomId) {
+    void openRoom(routeRoomId, {historyMode: "none", routeRestore: true});
+  } else {
+    void backToLobby({fromHistory: true});
+  }
+});
+
 $("chipBalanceLink").href = apiPath("/chips");
 $("chipCenterLink").href = apiPath("/chips");
-loadIdentity();
+ensureInitialRouteState();
+void (async () => {
+  await loadIdentity();
+  const routeRoomId = roomIdFromLocation();
+  if (identity && routeRoomId) {
+    await openRoom(routeRoomId, {historyMode: "none", routeRestore: true});
+  }
+})();

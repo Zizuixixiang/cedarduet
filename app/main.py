@@ -79,10 +79,12 @@ from .models import (
 )
 from .notifications import (
     ack_explicit_achievement_unlocks,
+    ack_notification_ids_with_state,
     ack_notifications,
     ack_notifications_with_state,
     attach_mcp_unread,
     consume_notifications,
+    notification_inbox_state,
     unread_state,
 )
 from .npc_personas import PersonaConfigError, resolve_avatar_file, select_personas
@@ -1030,7 +1032,7 @@ async def human_unread_notifications(request: Request):
     human_player_id = trusted_human_player(request)
     return {
         "ok": True,
-        **unread_state("human", human_player_id),
+        **notification_inbox_state("human", human_player_id, limit=50),
     }
 
 
@@ -1039,6 +1041,17 @@ async def human_read_notifications(
     request: Request, body: NotificationAckBody
 ):
     human_player_id = trusted_human_player(request)
+    if body.notification_ids is not None:
+        count, notification_state = ack_notification_ids_with_state(
+            "human", human_player_id, body.notification_ids
+        )
+        return {
+            "ok": True,
+            "notification_ids": body.notification_ids,
+            "read": count,
+            **notification_state,
+        }
+    assert body.category is not None
     count, notification_state = ack_notifications_with_state(
         "human",
         human_player_id,
@@ -1373,7 +1386,7 @@ async def human_set_room_retention(
     message = (
         "已保留此对局，不再自动删除。"
         if room["preserved"]
-        else "已取消保留，此对局将在终局 7 天后自动删除。"
+        else "已取消保留，此对局已恢复自动删除。"
     )
     return human_response(room, message, human_player_id)
 

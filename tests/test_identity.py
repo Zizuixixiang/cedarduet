@@ -467,7 +467,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('id="skipPreserveButton"', html)
         self.assertIn("对局结束", html)
         self.assertIn("保留本局棋谱和聊天记录", html)
-        self.assertIn("终局 7 天后自动删除", html)
+        self.assertIn("自动删除时间加载中", html)
         self.assertIn('id="rematchButton"', html)
         self.assertIn('id="finishGameButton"', html)
         self.assertNotIn('class="timeline-panel', html)

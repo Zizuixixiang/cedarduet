@@ -191,6 +191,42 @@ def mark_notifications_read(
     return cursor.rowcount
 
 
+def mark_notification_ids_read(
+    conn: sqlite3.Connection,
+    subject_type: SubjectType,
+    subject_id: str,
+    notification_ids: list[int] | tuple[int, ...],
+    *,
+    read_at: str | None = None,
+) -> int:
+    """Read only the explicitly displayed rows owned by one subject."""
+    _validate_subject(subject_type, subject_id)
+    if not isinstance(notification_ids, (list, tuple)):
+        raise ValueError("notification_ids 必须是数组")
+    if len(notification_ids) > 100:
+        raise ValueError("notification_ids 最多 100 个")
+    if any(
+        isinstance(item, bool) or not isinstance(item, int) or item <= 0
+        for item in notification_ids
+    ):
+        raise ValueError("notification_ids 只能包含正整数")
+    ids = list(dict.fromkeys(notification_ids))
+    if not ids:
+        return 0
+    placeholders = ",".join("?" for _ in ids)
+    cursor = conn.execute(
+        f"""
+        UPDATE notifications SET read_at = ?
+        WHERE subject_type = ? AND subject_id = ? AND read_at IS NULL
+          AND id IN ({placeholders})
+        """,
+        (read_at or _now(), subject_type, subject_id, *ids),
+    )
+    if cursor.rowcount:
+        _bump_subject_revision(conn, subject_type, subject_id)
+    return cursor.rowcount
+
+
 def ack_notifications(
     subject_type: SubjectType,
     subject_id: str,
@@ -227,6 +263,19 @@ def ack_notifications_with_state(
             category,
             reference_id=reference_id,
             event_keys=event_keys,
+        )
+        return count, unread_state(subject_type, subject_id, conn=conn)
+
+
+def ack_notification_ids_with_state(
+    subject_type: SubjectType,
+    subject_id: str,
+    notification_ids: list[int] | tuple[int, ...],
+) -> tuple[int, dict]:
+    """Acknowledge exact notification IDs and return the resulting state."""
+    with write_transaction() as conn:
+        count = mark_notification_ids_read(
+            conn, subject_type, subject_id, notification_ids
         )
         return count, unread_state(subject_type, subject_id, conn=conn)
 
@@ -300,6 +349,70 @@ def unread_state(
         "unread": {"total": int(row["total"]), "categories": categories},
         "unread_revision": int(row["revision"]),
     }
+
+
+def notification_history(
+    subject_type: SubjectType,
+    subject_id: str,
+    *,
+    conn: sqlite3.Connection | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Return recent immutable notifications without acknowledging them."""
+    _validate_subject(subject_type, subject_id)
+    safe_limit = max(1, min(int(limit), 100))
+    owns_connection = conn is None
+    if conn is None:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, category, event_type, reference_id, summary,
+                   created_at, read_at
+            FROM notifications
+            WHERE subject_type = ? AND subject_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (subject_type, subject_id, safe_limit),
+        ).fetchall()
+    finally:
+        if owns_connection:
+            conn.close()
+    return [
+        {
+            "id": int(row["id"]),
+            "category": row["category"],
+            "event_type": row["event_type"],
+            "reference_id": row["reference_id"],
+            "summary": row["summary"],
+            "created_at": row["created_at"],
+            "unread": row["read_at"] is None,
+        }
+        for row in rows
+    ]
+
+
+def notification_inbox_state(
+    subject_type: SubjectType,
+    subject_id: str,
+    *,
+    limit: int = 50,
+) -> dict:
+    """Return counts, revision, and recent history from one read snapshot."""
+    _validate_subject(subject_type, subject_id)
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        state = unread_state(subject_type, subject_id, conn=conn)
+        state["notifications"] = notification_history(
+            subject_type, subject_id, conn=conn, limit=limit
+        )
+        return state
+    finally:
+        if conn.in_transaction:
+            conn.rollback()
+        conn.close()
 
 
 def consume_notifications(

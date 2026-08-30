@@ -459,6 +459,27 @@ const window = {DuelGameUI: {
 
 
 class FrontendBoardVisualTests(unittest.TestCase):
+    def test_room_route_survives_refresh_and_browser_back_returns_to_duel_lobby(self):
+        room_route = function_source("writeRoomRoute")
+        open_room = function_source("openRoom")
+        back_lobby = function_source("backToLobby")
+        self.assertIn('url.searchParams.set(ROOM_QUERY_PARAM, nextRoomId)', room_route)
+        self.assertIn('window.history[method](nextState, "", url)', room_route)
+        self.assertIn('duelBackToLobby: Boolean(nextRoomId && backToLobby)', room_route)
+        self.assertIn('writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true})', open_room)
+        self.assertIn('window.history.back()', back_lobby)
+        self.assertIn('window.addEventListener("popstate"', SCRIPT)
+        self.assertIn('await openRoom(routeRoomId, {historyMode: "none", routeRestore: true})', SCRIPT)
+        self.assertIn('ensureInitialRouteState();', SCRIPT)
+
+    def test_only_generic_multiplayer_chat_gets_two_extra_lines(self):
+        selector = '.multiplayer-presentation[data-participant-presentation="generic"] .recent-chat-feed'
+        self.assertIn(f'{selector} {{\n  height: 128px;', STYLES)
+        mobile = STYLES[STYLES.index('@media (max-width: 599px)'):]
+        self.assertIn(f'{selector} {{ height: 120px; }}', mobile)
+        self.assertIn('.recent-chat-feed {\n  height: 96px;', STYLES)
+        self.assertNotIn('[data-participant-presentation="board-edge"] .recent-chat-feed', STYLES)
+
     def test_only_tictactoe_renders_raw_marks_as_text(self):
         board_cell = function_source("boardCell")
         self.assertIn(
@@ -1883,6 +1904,7 @@ assert.match(pendingRoomCreatedNotice(null), /^房间创建成功。等待参与
 const assert = require("node:assert/strict");
 {helpers}
 let room = {{room_id: "old-room"}};
+const identity = {{human_player_id: "human-1"}};
 let loadIdentityOptions = null;
 let shownNotice = null;
 let renderGameCalled = false;

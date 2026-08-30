@@ -1,7 +1,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictBody(BaseModel):
@@ -112,8 +112,36 @@ class InvitationDecisionBody(StrictBody):
 
 
 class NotificationAckBody(StrictBody):
-    category: Literal["game", "loan", "exchange", "achievement"]
+    category: Literal["game", "loan", "exchange", "achievement"] | None = None
     reference_id: str | None = Field(default=None, min_length=1, max_length=128)
+    notification_ids: list[int] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
+
+    @field_validator("notification_ids", mode="before")
+    @classmethod
+    def require_positive_integer_notification_ids(cls, value):
+        if value is None:
+            return value
+        if not isinstance(value, list):
+            raise ValueError("notification_ids 必须是数组")
+        if any(
+            isinstance(item, bool) or not isinstance(item, int) or item <= 0
+            for item in value
+        ):
+            raise ValueError("notification_ids 只能包含正整数")
+        return value
+
+    @model_validator(mode="after")
+    def require_one_ack_mode(self):
+        if self.notification_ids is not None:
+            if self.category is not None or self.reference_id is not None:
+                raise ValueError(
+                    "notification_ids 与 category/reference_id 不能同时使用"
+                )
+        elif self.category is None:
+            raise ValueError("必须提供 notification_ids 或 category")
+        return self
 
 
 class LoanTermsBody(StrictBody):

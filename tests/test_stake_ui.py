@@ -339,6 +339,12 @@ assert.equal(machinePickerSummary([]), "请选择对手");
         self.assertIn("renderPendingInvitations(invitations, outgoing)", loader)
         self.assertIn("renderRooms(remainingRooms)", loader)
         self.assertIn(".pending-card-outgoing {", STYLES)
+        incoming_card = STYLES[
+            STYLES.index(".pending-card-incoming .pending-title,"):
+            STYLES.index(".pending-card .pixel-btn")
+        ]
+        for rule in ("overflow: hidden", "text-overflow: ellipsis", "white-space: nowrap"):
+            self.assertIn(rule, incoming_card)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn(".pending-card-outgoing { grid-template-columns: 1fr; }", mobile)
 
@@ -436,6 +442,8 @@ const [incomingGroup, outgoingGroup] = list.children;
 assert.equal(incomingGroup.children[0].textContent, "待你确认");
 assert.equal(outgoingGroup.children[0].textContent, "等待对方确认");
 const incomingCard = incomingGroup.children[1].children[0];
+assert.equal(incomingCard.children[0].children[0].textContent, "发起方：杉星");
+assert.equal(incomingCard.children[0].children[1].textContent, "棋种：五子棋 · 🪙6/人");
 assert.equal(incomingCard.children[1].textContent, "接受");
 assert.equal(incomingCard.children[2].textContent, "拒绝");
 incomingCard.children[1].click();

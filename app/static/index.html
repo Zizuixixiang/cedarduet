@@ -23,6 +23,14 @@
       <div class="top-actions">
         <span class="service-badge">DUEL / 双弈</span>
         <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
+        <button id="notificationBell" class="notification-bell" type="button"
+                aria-label="对局通知（未读0）" title="对局通知" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 2h6v2h2v2h2v8h2v4H3v-4h2V6h2V4h2V2zm-2 6v6h10V8h-2V6H9v2H7zm2 12h6v2H9v-2z"></path>
+          </svg>
+          <span id="notificationUnreadBadge" class="unread-badge hidden"
+                aria-label="通知未读数量">0</span>
+        </button>
         <div class="chip-wallet-actions" aria-label="我的筹码入口">
           <a id="chipBalanceLink" class="chip-balance-link" href="/chips"
              aria-label="我的筹码，进入筹码中心">
@@ -31,7 +39,7 @@
                     aria-label="当前人类筹码余额">—</strong>
           </a>
           <a id="chipCenterLink" class="chip-center-button" href="/chips">
-            筹码中心<span id="chipCenterUnreadBadge" class="unread-badge hidden"
+            <span class="chip-center-label">筹码中心</span><span id="chipCenterUnreadBadge" class="unread-badge hidden"
               aria-label="筹码中心未读数量">0</span>
           </a>
         </div>
@@ -163,8 +171,7 @@
             <div class="section-head">
               <div>
                 <span class="tag">ROOM LOG</span>
-                <h2>我的全部房间 <span id="gameUnreadBadge" class="unread-badge hidden"
-                  aria-label="对局未读数量">0</span></h2>
+                <h2>我的全部房间</h2>
               </div>
               <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
             </div>
@@ -227,7 +234,7 @@
           <span>GAME RESULT</span>
           <div class="result-banner-copy">
             <strong id="resultBannerText">对局结束</strong>
-            <small id="roomRetentionStatus">7 天后自动删除</small>
+            <small id="roomRetentionStatus">自动删除时间加载中</small>
           </div>
           <button id="togglePreserveButton" class="pixel-btn secondary compact" type="button">保留此对局</button>
         </section>
@@ -370,7 +377,7 @@
                aria-describedby="resultRetentionHint resultModalMessage">
         <span class="result-preserve-copy">
           <strong>保留本局棋谱和聊天记录</strong>
-          <small id="resultRetentionHint">终局 7 天后自动删除</small>
+          <small id="resultRetentionHint">自动删除时间加载中</small>
         </span>
       </label>
       <p id="resultModalMessage" class="result-modal-message"
@@ -379,6 +386,24 @@
         <button id="rematchButton" class="pixel-btn" type="button">再来一局</button>
         <button id="finishGameButton" class="pixel-btn secondary" type="button">结束对局</button>
       </div>
+    </section>
+  </div>
+
+  <div id="notificationModal" class="notification-modal-backdrop hidden"
+       role="dialog" aria-modal="true" aria-labelledby="notificationModalTitle"
+       aria-describedby="notificationModalHint" aria-hidden="true">
+    <section class="notification-modal pixel-card">
+      <div class="notification-modal-head">
+        <div>
+          <span class="tag pink">NOTICES</span>
+          <h2 id="notificationModalTitle">对局通知</h2>
+        </div>
+        <button id="closeNotificationModalButton"
+                class="notification-modal-close" type="button"
+                aria-label="关闭对局通知">×</button>
+      </div>
+      <p id="notificationModalHint" class="notification-modal-hint"></p>
+      <div id="notificationList" class="notification-list" aria-live="polite"></div>
     </section>
   </div>
 
