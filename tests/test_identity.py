@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,6 +41,53 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             payload["message"], "请从 toy.cedarstar.org 首页登录进入"
         )
+
+    async def test_standalone_local_mode_exposes_pair_and_web_ai_can_play(self):
+        with patch.dict(
+            os.environ,
+            {
+                "DUEL_STANDALONE_LOCAL": "1",
+                "DUEL_LOCAL_HUMAN_ID": "local-human",
+                "DUEL_LOCAL_HUMAN_NAME": "本地玩家",
+                "DUEL_LOCAL_AI_ID": "local-ai",
+                "DUEL_LOCAL_AI_NAME": "本地小机",
+            },
+            clear=False,
+        ):
+            identity = await self.client.get("/api/whoami")
+            self.assertEqual(identity.status_code, 200, identity.text)
+            payload = identity.json()
+            self.assertTrue(payload["bound"])
+            self.assertTrue(payload["standalone_local"])
+            self.assertEqual(payload["human_player_id"], "local-human")
+            self.assertEqual(payload["human_name"], "本地玩家")
+            self.assertEqual(
+                payload["machines"],
+                [{"id": "local-ai", "name": "本地小机"}],
+            )
+
+            created = await self.client.post(
+                "/api/rooms",
+                json={
+                    "player_id": "local-human",
+                    "ai_player": "local-ai",
+                    "game_type": "tictactoe",
+                    "mode": "human_first",
+                    "stake": 0,
+                },
+            )
+            self.assertEqual(created.status_code, 200, created.text)
+            room_id = created.json()["room"]["room_id"]
+
+            ai_rooms = await self.client.post(
+                "/mcp/play",
+                json={"action": "rooms", "player_id": "local-ai"},
+            )
+            self.assertEqual(ai_rooms.status_code, 200, ai_rooms.text)
+            self.assertIn(
+                room_id,
+                [room["room_id"] for room in ai_rooms.json()["rooms"]],
+            )
 
     async def test_legacy_single_machine_headers_work_until_proxy_restart(self):
         response = await self.client.get(
@@ -373,6 +421,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('id="joinButton"', html)
         self.assertIn('id="aiPlayer"', html)
         self.assertIn('id="createButton"', html)
+        app_js = (Path(__file__).resolve().parents[1] / "app/static/app.js").read_text(encoding="utf-8")
+        self.assertIn("player_id: identity.human_player_id", app_js)
         self.assertIn('type="button" disabled', html)
         self.assertNotIn('class="bottom-nav"', html)
         self.assertIn(

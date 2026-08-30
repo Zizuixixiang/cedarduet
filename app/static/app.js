@@ -1446,6 +1446,7 @@ async function createRoom() {
     const data = await request("/api/rooms", {
       method: "POST",
       body: JSON.stringify({
+        player_id: identity.human_player_id,
         ai_player: aiPlayer,
         ai_players: participantIds,
         game_type: $("gameType").value,
