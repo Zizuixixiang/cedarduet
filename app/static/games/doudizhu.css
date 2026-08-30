@@ -445,7 +445,9 @@ button.doudizhu-card.selected {
 
 button.doudizhu-card:disabled {
   cursor: default;
-  opacity: .72;
+  opacity: 1;
+  filter: none;
+  -webkit-text-fill-color: currentColor;
 }
 
 button.doudizhu-card:focus-visible,
@@ -592,55 +594,55 @@ button.doudizhu-card:focus-visible,
 
 @media (max-width: 599px) {
   .doudizhu-game {
-    gap: 5px;
+    gap: 4px;
   }
 
   .doudizhu-topbar {
-    gap: 5px;
+    gap: 4px;
     padding: 0 2px;
   }
 
   .doudizhu-title {
-    gap: 5px;
+    gap: 4px;
   }
 
   .doudizhu-title-mark {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .doudizhu-metric {
-    min-height: 26px;
-    padding: 3px 7px;
+    min-height: 24px;
+    padding: 2px 6px;
   }
 
   .doudizhu-table-shell {
     grid-template-rows: auto auto auto;
-    gap: 6px;
-    padding: 8px 6px 7px;
-    border-width: 5px;
-    border-radius: 20px;
+    gap: 4px;
+    padding: 6px 5px 5px;
+    border-width: 4px;
+    border-radius: 18px;
   }
 
   .doudizhu-table-shell::before {
-    inset: 5px;
+    inset: 4px;
   }
 
   .doudizhu-opponents {
-    gap: 5px;
+    gap: 4px;
   }
 
   .doudizhu-seat {
-    gap: 5px;
-    padding: 4px 5px;
-    border-radius: 10px;
+    gap: 4px;
+    padding: 3px 4px;
+    border-radius: 9px;
   }
 
   .doudizhu-avatar {
-    width: 32px;
-    height: 32px;
+    width: 29px;
+    height: 29px;
   }
 
   .doudizhu-seat-copy {
@@ -650,11 +652,11 @@ button.doudizhu-card:focus-visible,
   .doudizhu-center {
     align-self: auto;
     align-content: start;
-    gap: 4px;
+    gap: 3px;
   }
 
   .doudizhu-bottom {
-    gap: 4px;
+    gap: 3px;
   }
 
   .doudizhu-bottom-label {
@@ -675,81 +677,81 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-trick {
-    gap: 3px;
+    gap: 2px;
   }
 
   .doudizhu-trick-heading {
-    gap: 5px;
+    gap: 4px;
   }
 
   .doudizhu-trick-heading strong {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .doudizhu-trick-heading span {
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .doudizhu-trick-cards {
-    min-height: 68px;
-    padding: 2px 8px;
+    min-height: 60px;
+    padding: 1px 6px;
   }
 
   .doudizhu-trick-cards .doudizhu-card {
-    width: 44px;
-    min-width: 44px;
-    height: 66px;
-    min-height: 66px;
+    width: 40px;
+    min-width: 40px;
+    height: 60px;
+    min-height: 60px;
   }
 
   .doudizhu-trick-cards .doudizhu-card + .doudizhu-card {
-    margin-left: -20px;
+    margin-left: -18px;
   }
 
   .doudizhu-empty-trick {
-    min-height: 48px;
-    padding: 6px 13px;
+    min-height: 40px;
+    padding: 4px 10px;
   }
 
   .doudizhu-pass-line {
-    min-height: 18px;
+    min-height: 15px;
   }
 
   .doudizhu-pass-chip,
   .doudizhu-no-pass {
-    padding: 1px 5px;
-    font-size: 10px;
+    padding: 0 4px;
+    font-size: 9px;
   }
 
   .doudizhu-hand-zone {
-    gap: 3px;
-    padding-top: 5px;
+    gap: 2px;
+    padding-top: 3px;
   }
 
   .doudizhu-hand-label {
-    padding-inline: 2px;
-    font-size: 11px;
+    padding-inline: 1px;
+    font-size: 10px;
   }
 
   .doudizhu-hand-scroll {
-    min-height: 100px;
-    padding: 14px 5px 5px;
+    min-height: 88px;
+    padding: 11px 4px 4px;
   }
 
   .doudizhu-card {
-    width: 52px;
-    min-width: 52px;
-    height: 78px;
-    min-height: 78px;
+    width: 49px;
+    min-width: 49px;
+    height: 73px;
+    min-height: 73px;
   }
 
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
-    margin-left: -18px;
+    margin-left: -17px;
   }
 
   button.doudizhu-card:hover:not(:disabled),
   button.doudizhu-card.selected {
-    transform: translateY(-8px);
+    transform: translateY(-7px);
   }
 
   .doudizhu-controls,
@@ -786,33 +788,59 @@ button.doudizhu-card:focus-visible,
 
 @media (max-width: 375px) {
   .doudizhu-metric {
-    padding-inline: 6px;
+    padding-inline: 5px;
+  }
+
+  .doudizhu-table-shell {
+    gap: 3px;
+    padding: 5px 4px 4px;
   }
 
   .doudizhu-seat {
-    gap: 5px;
-    padding: 6px 5px;
+    gap: 3px;
+    padding: 2px 3px;
   }
 
   .doudizhu-avatar {
-    width: 33px;
-    height: 33px;
+    width: 27px;
+    height: 27px;
+  }
+
+  .doudizhu-center {
+    gap: 2px;
+  }
+
+  .doudizhu-trick-cards {
+    min-height: 57px;
+    padding: 1px 5px;
+  }
+
+  .doudizhu-trick-cards .doudizhu-card {
+    width: 38px;
+    min-width: 38px;
+    height: 57px;
+    min-height: 57px;
+  }
+
+  .doudizhu-empty-trick {
+    min-height: 38px;
   }
 
   .doudizhu-hand-scroll {
     max-width: 100%;
-    padding-inline: 6px;
+    min-height: 84px;
+    padding: 10px 4px 3px;
   }
 
   .doudizhu-card {
-    width: 50px;
-    min-width: 50px;
-    height: 76px;
-    min-height: 76px;
+    width: 46px;
+    min-width: 46px;
+    height: 70px;
+    min-height: 70px;
   }
 
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
-    margin-left: -18px;
+    margin-left: -16px;
   }
 }
 
@@ -823,8 +851,63 @@ button.doudizhu-card:focus-visible,
     display: none;
   }
 
+  .doudizhu-title-mark {
+    width: 26px;
+    height: 26px;
+  }
+
+  .doudizhu-table-shell {
+    padding: 4px 3px;
+  }
+
+  .doudizhu-seat {
+    padding: 2px;
+  }
+
+  .doudizhu-avatar {
+    width: 25px;
+    height: 25px;
+  }
+
+  .doudizhu-bottom-cards {
+    min-height: 37px;
+    gap: 2px;
+  }
+
+  .doudizhu-bottom-cards .doudizhu-card,
+  .doudizhu-bottom-cards .doudizhu-card-back {
+    width: 26px;
+    min-width: 26px;
+    height: 37px;
+    min-height: 37px;
+  }
+
   .doudizhu-trick-cards {
-    padding-inline: 7px;
+    min-height: 54px;
+    padding-inline: 4px;
+  }
+
+  .doudizhu-trick-cards .doudizhu-card {
+    width: 36px;
+    min-width: 36px;
+    height: 54px;
+    min-height: 54px;
+  }
+
+  .doudizhu-hand-scroll {
+    min-height: 80px;
+    padding: 9px 3px 3px;
+  }
+
+  .doudizhu-card {
+    width: 44px;
+    min-width: 44px;
+    height: 67px;
+    min-height: 67px;
+  }
+
+  .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
+    margin-left: -15px;
   }
 }
 

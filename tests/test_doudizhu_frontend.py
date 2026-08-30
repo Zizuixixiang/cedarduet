@@ -23,7 +23,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "function renderControls(context)",
             "usesStandardMoveConfirmation: false",
             "ownsPrivateStatePresentation: true",
-            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.1";',
+            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.2";',
             'link.dataset.duelGameStyle = "doudizhu";',
         ):
             self.assertIn(expected, SCRIPT)
@@ -82,6 +82,60 @@ class DoudizhuFrontendTests(unittest.TestCase):
         ]
         self.assertNotIn("aspect-ratio: var(", board_rule)
         self.assertNotIn("overflow: hidden", board_rule)
+
+    def test_disabled_private_cards_stay_fully_legible(self):
+        disabled_rule = STYLES[
+            STYLES.index("button.doudizhu-card:disabled {"):
+            STYLES.index("}", STYLES.index("button.doudizhu-card:disabled {"))
+        ]
+        self.assertIn("cursor: default;", disabled_rule)
+        self.assertIn("opacity: 1;", disabled_rule)
+        self.assertIn("filter: none;", disabled_rule)
+        self.assertNotIn("opacity: .72;", STYLES)
+
+    def test_mobile_table_is_compact_without_clipping_private_or_bottom_cards(self):
+        mobile = STYLES[
+            STYLES.index("@media (max-width: 599px)"):
+            STYLES.index("@media (max-width: 375px)")
+        ]
+        narrow = STYLES[
+            STYLES.index("@media (max-width: 375px)"):
+            STYLES.index("@media (max-width: 320px)")
+        ]
+        smallest = STYLES[
+            STYLES.index("@media (max-width: 320px)"):
+            STYLES.index("@media (prefers-reduced-motion: reduce)")
+        ]
+        for expected in (
+            "gap: 4px;",
+            "padding: 6px 5px 5px;",
+            "width: 29px;",
+            "min-height: 60px;",
+            "min-height: 88px;",
+            "height: 73px;",
+        ):
+            self.assertIn(expected, mobile)
+        for expected in (
+            "gap: 3px;",
+            "padding: 5px 4px 4px;",
+            "width: 27px;",
+            "min-height: 57px;",
+            "min-height: 84px;",
+            "height: 70px;",
+        ):
+            self.assertIn(expected, narrow)
+        for expected in (
+            "width: 25px;",
+            "min-height: 37px;",
+            "width: 26px;",
+            "min-height: 54px;",
+            "min-height: 80px;",
+            "height: 67px;",
+        ):
+            self.assertIn(expected, smallest)
+        self.assertIn("overflow-x: auto;", STYLES)
+        self.assertIn("overflow-y: hidden;", STYLES)
+        self.assertNotIn("max-height:", mobile + narrow + smallest)
 
     def test_bottom_cards_are_three_complete_non_overlapping_cards(self):
         bottom_styles = STYLES[
@@ -308,7 +362,7 @@ assert.deepEqual(
   revealedBottom.children.map((node) => node.dataset.cardId),
   bottomCards.map((card) => card.id)
 );
-assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.1");
+assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.2");
 ''')
 
     def test_bid_option_only_selects_then_confirmation_submits_once(self):

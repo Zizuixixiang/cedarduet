@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.2";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
