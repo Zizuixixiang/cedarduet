@@ -384,7 +384,20 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   justify-content: space-between;
   gap: 16px;
 }
+.lobby-title-row {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
 .lobby-header h1 { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); }
+.lobby-notification-bell {
+  width: 34px;
+  height: 32px;
+  min-width: 34px;
+  border-color: var(--purple);
+}
+.lobby-notification-bell svg { width: 20px; height: 20px; }
 .hero-pair { color: var(--pink-dark); font-size: 13px; line-height: 1.5; text-align: right; }
 .hero-art {
   width: min(360px, 38vw);
@@ -3363,13 +3376,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .pair-label { display: none; }
   .top-actions { flex: 1 1 auto; gap: 5px; }
   .chip-wallet-actions { gap: 4px; flex-wrap: nowrap; }
-  .notification-bell {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
+  .lobby-notification-bell {
+    width: 32px;
+    height: 30px;
+    min-width: 32px;
     border-width: 2px;
   }
-  .notification-bell svg { width: 21px; height: 21px; }
+  .lobby-notification-bell svg { width: 19px; height: 19px; }
   .chip-balance-link,
   .chip-center-button { height: 34px; min-height: 34px; }
   .chip-balance-link {

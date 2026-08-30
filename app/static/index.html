@@ -23,14 +23,6 @@
       <div class="top-actions">
         <span class="service-badge">DUEL / 双弈</span>
         <span id="pairLabel" class="pair-label">IDENTITY CHECK...</span>
-        <button id="notificationBell" class="notification-bell" type="button"
-                aria-label="对局通知（未读0）" title="对局通知" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 2h6v2h2v2h2v8h2v4H3v-4h2V6h2V4h2V2zm-2 6v6h10V8h-2V6H9v2H7zm2 12h6v2H9v-2z"></path>
-          </svg>
-          <span id="notificationUnreadBadge" class="unread-badge hidden"
-                aria-label="通知未读数量">0</span>
-        </button>
         <div class="chip-wallet-actions" aria-label="我的筹码入口">
           <a id="chipBalanceLink" class="chip-balance-link" href="/chips"
              aria-label="我的筹码，进入筹码中心">
@@ -64,8 +56,16 @@
 
       <section id="lobbyView" class="lobby-view hidden">
         <div class="lobby-header">
-          <div>
+          <div class="lobby-title-row">
             <h1>双弈</h1>
+            <button id="notificationBell" class="notification-bell lobby-notification-bell" type="button"
+                    aria-label="对局通知（未读0）" title="对局通知" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 2h6v2h2v2h2v8h2v4H3v-4h2V6h2V4h2V2zm-2 6v6h10V8h-2V6H9v2H7zm2 12h6v2H9v-2z"></path>
+              </svg>
+              <span id="notificationUnreadBadge" class="unread-badge hidden"
+                    aria-label="通知未读数量">0</span>
+            </button>
           </div>
           <p id="heroPair" class="hero-pair">正在读取你的小机清单</p>
         </div>

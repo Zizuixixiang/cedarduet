@@ -866,6 +866,17 @@ class NotificationFrontendTests(unittest.TestCase):
         ):
             self.assertIn(f'id="{element_id}"', index)
         self.assertNotIn('id="gameUnreadBadge"', index)
+        top_actions = index[
+            index.index('<div class="top-actions">'):
+            index.index('</header>')
+        ]
+        self.assertNotIn('id="notificationBell"', top_actions)
+        lobby_title = index[
+            index.index('<div class="lobby-title-row">'):
+            index.index('</div>', index.index('<div class="lobby-title-row">'))
+        ]
+        self.assertIn('<h1>双弈</h1>', lobby_title)
+        self.assertIn('id="notificationBell"', lobby_title)
         for element_id in (
             "loanUnreadBadge", "exchangeUnreadBadge", "achievementUnreadBadge"
         ):
