@@ -2,9 +2,11 @@
   width: min(100%, 900px);
   max-width: 100%;
   min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
   display: block;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -264,20 +266,17 @@
   min-height: 45px;
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
 .doudizhu-bottom-cards .doudizhu-card,
 .doudizhu-bottom-cards .doudizhu-card-back {
   width: 31px;
+  min-width: 31px;
   height: 43px;
   min-height: 43px;
-  margin-left: -5px;
+  margin: 0;
   font-size: 9px;
-}
-
-.doudizhu-bottom-cards .doudizhu-card:first-child,
-.doudizhu-bottom-cards .doudizhu-card-back:first-child {
-  margin-left: 0;
 }
 
 .doudizhu-bottom-cards .doudizhu-card-center {
@@ -319,6 +318,13 @@
   justify-content: center;
   padding: 4px 18px;
   overflow: hidden;
+}
+
+.doudizhu-trick-cards .doudizhu-card {
+  width: clamp(48px, 8vw, 62px);
+  min-width: clamp(48px, 8vw, 62px);
+  height: clamp(72px, 12vw, 92px);
+  min-height: 72px;
 }
 
 .doudizhu-trick-cards .doudizhu-card + .doudizhu-card {
@@ -367,6 +373,9 @@
   z-index: 2;
   display: grid;
   gap: 4px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255,255,255,.22);
+  background: linear-gradient(180deg, rgba(2,35,29,.18), transparent 32px);
 }
 
 .doudizhu-hand-label {
@@ -540,10 +549,39 @@ button.doudizhu-card:focus-visible,
 }
 
 .doudizhu-play-button,
-.doudizhu-bid-button:not(:first-child) {
+.doudizhu-bid-button:not(:first-child),
+.doudizhu-bid-confirm-button {
   color: #fff8e8 !important;
   border-color: #8c252e !important;
   background: linear-gradient(145deg, #c33b46, #92262f) !important;
+}
+
+.doudizhu-bid-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.doudizhu-bid-options .doudizhu-bid-button {
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 8px;
+}
+
+.doudizhu-bid-button.selected {
+  color: #513805 !important;
+  border-color: #c3942d !important;
+  background: #ffe49c !important;
+  box-shadow: 0 0 0 2px rgba(196,146,45,.25);
+}
+
+.doudizhu-bid-confirm {
+  gap: 6px;
+}
+
+.doudizhu-bid-confirm button {
+  min-height: 40px;
+  padding-block: 7px;
 }
 
 .doudizhu-pattern-choice.selected {
@@ -552,14 +590,201 @@ button.doudizhu-card:focus-visible,
   box-shadow: 0 0 0 2px rgba(196,146,45,.2);
 }
 
-@media (max-width: 375px) {
+@media (max-width: 599px) {
+  .doudizhu-game {
+    gap: 5px;
+  }
+
+  .doudizhu-topbar {
+    gap: 5px;
+    padding: 0 2px;
+  }
+
+  .doudizhu-title {
+    gap: 5px;
+  }
+
+  .doudizhu-title-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 18px;
+  }
+
+  .doudizhu-metric {
+    min-height: 26px;
+    padding: 3px 7px;
+  }
+
   .doudizhu-table-shell {
-    grid-template-rows: auto minmax(184px, auto) auto;
-    padding-inline: 6px;
+    grid-template-rows: auto auto auto;
+    gap: 6px;
+    padding: 8px 6px 7px;
     border-width: 5px;
     border-radius: 20px;
   }
 
+  .doudizhu-table-shell::before {
+    inset: 5px;
+  }
+
+  .doudizhu-opponents {
+    gap: 5px;
+  }
+
+  .doudizhu-seat {
+    gap: 5px;
+    padding: 4px 5px;
+    border-radius: 10px;
+  }
+
+  .doudizhu-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .doudizhu-seat-copy {
+    gap: 1px;
+  }
+
+  .doudizhu-center {
+    align-self: auto;
+    align-content: start;
+    gap: 4px;
+  }
+
+  .doudizhu-bottom {
+    gap: 4px;
+  }
+
+  .doudizhu-bottom-label {
+    font-size: 10px;
+  }
+
+  .doudizhu-bottom-cards {
+    min-height: 39px;
+    gap: 3px;
+  }
+
+  .doudizhu-bottom-cards .doudizhu-card,
+  .doudizhu-bottom-cards .doudizhu-card-back {
+    width: 28px;
+    min-width: 28px;
+    height: 39px;
+    min-height: 39px;
+  }
+
+  .doudizhu-trick {
+    gap: 3px;
+  }
+
+  .doudizhu-trick-heading {
+    gap: 5px;
+  }
+
+  .doudizhu-trick-heading strong {
+    font-size: 15px;
+  }
+
+  .doudizhu-trick-heading span {
+    font-size: 10px;
+  }
+
+  .doudizhu-trick-cards {
+    min-height: 68px;
+    padding: 2px 8px;
+  }
+
+  .doudizhu-trick-cards .doudizhu-card {
+    width: 44px;
+    min-width: 44px;
+    height: 66px;
+    min-height: 66px;
+  }
+
+  .doudizhu-trick-cards .doudizhu-card + .doudizhu-card {
+    margin-left: -20px;
+  }
+
+  .doudizhu-empty-trick {
+    min-height: 48px;
+    padding: 6px 13px;
+  }
+
+  .doudizhu-pass-line {
+    min-height: 18px;
+  }
+
+  .doudizhu-pass-chip,
+  .doudizhu-no-pass {
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+
+  .doudizhu-hand-zone {
+    gap: 3px;
+    padding-top: 5px;
+  }
+
+  .doudizhu-hand-label {
+    padding-inline: 2px;
+    font-size: 11px;
+  }
+
+  .doudizhu-hand-scroll {
+    min-height: 100px;
+    padding: 14px 5px 5px;
+  }
+
+  .doudizhu-card {
+    width: 52px;
+    min-width: 52px;
+    height: 78px;
+    min-height: 78px;
+  }
+
+  .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
+    margin-left: -18px;
+  }
+
+  button.doudizhu-card:hover:not(:disabled),
+  button.doudizhu-card.selected {
+    transform: translateY(-8px);
+  }
+
+  .doudizhu-controls,
+  .doudizhu-controls.is-bidding {
+    gap: 5px;
+  }
+
+  .doudizhu-controls.is-bidding .doudizhu-selection-status {
+    min-height: 0;
+    gap: 1px;
+    padding-inline: 2px;
+  }
+
+  .doudizhu-controls.is-bidding .doudizhu-selection-status strong {
+    font-size: 12px;
+  }
+
+  .doudizhu-controls.is-bidding .doudizhu-selection-status span {
+    font-size: 10px;
+  }
+
+  .doudizhu-bid-options {
+    gap: 4px;
+  }
+
+  .doudizhu-bid-options .doudizhu-bid-button,
+  .doudizhu-bid-confirm button {
+    min-height: 36px;
+    padding: 5px 4px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 375px) {
   .doudizhu-metric {
     padding-inline: 6px;
   }
@@ -576,19 +801,18 @@ button.doudizhu-card:focus-visible,
 
   .doudizhu-hand-scroll {
     max-width: 100%;
-    min-height: 111px;
     padding-inline: 6px;
   }
 
   .doudizhu-card {
-    width: 54px;
-    min-width: 54px;
-    height: 82px;
-    min-height: 82px;
+    width: 50px;
+    min-width: 50px;
+    height: 76px;
+    min-height: 76px;
   }
 
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
-    margin-left: -21px;
+    margin-left: -18px;
   }
 }
 

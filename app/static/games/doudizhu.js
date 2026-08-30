@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.1";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -335,36 +335,93 @@
   }
 
   function submitAction(context, action) {
-    if (!context.helpers.canMove() || !action || context.uiState.submitting) return;
+    if (!context.helpers.canMove() || !action || context.uiState.submitting) return false;
     context.uiState.submitting = true;
     context.helpers.rerender();
-    Promise.resolve(context.helpers.submitMove({...action})).then((submitted) => {
+    const submission = Promise.resolve().then(
+      () => context.helpers.submitMove({...action})
+    );
+    submission.then((submitted) => {
       if (!submitted) {
         context.uiState.submitting = false;
         context.helpers.rerender();
       }
+    }, () => {
+      context.uiState.submitting = false;
+      context.helpers.rerender();
     });
+    return submission;
   }
 
   function renderBidControls(documentRef, context, panel) {
     const actions = (context.legalActions || []).filter((action) => action.action === "bid");
+    const selectedAction = actions.find(
+      (action) => action.action_id === context.uiState.selectedBidActionId
+    ) || null;
+    if (context.uiState.selectedBidActionId && !selectedAction) {
+      context.uiState.selectedBidActionId = null;
+    }
+    panel.classList.add("is-bidding");
     const status = element(documentRef, "div", "doudizhu-selection-status");
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
-    status.append(
-      element(documentRef, "strong", "", context.canMove ? "请选择叫分" : "等待其他玩家叫分"),
-      element(documentRef, "span", "", "每人仅叫一次，分数必须高于当前最高分")
-    );
-    const buttons = element(documentRef, "div", "doudizhu-action-buttons bid-buttons");
+    if (selectedAction) {
+      const score = Number(selectedAction.score || 0);
+      status.append(
+        element(documentRef, "strong", "", score ? `已选：叫 ${score} 分` : "已选：不叫"),
+        element(documentRef, "span", "", "可改选；确认后才会提交")
+      );
+    } else {
+      status.append(
+        element(documentRef, "strong", "", context.canMove ? "请选择叫分" : "等待其他玩家叫分"),
+        element(documentRef, "span", "", "先选择，再确认；分数须高于当前最高分")
+      );
+    }
+    const buttons = element(documentRef, "div", "doudizhu-action-buttons doudizhu-bid-options");
     actions.forEach((action) => {
       const button = element(documentRef, "button", "doudizhu-bid-button", action.label);
       button.type = "button";
       button.disabled = !context.canMove || Boolean(context.uiState.submitting);
       button.dataset.actionId = action.action_id;
-      button.addEventListener("click", () => submitAction(context, action));
+      const isSelected = action.action_id === context.uiState.selectedBidActionId;
+      button.classList.toggle("selected", isSelected);
+      button.setAttribute("aria-pressed", String(isSelected));
+      button.addEventListener("click", () => {
+        if (!context.helpers.canMove() || context.uiState.submitting) return;
+        context.uiState.selectedBidActionId = isSelected ? null : action.action_id;
+        context.helpers.rerender();
+      });
       buttons.appendChild(button);
     });
     panel.append(status, buttons);
+    if (!selectedAction) return;
+
+    const score = Number(selectedAction.score || 0);
+    const confirmation = element(
+      documentRef,
+      "div",
+      "doudizhu-action-buttons doudizhu-bid-confirm"
+    );
+    const confirmButton = element(
+      documentRef,
+      "button",
+      "doudizhu-bid-confirm-button",
+      score ? `确认叫 ${score} 分` : "确认不叫"
+    );
+    confirmButton.type = "button";
+    confirmButton.disabled = !context.canMove || Boolean(context.uiState.submitting);
+    confirmButton.dataset.actionId = selectedAction.action_id;
+    confirmButton.addEventListener("click", () => submitAction(context, selectedAction));
+    const cancelButton = element(documentRef, "button", "doudizhu-bid-cancel-button", "取消");
+    cancelButton.type = "button";
+    cancelButton.disabled = Boolean(context.uiState.submitting);
+    cancelButton.addEventListener("click", () => {
+      if (context.uiState.submitting) return;
+      context.uiState.selectedBidActionId = null;
+      context.helpers.rerender();
+    });
+    confirmation.append(confirmButton, cancelButton);
+    panel.appendChild(confirmation);
   }
 
   function renderPlayControls(documentRef, context, panel) {
