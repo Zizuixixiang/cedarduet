@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-uno-styles";
-  const STYLE_HREF = "/static/games/uno.css?v=1.0.4";
+  const STYLE_HREF = "/static/games/uno.css?v=1.0.5";
   const COLORS = ["red", "yellow", "green", "blue"];
   const COLOR_LABELS = {
     red: "红色",
@@ -47,6 +47,22 @@
     return participant
       ? (participant.display_name || participant.player_id)
       : (playerId || "玩家");
+  }
+
+  function isActingPlayer(context, playerId) {
+    return Boolean(
+      context.room
+      && context.room.status === "playing"
+      && playerId
+      && context.room.current_player_id === playerId
+    );
+  }
+
+  function createActingState(documentRef) {
+    const state = documentRef.createElement("span");
+    state.className = "uno-player-state is-active";
+    state.textContent = "行动中";
+    return state;
   }
 
   function renderAvatar(documentRef, context, participant) {
@@ -126,9 +142,11 @@
       (participant) => participant.player_id !== viewerId
     ).forEach((participant) => {
       const count = Number(counts[participant.player_id] || 0);
+      const current = context.room.current_player_id === participant.player_id;
+      const acting = isActingPlayer(context, participant.player_id);
       const seat = documentRef.createElement("article");
       seat.className = "uno-opponent";
-      if (context.room.current_player_id === participant.player_id) {
+      if (current) {
         seat.classList.add("current");
       }
       const identity = documentRef.createElement("div");
@@ -146,8 +164,12 @@
       const amount = documentRef.createElement("span");
       amount.className = "uno-hand-count";
       amount.textContent = `${count} 张`;
-      seat.setAttribute("aria-label", `${heading.textContent}，手牌 ${count} 张`);
+      seat.setAttribute(
+        "aria-label",
+        `${heading.textContent}，手牌 ${count} 张${acting ? "，行动中" : ""}`
+      );
       seat.append(identity, cards, amount);
+      if (acting) seat.appendChild(createActingState(documentRef));
       opponents.appendChild(seat);
     });
     shell.appendChild(opponents);
@@ -302,8 +324,13 @@
     identity.className = "hand-player-identity";
     identity.append(renderAvatar(documentRef, context, viewer), title);
     const count = documentRef.createElement("span");
+    count.className = "uno-own-hand-count";
     count.textContent = `${hand.length} 张`;
-    heading.append(identity, count);
+    heading.appendChild(identity);
+    if (isActingPlayer(context, viewerId)) {
+      heading.appendChild(createActingState(documentRef));
+    }
+    heading.appendChild(count);
     const scroller = documentRef.createElement("div");
     scroller.className = "uno-hand-scroll";
     scroller.setAttribute("role", "group");

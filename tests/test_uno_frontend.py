@@ -24,7 +24,7 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.4";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.5";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "uno";', SCRIPT)
         self.assertIn("terminal_hands", SCRIPT)
         self.assertIn(".uno-terminal-cards", STYLES)
@@ -77,6 +77,31 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("margin-left: -21px;", mobile)
         self.assertIn(".uno-hand-scroll .uno-card { width: 52px; height: 78px; }", mobile)
         self.assertIn("margin-left: -22px;", mobile)
+
+    def test_compact_opponents_and_explicit_acting_state(self):
+        self.assertIn('state.textContent = "行动中";', SCRIPT)
+        self.assertIn(".uno-player-state {", STYLES)
+        self.assertIn(".uno-opponent > .uno-player-state {", STYLES)
+        self.assertIn(".uno-opponent-backs .uno-card.compact { width: 36px; height: 50px; }", STYLES)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(".uno-opponent { min-height: 60px; padding: 4px; }", mobile)
+        self.assertIn(
+            ".uno-opponent-backs .uno-card.compact { width: 34px; height: 48px; }",
+            mobile,
+        )
+
+    def test_hand_scroller_keeps_scroll_position_contract(self):
+        self.assertIn("function saveHandScroll(context, scroller)", SCRIPT)
+        self.assertIn("function restoreHandScroll(context, scroller)", SCRIPT)
+        self.assertIn("context.uiState.unoHandScrollLeft", SCRIPT)
+        self.assertIn(
+            'scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});',
+            SCRIPT,
+        )
+        hand_scroll = STYLES[STYLES.index(".uno-hand-scroll {"):]
+        hand_scroll = hand_scroll[:hand_scroll.index("}")]
+        self.assertIn("overflow-x: auto;", hand_scroll)
+        self.assertIn("overflow-y: hidden;", hand_scroll)
 
     def test_opponent_avatars_use_the_shared_helper_with_compact_fallback(self):
         self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", SCRIPT)
@@ -217,7 +242,41 @@ renderer.renderBoard(fallback.context);
 assert.equal(JSON.stringify(descendants(fallback.board).filter(
   (node) => hasClass(node, "uno-opponent-avatar")
 ).map((node) => node.textContent)), JSON.stringify(["小", "北", "南"]));
-assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.4");
+assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.5");
+''')
+
+    def test_acting_state_follows_opponent_and_own_turns(self):
+        self.run_node(r'''
+const ownTurn = makeContext([]);
+renderer.renderBoard(ownTurn.context);
+let nodes = descendants(ownTurn.board);
+let states = nodes.filter((node) => hasClass(node, "uno-player-state"));
+assert.equal(states.length, 1);
+assert.equal(states[0].textContent, "行动中");
+const ownHeading = nodes.find((node) => hasClass(node, "uno-hand-heading"));
+assert.equal(ownHeading.children.includes(states[0]), true);
+assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent") && hasClass(node, "current")).length, 0);
+
+const opponentTurn = makeContext([]);
+opponentTurn.context.room.current_player_id = "ai-1";
+renderer.renderBoard(opponentTurn.context);
+nodes = descendants(opponentTurn.board);
+states = nodes.filter((node) => hasClass(node, "uno-player-state"));
+assert.equal(states.length, 1);
+assert.equal(states[0].textContent, "行动中");
+const currentSeat = nodes.find(
+  (node) => hasClass(node, "uno-opponent") && hasClass(node, "current")
+);
+assert.ok(currentSeat);
+assert.equal(currentSeat.children.includes(states[0]), true);
+assert.equal(currentSeat.attributes["aria-label"], "小机，手牌 5 张，行动中");
+
+const finished = makeContext([]);
+finished.context.room.status = "finished";
+renderer.renderBoard(finished.context);
+assert.equal(descendants(finished.board).filter(
+  (node) => hasClass(node, "uno-player-state")
+).length, 0);
 ''')
 
     def test_terminal_review_keeps_natural_order_and_playing_shows_only_backs(self):

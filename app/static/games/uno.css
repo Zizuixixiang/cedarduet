@@ -33,8 +33,9 @@
 
 .uno-opponent {
   min-width: 0;
-  min-height: 72px;
-  padding: 7px;
+  min-height: 68px;
+  position: relative;
+  padding: 6px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
@@ -95,7 +96,31 @@
 }
 
 .uno-opponent-backs .uno-card + .uno-card { margin-left: -19px; }
+.uno-opponent-backs .uno-card.compact { width: 36px; height: 50px; }
 .uno-hand-count { color: #675f6d; font-family: system-ui, sans-serif; font-size: 11px; }
+
+.uno-player-state {
+  min-height: 18px;
+  padding: 1px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(150, 94, 0, .76);
+  border-radius: 999px;
+  color: #3d2908;
+  background: linear-gradient(145deg, #ffe8a5, #e7bd65);
+  box-shadow: 0 0 0 2px rgba(231, 189, 101, .22), 0 2px 7px rgba(0, 0, 0, .22);
+  font: 850 9px/1.2 system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.uno-opponent > .uno-player-state {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+}
 
 .uno-status {
   min-width: 0;
@@ -306,6 +331,8 @@ button.uno-card {
   font-size: 12px;
 }
 
+.uno-own-hand-count { margin-left: auto; }
+
 .uno-hand-scroll {
   width: 100%;
   min-width: 0;
@@ -456,8 +483,10 @@ button.uno-card {
   .board.uno { width: 100%; max-width: 100%; padding: 7px; }
   .uno-table { gap: 8px; }
   .uno-opponents { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-  .uno-opponent { min-height: 62px; padding: 5px; }
+  .uno-opponent { min-height: 60px; padding: 4px; }
   .uno-opponent-avatar { width: 20px; height: 20px; max-width: 20px; max-height: 20px; }
+  .uno-opponent-backs .uno-card.compact { width: 34px; height: 48px; }
+  .uno-opponent-backs .uno-card + .uno-card { margin-left: -18px; }
   .uno-opponent-backs .uno-card:nth-child(n + 3) { display: none; }
   .uno-center { gap: 24px; }
   .uno-card { width: 67px; height: 98px; }
