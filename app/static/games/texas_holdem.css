@@ -408,28 +408,45 @@
   .texas-control-status { font-size: 8px; }
   .texas-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
     gap: 4px;
   }
+  .texas-actions > .action-check,
+  .texas-actions > .action-call,
+  .texas-actions > .texas-range-action { grid-column: 1; }
+  .texas-actions > .action-fold,
+  .texas-actions > .action-all_in { grid-column: 2; }
   .texas-action {
     width: 100%;
+    height: 35px;
     min-width: 0;
     max-width: none;
-    min-height: 40px;
-    padding: 5px 6px;
+    min-height: 35px;
+    padding: 4px 6px;
     border-radius: 7px;
-    font-size: 10px;
+    font-size: 9px;
   }
   .texas-range-action {
     width: 100%;
+    height: 35px;
     min-width: 0;
-    grid-column: span 2;
-    grid-template-columns: minmax(82px, 1fr) 72px;
-    gap: 2px 5px;
-    padding: 4px 5px;
-    border-radius: 8px;
+    grid-template-columns: minmax(68px, 1fr) minmax(64px, 42%);
+    grid-template-rows: 13px 16px;
+    gap: 0 4px;
+    padding: 2px 0 2px 5px;
+    border-radius: 7px;
   }
-  .texas-range-action label { font-size: 9px; }
+  .texas-range-action label { font-size: 8px; line-height: 1; }
+  .texas-range-action input { height: 16px; }
+  .texas-range-action .texas-action {
+    height: 35px;
+    min-height: 35px;
+    align-self: center;
+    margin-right: -1px;
+    padding-inline: 4px;
+    border-radius: 0 7px 7px 0;
+  }
   .texas-confirmation { gap: 5px; padding: 5px; font-size: 10px; }
   .texas-confirm-cancel,
   .texas-confirm-submit { min-height: 36px; padding: 5px 7px; font-size: 10px; }

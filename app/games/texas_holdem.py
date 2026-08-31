@@ -17,7 +17,7 @@ from third_party.pypokerengine.engine.table import Table
 from .base import GamePlugin, MoveResult
 
 
-INITIAL_STACK = 200
+INITIAL_STACK = 1000
 SMALL_BLIND = 5
 BIG_BLIND = 10
 STREET_NAMES = {
@@ -65,8 +65,11 @@ class TexasHoldem(GamePlugin):
     mcp_immediate_public_events = True
     rules_text = (
         "【单手牌与内部筹码】\n"
-        "2–6 人，只进行一手 No-Limit Texas Hold'em。每席固定 200 内部筹码，"
-        "小盲 5、大盲 10、无 ante；牌局结算后房间立即结束。这 200 枚是归一化的"
+        f"2–6 人，只进行一手 No-Limit Texas Hold'em。每席固定 {INITIAL_STACK} "
+        "内部筹码，"
+        f"小盲 {SMALL_BLIND}、大盲 {BIG_BLIND}（100BB）、无 ante；"
+        "牌局结算后房间立即结束。"
+        f"这 {INITIAL_STACK} 枚是归一化的"
         "内部牌局筹码；房间底注是每名参与者投入真实娱乐筹码池的完整买入额，"
         "不是每枚内部筹码的单价，因此每席最大真实亏损仅为一份房间底注。牌局进行中只维护"
         "内部栈与内部底池，不读取、锁定或移动钱包筹码，也不存在钱包底池。\n\n"
@@ -86,8 +89,10 @@ class TexasHoldem(GamePlugin):
         "符合资格的赢家开始分配。摊牌比较每人七张牌中的最佳五张；A 可作顺子低端。"
         "摊牌仅公开仍未弃牌且参与裁判的底牌，folded 手牌永不公开。\n\n"
         "【真实买入终局结算】\n"
-        "引擎派奖后，各席最终内部栈总和必须为人数×200；真实总买入池按“人数×房间底注”计算，并按"
-        "最终栈持有比例分配，即每 200 枚内部筹码对应一份房间底注。整数筹码采用确定性"
+        f"引擎派奖后，各席最终内部栈总和必须为人数×{INITIAL_STACK}；真实总买入池按"
+        "“人数×房间底注”计算，并按"
+        f"最终栈持有比例分配，即每 {INITIAL_STACK} 枚内部筹码对应一份房间底注。"
+        "整数筹码采用确定性"
         "最大余数法分配，余数并列时按参与者座位顺序；因此平分、多赢家、边池和全下"
         "都以最终引擎栈归属为准，不能因 result.draw 而退款。钱包只在终局通过零和"
         "settlement_deltas 一次性变动。"
@@ -590,7 +595,9 @@ class TexasHoldem(GamePlugin):
             },
             "stake_settlement": {
                 "real_buy_in_per_player": "room_stake",
-                "ideal_payout_formula": "final_internal_stack*room_stake/200",
+                "ideal_payout_formula": (
+                    f"final_internal_stack*room_stake/{INITIAL_STACK}"
+                ),
                 "rounding": "largest_remainder",
                 "remainder_tie_break": "participant_seat_order",
                 "timing": "terminal_only",
@@ -710,7 +717,9 @@ class TexasHoldem(GamePlugin):
             raise ValueError("德州扑克终局内部栈必须是非负整数")
         expected_internal_total = len(player_ids) * INITIAL_STACK
         if sum(final_stacks_by_player.values()) != expected_internal_total:
-            raise ValueError("德州扑克终局内部栈总和必须等于人数×200")
+            raise ValueError(
+                f"德州扑克终局内部栈总和必须等于人数×{INITIAL_STACK}"
+            )
 
         payouts: dict[str, int] = {}
         remainders: dict[str, int] = {}
@@ -930,7 +939,9 @@ class TexasHoldem(GamePlugin):
     ) -> str:
         del state, actor, participants
         return (
-            "单手牌 NLHE，200 内部筹码，盲注 5/10。房间 stake 是每席完整真实买入，"
+            f"单手牌 NLHE，{INITIAL_STACK} 内部筹码，盲注 "
+            f"{SMALL_BLIND}/{BIG_BLIND}（100BB）。"
+            "房间 stake 是每席完整真实买入，"
             "不是内部筹码单价，最大亏损为 stake；仅在终局按最终内部栈比例和座位顺序"
             "最大余数取整做一次性零和结算。不要自行推导下注边界；"
             "只能原样选择 authoritative legal_actions 中的对象。"

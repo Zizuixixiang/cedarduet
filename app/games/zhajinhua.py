@@ -16,7 +16,7 @@ RANKS = ("2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A")
 ANTE = 1
 RAISE_TIERS = (1, 2, 4, 8)
 MAX_BLIND_UNIT = RAISE_TIERS[-1]
-VIRTUAL_BUDGET = 64
+VIRTUAL_BUDGET = 32
 MAX_ROUNDS = 20
 
 
@@ -76,14 +76,14 @@ class Zhajinhua(GamePlugin):
         "对手可为任意仍在局玩家。比牌不公开双方牌面，只公开双方、胜负和平手标记；负者出局。"
         "玩家也可随时弃牌；只剩一人时立即结束。\n\n"
         "【档位、封顶与终局】\n"
-        "服务端只允许闷注 1、2、4、8 四档，8 为单注档位上限。每人本局最多投入 64 个虚拟单位，"
+        "服务端只允许闷注 1、2、4、8 四档，8 为单注档位上限。每人本局最多投入 32 个虚拟单位，"
         "含底注；无法承担任何付费行动时仍可弃牌。每轮指所有仍在局玩家各完成一次跟、加、弃或比；"
         "看牌不计轮次。完成第 20 轮仍有多人时强制摊牌，仅此时公开仍在局玩家的三张牌；"
         "最高者获胜，最高牌完全相同则记为并列平局。\n\n"
         "【虚拟下注与真实筹码】\n"
-        "底池始终等于所有玩家本局虚拟投入之和，且每人投入不超过 64。房间底注"
+        "底池始终等于所有玩家本局虚拟投入之和，且每人投入不超过 32。房间底注"
         "就是每个虚拟下注单位对应的真实娱乐筹码；"
-        "单人最大真实亏损为 64 倍房间底注。牌局进行中只维护虚拟投入与虚拟底池，不读取、"
+        "单人最大真实亏损为 32 倍房间底注。牌局进行中只维护虚拟投入与虚拟底池，不读取、"
         "锁定或移动钱包筹码，也不存在钱包底池。唯一赢家产生后，每名负者的终局差额为"
         "－虚拟投入×房间底注，赢家获得其他所有人的同额总和；完成第 20 轮后的最高牌精确"
         "并列则退还全部虚拟下注，所有钱包差额均为 0。钱包只在终局通过零和结算一次性"
@@ -323,7 +323,7 @@ class Zhajinhua(GamePlugin):
             raise ValueError("炸金花付费必须是正整数")
         player = cls._player_state(state, player_id)
         if int(player["contribution"]) + cost > VIRTUAL_BUDGET:
-            raise ValueError("本次行动超过单人 64 单位封顶")
+            raise ValueError("本次行动超过单人 32 单位封顶")
         player["contribution"] = int(player["contribution"]) + cost
         state["pot"] = int(state["pot"]) + cost
         cls._assert_virtual_conservation(state)
@@ -627,7 +627,7 @@ class Zhajinhua(GamePlugin):
         if sum(ordered.values()) != 0:
             raise ValueError("炸金花终局真实筹码结算不守恒")
         if any(delta < -VIRTUAL_BUDGET * stake for delta in ordered.values()):
-            raise ValueError("炸金花终局真实亏损超过 64×stake")
+            raise ValueError("炸金花终局真实亏损超过 32×stake")
         return ordered
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
@@ -717,8 +717,8 @@ class Zhajinhua(GamePlugin):
         return (
             "固定炸金花：豹子>同花顺>金花>顺子>对子>散牌；A23 最小顺，AKQ 最大顺；"
             "不比花色、无 235 特权，完全同点数时主动比牌方出局。未看牌付闷注档，"
-            "已看牌付双倍；虚拟投入每人封顶 64、闷注最高 8、20 轮强制摊牌。"
-            "房间底注等于每个虚拟单位的真实价值，最大亏损 64 倍房间底注；仅在终局"
+            "已看牌付双倍；虚拟投入每人封顶 32、闷注最高 8、20 轮强制摊牌。"
+            "房间底注等于每个虚拟单位的真实价值，最大亏损 32 倍房间底注；仅在终局"
             "一次性零和结算，轮次封顶的最高牌精确并列则全部退款。"
             "不要自行计算下注档位或目标，只能原样选择 authoritative legal_actions。"
         )

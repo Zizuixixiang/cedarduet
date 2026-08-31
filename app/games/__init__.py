@@ -30,9 +30,9 @@ GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 # concrete integer stake; the browser uses the same metadata for a live preview.
 STAKE_PRESENTATIONS = {
     "texas_holdem": ("买入 🪙X/人", "最大亏 X"),
-    "zhajinhua": ("计价 🪙X/单位", "最多 64X"),
-    "gandengyan": ("底注 🪙X", "按剩牌×倍率，最高16倍"),
-    "doudizhu": ("底注 🪙X", "叫分/炸弹会翻倍"),
+    "zhajinhua": ("计价 🪙X/单位", "最大亏 32×X"),
+    "gandengyan": ("底注 🪙X", "按剩牌×倍率，倍率最高8倍"),
+    "doudizhu": ("底注 🪙X", "倍率最高16倍"),
     "mahjong": ("底注 🪙X", "点炮最多 3X"),
     "blackjack": ("下注 🪙X/人", "胜+X/负-X/和0"),
 }

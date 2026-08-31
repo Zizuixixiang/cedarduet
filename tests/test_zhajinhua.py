@@ -11,7 +11,7 @@ import httpx
 
 from app import database, framework
 from app import main as main_module
-from app.games import GAMES, game_catalog
+from app.games import GAMES, game_catalog, stake_presentation
 from app.games.zhajinhua import (
     MAX_ROUNDS,
     RAISE_TIERS,
@@ -167,6 +167,12 @@ class ZhajinhuaCoreTests(unittest.TestCase):
         self.assertTrue(item["supports_stakes"])
         self.assertTrue(item["supports_multiplayer_stakes"])
         self.assertTrue(item["uses_custom_stake_settlement"])
+        self.assertEqual(item["stake_hint"], "最大亏 32×X")
+        self.assertEqual(
+            stake_presentation("zhajinhua", 5)["stake_hint"],
+            "最大亏 32×5",
+        )
+        self.assertEqual(VIRTUAL_BUDGET, 32)
         for count in (2, 3, 6):
             with self.subTest(count=count):
                 roster, state = self.new_state(count)
@@ -185,14 +191,14 @@ class ZhajinhuaCoreTests(unittest.TestCase):
             (2, [4, 9], "player-0", 3, {"player-0": 27, "player-1": -27}),
             (
                 3,
-                [64, 2, 7],
+                [32, 2, 7],
                 "player-1",
                 5,
-                {"player-0": -320, "player-1": 355, "player-2": -35},
+                {"player-0": -160, "player-1": 195, "player-2": -35},
             ),
             (
                 6,
-                [1, 2, 4, 8, 16, 64],
+                [1, 2, 4, 8, 16, 32],
                 "player-4",
                 2,
                 {
@@ -200,8 +206,8 @@ class ZhajinhuaCoreTests(unittest.TestCase):
                     "player-1": -4,
                     "player-2": -8,
                     "player-3": -16,
-                    "player-4": 158,
-                    "player-5": -128,
+                    "player-4": 94,
+                    "player-5": -64,
                 },
             ),
         )
@@ -224,11 +230,11 @@ class ZhajinhuaCoreTests(unittest.TestCase):
                 self.assertEqual(deltas, expected)
                 self.assertEqual(set(deltas), {item["player_id"] for item in roster})
                 self.assertEqual(sum(deltas.values()), 0)
-                self.assertGreaterEqual(min(deltas.values()), -64 * stake)
+                self.assertGreaterEqual(min(deltas.values()), -32 * stake)
 
     def test_round_cap_exact_tie_refunds_every_virtual_wager(self):
         roster, state = self.new_state(6)
-        contributions = [64, 63, 32, 17, 8, 1]
+        contributions = [32, 31, 24, 17, 8, 1]
         for player_id, contribution in zip(
             state["participant_order"], contributions
         ):
@@ -351,8 +357,8 @@ class ZhajinhuaCoreTests(unittest.TestCase):
 
     def test_virtual_pot_conservation_and_per_player_cap(self):
         roster, state = self.new_state(2)
-        state["player_state_by_player"]["player-0"]["contribution"] = 63
-        state["pot"] = 64
+        state["player_state_by_player"]["player-0"]["contribution"] = 31
+        state["pot"] = 32
         self.game._assert_virtual_conservation(state)
         legal = self.game.legal_actions_for(state, "player-0")
         self.assertIn({"action": "call", "cost": 1}, legal)

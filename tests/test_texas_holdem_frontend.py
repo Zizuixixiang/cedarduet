@@ -13,6 +13,9 @@ SCRIPT = SCRIPT_PATH.read_text(encoding="utf-8")
 STYLE = STYLE_PATH.read_text(encoding="utf-8")
 HTML = HTML_PATH.read_text(encoding="utf-8")
 NODE = shutil.which("node")
+PORTRAIT_MOBILE_STYLE = STYLE.split(
+    "@media (orientation: portrait) and (max-width: 620px)", 1
+)[1].split("@media (orientation: portrait) and (max-width: 375px)", 1)[0]
 
 
 class TexasHoldemFrontendStaticTests(unittest.TestCase):
@@ -52,10 +55,34 @@ class TexasHoldemFrontendStaticTests(unittest.TestCase):
             "@media (orientation: portrait) and (max-width: 375px)",
             STYLE,
         )
-        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", STYLE)
-        self.assertIn("grid-column: span 2", STYLE)
         self.assertIn("touch-action: pan-y", STYLE)
         self.assertNotIn("@media (orientation: landscape)", STYLE)
+
+    def test_portrait_mobile_actions_form_a_compact_aligned_two_column_grid(self):
+        self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr))",
+            PORTRAIT_MOBILE_STYLE,
+        )
+        self.assertIn(
+            ".texas-actions > .action-check,\n"
+            "  .texas-actions > .action-call,\n"
+            "  .texas-actions > .texas-range-action { grid-column: 1; }",
+            PORTRAIT_MOBILE_STYLE,
+        )
+        self.assertIn(
+            ".texas-actions > .action-fold,\n"
+            "  .texas-actions > .action-all_in { grid-column: 2; }",
+            PORTRAIT_MOBILE_STYLE,
+        )
+        self.assertIn("height: 35px", PORTRAIT_MOBILE_STYLE)
+        self.assertIn("min-height: 35px", PORTRAIT_MOBILE_STYLE)
+        self.assertIn(
+            "grid-template-columns: minmax(68px, 1fr) minmax(64px, 42%)",
+            PORTRAIT_MOBILE_STYLE,
+        )
+        self.assertIn("grid-template-rows: 13px 16px", PORTRAIT_MOBILE_STYLE)
+        self.assertNotIn("min-height: 40px", PORTRAIT_MOBILE_STYLE)
+        self.assertNotIn("grid-column: span 2", PORTRAIT_MOBILE_STYLE)
 
     def test_card_faces_use_text_suit_codes_not_emoji_glyphs(self):
         for glyph in ("♠", "♥", "♦", "♣", "🂡", "🃁"):
@@ -75,7 +102,7 @@ class TexasHoldemFrontendNodeTests(unittest.TestCase):
         ]
         players = {
             item["player_id"]: {
-                "stack": 200 - item["seat_index"] * 5,
+                "stack": 1000 - item["seat_index"] * 5,
                 "current_bet": item["seat_index"] * 5,
                 "contribution": item["seat_index"] * 5,
                 "status": "active",
@@ -111,8 +138,8 @@ class TexasHoldemFrontendNodeTests(unittest.TestCase):
             "legal_actions": [
                 {"action": "call", "amount": 10, "to_amount": 20, "all_in": False},
                 {"action": "fold"},
-                {"action": "raise", "amount": 30, "min_amount": 30, "max_amount": 200},
-                {"action": "all_in", "amount": 200, "cost": 180, "short_raise": False},
+                {"action": "raise", "amount": 30, "min_amount": 30, "max_amount": 1000},
+                {"action": "all_in", "amount": 1000, "cost": 980, "short_raise": False},
             ],
         }
         harness = r'''
@@ -334,6 +361,41 @@ assert.equal(nodes.some(n=>hasClass(n,"is-acting")),false);
     {action: "raise", amount: 45},
   ]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });
+''')
+
+    def test_control_grid_markup_supports_check_call_bet_and_raise_variants(self):
+        self.run_node(r'''
+function actionClassesFor(legalActions) {
+  privateState.legal_actions = legalActions;
+  const value = makeContext();
+  renderer.renderControls(value.context);
+  const actions = descendants(value.controls).find((node) => hasClass(node, "texas-actions"));
+  return actions.children.map((node) => node.className);
+}
+
+assert.deepEqual(actionClassesFor([
+  {action: "check"},
+  {action: "fold"},
+  {action: "bet", amount: 10, min_amount: 10, max_amount: 1000},
+  {action: "all_in", amount: 1000, cost: 1000, short_raise: false},
+]), [
+  "texas-action action-check",
+  "texas-action action-fold",
+  "texas-range-action action-bet",
+  "texas-action action-all_in",
+]);
+
+assert.deepEqual(actionClassesFor([
+  {action: "call", amount: 10, to_amount: 20, all_in: false},
+  {action: "fold"},
+  {action: "raise", amount: 30, min_amount: 30, max_amount: 1000},
+  {action: "all_in", amount: 1000, cost: 980, short_raise: false},
+]), [
+  "texas-action action-call",
+  "texas-action action-fold",
+  "texas-range-action action-raise",
+  "texas-action action-all_in",
+]);
 ''')
 
 

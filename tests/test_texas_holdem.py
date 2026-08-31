@@ -12,7 +12,12 @@ from app import database, framework
 from app import main as main_module
 from app.npc_controller import run_current_npc_turn
 from app.games import GAMES, game_catalog
-from app.games.texas_holdem import BIG_BLIND, INITIAL_STACK, TexasHoldem
+from app.games.texas_holdem import (
+    BIG_BLIND,
+    INITIAL_STACK,
+    SMALL_BLIND,
+    TexasHoldem,
+)
 from third_party.pypokerengine.engine.card import Card
 from third_party.pypokerengine.engine.game_evaluator import GameEvaluator
 from third_party.pypokerengine.engine.hand_evaluator import HandEvaluator
@@ -115,6 +120,12 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertTrue(item["supports_stakes"])
         self.assertTrue(item["supports_multiplayer_stakes"])
         self.assertTrue(item["uses_custom_stake_settlement"])
+        self.assertEqual(INITIAL_STACK, 1000)
+        self.assertEqual(SMALL_BLIND, 5)
+        self.assertEqual(BIG_BLIND, 10)
+        self.assertEqual(INITIAL_STACK // BIG_BLIND, 100)
+        self.assertIn("1000 内部筹码", self.game.rules_text)
+        self.assertIn("100BB", self.game.rules_text)
         self.assertEqual(
             HandEvaluator.__module__,
             "third_party.pypokerengine.engine.hand_evaluator",
@@ -133,22 +144,26 @@ class TexasHoldemCoreTests(unittest.TestCase):
                 self.assertEqual(
                     sum(player.stack for player in engine["table"].seats.players)
                     + sum(player.pay_info.amount for player in engine["table"].seats.players),
-                    200 * count,
+                    INITIAL_STACK * count,
                 )
+                public = self.game.public_state(state, roster)
+                self.assertEqual(public["initial_stack"], INITIAL_STACK)
+                self.assertEqual(public["small_blind"], SMALL_BLIND)
+                self.assertEqual(public["big_blind"], BIG_BLIND)
                 self.assertEqual(len(roster), count)
 
     def test_final_stack_conversion_for_two_three_and_six_is_exact(self):
         cases = (
-            (2, [0, 400], 3, {"player-0": -3, "player-1": 3}),
+            (2, [0, 2000], 3, {"player-0": -3, "player-1": 3}),
             (
                 3,
-                [50, 200, 350],
+                [250, 1000, 1750],
                 7,
                 {"player-0": -5, "player-1": 0, "player-2": 5},
             ),
             (
                 6,
-                [0, 100, 150, 200, 250, 500],
+                [0, 500, 750, 1000, 1250, 2500],
                 13,
                 {
                     "player-0": -13,
@@ -168,10 +183,10 @@ class TexasHoldemCoreTests(unittest.TestCase):
                 self.assertEqual(sum(deltas.values()), 0)
                 self.assertTrue(all(delta >= -stake for delta in deltas.values()))
 
-    def test_stake_below_200_uses_stable_seat_order_for_equal_remainders(self):
+    def test_stake_below_1000_uses_stable_seat_order_for_equal_remainders(self):
         roster = list(reversed(participants(3)))
         deltas = self.settle_final_stacks(
-            [100, 100, 400], 1, roster=roster
+            [500, 500, 2000], 1, roster=roster
         )
         self.assertEqual(
             deltas,
@@ -181,7 +196,7 @@ class TexasHoldemCoreTests(unittest.TestCase):
 
     def test_side_pot_all_in_and_split_draw_follow_final_stack_ownership(self):
         side_pot = self.settle_final_stacks(
-            [350, 200, 50],
+            [1750, 1000, 250],
             40,
             result={
                 "draw": False,
@@ -195,7 +210,7 @@ class TexasHoldemCoreTests(unittest.TestCase):
             side_pot, {"player-0": 30, "player-1": 0, "player-2": -30}
         )
         split_draw = self.settle_final_stacks(
-            [100, 250, 250],
+            [500, 1250, 1250],
             7,
             result={"draw": True, "tied_player_ids": ["player-1", "player-2"]},
         )
@@ -239,7 +254,10 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertEqual(len(public["board"]), 5)
         self.assertEqual(public["pot"], 0)
         self.assertEqual(public["total_pot"], 30)
-        self.assertEqual(sum(player["stack"] for player in public["players"].values()), 600)
+        self.assertEqual(
+            sum(player["stack"] for player in public["players"].values()),
+            3 * INITIAL_STACK,
+        )
         self.assertTrue(any("board_added" in delta for delta in public_deltas))
         self.assertIn("showdown", public_deltas[-1])
         self.assertEqual(len(public["showdown"]), 3)
@@ -258,9 +276,15 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertIsNotNone(result.result)
         self.assertEqual(state["street"], "finished")
         self.assertEqual(len(state["visible_board"]), 5)
-        self.assertEqual(sum(result.result["payout_by_player"].values()), 400)
+        self.assertEqual(
+            sum(result.result["payout_by_player"].values()),
+            2 * INITIAL_STACK,
+        )
         public = self.game.public_state(state, roster)
-        self.assertEqual(sum(item["stack"] for item in public["players"].values()), 400)
+        self.assertEqual(
+            sum(item["stack"] for item in public["players"].values()),
+            2 * INITIAL_STACK,
+        )
 
     def test_fold_winner_does_not_reveal_or_run_out_public_cards(self):
         roster, state = self.new_state(2)
@@ -278,7 +302,9 @@ class TexasHoldemCoreTests(unittest.TestCase):
 
     def test_short_all_in_does_not_reopen_but_cumulative_short_raises_do(self):
         roster, state = self.new_state(4)
-        self.rig_stacks(state, [200, 200, 40, 200])
+        self.rig_stacks(
+            state, [INITIAL_STACK, INITIAL_STACK, 40, INITIAL_STACK]
+        )
         self.apply(state, roster, {"action": "raise", "amount": 30})
         self.apply(state, roster)
         short = next(
@@ -293,7 +319,10 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertNotIn("all_in", {item["action"] for item in first_raiser_legal})
 
         roster, state = self.new_state(5)
-        self.rig_stacks(state, [200, 200, 40, 50, 200])
+        self.rig_stacks(
+            state,
+            [INITIAL_STACK, INITIAL_STACK, 40, 50, INITIAL_STACK],
+        )
         self.apply(state, roster, {"action": "raise", "amount": 30})
         self.apply(state, roster)
         self.apply(state, roster, next(
@@ -340,7 +369,7 @@ class TexasHoldemCoreTests(unittest.TestCase):
 
     def test_check_then_subminimum_open_all_in_can_be_completed_to_big_blind(self):
         roster, state = self.new_state(3)
-        self.rig_stacks(state, [200, 200, 15])
+        self.rig_stacks(state, [INITIAL_STACK, INITIAL_STACK, 15])
         self.apply(state, roster)
         self.apply(state, roster)
         self.apply(state, roster)
@@ -360,7 +389,7 @@ class TexasHoldemCoreTests(unittest.TestCase):
 
     def test_side_pots_use_vendored_layering_and_pay_different_winners(self):
         roster, state = self.new_state(3)
-        self.rig_stacks(state, [50, 100, 200])
+        self.rig_stacks(state, [250, 500, INITIAL_STACK])
         self.rig_cards(
             state,
             [("SA", "HA"), ("SK", "HK"), ("S8", "H6")],
@@ -376,11 +405,11 @@ class TexasHoldemCoreTests(unittest.TestCase):
         ))
         finished = self.apply(state, roster)
         self.assertEqual(
-            [pot["amount"] for pot in finished.result["pots"]], [150, 100]
+            [pot["amount"] for pot in finished.result["pots"]], [750, 500]
         )
         self.assertEqual(
             finished.result["payout_by_player"],
-            {"player-0": 150, "player-1": 100, "player-2": 0},
+            {"player-0": 750, "player-1": 500, "player-2": 0},
         )
         self.assertEqual(
             [pot["winner_uuids"] for pot in finished.result["pots"]],
@@ -388,11 +417,14 @@ class TexasHoldemCoreTests(unittest.TestCase):
         )
         public = self.game.public_state(state, roster)
         self.assertEqual([pot["name"] for pot in public["pots"]], ["main", "side_1"])
-        self.assertEqual(sum(item["stack"] for item in public["players"].values()), 350)
+        self.assertEqual(
+            sum(item["stack"] for item in public["players"].values()),
+            1750,
+        )
 
     def test_all_in_side_pot_terminal_stacks_drive_real_settlement(self):
         roster, state = self.new_state(3)
-        self.rig_stacks(state, [100, 200, 300])
+        self.rig_stacks(state, [500, 1000, 1500])
         self.rig_cards(
             state,
             [("SA", "HA"), ("SK", "HK"), ("S8", "H6")],
@@ -412,11 +444,11 @@ class TexasHoldemCoreTests(unittest.TestCase):
         ))
         finished = self.apply(state, roster)
         self.assertEqual(
-            [pot["amount"] for pot in finished.result["pots"]], [300, 200]
+            [pot["amount"] for pot in finished.result["pots"]], [1500, 1000]
         )
         self.assertEqual(
             finished.result["final_internal_stacks_by_player"],
-            {"player-0": 300, "player-1": 200, "player-2": 100},
+            {"player-0": 1500, "player-1": 1000, "player-2": 500},
         )
         deltas = self.game.settlement_deltas(
             state, finished.result, roster, 40
@@ -554,7 +586,7 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
     def test_real_buy_in_room_is_accepted_and_attached_only_at_terminal(self):
         room = framework.create_room(
             "texas_holdem", "human_first", "human", "stake-human", "stake-ai",
-            stake=40,
+            stake=1000,
         )
         self.assertEqual(room["status"], "pending")
         self.assertIsNone(room["result"])
@@ -578,11 +610,15 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
         self.assertEqual(room["status"], "finished")
         self.assertEqual(
             room["result"]["final_internal_stacks_by_player"],
-            {"stake-human": 195, "stake-ai": 205},
+            {"stake-human": 995, "stake-ai": 1005},
+        )
+        self.assertEqual(
+            room["result"]["stake_settlement"]["ideal_payout_formula"],
+            "final_internal_stack*room_stake/1000",
         )
         self.assertEqual(
             room["result"]["settlement_deltas"],
-            {"stake-human": -1, "stake-ai": 1},
+            {"stake-human": -5, "stake-ai": 5},
         )
         self.assertTrue(room["result"]["settlement_zero_sum"])
         conn = database.connect()
@@ -604,7 +640,7 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
     def test_real_buy_in_resignation_settles_committed_internal_pot(self):
         room = framework.create_room(
             "texas_holdem", "human_first", "human", "resign-human", "resign-ai",
-            stake=40,
+            stake=1000,
         )
         framework.respond_to_invitation(
             room["room_id"], "ai", "resign-ai", "accept"
@@ -614,7 +650,7 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
         self.assertEqual(room["winner_player_id"], "resign-ai")
         self.assertEqual(
             room["result"]["settlement_deltas"],
-            {"resign-human": -1, "resign-ai": 1},
+            {"resign-human": -5, "resign-ai": 5},
         )
         self.assertEqual(sum(room["result"]["settlement_deltas"].values()), 0)
 

@@ -77,6 +77,8 @@ class GandengyanRuleTests(unittest.TestCase):
         self.assertTrue(item["supports_npcs"])
         self.assertTrue(item["supports_stakes"])
         self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertEqual(item["stake_hint"], "按剩牌×倍率，倍率最高8倍")
+        self.assertEqual(MAX_MULTIPLIER, 8)
         rules = GAMES["gandengyan"].rules_text
         for phrase in (
             "本项目固定的四川常见 54 张版本",
@@ -85,7 +87,7 @@ class GandengyanRuleTests(unittest.TestCase):
             "大小王不能单出",
             "不是万能赖子",
             "不采用广告牌或癞子变体",
-            "最高 16 倍",
+            "最高 8 倍",
             "不采用春天、天胡",
         ):
             self.assertIn(phrase, rules)
@@ -346,6 +348,15 @@ class GandengyanRuleTests(unittest.TestCase):
         )
         self.assertEqual(deltas, {"human-1": 84, "ai-1": -24, "ai-2": -60})
         self.assertEqual(sum(deltas.values()), 0)
+
+        state["multiplier"] = 16
+        capped = self.game.settlement_deltas(
+            state,
+            {"winner_player_id": "human-1", "draw": False},
+            table,
+            3,
+        )
+        self.assertEqual(capped, {"human-1": 168, "ai-1": -48, "ai-2": -120})
 
     def test_public_private_projection_does_not_leak_hands_or_deck_order(self):
         table, state = self.custom_state(

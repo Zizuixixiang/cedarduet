@@ -38,6 +38,9 @@ SUIT_LABELS = {
     "diamonds": "方块",
 }
 NORMAL_RANKS = RANK_LABELS[:13]
+MAX_MULTIPLIER = 16
+
+
 def build_deck() -> list[dict[str, str]]:
     deck = [
         {"id": f"{SUIT_CODES[suit]}{rank}", "suit": suit, "rank": rank}
@@ -105,12 +108,12 @@ class Doudizhu(GamePlugin):
         "重新自由领出。任一玩家手牌清空立即结束：地主先清空则地主阵营胜，否则农民阵营"
         "胜。\n\n"
         "【倍数与计分】\n"
-        "局内倍数以最终叫分 1、2 或 3 为基数；每打出一次四张炸弹或王炸即乘 2，不设"
-        "倍数上限，也不设春天、反春天及其他附加翻倍。\n\n"
+        "局内倍数以最终叫分 1、2 或 3 为基数；每打出一次四张炸弹或王炸即乘 2，最终"
+        "倍率最高 16 倍，也不设春天、反春天及其他附加翻倍。\n\n"
         "【CedarDuet 娱乐筹码】\n"
         "只用于钱包的结算单位为“房间底注×终局倍数”。地主获胜时地主获得两份结算单位、两名农民"
         "各扣一份；农民获胜时地主扣两份、两名农民各获得一份，三人合计始终为 0。这里的终局倍数"
-        "就是最终叫分再按每次炸弹或王炸乘 2；春天、反春天仍不启用。"
+        "就是最终叫分再按每次炸弹或王炸乘 2 并封顶为 16；春天、反春天仍不启用。"
         "认输即认输者所在阵营判负，并按当前终局倍数结算；地主尚未确定时采用简单"
         "三人 forfeit：认输者赔两份底注，其余两席各得一份。"
     )
@@ -570,7 +573,10 @@ class Doudizhu(GamePlugin):
         trick["pass_player_ids"] = []
         if pattern.is_bomb:
             state["bomb_count"] = int(state.get("bomb_count", 0)) + 1
-            state["multiplier"] = int(state.get("multiplier", 1)) * 2
+            state["multiplier"] = min(
+                MAX_MULTIPLIER,
+                int(state.get("multiplier", 1)) * 2,
+            )
         state["flow"]["turn_number"] = int(state["flow"].get("turn_number", 0)) + 1
         record = {
             "action": "play",
@@ -771,7 +777,7 @@ class Doudizhu(GamePlugin):
             or multiplier <= 0
         ):
             raise ValueError("斗地主终局倍数必须是正整数")
-        unit = stake * multiplier
+        unit = stake * min(multiplier, MAX_MULTIPLIER)
         winning_side = result.get("winning_side")
         if winning_side == "landlord":
             return {
@@ -940,7 +946,8 @@ class Doudizhu(GamePlugin):
         del state, actor, participants
         return (
             "三人斗地主，0/1/2/3 单轮递增叫分，地主取得并公开三张底牌后先出。"
-            "同一细分牌型按主体点数比较，炸弹压普通牌，王炸最高；两家连续过牌后由"
+            "同一细分牌型按主体点数比较，炸弹压普通牌，王炸最高；炸弹或王炸使倍率"
+            "翻倍，最终倍率最高 16 倍。两家连续过牌后由"
             "最后出牌者重新领出。不要自行枚举、拆解或比较牌型，只能原样选择服务端"
             "提供的一项权威动作。"
         )

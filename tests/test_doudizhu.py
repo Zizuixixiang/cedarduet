@@ -11,7 +11,7 @@ import httpx
 from app import database, framework
 from app import main as main_module
 from app.games import GAMES, game_catalog
-from app.games.doudizhu import Doudizhu, build_deck
+from app.games.doudizhu import MAX_MULTIPLIER, Doudizhu, build_deck
 from third_party.onestraw_doudizhu import (
     PATTERN_ENTRY_COUNT,
     can_beat,
@@ -195,6 +195,8 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertTrue(item["supports_npcs"])
         self.assertTrue(item["supports_stakes"])
         self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertEqual(item["stake_hint"], "倍率最高16倍")
+        self.assertEqual(MAX_MULTIPLIER, 16)
         deck = build_deck()
         self.assertEqual(len(deck), 54)
         self.assertEqual(len({card["id"] for card in deck}), 54)
@@ -208,7 +210,7 @@ class DoudizhuGameTests(unittest.TestCase):
         for phrase in (
             "0 分（不叫）", "严格高于", "全部不叫", "最后一位不叫者",
             "定地主后底牌向全桌公开", "34,152", "王炸最高",
-            "不设倍数上限", "不设春天、反春天", "房间底注×终局倍数",
+            "最终倍率最高 16 倍", "不设春天、反春天", "房间底注×终局倍数",
             "地主获得两份结算单位", "地主扣两份", "三人合计始终为 0",
         ):
             self.assertIn(phrase, GAMES["doudizhu"].rules_text)
@@ -520,19 +522,32 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertEqual(state["trick"]["pass_player_ids"], [])
         self.assertEqual(state["trick"]["last_play"]["player_id"], "ai-2")
 
-    def test_bomb_and_rocket_double_informational_multiplier(self):
+    def test_bomb_and_rocket_double_multiplier_up_to_cap(self):
         state = self.playing_state([
-            ("S3", "H3", "C3", "D3", "JOKER-S", "JOKER-B", "S9"),
+            (
+                "S3", "H3", "C3", "D3", "JOKER-S", "JOKER-B",
+                "S5", "H5", "C5", "D5", "S6", "H6", "C6", "D6", "S9",
+            ),
             ("S4", "S8"),
-            ("S5", "S7"),
-        ], score=2)
-        self.apply(state, "human-1", "play", pattern_type="bomb")
-        self.assertEqual((state["multiplier"], state["bomb_count"]), (4, 1))
-        self.apply(state, "ai-1", "pass")
-        self.apply(state, "ai-2", "pass")
-        _action, result = self.apply(state, "human-1", "play", pattern_type="rocket")
-        self.assertEqual((state["multiplier"], state["bomb_count"]), (8, 2))
-        self.assertIsNone(result.public_event)
+            ("S7", "S10"),
+        ], score=3)
+        for index, (pattern_type, expected_multiplier) in enumerate((
+            ("bomb", 6),
+            ("rocket", 12),
+            ("bomb", 16),
+            ("bomb", 16),
+        ), start=1):
+            _action, result = self.apply(
+                state, "human-1", "play", pattern_type=pattern_type
+            )
+            self.assertEqual(
+                (state["multiplier"], state["bomb_count"]),
+                (expected_multiplier, index),
+            )
+            self.assertIsNone(result.public_event)
+            if index < 4:
+                self.apply(state, "ai-1", "pass")
+                self.apply(state, "ai-2", "pass")
 
     def test_farmer_finish_returns_team_winners_and_chip_settlement(self):
         state = self.playing_state([
@@ -568,7 +583,7 @@ class DoudizhuGameTests(unittest.TestCase):
         )
         self.assertEqual(sum(landlord.values()), 0)
 
-        state["multiplier"] = 12
+        state["multiplier"] = 64
         farmers = self.game.settlement_deltas(
             state,
             {"winning_side": "farmers", "draw": False},
@@ -576,7 +591,7 @@ class DoudizhuGameTests(unittest.TestCase):
             2,
         )
         self.assertEqual(
-            farmers, {"human-1": -48, "ai-1": 24, "ai-2": 24}
+            farmers, {"human-1": -64, "ai-1": 32, "ai-2": 32}
         )
         self.assertEqual(sum(farmers.values()), 0)
         self.assertEqual(

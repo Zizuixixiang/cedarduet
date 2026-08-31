@@ -450,8 +450,9 @@ delta。只有 WDF challenge 依赖未公开的出牌前手牌，因此当次补
 `card_ids` 在打出后成为公开信息，牌型、倍率和手牌张数可由前态与该 move 推导，
 普通出牌不再重发裁判 delta。其余人全过后发一次 `trick_end`，只含本墩赢家、
 各席非零摸牌张数和剩余牌堆数，绝不包含新摸牌身份。炸弹、跟牌与筹码倍率细则看
-bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游戏牌力从左强到右弱
-排列；牌堆剩余内容继续隐藏。
+bootstrap 规则。带 stake 时每名输家按 `stake × 剩余手牌张数 × multiplier` 扣除，
+炸弹使倍率翻倍且倍率最高 8 倍，赢家获得所有负值的绝对值之和。仅真实终局会发布各席
+`terminal_hands`，按该游戏牌力从左强到右弱排列；牌堆剩余内容继续隐藏。
 
 ## 开火车 `train_cards`
 
@@ -459,7 +460,7 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 斗地主 `doudizhu`
 
-固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。普通叫分和 pass 的公开变化已全在 move 与前态中，不重发裁判 delta；若出牌 move 已带 `card_ids/pattern_type` 也不重复。兼容只提交短 `action_id` 的调用方时，裁判仅补本次公开的 `card_ids/pattern_type/pattern_label`。只有确定地主时另一次补 `landlord_player_id` 和随机公开的三个 `bottom_card_ids`。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。认输者所在阵营立即判负并按当前 multiplier 结算；地主未定时采用确定性三人 forfeit：认输者 `-2×stake`，其余两席各 `+stake`。
+固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。普通叫分和 pass 的公开变化已全在 move 与前态中，不重发裁判 delta；若出牌 move 已带 `card_ids/pattern_type` 也不重复。兼容只提交短 `action_id` 的调用方时，裁判仅补本次公开的 `card_ids/pattern_type/pattern_label`。只有确定地主时另一次补 `landlord_player_id` 和随机公开的三个 `bottom_card_ids`。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：炸弹或王炸继续使倍率翻倍，但最终 multiplier 最高 16；地主胜收两份、两农民各付一份，农民胜反向结算。认输者所在阵营立即判负并按最高 16 的 capped multiplier 结算；地主未定时采用确定性三人 forfeit：认输者 `-2×stake`，其余两席各 `+stake`。
 
 ## 掼蛋 `guandan`
 
@@ -467,7 +468,7 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 炸金花 `zhajinhua`
 
-2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。强制比牌终局按规则亮牌，弃牌或未展示席位不因复盘而强制公开。带 stake 时每个虚拟下注单位价值一个 stake，终局按各席实际投入零和结算；精确并列退还，单席最大亏损 64×stake。
+2–6 人，52 张无王。本人牌在执行 `peek` 前即使对自己也以牌背处理；看牌后只进入自己的 `private_state`。跟注、加注、弃牌和比牌必须直接采用 `private_state.legal_actions` 给出的 `cost/unit/target_player_id`。牌型 evaluator 基于 vendored Golden Flower MIT 核心；本地固定 A23 最小顺子、不启用 235 吃豹子、花色不破平。强制比牌终局按规则亮牌，弃牌或未展示席位不因复盘而强制公开。每席虚拟投入封顶 32；带 stake 时每个虚拟下注单位价值一个 stake，终局按各席实际投入零和结算；精确并列退还，单席最大真实亏损 32×stake。
 
 ## 军棋 `junqi`
 
@@ -475,7 +476,7 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 德州扑克 `texas_holdem`
 
-2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。进行中底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。普通下注信息已在 move 中，不重发整个 players/pots；自动转街时才补 `street/board_added`，真正摊牌时补 `showdown`。showdown 只公开按规则应亮的仍有资格席位，fold/muck 不因终局复盘而强制公开。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
+2–6 人 no-limit Hold'em，一房一手，每席固定 1000 内部筹码，盲注保持 5/10（100BB）。进行中底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。普通下注信息已在 move 中，不重发整个 players/pots；自动转街时才补 `street/board_added`，真正摊牌时补 `showdown`。showdown 只公开按规则应亮的仍有资格席位，fold/muck 不因终局复盘而强制公开。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 仍是每席完整真实买入而非内部筹码单价；真实总买入池为人数×stake，终局按最终内部栈比例分配，换算基准为每 1000 内部筹码对应一个 stake，单席最多亏 stake。
 
 ## 围棋 `go`
 

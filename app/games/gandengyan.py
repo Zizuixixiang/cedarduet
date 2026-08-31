@@ -48,7 +48,7 @@ BOMB_STRENGTH = {
     "four_bomb": 2,
     "joker_bomb": 3,
 }
-MAX_MULTIPLIER = 16
+MAX_MULTIPLIER = 8
 
 
 def build_deck() -> list[dict[str, str]]:
@@ -284,7 +284,7 @@ class Gandengyan(GamePlugin):
         "任一玩家出完手牌立即获胜。筹码按底注、剩余手牌"
         "和倍率进行多人零和结算：每名输家承担 底注×剩余手牌张数×最终倍率 的负值，"
         "赢家获得所有负值的绝对值之和。每出现一次三炸、深水炸弹或王炸，最终倍率"
-        "乘 2，最高 16 倍。不采用春天、天胡或其他地区附加翻倍。"
+        "乘 2，最高 8 倍。不采用春天、天胡或其他地区附加翻倍。"
     )
     move_format = (
         '出牌：{"move":{"action":"play","card_ids":["S3"]},"revision":当前版本}；'
@@ -515,8 +515,9 @@ class Gandengyan(GamePlugin):
         state["flow"]["turn_number"] = int(state["flow"].get("turn_number", 0)) + 1
         if pattern["is_bomb"]:
             state["bomb_count"] = int(state.get("bomb_count", 0)) + 1
+            state["max_multiplier"] = MAX_MULTIPLIER
             state["multiplier"] = min(
-                int(state.get("max_multiplier", MAX_MULTIPLIER)),
+                MAX_MULTIPLIER,
                 int(state.get("multiplier", 1)) * 2,
             )
         record = {
@@ -686,7 +687,7 @@ class Gandengyan(GamePlugin):
             raise ValueError("干瞪眼终局必须有一名有效赢家")
         if isinstance(stake, bool) or not isinstance(stake, int) or stake <= 0:
             raise ValueError("干瞪眼筹码底注必须是正整数")
-        multiplier = int(state.get("multiplier", 1))
+        multiplier = min(int(state.get("multiplier", 1)), MAX_MULTIPLIER)
         hands = state.get("cards", {}).get("hands", {})
         deltas = {
             player_id: -stake * len(hands[player_id]) * multiplier
@@ -736,8 +737,8 @@ class Gandengyan(GamePlugin):
             },
             "deck_count": card_state["deck_count"],
             "hand_counts": card_state["hand_counts"],
-            "multiplier": int(state.get("multiplier", 1)),
-            "max_multiplier": int(state.get("max_multiplier", MAX_MULTIPLIER)),
+            "multiplier": min(int(state.get("multiplier", 1)), MAX_MULTIPLIER),
+            "max_multiplier": MAX_MULTIPLIER,
             "last_action_note": state.get("last_action_note", ""),
         }
         if terminal:
