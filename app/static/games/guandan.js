@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-guandan-styles";
-  const STYLE_HREF = "/static/games/guandan.css?v=0.1.3";
+  const STYLE_HREF = "/static/games/guandan.css?v=0.1.15";
   const SUITS = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -203,15 +203,18 @@
       ? "对家" : position === "bottom" ? "我" : "对手";
     const status = passIds.has(playerId)
       ? "已过" : (metadata.deal_status || (context.room.current_player_id === playerId ? "行动中" : "在局"));
-    words.append(
-      title,
+    const meta = element(documentRef, "span", "guandan-seat-meta");
+    meta.append(
+      element(documentRef, "span", "guandan-seat-relation", relation),
       element(
         documentRef,
         "span",
-        "guandan-seat-meta",
-        `${relation} · ${metadata.level || (context.state.team_levels || {})[team] || "2"} 级 · ${status}`
-      )
+        "guandan-seat-level",
+        `${metadata.level || (context.state.team_levels || {})[team] || "2"} 级`
+      ),
+      element(documentRef, "span", "guandan-seat-status", status)
     );
+    words.append(title, meta);
     identity.append(avatar, words);
     const handInfo = element(documentRef, "div", "guandan-seat-hand");
     const backs = element(documentRef, "span", "guandan-mini-backs");
@@ -336,7 +339,7 @@
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", "我的私密手牌，可横向滚动选择");
     scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
-    displayHand.forEach((card, index) => {
+    displayHand.forEach((card) => {
       const cardId = String(card.id);
       const isSelected = selected.includes(cardId);
       // The two deck copies of an identical suit/rank are rule-equivalent.
@@ -349,10 +352,6 @@
         selectable: canSelect,
         disabled: !context.canMove || !canSelect || Boolean(context.uiState.submitting),
       });
-      const middle = (displayHand.length - 1) / 2;
-      const angle = Math.max(-5, Math.min(5, (index - middle) * 0.42));
-      node.style.setProperty("--fan-angle", `${angle}deg`);
-      node.style.setProperty("--hand-index", index);
       node.addEventListener("click", () => {
         if (!context.helpers.canMove() || !canSelect || context.uiState.submitting) return;
         saveHandScroll(context, scroller);
@@ -441,21 +440,16 @@
     panel.setAttribute("aria-busy", String(Boolean(context.uiState.submitting)));
     const status = element(documentRef, "div", "guandan-selection-status");
     const summary = element(documentRef, "strong", "", "");
-    const detail = element(documentRef, "span", "", "");
     if (chosen) {
-      summary.textContent = `已选：${chosen.label}`;
-      detail.textContent = `${chosen.card_ids.length} 张 · 权威动作 ${chosen.action_id}`;
+      summary.textContent = `已选 ${chosen.card_ids.length} 张 · ${chosen.label}`;
     } else if (selected.length) {
-      summary.textContent = `已选 ${selected.length} 张`;
-      detail.textContent = "当前选牌尚未对应规则核心合法动作";
+      summary.textContent = `已选 ${selected.length} 张 · 当前组合不可出`;
     } else if (context.canMove) {
       summary.textContent = context.state.phase_label || "请选择动作";
-      detail.textContent = `${legalActions(context).length} 个规则核心合法 action_id`;
     } else {
       summary.textContent = "等待其他玩家";
-      detail.textContent = "轮到你时会显示本人权威合法动作";
     }
-    status.append(summary, detail);
+    status.appendChild(summary);
 
     if (exact.length > 1) {
       const interpretation = element(documentRef, "label", "guandan-interpretation", "逢人配解释");

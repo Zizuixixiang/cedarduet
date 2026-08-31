@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-doudizhu-styles";
-  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.6";
+  const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.10";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -54,8 +54,32 @@
     return value && (value.display_name || value.player_id) || "玩家";
   }
 
+  function isCurrentPlayer(context, playerId) {
+    return Boolean(
+      context.room
+      && context.room.status === "playing"
+      && playerId
+      && context.room.current_player_id === playerId
+    );
+  }
+
   function avatarFallback(name) {
     return [...String(name || "").trim()][0] || "玩";
+  }
+
+  function renderAvatar(documentRef, context, value) {
+    const fallback = avatarFallback(value && (value.display_name || value.player_id));
+    const avatar = element(documentRef, "span", "doudizhu-avatar", fallback);
+    const sharedRenderer = context.helpers && context.helpers.renderParticipantAvatar;
+    if (typeof sharedRenderer === "function") {
+      try {
+        if (sharedRenderer(avatar, value) === false) avatar.textContent = fallback;
+      } catch (_error) {
+        avatar.replaceChildren();
+        avatar.textContent = fallback;
+      }
+    }
+    return avatar;
   }
 
   function roleFor(context, playerId) {
@@ -111,6 +135,8 @@
 
   function createCard(documentRef, card, options = {}) {
     const interactive = Boolean(options.interactive);
+    const rankText = card.rank === "small_joker"
+      ? "小" : card.rank === "big_joker" ? "大" : String(card.rank || "");
     const node = element(
       documentRef,
       interactive ? "button" : "span",
@@ -121,6 +147,10 @@
     node.classList.toggle("selected", Boolean(options.selected));
     node.classList.toggle("selectable", Boolean(options.selectable));
     node.classList.toggle("joker", card.suit === "joker");
+    node.classList.toggle(
+      "terminal-wide-rank",
+      Boolean(options.compactTerminal && Array.from(rankText).length > 1)
+    );
     node.setAttribute("aria-label", cardName(card));
     if (interactive) {
       node.setAttribute("aria-pressed", String(Boolean(options.selected)));
@@ -134,7 +164,7 @@
         documentRef,
         "strong",
         "doudizhu-card-rank",
-        card.rank === "small_joker" ? "小" : card.rank === "big_joker" ? "大" : card.rank
+        rankText
       ),
       element(
         documentRef,
@@ -253,32 +283,36 @@
     const count = Number((context.state.hand_counts || {})[playerId] || 0);
     const seat = element(documentRef, "article", `doudizhu-seat role-${role}`);
     seat.dataset.playerId = playerId;
-    seat.classList.toggle("current", context.room.current_player_id === playerId);
+    const current = isCurrentPlayer(context, playerId);
+    seat.classList.toggle("current", current);
+    seat.setAttribute("aria-current", current ? "true" : "false");
     seat.classList.toggle("passed", passIds.has(playerId));
-    const fallback = avatarFallback(name);
-    const avatar = element(documentRef, "span", "doudizhu-avatar", fallback);
-    avatar.setAttribute("aria-hidden", "true");
-    const renderAvatar = context.helpers && context.helpers.renderParticipantAvatar;
-    if (typeof renderAvatar === "function") {
-      try {
-        if (renderAvatar(avatar, value) === false) avatar.textContent = fallback;
-      } catch (_error) {
-        avatar.replaceChildren();
-        avatar.textContent = fallback;
-      }
-    }
+    const avatar = renderAvatar(documentRef, context, value);
     const copy = element(documentRef, "div", "doudizhu-seat-copy");
     const heading = element(documentRef, "div", "doudizhu-seat-heading");
     heading.append(
       element(documentRef, "strong", "doudizhu-seat-name", name),
       element(documentRef, "b", "doudizhu-role-badge", roleLabel(role))
     );
-    let stateText = `${count} 张`;
-    if (passIds.has(playerId)) stateText += " · 已过";
-    else if (context.room.current_player_id === playerId) stateText += " · 行动中";
+    const stateLine = element(documentRef, "span", "doudizhu-seat-state");
+    stateLine.appendChild(element(documentRef, "span", "doudizhu-seat-count", `${count} 张`));
+    if (passIds.has(playerId)) {
+      stateLine.appendChild(element(documentRef, "span", "doudizhu-seat-detail", " · 已过"));
+    } else if (current) {
+      stateLine.appendChild(element(
+        documentRef, "strong", "doudizhu-current-action-label", "行动中"
+      ));
+    }
     const partnerId = farmerPartnerId(context, playerId);
-    if (partnerId) stateText += ` · 对家 ${participantName(context, partnerId)}`;
-    copy.append(heading, element(documentRef, "span", "doudizhu-seat-state", stateText));
+    if (partnerId) {
+      stateLine.appendChild(element(
+        documentRef,
+        "span",
+        "doudizhu-seat-detail",
+        ` · 对家 ${participantName(context, partnerId)}`
+      ));
+    }
+    copy.append(heading, stateLine);
     seat.append(avatar, copy);
     return seat;
   }
@@ -356,15 +390,24 @@
     const zone = element(documentRef, "section", "doudizhu-hand-zone");
     const label = element(documentRef, "div", "doudizhu-hand-label");
     const viewerId = context.viewer && context.viewer.player_id;
+    const current = isCurrentPlayer(context, viewerId);
+    zone.classList.toggle("current", current);
+    zone.setAttribute("aria-current", current ? "true" : "false");
+    const viewer = participant(context, viewerId);
     const partnerId = farmerPartnerId(context, viewerId);
-    label.append(
+    const identity = element(documentRef, "span", "hand-player-identity");
+    identity.append(
+      renderAvatar(documentRef, context, viewer),
       element(
         documentRef,
         "strong",
         "",
         `我的手牌 · ${roleLabel(roleFor(context, viewerId))}`
           + (partnerId ? ` · 对家 ${participantName(context, partnerId)}` : "")
-      ),
+      )
+    );
+    label.append(
+      identity,
       element(documentRef, "span", "", `${hand.length} 张 · 横向滚动选择`)
     );
     const scroller = element(documentRef, "div", "doudizhu-hand-scroll");
@@ -418,14 +461,20 @@
           : [];
         const row = element(documentRef, "section", "doudizhu-terminal-row");
         row.dataset.playerId = item.player_id;
-        row.appendChild(element(
-          documentRef,
-          "span",
-          "doudizhu-terminal-name",
-          `${item.display_name || item.player_id} · ${cards.length} 张`
-        ));
+        const player = element(documentRef, "span", "doudizhu-terminal-player");
+        const playerName = element(
+          documentRef, "span", "doudizhu-terminal-name", item.display_name || item.player_id
+        );
+        playerName.title = item.display_name || item.player_id;
+        player.append(
+          playerName,
+          element(documentRef, "span", "doudizhu-terminal-count", `${cards.length} 张`)
+        );
+        row.appendChild(player);
         const faces = element(documentRef, "div", "doudizhu-terminal-cards");
-        cards.forEach((card) => faces.appendChild(createCard(documentRef, card)));
+        cards.forEach((card) => faces.appendChild(createCard(
+          documentRef, card, {compactTerminal: true}
+        )));
         if (!cards.length) {
           faces.appendChild(element(documentRef, "span", "doudizhu-terminal-empty", "0 张 · 已出完"));
         }
@@ -448,9 +497,24 @@
     const game = element(documentRef, "div", "doudizhu-game");
     const topbar = element(documentRef, "header", "doudizhu-topbar");
     const title = element(documentRef, "div", "doudizhu-title");
+    const currentPlayerName = participantName(
+      context,
+      context.room && context.room.current_player_id
+    );
+    const turnIndicator = element(
+      documentRef,
+      "span",
+      "doudizhu-turn-indicator",
+      `轮到 ${currentPlayerName}`
+    );
+    turnIndicator.setAttribute("role", "status");
+    turnIndicator.setAttribute("aria-live", "polite");
+    turnIndicator.setAttribute("aria-atomic", "true");
+    turnIndicator.title = `轮到 ${currentPlayerName}`;
     title.append(
       element(documentRef, "span", "doudizhu-title-mark", "斗"),
-      element(documentRef, "strong", "", "斗地主")
+      element(documentRef, "strong", "", "斗地主"),
+      turnIndicator
     );
     const metrics = element(documentRef, "div", "doudizhu-metrics");
     metrics.append(

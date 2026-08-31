@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-uno-styles";
-  const STYLE_HREF = "/static/games/uno.css?v=1.0.2";
+  const STYLE_HREF = "/static/games/uno.css?v=1.0.4";
   const COLORS = ["red", "yellow", "green", "blue"];
   const COLOR_LABELS = {
     red: "红色",
@@ -294,9 +294,16 @@
     heading.className = "uno-hand-heading";
     const title = documentRef.createElement("strong");
     title.textContent = "你的手牌";
+    const viewerId = context.viewer && context.viewer.player_id;
+    const viewer = (context.participants || []).find(
+      (participant) => participant.player_id === viewerId
+    ) || null;
+    const identity = documentRef.createElement("span");
+    identity.className = "hand-player-identity";
+    identity.append(renderAvatar(documentRef, context, viewer), title);
     const count = documentRef.createElement("span");
     count.textContent = `${hand.length} 张`;
-    heading.append(title, count);
+    heading.append(identity, count);
     const scroller = documentRef.createElement("div");
     scroller.className = "uno-hand-scroll";
     scroller.setAttribute("role", "group");
@@ -355,6 +362,13 @@
         name.textContent = `${participant.display_name || participant.player_id} · ${cards.length} 张`;
         const faces = documentRef.createElement("div");
         faces.className = "uno-terminal-cards";
+        faces.classList.add(cards.length === 1 ? "single" : "stacked");
+        if (!cards.length) faces.classList.add("empty");
+        faces.style.setProperty(
+          "--terminal-leading-card-count",
+          String(Math.max(0, cards.length - 1))
+        );
+        faces.setAttribute("aria-label", `${cards.length} 张终局剩余手牌`);
         cards.forEach((card) => {
           const face = createCard(documentRef, card);
           face.classList.add("compact");

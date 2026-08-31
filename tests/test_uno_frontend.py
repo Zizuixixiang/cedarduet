@@ -24,11 +24,11 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.2";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/uno.css?v=1.0.4";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "uno";', SCRIPT)
         self.assertIn("terminal_hands", SCRIPT)
         self.assertIn(".uno-terminal-cards", STYLES)
-        self.assertNotIn("uno", APP_SCRIPT.lower())
+        self.assertNotIn('window.DuelGameUI.register("uno"', APP_SCRIPT)
         self.assertNotIn("uno", PUBLIC_STYLES.lower())
         self.assertNotIn("/static/games/uno.js", HTML)
         self.assertNotIn("uno.css", HTML)
@@ -65,6 +65,18 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("overflow: hidden;", board_rule)
         self.assertIn(".uno-hand-scroll .uno-card.legal { border-color:", STYLES)
         self.assertNotIn("filter: saturate(.62) brightness(.75);", STYLES)
+        terminal_cards = STYLES[STYLES.index(".uno-terminal-cards {"):]
+        self.assertIn("--terminal-card-width: 36px;", terminal_cards)
+        self.assertIn("minmax(17px, 1fr)", terminal_cards)
+        self.assertIn("contain: inline-size;", terminal_cards)
+        self.assertIn("overflow-x: auto;", terminal_cards)
+        self.assertIn("touch-action: pan-x pan-y;", terminal_cards)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn(".uno-hand-scroll { min-height: 96px; padding: 9px 5px 5px; }", mobile)
+        self.assertIn(".uno-hand-scroll .uno-card { width: 56px; height: 82px; }", mobile)
+        self.assertIn("margin-left: -21px;", mobile)
+        self.assertIn(".uno-hand-scroll .uno-card { width: 52px; height: 78px; }", mobile)
+        self.assertIn("margin-left: -22px;", mobile)
 
     def test_opponent_avatars_use_the_shared_helper_with_compact_fallback(self):
         self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", SCRIPT)
@@ -179,8 +191,8 @@ const view = makeContext(legal);
 renderer.renderBoard(view.context);
 let nodes = descendants(view.board);
 assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent")).length, 2);
-assert.equal(JSON.stringify(view.avatarCalls), JSON.stringify(["ai-1", "ai-2"]));
-assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent-avatar")).length, 2);
+assert.equal(JSON.stringify(view.avatarCalls), JSON.stringify(["ai-1", "ai-2", "human-1"]));
+assert.equal(nodes.filter((node) => hasClass(node, "uno-opponent-avatar")).length, 3);
 assert.equal(nodes.filter((node) => node.dataset.cardId === "red-number-7-1").length, 1);
 assert.equal(nodes.filter((node) => node.dataset.cardId === "wild-1").length, 1);
 assert.equal(nodes.filter((node) => node.dataset.cardId && node.dataset.cardId.includes("ai")).length, 0);
@@ -204,8 +216,8 @@ delete fallback.context.helpers.renderParticipantAvatar;
 renderer.renderBoard(fallback.context);
 assert.equal(JSON.stringify(descendants(fallback.board).filter(
   (node) => hasClass(node, "uno-opponent-avatar")
-).map((node) => node.textContent)), JSON.stringify(["小", "北"]));
-assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.2");
+).map((node) => node.textContent)), JSON.stringify(["小", "北", "南"]));
+assert.equal(styles.get("duel-game-uno-styles").href, "/static/games/uno.css?v=1.0.4");
 ''')
 
     def test_terminal_review_keeps_natural_order_and_playing_shows_only_backs(self):
@@ -222,6 +234,7 @@ terminal.context.state = {...terminal.context.state, terminal_hands: {
   "human-1": [],
   "ai-1": [
     {id: "blue-number-9-1", color: "blue", kind: "number", value: 9},
+    {id: "red-draw-two-1", color: "red", kind: "draw_two"},
     {id: "yellow-skip-1", color: "yellow", kind: "skip"},
   ],
   "ai-2": [
@@ -238,8 +251,13 @@ assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", 
 assert.equal(nodes.filter((node) => hasClass(node, "uno-terminal-empty")).length, 1);
 const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
 assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
-  "blue-number-9-1", "yellow-skip-1",
+  "blue-number-9-1", "red-draw-two-1", "yellow-skip-1",
 ]);
+assert.equal(aiOne.children[1].style.values["--terminal-leading-card-count"], "2");
+assert.equal(aiOne.children[1].attributes["aria-label"], "3 张终局剩余手牌");
+assert.equal(hasClass(aiOne.children[1], "stacked"), true);
+const emptyHand = rows.find((node) => node.dataset.playerId === "human-1").children[1];
+assert.equal(hasClass(emptyHand, "empty"), true);
 ''')
 
     def test_wild_color_and_uno_submit_exact_authoritative_action(self):

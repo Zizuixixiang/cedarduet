@@ -55,14 +55,16 @@
 .doudizhu-topbar {
   min-width: 0;
   justify-content: space-between;
-  gap: 9px;
+  gap: 14px;
   padding: 2px 4px;
   color: #38443f;
 }
 
 .doudizhu-title {
+  flex: 1 1 auto;
   min-width: 0;
   gap: 8px;
+  overflow: hidden;
   letter-spacing: .08em;
 }
 
@@ -82,6 +84,7 @@
 }
 
 .doudizhu-title strong {
+  flex: 0 0 auto;
   overflow: hidden;
   font-family: serif;
   font-size: clamp(18px, 4vw, 25px);
@@ -89,8 +92,27 @@
   white-space: nowrap;
 }
 
+.doudizhu-turn-indicator {
+  max-width: min(32vw, 220px);
+  min-width: 0;
+  flex: 0 1 220px;
+  overflow: hidden;
+  padding: 4px 9px;
+  border: 1px solid #c84d57;
+  border-radius: 999px;
+  color: #941f2b;
+  background: #fff0ec;
+  box-shadow: 0 1px 4px rgba(148,31,43,.15);
+  font-size: clamp(11px, 2.6vw, 14px);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .doudizhu-metrics {
   min-width: 0;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 5px;
 }
@@ -172,7 +194,8 @@
 
 .doudizhu-seat.current {
   border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(232,189,96,.22), inset 0 1px rgba(255,255,255,.1);
+  background: rgba(77,82,45,.68);
+  box-shadow: 0 0 0 2px rgba(232,189,96,.38), inset 0 1px rgba(255,255,255,.14);
 }
 
 .doudizhu-seat.passed {
@@ -199,6 +222,18 @@
   height: 100%;
   border-radius: inherit;
   object-fit: cover;
+}
+
+.doudizhu-avatar.current-turn-avatar.current-turn-avatar {
+  position: static;
+  z-index: auto;
+  overflow: hidden;
+  outline: 0;
+  box-shadow: none;
+}
+
+.doudizhu-avatar.current-turn-avatar.current-turn-avatar::after {
+  display: none;
 }
 
 .role-landlord .doudizhu-avatar {
@@ -248,6 +283,20 @@
   font-size: clamp(9px, 2.2vw, 12px);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.doudizhu-current-action-label {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  padding: 0 5px;
+  border: 1px solid rgba(255,190,178,.65);
+  border-radius: 999px;
+  color: #fff1eb;
+  background: rgba(181,45,57,.82);
+  font-size: .92em;
+  font-weight: 850;
+  line-height: 1.35;
 }
 
 .doudizhu-center {
@@ -391,6 +440,12 @@
   background: linear-gradient(180deg, rgba(2,35,29,.18), transparent 32px);
 }
 
+.doudizhu-hand-zone.current {
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(232,189,96,.18), rgba(2,35,29,.2) 38px, transparent);
+  box-shadow: inset 0 0 0 2px rgba(232,189,96,.68);
+}
+
 .doudizhu-hand-label {
   min-width: 0;
   justify-content: space-between;
@@ -444,19 +499,28 @@
   align-items: center;
   gap: 5px;
 }
+.doudizhu-terminal-player {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
 .doudizhu-terminal-name {
   overflow: hidden;
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.doudizhu-terminal-count {
+  color: #ffe3a3;
+  font-size: 8px;
+  white-space: nowrap;
+}
 .doudizhu-terminal-cards {
   min-width: 0;
   display: flex;
-  gap: 2px;
+  gap: 0;
   padding: 2px;
-  overflow-x: auto;
-  touch-action: pan-x;
+  overflow: hidden;
 }
 .doudizhu-terminal-cards .doudizhu-card {
   width: 30px;
@@ -466,8 +530,17 @@
   padding: 2px;
   border-radius: 4px;
 }
+.doudizhu-terminal-cards .doudizhu-card + .doudizhu-card {
+  margin-left: -14px;
+}
 .doudizhu-terminal-cards .doudizhu-card-corner { top: 2px; left: 3px; }
 .doudizhu-terminal-cards .doudizhu-card-rank { font-size: 9px; }
+.doudizhu-terminal-cards .terminal-wide-rank .doudizhu-card-corner { left: 1px; }
+.doudizhu-terminal-cards .terminal-wide-rank .doudizhu-card-rank {
+  font-size: 8px;
+  letter-spacing: -1.2px;
+  white-space: nowrap;
+}
 .doudizhu-terminal-cards .doudizhu-card-suit { font-size: 8px; }
 .doudizhu-terminal-cards .doudizhu-card-center { margin-top: 5px; font-size: 14px; }
 .doudizhu-terminal-empty { color: #cce0d7; font-size: 9px; }
@@ -611,7 +684,6 @@ button.doudizhu-card:focus-visible,
 }
 
 .doudizhu-play-button:not(:disabled),
-.doudizhu-bid-button:not(:first-child),
 .doudizhu-bid-confirm-button {
   color: #fff8e8 !important;
   border-color: #8c252e !important;
@@ -657,12 +729,41 @@ button.doudizhu-card:focus-visible,
 }
 
 .doudizhu-bid-confirm {
-  gap: 6px;
+  width: min(100%, 310px);
+  justify-self: end;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .doudizhu-bid-confirm button {
   min-height: 40px;
-  padding-block: 7px;
+  padding: 7px 13px;
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  touch-action: manipulation;
+}
+
+.doudizhu-bid-confirm-button {
+  min-width: 0;
+  flex: 0 1 auto;
+  border-color: #e2b957 !important;
+  border-radius: 8px !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 244, 205, .2),
+    0 3px 8px rgba(92, 25, 30, .28);
+  letter-spacing: .04em;
+}
+
+.doudizhu-bid-cancel-button {
+  min-width: 62px;
+  flex: 0 0 auto;
+  color: #5f594d !important;
+  border-color: #cfc3aa !important;
+  background: #f5efe2 !important;
+  box-shadow: none !important;
 }
 
 .doudizhu-pattern-choice.selected {
@@ -677,12 +778,21 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-topbar {
-    gap: 4px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 4px;
     padding: 0 2px;
   }
 
   .doudizhu-title {
     gap: 4px;
+  }
+
+  .doudizhu-turn-indicator {
+    max-width: min(36vw, 150px);
+    flex: 1 1 82px;
+    padding-inline: 7px;
   }
 
   .doudizhu-title-mark {
@@ -698,7 +808,9 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-table-shell {
-    grid-template-rows: auto auto auto;
+    min-height: 420px;
+    min-height: clamp(420px, 52svh, 470px);
+    grid-template-rows: auto minmax(168px, 1fr) auto;
     gap: 4px;
     padding: 6px 5px 5px;
     border-width: 4px;
@@ -729,9 +841,11 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-center {
-    align-self: auto;
-    align-content: start;
-    gap: 3px;
+    align-self: stretch;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    gap: 14px;
+    padding: 9px 0 5px;
   }
 
   .doudizhu-bottom {
@@ -756,7 +870,9 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-trick {
-    gap: 2px;
+    align-self: stretch;
+    grid-template-rows: auto minmax(60px, 1fr) auto;
+    gap: 8px;
   }
 
   .doudizhu-trick-heading {
@@ -772,6 +888,7 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-trick-cards {
+    align-self: stretch;
     min-height: 60px;
     padding: 1px 6px;
   }
@@ -813,8 +930,8 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-hand-scroll {
-    min-height: 88px;
-    padding: 11px 4px 4px;
+    min-height: 82px;
+    padding: 8px 4px 3px;
   }
 
   .doudizhu-card {
@@ -824,7 +941,31 @@ button.doudizhu-card:focus-visible,
     min-height: 73px;
   }
 
+  .doudizhu-hand-scroll .doudizhu-card {
+    width: 44px;
+    min-width: 44px;
+    height: 66px;
+    min-height: 66px;
+  }
+
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
+    margin-left: -20px;
+  }
+
+  .doudizhu-terminal-row {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .doudizhu-terminal-cards .doudizhu-card {
+    width: 28px;
+    min-width: 28px;
+  }
+
+  .doudizhu-terminal-cards .doudizhu-card + .doudizhu-card {
+    margin-left: -19px;
+  }
+
+  .doudizhu-terminal-cards .doudizhu-card.terminal-wide-rank + .doudizhu-card {
     margin-left: -17px;
   }
 
@@ -888,16 +1029,42 @@ button.doudizhu-card:focus-visible,
     gap: 4px;
   }
 
-  .doudizhu-bid-options .doudizhu-bid-button,
-  .doudizhu-bid-confirm button {
+  .doudizhu-bid-options .doudizhu-bid-button {
     min-height: 36px;
     padding: 5px 4px;
     border-radius: 8px;
     font-size: 12px;
   }
+
+  .doudizhu-bid-confirm {
+    width: min(100%, 280px);
+    gap: 8px;
+  }
+
+  .doudizhu-bid-confirm button {
+    min-height: 40px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .doudizhu-bid-confirm-button {
+    padding-inline: 14px !important;
+  }
+
+  .doudizhu-bid-cancel-button {
+    min-width: 58px;
+  }
 }
 
 @media (max-width: 375px) {
+  .doudizhu-topbar {
+    column-gap: 8px;
+  }
+
+  .doudizhu-turn-indicator {
+    max-width: min(35vw, 132px);
+  }
+
   .doudizhu-metric {
     padding-inline: 5px;
   }
@@ -918,7 +1085,12 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-center {
-    gap: 2px;
+    gap: 12px;
+    padding: 8px 0 4px;
+  }
+
+  .doudizhu-trick {
+    gap: 7px;
   }
 
   .doudizhu-trick-cards {
@@ -939,8 +1111,8 @@ button.doudizhu-card:focus-visible,
 
   .doudizhu-hand-scroll {
     max-width: 100%;
-    min-height: 84px;
-    padding: 10px 4px 3px;
+    min-height: 78px;
+    padding: 7px 4px 3px;
   }
 
   .doudizhu-card {
@@ -950,8 +1122,15 @@ button.doudizhu-card:focus-visible,
     min-height: 70px;
   }
 
+  .doudizhu-hand-scroll .doudizhu-card {
+    width: 42px;
+    min-width: 42px;
+    height: 64px;
+    min-height: 64px;
+  }
+
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
-    margin-left: -16px;
+    margin-left: -21px;
   }
 
   .doudizhu-terminal-row {
@@ -970,9 +1149,25 @@ button.doudizhu-card:focus-visible,
 
 @media (max-width: 320px) {
   .doudizhu-title strong,
-  .doudizhu-metric:not(.multiplier),
+  .doudizhu-metric:not(.multiplier) {
+    display: none;
+  }
+
   .doudizhu-seat-state {
     display: none;
+  }
+
+  .doudizhu-seat.current .doudizhu-seat-state {
+    display: block;
+  }
+
+  .doudizhu-seat.current .doudizhu-seat-count,
+  .doudizhu-seat.current .doudizhu-seat-detail {
+    display: none;
+  }
+
+  .doudizhu-seat.current .doudizhu-current-action-label {
+    margin-left: 0;
   }
 
   .doudizhu-title-mark {
@@ -981,7 +1176,17 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-table-shell {
+    min-height: 400px;
     padding: 4px 3px;
+  }
+
+  .doudizhu-center {
+    gap: 10px;
+    padding: 7px 0 3px;
+  }
+
+  .doudizhu-trick {
+    gap: 6px;
   }
 
   .doudizhu-seat {
@@ -1019,8 +1224,8 @@ button.doudizhu-card:focus-visible,
   }
 
   .doudizhu-hand-scroll {
-    min-height: 80px;
-    padding: 9px 3px 3px;
+    min-height: 74px;
+    padding: 6px 3px 3px;
   }
 
   .doudizhu-card {
@@ -1030,8 +1235,20 @@ button.doudizhu-card:focus-visible,
     min-height: 67px;
   }
 
+  .doudizhu-hand-scroll .doudizhu-card {
+    width: 40px;
+    min-width: 40px;
+    height: 61px;
+    min-height: 61px;
+  }
+
   .doudizhu-hand-scroll .doudizhu-card + .doudizhu-card {
-    margin-left: -15px;
+    margin-left: -22px;
+  }
+
+  .doudizhu-terminal-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 3px;
   }
 }
 

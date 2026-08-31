@@ -343,7 +343,7 @@ button.uno-card {
 .uno-terminal-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(62px, 22%) minmax(0, 1fr);
   align-items: center;
   gap: 5px;
 }
@@ -354,17 +354,30 @@ button.uno-card {
   white-space: nowrap;
 }
 .uno-terminal-cards {
+  --terminal-card-width: 36px;
   min-width: 0;
-  display: flex;
-  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns:
+    repeat(var(--terminal-leading-card-count), minmax(17px, 1fr))
+    var(--terminal-card-width);
+  align-items: center;
+  gap: 0;
   padding: 2px;
   overflow-x: auto;
-  touch-action: pan-x;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  contain: inline-size;
+  touch-action: pan-x pan-y;
 }
+.uno-terminal-cards.single,
+.uno-terminal-cards.empty { grid-template-columns: minmax(0, 1fr); }
 .uno-terminal-cards .uno-card.compact {
-  width: 36px;
+  width: var(--terminal-card-width);
   height: 52px;
-  flex-basis: 36px;
+  min-width: var(--terminal-card-width);
 }
 .uno-terminal-cards .uno-card-face { font-size: 16px; }
 .uno-terminal-cards .uno-card-corner { font-size: 8px; }
@@ -449,8 +462,9 @@ button.uno-card {
   .uno-center { gap: 24px; }
   .uno-card { width: 67px; height: 98px; }
   .uno-card-face { font-size: 30px; }
-  .uno-hand-scroll { min-height: 117px; padding-inline: 7px; }
-  .uno-hand-scroll .uno-card + .uno-card { margin-left: -10px; }
+  .uno-hand-scroll { min-height: 96px; padding: 9px 5px 5px; }
+  .uno-hand-scroll .uno-card { width: 56px; height: 82px; }
+  .uno-hand-scroll .uno-card + .uno-card { margin-left: -21px; }
   .game-controls:has(.uno-controls) { width: 100%; max-width: 100%; }
 }
 
@@ -461,7 +475,10 @@ button.uno-card {
   .uno-opponent-backs .uno-card + .uno-card { margin-left: -25px; }
   .uno-center { gap: 16px; }
   .uno-card { width: 62px; height: 92px; }
+  .uno-hand-scroll { min-height: 90px; padding: 8px 4px 4px; }
+  .uno-hand-scroll .uno-card { width: 52px; height: 78px; }
+  .uno-hand-scroll .uno-card + .uno-card { margin-left: -22px; }
   .uno-pile { min-width: 76px; font-size: 10px; }
   .uno-action { width: 100%; }
-  .uno-terminal-row { grid-template-columns: 60px minmax(0, 1fr); }
+  .uno-terminal-row { grid-template-columns: 54px minmax(0, 1fr); }
 }

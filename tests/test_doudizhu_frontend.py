@@ -23,7 +23,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "function renderControls(context)",
             "usesStandardMoveConfirmation: false",
             "ownsPrivateStatePresentation: true",
-            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.6";',
+            'const STYLE_HREF = "/static/games/doudizhu.css?v=0.1.10";',
             'link.dataset.duelGameStyle = "doudizhu";',
         ):
             self.assertIn(expected, SCRIPT)
@@ -66,9 +66,69 @@ class DoudizhuFrontendTests(unittest.TestCase):
         self.assertIn(".filter((item) => item.player_id !== viewerId)", SCRIPT)
         self.assertIn("renderHand(documentRef, context, shell)", SCRIPT)
         self.assertIn("context.helpers.renderParticipantAvatar", SCRIPT)
-        self.assertIn("renderAvatar(avatar, value)", SCRIPT)
+        self.assertIn("renderAvatar(documentRef, context, value)", SCRIPT)
+        self.assertIn("renderAvatar(documentRef, context, viewer)", SCRIPT)
         self.assertIn(".doudizhu-terminal-cards", STYLES)
         self.assertIn("overflow-x: auto;", STYLES)
+
+    def test_current_turn_region_and_avatar_styles(self):
+        for expected in (
+            ".doudizhu-seat.current {",
+            ".doudizhu-hand-zone.current {",
+            ".doudizhu-turn-indicator {",
+            ".doudizhu-avatar.current-turn-avatar.current-turn-avatar {",
+            ".doudizhu-avatar.current-turn-avatar.current-turn-avatar::after {",
+            "text-overflow: ellipsis;",
+        ):
+            self.assertIn(expected, STYLES)
+        avatar_override = STYLES[
+            STYLES.index(".doudizhu-avatar.current-turn-avatar.current-turn-avatar {"):
+            STYLES.index(
+                ".role-landlord .doudizhu-avatar {",
+                STYLES.index(".doudizhu-avatar.current-turn-avatar.current-turn-avatar {")
+            )
+        ]
+        self.assertIn("outline: 0;", avatar_override)
+        self.assertIn("box-shadow: none;", avatar_override)
+        self.assertIn("display: none;", avatar_override)
+
+    def test_mobile_turn_copy_spacing_and_center_vertical_distribution(self):
+        for expected in (
+            ".doudizhu-current-action-label {",
+            "color: #941f2b;",
+            "background: #fff0ec;",
+            "grid-template-columns: minmax(0, 1fr) auto;",
+            "max-width: min(36vw, 150px);",
+            "grid-template-rows: auto minmax(0, 1fr);",
+            "grid-template-rows: auto minmax(60px, 1fr) auto;",
+            "gap: 14px;",
+            "gap: 12px;",
+            "gap: 10px;",
+        ):
+            self.assertIn(expected, STYLES)
+        self.assertIn('"doudizhu-current-action-label", "行动中"', SCRIPT)
+
+    def test_terminal_hands_use_compact_non_scrolling_fan(self):
+        terminal_cards = STYLES[
+            STYLES.index(".doudizhu-terminal-cards {"):
+            STYLES.index(".doudizhu-card {", STYLES.index(".doudizhu-terminal-cards {"))
+        ]
+        self.assertIn("overflow: hidden;", terminal_cards)
+        self.assertNotIn("overflow-x: auto;", terminal_cards)
+        self.assertIn(
+            ".doudizhu-terminal-cards .doudizhu-card + .doudizhu-card {\n  margin-left: -14px;",
+            STYLES,
+        )
+        self.assertIn("margin-left: -19px;", STYLES)
+        self.assertLessEqual(28 + 19 * (28 - 19), 203)
+        self.assertIn("doudizhu-terminal-count", SCRIPT + STYLES)
+        self.assertIn("terminal-wide-rank", SCRIPT + STYLES)
+        self.assertIn("letter-spacing: -1.2px;", STYLES)
+        self.assertIn(
+            ".doudizhu-card.terminal-wide-rank + .doudizhu-card {\n"
+            "    margin-left: -17px;",
+            STYLES,
+        )
 
     def test_mobile_hand_scroll_has_320_and_375_guards(self):
         for expected in (
@@ -149,7 +209,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "padding: 6px 5px 5px;",
             "width: 29px;",
             "min-height: 60px;",
-            "min-height: 88px;",
+            "min-height: 82px;",
             "height: 73px;",
         ):
             self.assertIn(expected, mobile)
@@ -158,7 +218,7 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "padding: 5px 4px 4px;",
             "width: 27px;",
             "min-height: 57px;",
-            "min-height: 84px;",
+            "min-height: 78px;",
             "height: 70px;",
         ):
             self.assertIn(expected, narrow)
@@ -167,12 +227,18 @@ class DoudizhuFrontendTests(unittest.TestCase):
             "min-height: 37px;",
             "width: 26px;",
             "min-height: 54px;",
-            "min-height: 80px;",
+            "min-height: 74px;",
             "height: 67px;",
         ):
             self.assertIn(expected, smallest)
         self.assertIn("overflow-x: auto;", STYLES)
         self.assertIn("overflow-y: hidden;", STYLES)
+        self.assertIn("width: 44px;\n    min-width: 44px;\n    height: 66px;", mobile)
+        self.assertIn("margin-left: -20px;", mobile)
+        self.assertIn("width: 42px;\n    min-width: 42px;\n    height: 64px;", narrow)
+        self.assertIn("margin-left: -21px;", narrow)
+        self.assertIn("width: 40px;\n    min-width: 40px;\n    height: 61px;", smallest)
+        self.assertIn("margin-left: -22px;", smallest)
         self.assertNotIn("max-height:", mobile + narrow + smallest)
 
     def test_bottom_cards_are_three_complete_non_overlapping_cards(self):
@@ -438,6 +504,52 @@ function makeContext(stateOverrides = {}) {
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_current_turn_switches_player_region_and_visible_name_together(self):
+        self.run_node(r'''
+const value = makeContext();
+renderer.renderBoard(value.context);
+let nodes = descendants(value.board);
+let handZone = nodes.find((node) => hasClass(node, "doudizhu-hand-zone"));
+let turnIndicator = nodes.find((node) => hasClass(node, "doudizhu-turn-indicator"));
+assert.ok(hasClass(handZone, "current"));
+assert.equal(handZone.attributes["aria-current"], "true");
+assert.equal(turnIndicator.textContent, "轮到 南山");
+assert.equal(turnIndicator.title, "轮到 南山");
+assert.ok(nodes.filter((node) => hasClass(node, "doudizhu-seat")).every(
+  (node) => !hasClass(node, "current")
+));
+
+value.context.room.current_player_id = "ai-2";
+value.context.canMove = false;
+value.board.replaceChildren();
+renderer.renderBoard(value.context);
+nodes = descendants(value.board);
+handZone = nodes.find((node) => hasClass(node, "doudizhu-hand-zone"));
+turnIndicator = nodes.find((node) => hasClass(node, "doudizhu-turn-indicator"));
+const currentSeat = nodes.find(
+  (node) => hasClass(node, "doudizhu-seat") && hasClass(node, "current")
+);
+assert.ok(!hasClass(handZone, "current"));
+assert.equal(handZone.attributes["aria-current"], "false");
+assert.equal(currentSeat.dataset.playerId, "ai-2");
+assert.equal(currentSeat.attributes["aria-current"], "true");
+assert.equal(turnIndicator.textContent, "轮到 小机二号");
+const actionLabels = nodes.filter(
+  (node) => hasClass(node, "doudizhu-current-action-label")
+);
+assert.equal(actionLabels.length, 1);
+assert.equal(actionLabels[0].textContent, "行动中");
+
+value.context.participants[2].display_name = "Codex_杉星_0828_特别长的行动玩家名字";
+value.board.replaceChildren();
+renderer.renderBoard(value.context);
+turnIndicator = descendants(value.board).find(
+  (node) => hasClass(node, "doudizhu-turn-indicator")
+);
+assert.equal(turnIndicator.textContent, "轮到 Codex_杉星_0828_特别长的行动玩家名字");
+assert.equal(turnIndicator.title, turnIndicator.textContent);
+''')
+
     def test_private_hand_and_complete_hidden_or_revealed_bottom_render(self):
         self.run_node(r'''
 const hidden = makeContext();
@@ -469,7 +581,7 @@ assert.deepEqual(
   revealedBottom.children.map((node) => node.dataset.cardId),
   bottomCards.map((card) => card.id)
 );
-assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.6");
+assert.equal(styleNodes.get("duel-game-doudizhu-styles").href, "/static/games/doudizhu.css?v=0.1.10");
 ''')
 
     def test_terminal_review_shows_every_remaining_hand_high_to_low(self):
@@ -479,14 +591,14 @@ renderer.renderBoard(playing.context);
 let nodes = descendants(playing.board);
 assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-terminal-review")).length, 0);
 assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-seat")).length, 2);
-assert.ok(nodes.filter((node) => hasClass(node, "doudizhu-seat-state")).every(
+assert.ok(nodes.filter((node) => hasClass(node, "doudizhu-seat-count")).every(
   (node) => /17 张/.test(node.textContent)
 ));
 
 const terminalHands = {
   "human-1": [],
   "ai-1": [
-    {id: "S3", suit: "spades", rank: "3"},
+    {id: "S10", suit: "spades", rank: "10"},
     {id: "H2", suit: "hearts", rank: "2"},
     {id: "JOKER-B", suit: "joker", rank: "big_joker"},
   ],
@@ -506,24 +618,34 @@ nodes = descendants(terminal.board);
 const rows = nodes.filter((node) => hasClass(node, "doudizhu-terminal-row"));
 assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", "ai-2"]);
 assert.equal(nodes.filter((node) => hasClass(node, "doudizhu-terminal-empty")).length, 1);
+assert.deepEqual(
+  nodes.filter((node) => hasClass(node, "doudizhu-terminal-count")).map((node) => node.textContent),
+  ["0 张", "3 张", "2 张"]
+);
 const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
 assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
-  "JOKER-B", "H2", "S3",
+  "JOKER-B", "H2", "S10",
 ]);
+const terminalTen = aiOne.children[1].children.find((node) => node.dataset.cardId === "S10");
+assert.ok(hasClass(terminalTen, "terminal-wide-rank"));
+assert.equal(
+  descendants(terminalTen).find((node) => hasClass(node, "doudizhu-card-rank")).textContent,
+  "10"
+);
 const aiTwo = rows.find((node) => node.dataset.playerId === "ai-2");
 assert.deepEqual(aiTwo.children[1].children.map((node) => node.dataset.cardId), ["HA", "SK"]);
 ''')
 
-    def test_seat_avatars_use_shared_helper_and_fall_back_to_first_character(self):
+    def test_seat_and_own_hand_avatars_use_shared_helper_and_fallback(self):
         self.run_node(r'''
 const shared = makeContext();
 renderer.renderBoard(shared.context);
-assert.deepEqual(shared.avatarCalls, ["ai-1", "ai-2"]);
+assert.deepEqual(shared.avatarCalls, ["ai-1", "ai-2", "human-1"]);
 assert.deepEqual(
   descendants(shared.board)
     .filter((node) => hasClass(node, "doudizhu-avatar"))
     .map((node) => node.textContent),
-  ["avatar:ai-1", "avatar:ai-2"]
+  ["avatar:ai-1", "avatar:ai-2", "avatar:human-1"]
 );
 
 const missing = makeContext();
@@ -533,7 +655,7 @@ assert.deepEqual(
   descendants(missing.board)
     .filter((node) => hasClass(node, "doudizhu-avatar"))
     .map((node) => node.textContent),
-  ["小", "小"]
+  ["小", "小", "南"]
 );
 
 const failed = makeContext();
@@ -543,7 +665,7 @@ assert.deepEqual(
   descendants(failed.board)
     .filter((node) => hasClass(node, "doudizhu-avatar"))
     .map((node) => node.textContent),
-  ["小", "小"]
+  ["小", "小", "南"]
 );
 ''')
 
