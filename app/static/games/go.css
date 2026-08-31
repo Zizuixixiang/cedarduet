@@ -11,6 +11,7 @@
 }
 
 .go-shell {
+  --go-line: rgb(75 61 42 / 78%);
   display: grid;
   gap: 7px;
   width: min(96vw, 680px);
@@ -60,16 +61,37 @@
   width: 100%;
   aspect-ratio: 1;
   isolation: isolate;
-  border: 3px solid #633f1c;
-  border-radius: 4px;
-  background-color: #d9a84d;
+  border: 1px solid #b9a176;
+  border-radius: 3px;
+  background-color: #ead6aa;
   background-image:
-    linear-gradient(to right, transparent 4.88%, #4b351e 4.88%, #4b351e 5.12%, transparent 5.12%),
-    linear-gradient(to bottom, transparent 4.88%, #4b351e 4.88%, #4b351e 5.12%, transparent 5.12%);
-  background-size: calc(90% / 18) 100%, 100% calc(90% / 18);
-  background-position: 5% 0, 0 5%;
-  box-shadow: inset 0 0 26px rgb(103 55 13 / 24%), 3px 4px 0 rgb(70 42 16 / 25%);
+    linear-gradient(112deg, rgb(255 255 255 / 22%), transparent 36%, rgb(140 107 61 / 7%) 76%, transparent),
+    linear-gradient(90deg, #ead6aa, #f0dfba 48%, #e8d2a3);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 30%),
+    0 3px 10px rgb(87 68 42 / 14%);
   touch-action: manipulation;
+}
+
+.go-board-surface::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: var(--go-gutter);
+  border-right: 1px solid var(--go-line);
+  border-bottom: 1px solid var(--go-line);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--go-line) 0 1px,
+      transparent 1px calc(100% / 18)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--go-line) 0 1px,
+      transparent 1px calc(100% / 18)
+    );
+  pointer-events: none;
 }
 
 .go-hoshi,
@@ -82,10 +104,10 @@
 
 .go-hoshi {
   z-index: 1;
-  width: clamp(4px, 1.1%, 8px);
+  width: clamp(4px, .9%, 6px);
   aspect-ratio: 1;
   border-radius: 50%;
-  background: #493119;
+  background: #30291f;
 }
 
 .go-point {
@@ -158,75 +180,72 @@
   border: 1px solid #d92f58;
 }
 
-.go-precision-panel {
-  display: none;
-  gap: 6px;
-  padding: 8px;
-  border: 2px solid #633f1c;
-  border-radius: 8px;
-  background: #f4d28b;
+.board-zone:has(.go-phase-status.play) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
 }
-
-.go-precision-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.go-precision-head strong { font-size: 11px; }
-.go-precision-head button { min-height: 30px; border: 1px solid #633f1c; background: #fff9e9; }
-.go-loupe-grid { display: grid; grid-template-columns: repeat(5, minmax(38px, 1fr)); gap: 2px; }
-.go-loupe-cell {
-  position: relative;
-  min-width: 38px;
-  min-height: 38px;
-  padding: 0;
-  border: 1px solid rgb(75 53 30 / 45%);
-  background: linear-gradient(#4b351e, #4b351e) center / 100% 1px no-repeat,
-              linear-gradient(90deg, #4b351e, #4b351e) center / 1px 100% no-repeat,
-              #d9a84d;
-}
-.go-loupe-cell.focus { outline: 3px solid var(--accent, #e44e78); outline-offset: -3px; }
-.go-loupe-cell:disabled { opacity: .68; }
-.go-loupe-cell .go-stone { inset: 10%; }
-.go-loupe-cell small {
-  position: absolute;
-  right: 1px;
-  bottom: 0;
-  padding: 0 2px;
-  color: #3b2817;
-  background: rgb(255 245 214 / 78%);
-  font-size: 7px;
-  line-height: 1.3;
-}
-.go-precision-panel > p { margin: 0; color: #5b482f; font-size: 9px; }
-
-.game-controls:has(.go-phase-status) { align-items: center; flex-wrap: wrap; }
+.board-zone:has(.go-phase-status.play) > .board-frame { grid-column: 1 / -1; }
+.game-controls:has(.go-phase-status.play),
+.board-zone:has(.go-phase-status.play) > .move-confirm { display: contents; }
 .go-phase-status { display: grid; min-width: min(100%, 210px); line-height: 1.2; }
+.go-phase-status.play { grid-row: 2; grid-column: 1; min-width: 0; }
 .go-phase-status strong { font-size: 11px; }
 .go-phase-status small { color: var(--muted, #6d6a61); font-size: 9px; }
+.game-controls:has(.go-phase-status.play) > .go-pass {
+  grid-row: 2;
+  grid-column: 2;
+}
+.board-zone:has(.go-phase-status.play) > .move-confirm > #confirmMoveButton {
+  grid-row: 2;
+  grid-column: 3;
+}
+.game-controls:has(.go-phase-status.play) > .go-pass,
+.board-zone:has(.go-phase-status.play) > .move-confirm > #confirmMoveButton {
+  width: 86px;
+  min-width: 86px;
+  height: 36px;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+.board-zone:has(.go-phase-status.play) > .move-confirm > #selectionHint {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  line-height: 1.25;
+}
+.game-controls:has(.go-phase-status.scoring) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
 .go-scoring-hint { flex-basis: 100%; margin: 2px 0 0; color: var(--muted, #6d6a61); font-size: 9px; }
-.game-controls .selected-action { outline: 2px solid var(--accent, #e44e78); }
+.game-controls:has(.go-phase-status) .selected-action { outline: 2px solid var(--accent, #e44e78); }
 
 @media (max-width: 480px), (pointer: coarse) {
-  .go-precision-panel { display: grid; }
-  .go-point.legal:not(:has(.go-stone))::after {
-    content: "";
-    position: absolute;
-    inset: 38%;
-    border-radius: 50%;
-    background: rgb(70 45 22 / 17%);
+  .board-zone:has(.go-phase-status.play) {
+    grid-template-columns: minmax(0, 1fr) 68px 78px;
+    column-gap: 6px;
   }
+  .game-controls:has(.go-phase-status.play) > .go-pass,
+  .board-zone:has(.go-phase-status.play) > .move-confirm > #confirmMoveButton {
+    width: 100%;
+    min-width: 0;
+  }
+  .board-zone:has(.go-phase-status.play) > .move-confirm > #selectionHint { font-size: 10px; }
 }
 
 @media (max-width: 375px) {
   .go-shell { width: min(96vw, 354px); gap: 5px; }
   .go-player-card { grid-template-columns: 26px minmax(0, 1fr) auto; min-height: 34px; padding: 3px 6px; }
   .go-player-avatar { width: 24px; height: 24px; }
-  .go-board-surface { border-width: 2px; }
-  .go-loupe-grid { grid-template-columns: repeat(5, minmax(42px, 1fr)); }
-  .go-loupe-cell { min-width: 42px; min-height: 42px; }
+  .go-board-surface { border-width: 1px; }
 }
 
 @media (max-width: 320px) {
   .go-shell { width: min(96vw, 306px); }
   .go-player-copy strong { font-size: 10px; }
   .go-player-turn { font-size: 8px; }
-  .go-loupe-grid { grid-template-columns: repeat(5, minmax(38px, 1fr)); }
-  .go-loupe-cell { min-width: 38px; min-height: 38px; }
 }

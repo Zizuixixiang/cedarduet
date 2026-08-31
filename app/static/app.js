@@ -607,13 +607,24 @@ function accountAvatarForParticipant(participant) {
   return machine ? machine.avatar || null : null;
 }
 
-function renderParticipantAvatar(target, participant) {
+function renderParticipantAvatar(target, participant, targetRoom = null) {
   target.replaceChildren();
   const fallback = participantAvatarFallback(participant);
   target.textContent = fallback;
+  const isCurrentTurn = Boolean(
+    targetRoom
+    && targetRoom.status === "playing"
+    && participant
+    && participant.player_id
+    && participant.player_id === targetRoom.current_player_id
+  );
+  target.classList.toggle("current-turn-avatar", isCurrentTurn);
+  const avatarLabel = participant && participant.display_name
+    ? `${participant.display_name}的头像`
+    : "玩家头像";
   target.setAttribute(
     "aria-label",
-    participant && participant.display_name ? `${participant.display_name}的头像` : "玩家头像"
+    avatarLabel + (isCurrentTurn ? "，当前行动者" : "")
   );
   if (!participant) return;
   if (participant.participant_kind !== "system_npc") {
@@ -1818,8 +1829,16 @@ function updateMoveConfirmation() {
   if (isTerminal(room)) {
     $("selectionHint").textContent = roomTurnText(room);
   } else {
-    const readyText = "已选中落点，可以落子";
-    const waitingText = "请先在棋盘上选择落点";
+    const readyText = (
+      room.game_type === "connect4" && Number.isInteger(pendingMove && pendingMove.col)
+        ? `已选择第 ${pendingMove.col + 1} 列，可以落子`
+        : (room.game_type === "dots_boxes"
+          ? "已选择一条边，可以落子"
+          : "已选中落点，可以落子")
+    );
+    const waitingText = room.game_type === "dots_boxes"
+      ? "请选择一条边"
+      : "请先在棋盘上选择落点";
     $("selectionHint").textContent = ready
       ? readyText
       : (canHumanMove() ? waitingText : "等待轮到你");
@@ -2655,7 +2674,7 @@ function createGameUIContext(board, controls, timeline = currentTimeline) {
     participantForOwner,
     renderParticipantAvatar: (target, participant) => {
       if (!target) return false;
-      renderParticipantAvatar(target, participant);
+      renderParticipantAvatar(target, participant, targetRoom);
       return true;
     },
     pieceClass,
@@ -2916,8 +2935,8 @@ function renderPlayers(timeline = []) {
     || participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
-  renderParticipantAvatar($("aiAvatar"), participantFor("ai"));
-  renderParticipantAvatar($("humanAvatar"), viewerParticipant);
+  renderParticipantAvatar($("aiAvatar"), participantFor("ai"), room);
+  renderParticipantAvatar($("humanAvatar"), viewerParticipant, room);
 
   renderSpeechBubble({
     bubble: $("aiSpeech"),
@@ -2962,6 +2981,7 @@ function applyParticipantLayout(targetRoom) {
   $("battleStage").dataset.playerCount = String(playerCount);
   $("battleStage").dataset.participantPresentation = presentation;
   $("battleStage").dataset.gameCategory = roomGameCategory(targetRoom);
+  $("battleStage").dataset.gameType = targetRoom.game_type;
   $("battleStage").classList.toggle("multiplayer-presentation", playerCount > 2);
   $("sharedSpeechSlot").classList.toggle("hidden", true);
 }
@@ -3093,7 +3113,7 @@ function createParticipantBadge(participant, targetRoom) {
   if (isViewer) badge.setAttribute("aria-label", `${participant.display_name || participant.player_id}，我的席位`);
   const avatarWrap = document.createElement("span");
   avatarWrap.className = "room-participant-avatar";
-  renderParticipantAvatar(avatarWrap, participant);
+  renderParticipantAvatar(avatarWrap, participant, targetRoom);
   const copy = document.createElement("span");
   copy.className = "room-participant-copy";
   const name = document.createElement("strong");

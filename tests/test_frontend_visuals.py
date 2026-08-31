@@ -26,7 +26,7 @@ def function_source(name: str) -> str:
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
         registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.2"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.3"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
         liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.0"></script>'
@@ -563,6 +563,104 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("rowIndex === landingRow", connect4)
         self.assertNotIn("textContent", connect4)
 
+    @unittest.skipUnless(NODE, "node is required")
+    def test_connect4_whole_column_selects_only_the_landing_slot(self):
+        functions = "\n".join((
+            function_source("movesEqual"),
+            function_source("connect4LandingRow"),
+            function_source("renderConnect4Board"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  add(...names) {{ names.forEach((name) => this.names.add(name)); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Cell {{
+  constructor(mark, rowIndex, colIndex, onClick) {{
+    this.mark = mark;
+    this.rowIndex = rowIndex;
+    this.colIndex = colIndex;
+    this.onClick = onClick;
+    this.classList = new ClassList();
+    this.attributes = {{}};
+    this.disabled = Boolean(mark);
+    this.ariaLabel = "";
+  }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+  click() {{ if (!this.disabled) this.onClick(); }}
+}}
+const board = {{children: [], appendChild(cell) {{ this.children.push(cell); }}}};
+const boardCell = (mark, rowIndex, colIndex, onClick) => (
+  new Cell(mark, rowIndex, colIndex, onClick)
+);
+const clicks = [];
+const selectMove = (payload) => clicks.push(payload);
+const canHumanMove = () => true;
+const pieceDescription = (mark) => `${{mark}}棋片`;
+let pendingMove = {{col: 2}};
+{functions}
+
+const state = {{
+  rows: 6,
+  cols: 7,
+  marks: {{human: "X"}},
+  board: Array.from({{length: 6}}, () => Array(7).fill(null)),
+}};
+state.board[4][2] = "O";
+state.board[5][2] = "X";
+for (let rowIndex = 0; rowIndex < 6; rowIndex += 1) {{
+  state.board[rowIndex][6] = rowIndex % 2 ? "X" : "O";
+}}
+
+renderConnect4Board(board, state);
+assert.equal(board.children.length, 42);
+
+const selected = board.children.filter(
+  (cell) => cell.classList.contains("selected")
+);
+assert.equal(selected.length, 1);
+assert.equal(selected[0].rowIndex, 3);
+assert.equal(selected[0].colIndex, 2);
+assert.ok(selected[0].classList.contains("preview-x"));
+
+const selectableColumn = board.children.filter((cell) => cell.colIndex === 2);
+assert.ok(selectableColumn.every((cell) => !cell.disabled));
+selectableColumn.forEach((cell) => cell.click());
+assert.deepEqual(clicks, Array.from({{length: 6}}, () => ({{col: 2}})));
+
+const fullColumn = board.children.filter((cell) => cell.colIndex === 6);
+assert.ok(fullColumn.every((cell) => cell.disabled));
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+    def test_connect4_board_has_an_inset_frame_and_recessed_slots(self):
+        connect4_start = STYLES.index(".board.connect4 {")
+        connect4_end = STYLES.index(".board.dots_boxes {", connect4_start)
+        connect4_styles = STYLES[connect4_start:connect4_end]
+        self.assertIn("border-radius: 12px", connect4_styles)
+        self.assertIn("inset 0 0 0 3px", connect4_styles)
+        self.assertIn(".board.connect4 .cell::before", connect4_styles)
+        self.assertIn("inset 2px", connect4_styles)
+        self.assertIn("inset 2px 3px 4px", connect4_styles)
+        self.assertIn("touch-action: manipulation", connect4_styles)
+
     def test_dots_boxes_ownership_is_visual_and_accessible(self):
         renderer = function_source("renderDotsBoard")
         self.assertIn('box.setAttribute("role", "img")', renderer)
@@ -570,7 +668,12 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("participant.seat_index + 1", renderer)
         self.assertIn("（座位 ${seatNumber}）所有", renderer)
         self.assertIn("--rows: 9", STYLES)
-        self.assertIn(".box.owned.participant-piece { background: var(--seat-soft); }", STYLES)
+        self.assertIn("background: color-mix(in srgb, var(--seat-soft) 72%, white);", STYLES)
+        self.assertIn("font-size: clamp(9px, 2.4vw, 12px);", STYLES)
+        box_styles = STYLES[STYLES.index(".box {"):STYLES.index(".board.liars_dice {")]
+        self.assertIn("background: transparent;", box_styles)
+        self.assertIn("border: 0;", box_styles)
+        self.assertIn("border-radius: 0;", box_styles)
         self.assertNotIn('content: "●"', STYLES)
         self.assertNotIn('content: "◆"', STYLES)
         self.assertNotIn(".box.owned.human-piece", STYLES)
@@ -581,11 +684,14 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn("dotsPreviewSeatClass()", renderer)
         self.assertIn('edge.ariaLabel += "，待确认"', renderer)
         self.assertIn(".edge::before {", STYLES)
-        self.assertIn("background: rgba(92, 84, 99, .16);", STYLES)
+        self.assertIn("background: rgba(92, 84, 99, .1);", STYLES)
+        self.assertIn("height: 1px;", STYLES)
+        self.assertIn("width: 1px;", STYLES)
         self.assertIn(".edge.drawn.participant-piece::before", STYLES)
         self.assertIn("background: var(--seat-color);", STYLES)
         self.assertIn(".edge.selected.horizontal::before", STYLES)
         self.assertIn("repeating-linear-gradient(", STYLES)
+        self.assertIn("inset 0 0 0 2px var(--seat-color", STYLES)
         self.assertIn(".edge .last-move-marker", STYLES)
 
     def test_dots_boxes_mobile_tracks_fit_320_and_375_pixel_viewports(self):
@@ -600,8 +706,8 @@ class FrontendBoardVisualTests(unittest.TestCase):
             "repeat(4, var(--dot-track) minmax(0, 1fr)) var(--dot-track)",
             dots_styles,
         )
-        self.assertIn("width: 10px;", dots_styles)
-        self.assertIn("height: 10px;", dots_styles)
+        self.assertIn("width: 8px;", dots_styles)
+        self.assertIn("height: 8px;", dots_styles)
         for viewport in (320, 375):
             board_width = min(viewport * 0.94, 460)
             dot_track = min(max(22, viewport * 0.064), 28)
@@ -725,8 +831,9 @@ class FrontendBoardVisualTests(unittest.TestCase):
             ".edge.drawn.participant-piece::before",
             STYLES,
         )
+        self.assertIn(".box.owned.participant-piece {", STYLES)
         self.assertIn(
-            ".box.owned.participant-piece { background: var(--seat-soft); }",
+            "background: color-mix(in srgb, var(--seat-soft) 72%, white);",
             STYLES,
         )
         badge = function_source("createParticipantBadge")
@@ -814,11 +921,11 @@ class FrontendBoardVisualTests(unittest.TestCase):
             players,
         )
         self.assertIn(
-            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"))',
+            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"), room)',
             players,
         )
         self.assertIn(
-            'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
+            'renderParticipantAvatar($("humanAvatar"), viewerParticipant, room)',
             players,
         )
         self.assertEqual(players.count("renderSpeechBubble"), 4)
@@ -827,6 +934,88 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn('bubble: $("sharedSpeech")', players)
         self.assertIn("event: multiplayer ? null", players)
         self.assertIn("reserveSpace: !multiplayer", players)
+
+    @unittest.skipUnless(NODE, "node is required")
+    def test_shared_avatar_marks_only_the_playing_current_actor(self):
+        functions = "\n".join((
+            function_source("participantAvatarFallback"),
+            function_source("accountAvatarForParticipant"),
+            function_source("renderParticipantAvatar"),
+        ))
+        harness = f"""
+const assert = require("node:assert/strict");
+class ClassList {{
+  constructor() {{ this.names = new Set(); }}
+  toggle(name, force) {{
+    if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
+    else this.names.delete(name);
+  }}
+  contains(name) {{ return this.names.has(name); }}
+}}
+class Element {{
+  constructor() {{
+    this.classList = new ClassList();
+    this.attributes = {{}};
+    this.textContent = "";
+  }}
+  replaceChildren() {{ this.textContent = ""; }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+  addEventListener() {{}}
+}}
+const identity = null;
+const apiPath = (path) => path;
+const document = {{createElement: () => new Element()}};
+{functions}
+const participant = {{
+  player_id: "p1", display_name: "南山", participant_kind: "bound_machine",
+}};
+const target = new Element();
+renderParticipantAvatar(target, participant, {{
+  status: "playing", current_player_id: "p1",
+}});
+assert.ok(target.classList.contains("current-turn-avatar"));
+assert.equal(target.attributes["aria-label"], "南山的头像，当前行动者");
+
+renderParticipantAvatar(target, participant, {{
+  status: "playing", current_player_id: "p2",
+}});
+assert.ok(!target.classList.contains("current-turn-avatar"));
+assert.equal(target.attributes["aria-label"], "南山的头像");
+
+renderParticipantAvatar(target, participant, {{
+  status: "finished", current_player_id: "p1",
+}});
+assert.ok(!target.classList.contains("current-turn-avatar"));
+"""
+        completed = subprocess.run(
+            [NODE, "-e", harness],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"JavaScript assertion failed:\n{completed.stderr}",
+        )
+
+        marker_start = STYLES.index(".current-turn-avatar.current-turn-avatar {")
+        marker_end = STYLES.index(".hand-player-identity {", marker_start)
+        marker_styles = STYLES[marker_start:marker_end]
+        self.assertIn("outline: 2px solid #f0b429;", marker_styles)
+        self.assertIn(".current-turn-avatar.current-turn-avatar::after", marker_styles)
+        self.assertIn("border-radius: 50%;", marker_styles)
+        self.assertIn(
+            ".current-turn-avatar.current-turn-avatar > img", marker_styles
+        )
+        self.assertNotIn("animation", marker_styles)
+        self.assertIn(".hand-player-identity > [class*=\"avatar\"]", STYLES)
+
+        context = function_source("createGameUIContext")
+        self.assertIn(
+            "renderParticipantAvatar(target, participant, targetRoom)", context
+        )
 
     def test_ended_room_cards_have_a_prominent_non_hover_status(self):
         renderer = function_source("renderRooms")
@@ -1129,7 +1318,7 @@ const $ = (id) => elements[id];
 let pendingMove = null;
 let humanCanMove = true;
 let terminal = false;
-let room = {{status: "playing"}};
+let room = {{status: "playing", game_type: "tictactoe"}};
 const canHumanMove = () => humanCanMove;
 const isTerminal = () => terminal;
 const roomTurnText = () => "对局已结束";
@@ -1145,6 +1334,20 @@ updateMoveConfirmation();
 assert.equal(confirmMoveButton.disabled, false);
 assert.equal(confirmMoveButton.classList.contains("ready-to-submit"), true);
 assert.equal(selectionHint.textContent, "已选中落点，可以落子");
+
+room.game_type = "dots_boxes";
+pendingMove = null;
+updateMoveConfirmation();
+assert.equal(selectionHint.textContent, "请选择一条边");
+
+pendingMove = {{orientation: "h", row: 2, col: 3}};
+updateMoveConfirmation();
+assert.equal(selectionHint.textContent, "已选择一条边，可以落子");
+
+room.game_type = "connect4";
+pendingMove = {{col: 3}};
+updateMoveConfirmation();
+assert.equal(selectionHint.textContent, "已选择第 4 列，可以落子");
 
 humanCanMove = false;
 updateMoveConfirmation();
@@ -1353,6 +1556,44 @@ for (const playerCount of [2, 3, 4]) {{
 }}
 """
         self.run_node(harness)
+
+    def test_dots_boxes_compact_controls_are_scoped_to_the_game_stage(self):
+        self.assertIn(
+            '$("battleStage").dataset.gameType = targetRoom.game_type;',
+            function_source("applyParticipantLayout"),
+        )
+        dots_scope = '#battleStage[data-game-type="dots_boxes"]'
+        self.assertIn(f"{dots_scope} .move-confirm {{", STYLES)
+        self.assertIn(f"{dots_scope} #confirmMoveButton {{", STYLES)
+        self.assertIn(f"{dots_scope} .player-row {{", STYLES)
+        self.assertNotIn(".move-confirm #confirmMoveButton {", STYLES)
+
+    def test_dots_boxes_multiplayer_keeps_generic_roster_and_board_contained(self):
+        dots_scope = '#battleStage[data-game-type="dots_boxes"]'
+        self.assertNotIn("usesUnifiedDotsBoxesRoster", SCRIPT)
+        roster_fn = function_source("renderParticipantRoster")
+        self.assertIn(
+            '$("viewerParticipantSlot").classList.toggle("hidden", !showGenericRoster);',
+            roster_fn,
+        )
+        self.assertIn(
+            'viewerSlot.classList.toggle("hidden", !showGenericRoster || !viewer);',
+            roster_fn,
+        )
+        self.assertIn("if (viewer) {", roster_fn)
+        self.assertNotIn('grid-template-columns: repeat(2, minmax(0, 1fr));',
+                         STYLES[STYLES.index(dots_scope):])
+
+        contained = STYLES[
+            STYLES.index(f"{dots_scope} .layout-multiplayer .board-zone,"):
+            STYLES.index(f"{dots_scope} .move-confirm {{")
+        ]
+        self.assertIn(f"{dots_scope} .layout-multiplayer .board-frame", contained)
+        self.assertIn("width: 100%;", contained)
+        self.assertIn("max-width: 100%;", contained)
+        self.assertIn("min-width: 0;", contained)
+        self.assertIn("justify-items: center;", contained)
+        self.assertIn("width: min(460px, 100%);", contained)
 
     def test_jungle_dom_tokens_terrain_rotation_and_true_coordinates(self):
         functions = "\n".join((
@@ -2800,6 +3041,7 @@ const registeredGameUIRenderer = () => activeRenderer;
 {functions}
 const targetRoom = {{
   game_type: "liars_dice",
+  status: "playing",
   current_player_id: "p2",
   viewer: {{player_id: "p1"}},
   participants: [
@@ -2819,6 +3061,7 @@ const current = roster.children[0];
 assert.match(current.className, /seat-0/);
 assert.ok(current.classList.contains("current"));
 assert.equal(current.attributes["aria-current"], "true");
+assert.ok(current.children[0].classList.contains("current-turn-avatar"));
 assert.match(current.children[2].textContent, /▶ 正在行动/);
 assert.match(current.children[2].textContent, /剩余骰子 4/);
 assert.equal(current.children[0].textContent, "乙");
@@ -2916,22 +3159,26 @@ for (const count of [3, 4, 5, 6]) {{
   }}));
   renderParticipantRoster({{
     game_type: "dots_boxes",
-    viewer: {{player_id: "me"}}, current_player_id: "me", participants,
+    status: "playing", viewer: {{player_id: "me"}},
+    current_player_id: "me", participants,
   }});
   assert.equal(roster.children.length, count - 1);
   assert.ok(roster.children.every(
     (item) => item.children[1].children[0].textContent !== "南山（你）"
   ));
   assert.ok(roster.children.every((item) => !item.classList.contains("viewer")));
-  assert.ok(roster.classList.contains(`count-${{count}}`));
-  assert.ok(!roster.classList.contains("hidden"));
   assert.equal(viewerSlot.children.length, 1);
   assert.equal(
     viewerSlot.children[0].children[1].children[0].textContent,
     "南山（你）"
   );
+  assert.ok(
+    viewerSlot.children[0].children[0].classList.contains("current-turn-avatar")
+  );
   assert.ok(!viewerSlot.classList.contains("hidden"));
   assert.ok(!viewerRow.classList.contains("hidden"));
+  assert.ok(roster.classList.contains(`count-${{count}}`));
+  assert.ok(!roster.classList.contains("hidden"));
 }}
 """
         self.run_node(harness)

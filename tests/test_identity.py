@@ -382,11 +382,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
-        self.assertIn("/static/app.js?v=0.9.1", html)
-        self.assertIn("/static/styles.css?v=0.9.2", html)
+        self.assertIn("/static/app.js?v=0.9.3", html)
+        self.assertIn("/static/styles.css?v=0.9.6", html)
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
-            html.index("/static/app.js?v=0.9.1"),
+            html.index("/static/app.js?v=0.9.3"),
         )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
@@ -483,12 +483,12 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("function emojiFor", script.text)
         self.assertNotIn('$("aiAvatar").textContent = "🤖"', script.text)
         self.assertIn(
-            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"))',
+            'renderParticipantAvatar($("aiAvatar"), participantFor("ai"), room)',
             script.text,
         )
         self.assertNotIn('$("humanAvatar").textContent = "👤"', script.text)
         self.assertIn(
-            'renderParticipantAvatar($("humanAvatar"), viewerParticipant)',
+            'renderParticipantAvatar($("humanAvatar"), viewerParticipant, room)',
             script.text,
         )
         self.assertIn(

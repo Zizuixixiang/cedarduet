@@ -17,7 +17,7 @@ NODE = shutil.which("node")
 class GoFrontendStructureTests(unittest.TestCase):
     def test_independent_authoritative_renderer_and_no_images(self):
         self.assertIn('window.DuelGameUI.register("go", renderer)', SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/go.css?v=0.1.0"', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/go.css?v=0.1.1"', SCRIPT)
         self.assertIn("context.legalActions", SCRIPT)
         self.assertNotIn("function isLegal", SCRIPT)
         self.assertNotIn("libert", SCRIPT.lower())
@@ -26,12 +26,10 @@ class GoFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("/static/games/go.js", HTML)
         self.assertIn('<option value="go">围棋 / 2人</option>', HTML)
 
-    def test_mobile_precision_rotation_roster_and_board_styles(self):
+    def test_direct_selection_rotation_roster_and_board_styles(self):
         for value in (
             "function visualPoint(row, col, rotated)",
             'board.dataset.rotationDegrees = rotated ? "180" : "0"',
-            "function appendPrecisionLoupe",
-            'window.matchMedia("(max-width: 480px), (pointer: coarse)")',
             "go-player-avatar",
             "提子",
             "当前行动",
@@ -39,23 +37,34 @@ class GoFrontendStructureTests(unittest.TestCase):
             self.assertIn(value, SCRIPT)
         for value in (
             ".go-board-surface",
+            ".go-board-surface::before",
+            "repeating-linear-gradient",
             ".go-point",
             ".go-stone.black",
             ".go-stone.white",
-            ".go-precision-panel",
-            ".go-loupe-grid",
-            "min-width: 38px",
             "@media (max-width: 375px)",
             "@media (max-width: 320px)",
             "width: min(96vw, 306px)",
             "touch-action: manipulation",
+            ".board-zone:has(.go-phase-status.play)",
+            "#confirmMoveButton",
         ):
             self.assertIn(value, STYLES)
+        for value in (
+            "isPrecisionAssistDevice",
+            "appendPrecisionLoupe",
+            "focusPoint",
+            "go-precision-panel",
+            "go-loupe-cell",
+        ):
+            self.assertNotIn(value, SCRIPT + STYLES)
+        self.assertNotIn('.go-point.legal:not(:has(.go-stone))::after', STYLES)
+        self.assertIn('"PASS"', SCRIPT)
 
 
 @unittest.skipUnless(NODE, "node is required for Go renderer test")
 class GoFrontendRuntimeTests(unittest.TestCase):
-    def test_mobile_first_tap_opens_loupe_then_exact_cell_selects(self):
+    def test_mobile_tap_directly_selects_legal_intersection(self):
         state = {
             "size": 19,
             "board": [[None for _ in range(19)] for _ in range(19)],
@@ -113,7 +122,6 @@ const document = {
 };
 let renderer = null;
 const window = {
-  matchMedia() { return {matches: true}; },
   DuelGameUI: {register(type, value) { assert.equal(type, "go"); renderer = value; }},
 };
 vm.runInNewContext(fs.readFileSync("app/static/games/go.js", "utf8"), {
@@ -147,21 +155,31 @@ context = {
 };
 helpers.rerender();
 assert.equal(board.dataset.rotationDegrees, "0");
+assert.equal(
+  descendants(board).filter((item) => item.classList.contains("go-hoshi")).length,
+  9
+);
 const point = descendants(board).find(
   (item) => item.classList.contains("go-point")
     && item.dataset.row === "9" && item.dataset.col === "9"
 );
 assert.ok(point); point.click();
-assert.equal(selected, null);
-assert.equal(JSON.stringify(uiState.focusPoint), '{"row":9,"col":9}');
-const panel = descendants(board).find((item) => item.classList.contains("go-precision-panel"));
-assert.ok(panel);
-const exact = descendants(panel).find(
-  (item) => item.classList.contains("go-loupe-cell")
-    && item.dataset.row === "9" && item.dataset.col === "9"
-);
-assert.ok(exact); assert.equal(exact.disabled, false); exact.click();
 assert.equal(JSON.stringify(selected), '{"action":"play","row":9,"col":9}');
+assert.equal(Object.hasOwn(uiState, "focusPoint"), false);
+assert.equal(
+  descendants(board).some((item) => item.classList.contains("go-precision-panel")),
+  false
+);
+renderer.renderControls(context);
+const phaseStatus = descendants(controls).find(
+  (item) => item.classList.contains("go-phase-status")
+);
+assert.ok(phaseStatus); assert.equal(phaseStatus.classList.contains("play"), true);
+const passButton = descendants(controls).find(
+  (item) => item.classList.contains("go-pass")
+);
+assert.ok(passButton); assert.equal(passButton.textContent, "PASS");
+assert.equal(passButton.classList.contains("secondary"), true);
 const viewerCard = descendants(board).find(
   (item) => item.classList.contains("go-player-card") && item.classList.contains("bottom")
 );

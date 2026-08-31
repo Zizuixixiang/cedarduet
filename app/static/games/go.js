@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-go-styles";
-  const STYLE_HREF = "/static/games/go.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/go.css?v=0.1.1";
   const SIZE = 19;
   const LETTERS = "ABCDEFGHJKLMNOPQRST";
 
@@ -56,13 +56,6 @@
     return new Map(actions.map((action) => [
       keyFor(action.action, action.row, action.col), action,
     ]));
-  }
-
-  function isPrecisionAssistDevice() {
-    return Boolean(
-      typeof window.matchMedia === "function"
-      && window.matchMedia("(max-width: 480px), (pointer: coarse)").matches
-    );
   }
 
   function visualPoint(row, col, rotated) {
@@ -152,14 +145,7 @@
     if (sameMove(context.pendingMove, action)) button.classList.add("selected");
     if (action) {
       button.classList.add("legal");
-      button.addEventListener("click", () => {
-        if (action.action === "play" && isPrecisionAssistDevice()) {
-          context.uiState.focusPoint = {row, col};
-          context.helpers.rerender();
-          return;
-        }
-        context.helpers.selectMove(action);
-      });
+      button.addEventListener("click", () => context.helpers.selectMove(action));
     }
     return button;
   }
@@ -172,64 +158,6 @@
     hoshi.style.setProperty("--go-col", visual.col);
     hoshi.setAttribute("aria-hidden", "true");
     return hoshi;
-  }
-
-  function loupeCell(context, row, col, legalMap, deadSet) {
-    if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) {
-      const outside = document.createElement("span");
-      outside.className = "go-loupe-cell outside";
-      return outside;
-    }
-    const value = context.state.board[row][col];
-    const action = legalMap.get(keyFor("play", row, col));
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "go-loupe-cell";
-    button.dataset.row = String(row);
-    button.dataset.col = String(col);
-    button.disabled = !context.canMove || !action;
-    button.setAttribute("aria-label", `${coordinate(row, col)}${action ? "，选择此处" : "，不可落子"}`);
-    if (value) button.appendChild(
-      createStone(value, deadSet.has(`${row},${col}`), false)
-    );
-    const label = document.createElement("small");
-    label.textContent = coordinate(row, col);
-    button.appendChild(label);
-    if (action) button.addEventListener("click", () => context.helpers.selectMove(action));
-    return button;
-  }
-
-  function appendPrecisionLoupe(context, shell, legalMap, deadSet) {
-    const focus = context.uiState.focusPoint;
-    if (!focus || context.state.phase !== "play") return;
-    const panel = document.createElement("section");
-    panel.className = "go-precision-panel";
-    panel.setAttribute("aria-label", "放大选点器");
-    const header = document.createElement("div");
-    header.className = "go-precision-head";
-    const copy = document.createElement("strong");
-    copy.textContent = `放大选点 · 中心 ${coordinate(focus.row, focus.col)}`;
-    const close = document.createElement("button");
-    close.type = "button";
-    close.textContent = "关闭";
-    close.addEventListener("click", () => {
-      delete context.uiState.focusPoint;
-      context.helpers.rerender();
-    });
-    header.append(copy, close);
-    const grid = document.createElement("div");
-    grid.className = "go-loupe-grid";
-    for (let row = focus.row - 2; row <= focus.row + 2; row += 1) {
-      for (let col = focus.col - 2; col <= focus.col + 2; col += 1) {
-        const cell = loupeCell(context, row, col, legalMap, deadSet);
-        if (row === focus.row && col === focus.col) cell.classList.add("focus");
-        grid.appendChild(cell);
-      }
-    }
-    const hint = document.createElement("p");
-    hint.textContent = "点放大格精确选择，再用下方确认按钮落子。";
-    panel.append(header, grid, hint);
-    shell.appendChild(panel);
   }
 
   function renderBoard(context) {
@@ -279,7 +207,6 @@
     }
     shell.appendChild(surface);
     shell.appendChild(createPlayerCard(context, viewer, "bottom"));
-    appendPrecisionLoupe(context, shell, legalMap, deadSet);
     board.appendChild(shell);
     return true;
   }
@@ -299,7 +226,7 @@
     const {controls, state} = context;
     const legalMap = legalActionMap(context);
     const status = document.createElement("div");
-    status.className = "go-phase-status";
+    status.className = `go-phase-status ${state.phase === "scoring" ? "scoring" : "play"}`;
     const title = document.createElement("strong");
     title.textContent = state.phase === "scoring" ? "死子双方确认" : "行棋阶段";
     const detail = document.createElement("small");
@@ -315,10 +242,10 @@
     controls.appendChild(status);
     if (state.phase === "play") {
       controls.appendChild(controlButton(
-        "Pass",
+        "PASS",
         legalMap.get(keyFor("pass")),
         context,
-        "secondary",
+        "go-pass secondary",
       ));
     } else if (state.phase === "scoring") {
       controls.appendChild(controlButton(
