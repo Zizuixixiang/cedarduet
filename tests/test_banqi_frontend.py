@@ -49,8 +49,18 @@ class BanqiFrontendStructureTests(unittest.TestCase):
         ):
             self.assertIn(selector, STYLES)
         self.assertIn("repeating-conic-gradient", STYLES)
+        banqi_board = STYLES[
+            STYLES.index(".board.banqi {"):
+            STYLES.index("}", STYLES.index(".board.banqi {"))
+        ]
+        self.assertIn("padding-bottom: clamp(14px, 2.2vw, 20px);", banqi_board)
+        self.assertIn("overflow: visible;", banqi_board)
+        self.assertIn("width: min(76%, 63px);", STYLES)
+        self.assertIn("border: 1px solid rgba(68, 29, 19, .42);", STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn("width: min(92vw, 340px);", mobile)
+        self.assertIn("padding-bottom: 13px;", mobile)
+        self.assertIn("width: min(78%, 59px);", mobile)
         for viewport in (320, 375):
             board_width = min(viewport * 0.92, 340)
             cell_width = (board_width - 8 - 18 - 12) / 4
@@ -101,6 +111,13 @@ global.window = window;
 require({str(script_path)!r});
 assert.equal(typeof renderer.renderBoard, "function");
 
+const boardLayout = {{}};
+const modernHelpers = {{
+  setBoardLayout: (layout) => Object.assign(boardLayout, layout),
+  selectMove: (action) => {{ chosen = action; }},
+  clearSelection: () => {{ cleared += 1; }},
+}};
+
 const boardData = Array.from({{length: 8}}, () => Array(4).fill(null));
 boardData[0][0] = "r:c";
 boardData[0][1] = "hidden";
@@ -125,9 +142,7 @@ let cleared = 0;
 const render = (pendingMove = null) => {{
   const board = new Element("board");
   renderer.renderBoard({{
-    board, state, room, canMove: true, pendingMove,
-    setPendingMove: (action) => {{ chosen = action; }},
-    clearPendingMove: () => {{ cleared += 1; }},
+    board, state, room, canMove: true, pendingMove, helpers: modernHelpers,
   }});
   return board;
 }};
@@ -137,6 +152,7 @@ const cellAt = (board, row, col) => board.children.find((cell) => (
 
 let board = render();
 assert.equal(board.children.length, 32);
+assert.deepEqual(boardLayout, {{rows: 8, cols: 4, large: true, ariaLabel: "翻翻棋棋盘"}});
 assert.match(cellAt(board, 0, 1).ariaLabel, /身份未公开/);
 assert.equal(cellAt(board, 0, 1).classList.contains("just-revealed"), true);
 cellAt(board, 0, 0).click();

@@ -1882,10 +1882,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   width: min(46vw, 360px);
   max-width: 100%;
   padding: clamp(10px, 1.8vw, 16px);
+  padding-bottom: clamp(14px, 2.2vw, 20px);
   position: relative;
   isolation: isolate;
   gap: clamp(4px, .8vw, 7px);
-  overflow: hidden;
+  overflow: visible;
   background:
     linear-gradient(90deg, rgba(255, 255, 255, .07), transparent 22%, rgba(65, 25, 15, .08) 74%, transparent),
     repeating-linear-gradient(2deg, rgba(87, 36, 22, .12) 0 1px, transparent 1px 8px),
@@ -1913,9 +1914,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background:
     linear-gradient(135deg, rgba(255, 244, 216, .16), transparent 45%),
     rgba(87, 40, 26, .18);
-  border: 1px solid rgba(75, 32, 22, .32);
+  border: 1px solid rgba(68, 29, 19, .42);
   border-radius: clamp(7px, 1.3vw, 11px);
-  box-shadow: inset 0 1px 1px rgba(255, 233, 199, .12);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 233, 199, .16),
+    inset 0 -1px 1px rgba(54, 22, 15, .16);
   touch-action: manipulation;
 }
 .board.banqi .banqi-cell:disabled { opacity: 1; }
@@ -1928,7 +1931,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     inset 0 1px 1px rgba(255, 240, 213, .18);
 }
 .banqi-piece {
-  width: min(82%, 68px);
+  width: min(76%, 63px);
   aspect-ratio: 1;
   position: relative;
   z-index: 2;
@@ -4054,12 +4057,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     width: min(92vw, 340px);
     max-width: 100%;
     padding: 9px;
+    padding-bottom: 13px;
     gap: 4px;
     border-width: 4px;
     border-radius: 14px;
   }
   .board.banqi .banqi-cell { border-radius: 7px; }
-  .banqi-piece { width: min(84%, 64px); }
+  .banqi-piece { width: min(78%, 59px); }
   .banqi-piece.is-hidden { border-width: 2px; }
   .banqi-piece-glyph { font-size: clamp(22px, 8.7vw, 32px); }
   .banqi-back-seal { font-size: clamp(18px, 7.2vw, 27px); }
