@@ -560,13 +560,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("function oppositeMode(mode)", script.text)
         self.assertIn("function rematch()", script.text)
         self.assertIn(
-            "setInterval(() => refreshRoom({quiet: true}), 3000)",
+            "refreshRoom({quiet: true, wait: true, generation})",
             script.text,
         )
-        self.assertNotIn(
-            "setInterval(() => refreshRoom({quiet: true}), 1500)",
-            script.text,
-        )
+        self.assertIn("?wait=true&after_revision=", script.text)
+        self.assertNotIn("setInterval(() => refreshRoom", script.text)
         self.assertNotIn(
             "select.disabled = machines.length === 1", script.text
         )

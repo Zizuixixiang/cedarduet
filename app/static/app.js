@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 let identity = null;
 let room = null;
 let pollTimer = null;
+let roomSyncGeneration = 0;
+let roomRequestController = null;
 let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
@@ -46,6 +48,7 @@ const PARTICIPANT_PRESENTATIONS = new Set([
   "generic", "embedded", "board-edge",
 ]);
 const RECENT_CHAT_LIMIT = 5;
+const ROOM_POLL_RETRY_MS = 3000;
 
 const GAME_GLYPHS = {
   tictactoe: "井",
@@ -1760,8 +1763,13 @@ async function createRoom() {
 }
 
 async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {}) {
+  stopPolling();
+  const generation = roomSyncGeneration;
+  const controller = new AbortController();
+  roomRequestController = controller;
   try {
-    const data = await request(`/api/rooms/${roomId}`);
+    const data = await request(`/api/rooms/${roomId}`, {signal: controller.signal});
+    if (generation !== roomSyncGeneration) return;
     renderGame(data.room, data.message, data.timeline);
     if (historyMode === "push") {
       writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true});
@@ -1769,8 +1777,10 @@ async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {
       writeRoomRoute(data.room.room_id, {mode: "replace", backToLobby: false});
     }
     await ackHumanNotifications("game", roomId);
+    if (!roomSyncIsCurrent(generation, roomId)) return;
     if (!isTerminal(data.room)) startRoomPolling();
   } catch (error) {
+    if (error.name === "AbortError" || generation !== roomSyncGeneration) return;
     if (routeRestore) {
       room = null;
       writeRoomRoute(null, {mode: "replace"});
@@ -1779,6 +1789,8 @@ async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {
       return;
     }
     showNotice(error.message, true);
+  } finally {
+    if (roomRequestController === controller) roomRequestController = null;
   }
 }
 
@@ -3517,6 +3529,7 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
 }
 
 function renderGame(nextRoom, message = "", timeline = []) {
+  const renderer = registeredGameUIRenderer(nextRoom.game_type);
   const becameTerminal = Boolean(
     room
     && room.room_id === nextRoom.room_id
@@ -3582,6 +3595,10 @@ function renderGame(nextRoom, message = "", timeline = []) {
     : resultText;
   renderRetention(room);
   showWaitModeModalOnce(room);
+  $("gameMessage").classList.toggle(
+    "embedded-action-feedback",
+    Boolean(renderer && renderer.usesEmbeddedActionFeedback === true)
+  );
   showNotice(
     roomActionNotice(room, message, humanCanMove),
     false,
@@ -3617,39 +3634,79 @@ async function showRoomTransitionFeedback(
   });
 }
 
-async function refreshRoom({quiet = false} = {}) {
+function roomSyncIsCurrent(generation, roomId) {
+  return Boolean(
+    generation === roomSyncGeneration
+    && room
+    && room.room_id === roomId
+  );
+}
+
+async function refreshRoom({quiet = false, wait = false, generation = null} = {}) {
   if (!room) return;
+  const ownsGeneration = generation === null;
+  if (ownsGeneration) {
+    stopPolling();
+    generation = roomSyncGeneration;
+  }
   const previousRoom = room;
   const previousTimeline = currentTimeline;
+  const targetRoomId = room.room_id;
   const previousRevision = room.revision;
   const previousStatus = room.status;
+  const controller = new AbortController();
+  roomRequestController = controller;
   try {
-    const data = await request(`/api/rooms/${room.room_id}`);
+    const query = wait
+      ? `?wait=true&after_revision=${encodeURIComponent(previousRevision)}`
+      : "";
+    const data = await request(`/api/rooms/${targetRoomId}${query}`, {
+      signal: controller.signal,
+    });
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return {stale: true};
     const visibleStateChanged = (
       data.room.revision !== previousRevision || data.room.status !== previousStatus
     );
     await showRoomTransitionFeedback(
       previousRoom, previousTimeline, data.room, data.timeline
     );
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return {stale: true};
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
     if (!quiet || visibleStateChanged) {
       await ackHumanNotifications("game", data.room.room_id);
     }
     if (["finished", "archived"].includes(room.status)) stopPolling();
+    return {
+      stale: false,
+      retryAfterMs: data.wait_downgraded ? ROOM_POLL_RETRY_MS : 0,
+    };
   } catch (error) {
+    if (error.name === "AbortError" || !roomSyncIsCurrent(generation, targetRoomId)) {
+      return {stale: true};
+    }
     if (!quiet) showNotice(error.message, true);
+    return {stale: false, retryAfterMs: ROOM_POLL_RETRY_MS};
+  } finally {
+    if (roomRequestController === controller) roomRequestController = null;
+    if (ownsGeneration && roomSyncIsCurrent(generation, targetRoomId)) {
+      startRoomPolling();
+    }
   }
 }
 
 async function submitMove(movePayload) {
   if (!movePayload || !canHumanMove()) return false;
+  const targetRoomId = room.room_id;
+  stopPolling();
+  const generation = roomSyncGeneration;
   const previousRoom = room;
   const previousTimeline = currentTimeline;
   try {
-    const data = await request(`/api/rooms/${room.room_id}/move`, {
+    const data = await request(`/api/rooms/${targetRoomId}/move`, {
       method: "POST",
       body: JSON.stringify({move: movePayload, revision: room.revision}),
     });
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return false;
     if (["bid", "challenge"].includes(movePayload.action)) liarsBidDraft = null;
     pendingMove = null;
     selectedJungleCell = null;
@@ -3657,12 +3714,17 @@ async function submitMove(movePayload) {
     await showRoomTransitionFeedback(
       previousRoom, previousTimeline, data.room, data.timeline
     );
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return false;
     renderGame(data.room, data.message, data.timeline);
     return true;
   } catch (error) {
-    showNotice(error.message, true);
-    updateMoveConfirmation();
+    if (roomSyncIsCurrent(generation, targetRoomId)) {
+      showNotice(error.message, true);
+      updateMoveConfirmation();
+    }
     return false;
+  } finally {
+    if (roomSyncIsCurrent(generation, targetRoomId)) startRoomPolling();
   }
 }
 
@@ -3683,6 +3745,7 @@ async function acknowledgeLiarsRound(button) {
       }),
     });
     renderGame(data.room, data.message, data.timeline);
+    startRoomPolling();
     return true;
   } catch (error) {
     showNotice(error.message, true);
@@ -3704,29 +3767,44 @@ async function sendMessage() {
     showNotice("请先输入留言内容。", true);
     return;
   }
+  const targetRoomId = room.room_id;
+  stopPolling();
+  const generation = roomSyncGeneration;
   try {
-    const data = await request(`/api/rooms/${room.room_id}/messages`, {
+    const data = await request(`/api/rooms/${targetRoomId}/messages`, {
       method: "POST",
       body: JSON.stringify({message}),
     });
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return;
     $("chatInput").value = "";
     renderGame(data.room, data.message, data.timeline);
   } catch (error) {
-    showNotice(error.message, true);
+    if (roomSyncIsCurrent(generation, targetRoomId)) {
+      showNotice(error.message, true);
+    }
+  } finally {
+    if (roomSyncIsCurrent(generation, targetRoomId)) startRoomPolling();
   }
 }
 
 async function resign() {
   if (!room || !window.confirm("确认认输并结束本局？")) return;
+  const targetRoomId = room.room_id;
+  stopPolling();
+  const generation = roomSyncGeneration;
   try {
-    const data = await request(`/api/rooms/${room.room_id}/resign`, {
+    const data = await request(`/api/rooms/${targetRoomId}/resign`, {
       method: "POST",
       body: "{}",
     });
+    if (!roomSyncIsCurrent(generation, targetRoomId)) return;
     renderGame(data.room, data.message, data.timeline);
     stopPolling();
   } catch (error) {
-    showNotice(error.message, true);
+    if (roomSyncIsCurrent(generation, targetRoomId)) {
+      showNotice(error.message, true);
+      startRoomPolling();
+    }
   }
 }
 
@@ -3826,14 +3904,43 @@ async function rematch() {
   }
 }
 
+function shouldLongPollRoom() {
+  return Boolean(room && !isTerminal(room) && !canHumanMove());
+}
+
+function scheduleRoomPoll(generation, roomId, delayMs = 0) {
+  if (!roomSyncIsCurrent(generation, roomId) || !shouldLongPollRoom()) return;
+  pollTimer = setTimeout(() => {
+    pollTimer = null;
+    void pollRoom(generation, roomId);
+  }, delayMs);
+}
+
+async function pollRoom(generation, roomId) {
+  if (!roomSyncIsCurrent(generation, roomId) || !shouldLongPollRoom()) return;
+  const outcome = await refreshRoom({quiet: true, wait: true, generation});
+  if (
+    !roomSyncIsCurrent(generation, roomId)
+    || !shouldLongPollRoom()
+    || outcome?.stale
+  ) return;
+  scheduleRoomPoll(generation, roomId, outcome?.retryAfterMs || 0);
+}
+
 function startRoomPolling() {
   stopPolling();
-  pollTimer = setInterval(() => refreshRoom({quiet: true}), 3000);
+  if (!shouldLongPollRoom()) return;
+  const generation = roomSyncGeneration;
+  const roomId = room.room_id;
+  void pollRoom(generation, roomId);
 }
 
 function stopPolling() {
-  if (pollTimer) clearInterval(pollTimer);
+  roomSyncGeneration += 1;
+  if (pollTimer !== null) clearTimeout(pollTimer);
   pollTimer = null;
+  if (roomRequestController) roomRequestController.abort();
+  roomRequestController = null;
 }
 
 $("createButton").addEventListener("click", createRoom);

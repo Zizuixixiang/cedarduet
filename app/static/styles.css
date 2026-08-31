@@ -834,12 +834,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-participant {
   width: 116px;
   min-width: 0;
-  min-height: 52px;
+  height: 60px;
+  min-height: 60px;
   padding: 5px 6px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 26px 14px;
   align-items: center;
-  gap: 5px 6px;
+  gap: 2px 6px;
   color: var(--seat-ink);
   background: var(--seat-soft);
   border: 3px solid var(--seat-color);
@@ -1177,31 +1179,49 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   white-space: nowrap;
   font-size: 13px;
 }
-#turn.my-turn {
+#turn {
+  height: 29px;
+  min-height: 29px;
   padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
   overflow: visible;
-  color: var(--pink-dark);
-  background: rgba(230, 168, 177, .2);
-  border: 2px solid rgba(204, 112, 132, .55);
-  box-shadow: 2px 2px 0 rgba(134, 120, 160, .22);
+  background: transparent;
+  border: 2px solid transparent;
+  box-shadow: 2px 2px 0 transparent;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: .08em;
 }
-#gameMessage.my-turn {
+#turn.my-turn {
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .2);
+  border-color: rgba(204, 112, 132, .55);
+  box-shadow: 2px 2px 0 rgba(134, 120, 160, .22);
+}
+#gameMessage {
   width: min(920px, 100%);
+  min-height: 35px;
   margin: 0 auto;
   padding: 7px 12px;
-  color: var(--pink-dark);
-  background: rgba(230, 168, 177, .14);
-  border-left: 4px solid var(--pink);
-  box-shadow: inset 0 0 0 1px rgba(230, 168, 177, .28);
+  border-left: 4px solid transparent;
   font-family: system-ui, sans-serif;
   font-size: 14px;
   font-weight: 800;
   letter-spacing: .03em;
   line-height: 1.45;
   text-align: center;
+}
+#gameMessage:empty {
+  display: block;
+  visibility: hidden;
+}
+#gameMessage.embedded-action-feedback:empty { display: none; }
+#gameMessage.my-turn {
+  color: var(--pink-dark);
+  background: rgba(230, 168, 177, .14);
+  border-left-color: var(--pink);
+  box-shadow: inset 0 0 0 1px rgba(230, 168, 177, .28);
 }
 .room-number-item { gap: 1px; }
 .room-number-value {
@@ -3927,7 +3947,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .layout-multiplayer .room-participant { flex-basis: 112px; }
   .room-participant {
     width: min(118px, 100%);
-    min-height: 50px;
     padding: 5px 6px;
     font-size: 10px;
     line-height: 1.4;
@@ -3979,8 +3998,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-meta-item { gap: 3px; }
   .game-meta-label { font-size: 9px; }
   .game-meta strong { font-size: 12px; }
-  #turn.my-turn { padding: 3px 7px; font-size: 14px; }
-  #gameMessage.my-turn { padding: 6px 9px; font-size: 13px; }
+  #turn { padding: 3px 7px; font-size: 14px; }
+  #gameMessage { min-height: 31px; padding: 6px 9px; font-size: 13px; }
   .room-number-item { flex: 0 1 auto; gap: 0; }
   .room-number-value { max-width: 86px; }
   .room-copy-button { min-width: 40px; min-height: 40px; padding: 3px 4px 3px 2px; }

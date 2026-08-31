@@ -3,8 +3,11 @@ import base64
 import json
 import mimetypes
 import os
+import sqlite3
 import time
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from pathlib import Path
 from secrets import choice as secure_choice
 from urllib.parse import unquote
@@ -135,11 +138,20 @@ MCP_WAIT_SECONDS = _parse_mcp_wait_seconds(
 class RevisionEvents:
     """Single-process revision notification hub; SQLite remains the source of truth."""
 
-    def __init__(self, max_waiters: int = MAX_CONCURRENT_WAITS) -> None:
+    def __init__(
+        self,
+        max_waiters: int = MAX_CONCURRENT_WAITS,
+        *,
+        max_tracked_rooms: int = 64,
+        revision_history_size: int = 24,
+    ) -> None:
         self._events: dict[str, asyncio.Event] = {}
         self._max_waiters = max_waiters
         self._waiting_count = 0
         self._counter_lock = asyncio.Lock()
+        self._max_tracked_rooms = max_tracked_rooms
+        self._revision_history_size = revision_history_size
+        self._room_revisions: OrderedDict[str, deque[dict]] = OrderedDict()
 
     def current(self, room_id: str) -> asyncio.Event:
         event = self._events.get(room_id)
@@ -152,6 +164,35 @@ class RevisionEvents:
         event = self._events.pop(room_id, None)
         if event is not None:
             event.set()
+        try:
+            room = get_room(room_id)
+        except (DuelError, sqlite3.Error):
+            # Snapshot retention is best-effort and must never prevent wakeup
+            # (notably after a room has just been deleted).
+            self._room_revisions.pop(room_id, None)
+            return
+        history = self._room_revisions.get(room_id)
+        if history is None:
+            history = deque(maxlen=self._revision_history_size)
+            self._room_revisions[room_id] = history
+        else:
+            self._room_revisions.move_to_end(room_id)
+        revision = room.get("revision")
+        if not history or history[-1].get("revision") != revision:
+            history.append(deepcopy(room))
+        while len(self._room_revisions) > self._max_tracked_rooms:
+            self._room_revisions.popitem(last=False)
+
+    def next_room_after(self, room_id: str, revision: int) -> dict | None:
+        """Return the earliest retained room snapshot newer than ``revision``."""
+        history = self._room_revisions.get(room_id)
+        if history is None:
+            return None
+        self._room_revisions.move_to_end(room_id)
+        for room in history:
+            if room.get("revision", -1) > revision:
+                return deepcopy(room)
+        return None
 
     async def try_acquire_wait_slot(self) -> bool:
         async with self._counter_lock:
@@ -255,9 +296,13 @@ def human_response(
     # Web receives its projected shared timeline while its independent cursor is
     # advanced so long-poll visibility checks remain correct.
     read_new_room_events(room["room_id"], viewer_player_id)
-    payload["timeline"] = list_timeline(
+    timeline = list_timeline(
         room["room_id"], viewer_player_id=viewer_player_id
     )
+    payload["timeline"] = [
+        event for event in timeline
+        if event.get("revision_at_send", room["revision"]) <= room["revision"]
+    ]
     return payload
 
 
@@ -893,6 +938,8 @@ async def wait_for_revision(
     baseline_revision: int,
     *,
     wake_on_visible_events: bool = False,
+    wake_on_revision: bool = False,
+    wake_on_participant_due: bool = True,
 ) -> dict | None:
     """Wait without holding a SQLite connection, transaction, or application lock."""
     deadline = time.monotonic() + MCP_WAIT_SECONDS
@@ -908,8 +955,16 @@ async def wait_for_revision(
                     "revision": baseline_revision,
                 }
             raise
+        if wake_on_revision and room.get("revision") != baseline_revision:
+            return (
+                revision_events.next_room_after(room_id, baseline_revision)
+                or room
+            )
         if (
-            _participant_response_due(room, player_id)
+            (
+                wake_on_participant_due
+                and _participant_response_due(room, player_id)
+            )
             or (
                 wake_on_visible_events
                 and has_new_room_events(room_id, player_id)
@@ -1269,18 +1324,35 @@ async def human_state(
     player_id: str | None = Query(default=None, min_length=1, max_length=80),
     opponent_id: str | None = Query(default=None, min_length=1, max_length=80),
     wait: bool = Query(default=False),
+    after_revision: int | None = Query(default=None, ge=0),
 ):
     canonical_viewer = trusted_human_player(request)
     if player_id is not None and player_id != canonical_viewer:
         raise DuelError("viewer 必须是主站认证的人类身份", 403)
     player_id = canonical_viewer
-    room = get_room(
+    latest_room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
-    await _schedule_current_system_npc(room)
+    await _schedule_current_system_npc(latest_room)
+    room = latest_room
     if (
         wait
-        and room.get("current_player_id") != player_id
+        and after_revision is not None
+        and latest_room.get("revision") != after_revision
+    ):
+        if latest_room.get("revision", -1) > after_revision:
+            room = (
+                revision_events.next_room_after(room_id, after_revision)
+                or latest_room
+            )
+        return human_response(room, "已读取下一版局面。", player_id)
+    if (
+        wait
+        and room.get("status") not in {"finished", "archived", "cancelled"}
+        and not (
+            room.get("status") == "playing"
+            and room.get("current_player_id") == player_id
+        )
         and not has_new_room_events(room_id, player_id)
     ):
         if not await revision_events.try_acquire_wait_slot():
@@ -1293,8 +1365,10 @@ async def human_state(
             changed = await wait_for_revision(
                 room_id,
                 player_id,
-                room["revision"],
+                after_revision if after_revision is not None else room["revision"],
                 wake_on_visible_events=True,
+                wake_on_revision=after_revision is not None,
+                wake_on_participant_due=False,
             )
         finally:
             await revision_events.release_wait_slot()

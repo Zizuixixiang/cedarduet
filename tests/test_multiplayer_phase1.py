@@ -1094,6 +1094,109 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             catalog[DummyTwoOrThree.game_type]["allowed_player_counts"], [2, 3]
         )
 
+    async def test_web_after_revision_replays_consecutive_npc_snapshots_in_order(self):
+        participants = [
+            {
+                "player_id": "human-1", "role": "human",
+                "participant_kind": "human", "display_name": "南山",
+            },
+            *[
+                {
+                    "player_id": f"npc:{index}", "role": "ai",
+                    "participant_kind": "system_npc",
+                    "npc_persona_id": str(index),
+                    "display_name": f"NPC {index}",
+                }
+                for index in range(1, 4)
+            ],
+        ]
+        with patch.object(DummyMultiplayer, "supports_npcs", True):
+            room = framework.create_room(
+                DummyMultiplayer.game_type,
+                "ai_first",
+                "human",
+                "human-1",
+                ordered_participants=participants,
+                first_player_id="npc:1",
+            )
+        room_id = room["room_id"]
+        for npc_id in ("npc:1", "npc:2", "npc:3"):
+            updated = framework.play_move(
+                room_id, "ai", npc_id, {"action": "step"}
+            )
+            main_module.revision_events.notify(room_id)
+            self.assertEqual(updated["revision"], int(npc_id[-1]))
+
+        seen_revisions = []
+        after_revision = room["revision"]
+        for expected_revision in (1, 2, 3):
+            response = await self.client.get(
+                f"/api/rooms/{room_id}",
+                headers=self.headers(),
+                params={
+                    "wait": "true",
+                    "after_revision": after_revision,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["room"]["revision"], expected_revision)
+            self.assertTrue(all(
+                event["revision_at_send"] <= expected_revision
+                for event in payload["timeline"]
+            ))
+            seen_revisions.append(payload["room"]["revision"])
+            after_revision = payload["room"]["revision"]
+
+        self.assertEqual(seen_revisions, [1, 2, 3])
+        self.assertEqual(payload["room"]["current_player_id"], "human-1")
+
+    async def test_web_after_revision_waits_for_and_wakes_on_revision_change(self):
+        room = await self.create_web_room()
+        room_id = room["room_id"]
+        moved = await self.client.post(
+            f"/api/rooms/{room_id}/move",
+            headers=self.headers(),
+            json={"player_id": "human-1", "move": {"action": "step"}},
+        )
+        baseline = moved.json()["room"]["revision"]
+        with patch.object(main_module, "MCP_WAIT_SECONDS", 0.5):
+            waiter = asyncio.create_task(self.client.get(
+                f"/api/rooms/{room_id}",
+                headers=self.headers(),
+                params={
+                    "wait": "true",
+                    "after_revision": baseline,
+                },
+            ))
+            await asyncio.sleep(0.02)
+            self.assertFalse(waiter.done())
+            framework.play_move(
+                room_id, "ai", "ai-1", {"action": "step"}
+            )
+            main_module.revision_events.notify(room_id)
+            resumed = await asyncio.wait_for(waiter, timeout=1)
+
+        self.assertEqual(resumed.status_code, 200, resumed.text)
+        self.assertEqual(resumed.json()["room"]["revision"], baseline + 1)
+
+    async def test_web_wait_returns_immediately_when_human_can_act(self):
+        room = await self.create_web_room()
+        response = await asyncio.wait_for(
+            self.client.get(
+                f"/api/rooms/{room['room_id']}",
+                headers=self.headers(),
+                params={
+                    "wait": "true",
+                    "after_revision": room["revision"],
+                },
+            ),
+            timeout=0.2,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["room"]["revision"], room["revision"])
+        self.assertEqual(main_module.revision_events.waiting_count, 0)
+
     async def test_waiters_keep_events_until_each_participant_turn(self):
         room = await self.create_web_room()
         room_id = room["room_id"]

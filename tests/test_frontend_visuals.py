@@ -830,7 +830,9 @@ assert.ok(fullColumn.every((cell) => cell.disabled));
     def test_multiplayer_roster_is_compact_and_seat_colored(self):
         self.assertIn(".room-participant {", STYLES)
         self.assertIn("width: 116px", STYLES)
-        self.assertIn("min-height: 52px", STYLES)
+        self.assertIn("height: 60px", STYLES)
+        self.assertIn("min-height: 60px", STYLES)
+        self.assertIn("grid-template-rows: 26px 14px", STYLES)
         self.assertIn("width: 24px", STYLES)
         for seat in range(6):
             self.assertIn(f".seat-{seat} {{ --seat-color:", STYLES)
@@ -2455,6 +2457,12 @@ let pendingMove = null;
 let selectedJungleCell = null;
 let selectedXiangqiCell = null;
 let currentTimeline = [];
+let roomSyncGeneration = 0;
+const stopPolling = () => {{ roomSyncGeneration += 1; }};
+const roomSyncIsCurrent = (generation, roomId) => (
+  generation === roomSyncGeneration && room && room.room_id === roomId
+);
+const startRoomPolling = () => {{}};
 const showRoomTransitionFeedback = async () => {{}};
 const requests = [];
 const notices = [];
