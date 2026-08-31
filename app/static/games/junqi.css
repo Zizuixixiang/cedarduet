@@ -284,8 +284,10 @@
   }
   .junqi-player-strip { min-height: 36px; padding: 3px 6px; }
   .junqi-player-avatar { width: 26px; height: 26px; }
-  .junqi-field { border-width: 2px; }
-  .junqi-piece { width: 86%; height: 72%; min-height: 23px; border-width: 1.5px; }
+  .junqi-field { aspect-ratio: 5 / 8.6; border-width: 2px; }
+  .junqi-square.is-bunker::after,
+  .junqi-square.is-headquarters::after { width: 52%; aspect-ratio: 1; }
+  .junqi-piece { width: 86%; height: 70%; min-height: 23px; border-width: 1.5px; }
   .junqi-legal-marker.capture { border-width: 2px; }
   .junqi-setup-actions { gap: 4px; }
 }

@@ -20,7 +20,7 @@ class JunqiFrontendStructureTests(unittest.TestCase):
         self.assertNotIn('/static/games/junqi.css', HTML)
         self.assertNotIn('room.game_type === "junqi"', APP)
         self.assertNotIn("renderJunqi", APP)
-        self.assertIn("/static/games/junqi.css?v=0.1.0", JUNQI)
+        self.assertIn("/static/games/junqi.css?v=0.1.2", JUNQI)
 
     def test_hidden_pieces_are_flat_dom_css_without_emoji_or_randomness(self):
         self.assertIn('hidden ? " is-hidden"', JUNQI)
@@ -35,15 +35,22 @@ class JunqiFrontendStructureTests(unittest.TestCase):
     def test_mobile_320_and_375_keep_useful_square_hit_areas(self):
         self.assertIn("@media (max-width: 599px)", CSS)
         self.assertIn("width: min(96vw, 360px);", CSS)
+        self.assertIn("aspect-ratio: 5 / 8.6;", CSS)
+        self.assertIn("width: 52%; aspect-ratio: 1;", CSS)
+        self.assertNotIn("aspect-ratio: 1.18;", CSS)
         self.assertIn("@media (max-width: 340px)", CSS)
         self.assertIn("width: min(97vw, 310px);", CSS)
+        mobile_height_ratio = 8.6
+        compression = 1 - mobile_height_ratio / 10.35
+        self.assertGreaterEqual(compression, 0.15)
+        self.assertLessEqual(compression, 0.20)
         for viewport in (320, 375):
             outer = min(viewport * (0.97 if viewport <= 340 else 0.96), 310 if viewport <= 340 else 360)
             field_width = outer - 14
             horizontal = field_width / 5
-            vertical = (field_width * 10.35 / 5) / 12
+            vertical = (field_width * mobile_height_ratio / 5) / 12
             self.assertGreaterEqual(horizontal, 55)
-            self.assertGreaterEqual(vertical, 50)
+            self.assertGreaterEqual(vertical, 41)
 
 
 @unittest.skipUnless(NODE, "node is required for Junqi renderer behavior tests")

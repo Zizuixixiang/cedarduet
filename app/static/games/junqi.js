@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-junqi-styles";
-  const STYLE_HREF = "/static/games/junqi.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/junqi.css?v=0.1.2";
   const RANK_NAMES = {
     0: "炸弹", 1: "司令", 2: "军长", 3: "师长", 4: "旅长", 5: "团长",
     6: "营长", 7: "连长", 8: "排长", 9: "工兵", 10: "地雷", 11: "军旗",
