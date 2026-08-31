@@ -56,7 +56,9 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertIn("helpers.submitMove", SCRIPT)
         self.assertIn("context.legalActions", SCRIPT)
         self.assertIn("context.legalMoves", SCRIPT)
-        self.assertNotIn("aeroplane_chess", APP_SCRIPT)
+        self.assertNotIn(
+            'window.DuelGameUI.register("aeroplane_chess"', APP_SCRIPT
+        )
         self.assertNotIn("aeroplane", PUBLIC_STYLES.lower())
         self.assertNotIn("/static/games/aeroplane_chess.js", HTML)
         self.assertEqual(APP_SCRIPT.count("await showRoomTransitionFeedback("), 2)
@@ -83,7 +85,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.7";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.8";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -496,7 +498,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.7");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.8");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -916,7 +918,23 @@ for (const participant of participants) {
     viewerIdentity.children[1].children[0].children[1].textContent,
     "0/4"
   );
-  assert.match(viewerIdentity.children[1].children[1].textContent, /方$/);
+  const actingIdentities = identities.filter((identity) => (
+    descendants(identity).some((node) => hasClass(node, "aeroplane-turn-state"))
+  ));
+  assert.equal(actingIdentities.length, 1);
+  assert.equal(actingIdentities[0].dataset.playerId, participants[0].player_id);
+  assert.equal(
+    descendants(actingIdentities[0]).find(
+      (node) => hasClass(node, "aeroplane-turn-state")
+    ).textContent,
+    "红方 · 行动中"
+  );
+  assert.equal(
+    descendants(viewerIdentity).some(
+      (node) => hasClass(node, "aeroplane-turn-state")
+    ),
+    participant.player_id === participants[0].player_id
+  );
 
   const shell = nodes.find((node) => hasClass(node, "aeroplane-board-shell"));
   assert.ok(shell);
@@ -929,6 +947,16 @@ for (const participant of participants) {
     0
   );
 }
+
+const pending = makeContext(participants[0].player_id, false);
+pending.context.room.status = "pending";
+renderer.renderBoard(pending.context);
+const pendingNodes = descendants(pending.board);
+assert.equal(pendingNodes.some((node) => hasClass(node, "aeroplane-turn-state")), false);
+assert.equal(
+  pendingNodes.some((node) => hasClass(node, "aeroplane-edge-participant") && hasClass(node, "current")),
+  false
+);
 ''', state=state, participants=participants)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", STYLES)
         self.assertIn('data-visual-edge$="-right"', STYLES)
@@ -942,6 +970,60 @@ for (const participant of participants) {
         self.assertIn("content: attr(data-aeroplane-home-count);", STYLES)
         for viewport in (320, 360, 375, 390, 430):
             self.assertLessEqual(min(viewport * 0.96, 680), viewport)
+
+    def test_terminal_board_names_winner_and_removes_turn_state(self):
+        self.run_node(r'''
+state.flow.phase = "finished";
+state.winner_player_id = "ai-1";
+state.turn_player_id = null;
+state.legal_actions = [];
+state.legal_moves = [];
+const harness = makeContext("human-1", false);
+harness.context.isTerminal = true;
+harness.context.room.status = "finished";
+harness.context.room.winner_player_id = "ai-1";
+harness.context.legalActions = [];
+harness.context.legalMoves = [];
+renderer.renderBoard(harness.context);
+renderer.renderControls(harness.context);
+const boardNodes = descendants(harness.board);
+const heading = boardNodes.find(
+  (node) => hasClass(node, "aeroplane-board-heading")
+);
+assert.equal(heading.children[0].textContent, "本局已结束");
+assert.equal(heading.children[1].textContent, "小机 · 蓝方获胜");
+const activity = boardNodes.find((node) => hasClass(node, "aeroplane-activity"));
+assert.equal(activity.children[1].textContent, "小机 · 蓝方获胜");
+assert.equal(
+  boardNodes.some((node) => node.dataset.currentPlayer === "true"),
+  false
+);
+assert.equal(
+  boardNodes.some((node) => hasClass(node, "aeroplane-edge-participant")
+    && hasClass(node, "current")),
+  false
+);
+assert.equal(
+  boardNodes.some((node) => hasClass(node, "aeroplane-turn-state")),
+  false
+);
+const actionCopy = descendants(harness.controls).find(
+  (node) => hasClass(node, "aeroplane-action-copy")
+);
+assert.equal(actionCopy.children[0].textContent, "小机 · 蓝方获胜");
+assert.equal(actionCopy.children[1].textContent, "对局结束，不再掷骰或移动");
+const rollButton = descendants(harness.controls).find(
+  (node) => hasClass(node, "aeroplane-roll-button")
+);
+assert.equal(rollButton.textContent, "已结束");
+assert.equal(rollButton.disabled, true);
+assert.equal(
+  [...boardNodes, ...descendants(harness.controls)].some(
+    (node) => /轮到|等待.*掷骰|本回合掷骰/.test(node.textContent)
+  ),
+  false
+);
+''')
 
     def test_source_is_valid_javascript(self):
         completed = subprocess.run(

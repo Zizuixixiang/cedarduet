@@ -111,6 +111,8 @@ class Doudizhu(GamePlugin):
         "只用于钱包的结算单位为“房间底注×终局倍数”。地主获胜时地主获得两份结算单位、两名农民"
         "各扣一份；农民获胜时地主扣两份、两名农民各获得一份，三人合计始终为 0。这里的终局倍数"
         "就是最终叫分再按每次炸弹或王炸乘 2；春天、反春天仍不启用。"
+        "认输即认输者所在阵营判负，并按当前终局倍数结算；地主尚未确定时采用简单"
+        "三人 forfeit：认输者赔两份底注，其余两席各得一份。"
     )
     move_format = (
         '叫分：原样提交自己私有状态中发布的 {"action":"bid","action_id":"bid:1",'
@@ -751,6 +753,14 @@ class Doudizhu(GamePlugin):
             raise ValueError("斗地主筹码结算固定需要三名参与者")
         if result.get("draw"):
             return {player_id: 0 for player_id in player_ids}
+        if result.get("forfeit_before_landlord"):
+            resigned = result.get("resigned_player_id")
+            if resigned not in player_ids:
+                raise ValueError("斗地主叫分前认输缺少有效认输者")
+            return {
+                player_id: -2 * stake if player_id == resigned else stake
+                for player_id in player_ids
+            }
         landlord = str(state.get("landlord_player_id") or "")
         if landlord not in player_ids:
             raise ValueError("斗地主终局缺少有效地主")
@@ -774,6 +784,47 @@ class Doudizhu(GamePlugin):
                 for player_id in player_ids
             }
         raise ValueError("斗地主终局缺少有效获胜阵营")
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        player_ids = [str(item["player_id"]) for item in ordered]
+        if resigned_player_id not in player_ids or len(player_ids) != 3:
+            raise ValueError("斗地主认输终局固定需要三名有效参与者")
+        landlord = state.get("landlord_player_id")
+        if landlord not in player_ids:
+            winners = [
+                player_id for player_id in player_ids
+                if player_id != resigned_player_id
+            ]
+            return {
+                "draw": False,
+                "reason": "resignation_before_landlord",
+                "forfeit_before_landlord": True,
+                "resigned_player_id": resigned_player_id,
+                "winner_player_id": winners[0],
+                "winning_player_ids": winners,
+            }
+        resigned_side = (
+            "landlord" if resigned_player_id == landlord else "farmers"
+        )
+        winning_side = "farmers" if resigned_side == "landlord" else "landlord"
+        winners = [
+            player_id for player_id in player_ids
+            if (player_id == landlord) == (winning_side == "landlord")
+        ]
+        return {
+            "draw": False,
+            "reason": "resignation",
+            "resigned_player_id": resigned_player_id,
+            "winner_player_id": winners[0],
+            "winning_side": winning_side,
+            "winning_player_ids": winners,
+        }
 
     def public_state(
         self,

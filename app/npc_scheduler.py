@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from .framework import DuelError, _room_id, get_room
 from .npc_controller import NpcTurnResult, run_current_npc_turn
@@ -18,9 +19,47 @@ logger = logging.getLogger(__name__)
 
 MAX_CONSECUTIVE_NPC_TURNS = 16
 NPC_IN_PROGRESS_RETRY_SECONDS = NPC_DECISION_LEASE_SECONDS + 1
+NPC_VISIBLE_ACTION_DELAY_SECONDS = 2.0
+NPC_VISIBLE_ACTION_DELAY_EXEMPT_GAME_TYPES = frozenset({"liars_dice"})
+# These games already hold each system-NPC action on screen themselves.  Keep
+# the duration here as audited metadata and skip the scheduler pause so the two
+# mechanisms cannot turn one beat into a double wait.
+NPC_GAME_MANAGED_VISIBLE_ACTION_DELAYS_SECONDS = {
+    "aeroplane_chess": 2.0,
+}
 
 TurnRunner = Callable[[str], Awaitable[NpcTurnResult]]
 RoomChangedCallback = Callable[[str], None]
+ActionSleeper = Callable[[float], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class NpcVisibleActionPacing:
+    source: str
+    effective_delay_seconds: float
+    scheduler_delay_seconds: float
+
+
+def npc_visible_action_pacing(
+    room: dict, default_seconds: float = NPC_VISIBLE_ACTION_DELAY_SECONDS
+) -> NpcVisibleActionPacing:
+    """Describe the single visible pacing source for a system-NPC action."""
+    game_type = room.get("game_type")
+    if game_type in NPC_VISIBLE_ACTION_DELAY_EXEMPT_GAME_TYPES:
+        return NpcVisibleActionPacing("none", 0.0, 0.0)
+    game_delay = NPC_GAME_MANAGED_VISIBLE_ACTION_DELAYS_SECONDS.get(game_type)
+    if game_delay is not None:
+        return NpcVisibleActionPacing("game_renderer", game_delay, 0.0)
+    return NpcVisibleActionPacing(
+        "npc_scheduler", default_seconds, default_seconds
+    )
+
+
+def npc_visible_action_delay_seconds(
+    room: dict, default_seconds: float = NPC_VISIBLE_ACTION_DELAY_SECONDS
+) -> float:
+    """Return the pre-action pause used to keep an NPC revision observable."""
+    return npc_visible_action_pacing(room, default_seconds).scheduler_delay_seconds
 
 
 def is_system_npc_turn(room: dict) -> bool:
@@ -47,13 +86,19 @@ class NpcTurnScheduler:
         room_changed: RoomChangedCallback | None = None,
         max_consecutive_turns: int = MAX_CONSECUTIVE_NPC_TURNS,
         in_progress_retry_seconds: float = NPC_IN_PROGRESS_RETRY_SECONDS,
+        visible_action_delay_seconds: float = NPC_VISIBLE_ACTION_DELAY_SECONDS,
+        action_sleeper: ActionSleeper = asyncio.sleep,
     ) -> None:
         if max_consecutive_turns < 1:
             raise ValueError("max_consecutive_turns must be positive")
+        if visible_action_delay_seconds < 0:
+            raise ValueError("visible_action_delay_seconds must not be negative")
         self._turn_runner = turn_runner
         self._room_changed = room_changed
         self._max_consecutive_turns = max_consecutive_turns
         self._in_progress_retry_seconds = in_progress_retry_seconds
+        self._visible_action_delay_seconds = visible_action_delay_seconds
+        self._action_sleeper = action_sleeper
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._retry_tasks: dict[str, asyncio.Task[None]] = {}
         self._requested_again: set[str] = set()
@@ -144,6 +189,11 @@ class NpcTurnScheduler:
             if not is_system_npc_turn(room):
                 return "idle"
             revision = room["revision"]
+            visible_delay = npc_visible_action_delay_seconds(
+                room, self._visible_action_delay_seconds
+            )
+            if visible_delay > 0:
+                await self._action_sleeper(visible_delay)
             try:
                 result = await self._turn_runner(room_id)
             except DuelError:

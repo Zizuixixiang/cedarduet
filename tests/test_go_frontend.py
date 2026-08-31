@@ -17,7 +17,7 @@ NODE = shutil.which("node")
 class GoFrontendStructureTests(unittest.TestCase):
     def test_independent_authoritative_renderer_and_no_images(self):
         self.assertIn('window.DuelGameUI.register("go", renderer)', SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/go.css?v=0.1.1"', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/go.css?v=0.1.2"', SCRIPT)
         self.assertIn("context.legalActions", SCRIPT)
         self.assertNotIn("function isLegal", SCRIPT)
         self.assertNotIn("libert", SCRIPT.lower())
@@ -184,6 +184,47 @@ const viewerCard = descendants(board).find(
   (item) => item.classList.contains("go-player-card") && item.classList.contains("bottom")
 );
 assert.ok(viewerCard); assert.equal(viewerCard.dataset.playerId, "human-go");
+
+const terminalBoard = new Element("div");
+const terminalControls = new Element("div");
+const terminalContext = {
+  ...context,
+  board: terminalBoard,
+  controls: terminalControls,
+  isTerminal: true,
+  canMove: false,
+  state: {
+    ...state,
+    phase: "finished",
+    final_score: {black: 43, white: 50.5},
+    winner_color: "white",
+    game_result: {
+      scores: {black: 43, white: 50.5}, winner_color: "white",
+    },
+    legal_actions: [],
+  },
+  legalActions: [],
+  room: {...context.room, status: "finished"},
+  helpers: {...helpers, setBoardLayout() {}},
+};
+renderer.renderBoard(terminalContext);
+renderer.renderControls(terminalContext);
+const terminalNodes = [...descendants(terminalBoard), ...descendants(terminalControls)];
+const terminalStatus = terminalNodes.find(
+  (item) => item.classList.contains("go-phase-status")
+);
+assert.ok(terminalStatus);
+assert.equal(terminalStatus.classList.contains("finished"), true);
+assert.equal(terminalStatus.children[0].textContent, "对局结束");
+assert.equal(terminalStatus.children[1].textContent, "最终计分 黑 43 / 白 50.5 · 白方获胜");
+assert.equal(terminalNodes.some((item) => item.textContent.includes("行棋阶段")), false);
+assert.equal(terminalNodes.some((item) => item.textContent.includes("当前行动")), false);
+assert.equal(terminalNodes.some((item) => item.textContent === "等待"), false);
+assert.equal(
+  terminalNodes.filter((item) => item.classList.contains("go-player-card"))
+    .some((item) => item.classList.contains("current")),
+  false
+);
 '''
         harness = harness.replace(
             "STATE_JSON", repr(json.dumps(state, separators=(",", ":")))

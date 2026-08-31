@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.6">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.7">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -135,7 +135,8 @@
               </label>
               <label class="pixel-field stake-field">
                 <span>本局筹码</span>
-                <input id="stake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="stakeHint">
+                <input id="stake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="stakeHint gameStakeHint">
+                <small id="gameStakeHint" class="stake-game-hint" aria-live="polite"></small>
               </label>
               <div id="multiplayerOptions" class="multiplayer-options hidden">
                 <label class="pixel-field">

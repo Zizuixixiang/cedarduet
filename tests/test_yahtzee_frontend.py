@@ -224,6 +224,7 @@ const avatarCalls = [];
 const participants = [
   {player_id: "human-1", display_name: "人类"},
   {player_id: "ai-1", display_name: "小机"},
+  {player_id: "ai-2", display_name: "二号机"},
 ];
 const categories = [
   "ones", "twos", "threes", "fours", "fives", "sixes",
@@ -233,16 +234,18 @@ const categories = [
 const state = {
   flow: {round_number: 4}, dice: [1, 2, 3, 4, 5], held_mask: [false, false, false, false, false],
   rolls_used: 1, max_rolls: 3,
-  scorecards: {"human-1": {}, "ai-1": {ones: 2}},
+  scorecards: {"human-1": {}, "ai-1": {ones: 2}, "ai-2": {}},
   score_previews: Object.fromEntries(categories.map((key, index) => [key, index])),
   totals_by_player: {
     "human-1": {upper_subtotal: 0, upper_bonus: 0, total: 0},
     "ai-1": {upper_subtotal: 2, upper_bonus: 0, total: 2},
+    "ai-2": {upper_subtotal: 0, upper_bonus: 0, total: 0},
   },
 };
 const context = {
   board, state, participants, canMove: true,
-  room: {current_player_id: "human-1", participants},
+  viewer: {player_id: "human-1"}, isTerminal: false,
+  room: {current_player_id: "human-1", status: "playing", participants},
   uiState: {},
   helpers: {
     submitMove: async (move) => { submitted.push(move); return true; },
@@ -260,16 +263,66 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   const all = descendants(board);
   assert.equal(
     JSON.stringify(avatarCalls),
-    JSON.stringify(["human-1", "ai-1", "human-1", "ai-1"])
+    JSON.stringify(["human-1", "ai-1", "ai-2", "human-1", "ai-1", "ai-2"])
   );
-  assert.equal(all.filter((item) => item.classList.contains("yahtzee-player-avatar")).length, 4);
+  assert.equal(all.filter((item) => item.classList.contains("yahtzee-player-avatar")).length, 6);
   const scoreOptions = all.filter((item) => item.classList.contains("yahtzee-score-option"));
   assert.equal(scoreOptions.length, 13);
   assert.equal(scoreOptions.filter((item) => item.classList.contains("selectable")).length, 13);
   const scorecardDetails = all.find((item) => item.classList.contains("yahtzee-scorecard-details"));
   assert.equal(scorecardDetails.tag, "details");
   assert.equal(scorecardDetails.open, false);
-  assert.equal(all.filter((item) => item.classList.contains("yahtzee-total-player")).length, 2);
+  const totalPlayers = all.filter((item) => item.classList.contains("yahtzee-total-player"));
+  assert.equal(totalPlayers.length, 3);
+  const acting = all.filter((item) => item.classList.contains("yahtzee-total-action"));
+  assert.equal(acting.length, 1);
+  assert.equal(acting[0].textContent, "行动中");
+  assert.equal(descendants(totalPlayers.find((item) => item.classList.contains("viewer"))).includes(acting[0]), true);
+
+  const otherBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: otherBoard,
+    canMove: false,
+    room: {...context.room, current_player_id: "ai-1"},
+  });
+  const otherNodes = descendants(otherBoard);
+  const otherActing = otherNodes.find((item) => item.classList.contains("yahtzee-total-action"));
+  const otherSeat = otherNodes.find((item) => (
+    item.classList.contains("yahtzee-total-player")
+      && descendants(item).some((child) => child.classList.contains("yahtzee-total-name") && child.textContent === "小机")
+  ));
+  assert.ok(otherActing);
+  assert.equal(descendants(otherSeat).includes(otherActing), true);
+
+  const pendingBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: pendingBoard,
+    canMove: false,
+    room: {...context.room, status: "pending"},
+  });
+  const pendingNodes = descendants(pendingBoard);
+  assert.equal(pendingNodes.some((item) => item.classList.contains("yahtzee-total-action")), false);
+  assert.equal(pendingNodes.some((item) => item.classList.contains("yahtzee-total-player") && item.classList.contains("current")), false);
+
+  const terminalBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: terminalBoard,
+    canMove: false,
+    isTerminal: true,
+    room: {...context.room, status: "finished"},
+  });
+  const terminalNodes = descendants(terminalBoard);
+  assert.equal(terminalNodes.some((item) => item.classList.contains("yahtzee-total-action")), false);
+  assert.equal(terminalNodes.some((item) => item.classList.contains("yahtzee-total-player") && item.classList.contains("current")), false);
+  const terminalTurnCopy = terminalNodes.find((item) => item.classList.contains("yahtzee-turn-copy"));
+  assert.equal(terminalTurnCopy.children[0].textContent, "第 4 / 13 轮 · 本局已结束");
+  assert.equal(terminalTurnCopy.children[1].textContent, "本局已结束");
+  const terminalScoreHeading = terminalNodes.find((item) => item.classList.contains("yahtzee-score-heading"));
+  assert.equal(terminalScoreHeading.children[0].textContent, "本局计分完成");
+  assert.equal(terminalScoreHeading.children[1].textContent, "最终得分已确定");
   const fallbackBoard = new Element("board");
   sandbox.renderer.renderBoard({
     ...context,
@@ -282,7 +335,7 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   });
   assert.equal(JSON.stringify(descendants(fallbackBoard).filter(
     (item) => item.classList.contains("yahtzee-player-avatar")
-  ).map((item) => item.textContent)), JSON.stringify(["人", "小", "人", "小"]));
+  ).map((item) => item.textContent)), JSON.stringify(["人", "小", "二", "人", "小", "二"]));
   const dice = all.filter((item) => (
     item.classList.contains("yahtzee-die") && item.tag === "button"
   ));

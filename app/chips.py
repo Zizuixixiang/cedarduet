@@ -439,13 +439,17 @@ def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
     participants = room.get("participants", [])
     settlement_key = f"duel_settlement:{room['room_id']}"
     if explicit_deltas is not None:
+        from .games import get_game
+
         if not isinstance(explicit_deltas, dict):
             raise DuelError("插件 settlement_deltas 必须是 player_id 到整数的映射")
         participant_ids = {item["player_id"] for item in participants}
         if set(explicit_deltas) != participant_ids:
             raise DuelError("插件 settlement_deltas 必须完整覆盖房间每名参与者")
         deltas = explicit_deltas
-        require_zero_sum = True
+        require_zero_sum = not get_game(
+            room["game_type"]
+        ).allows_non_zero_sum_settlement
     else:
         if room.get("winner") == "draw" or result.get("draw"):
             return False

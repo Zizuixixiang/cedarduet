@@ -50,10 +50,21 @@
     return participant && (participant.display_name || participant.player_id) || "玩家";
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || (context.state || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function statusFor(context, participant) {
     if (!participant) return "等待加入";
     const playerId = participant.player_id;
     const state = context.state;
+    if (isTerminalState(context)) {
+      return state.winner_player_id === playerId ? "已获胜" : "对局结束";
+    }
     if (state.phase === "setup") {
       if ((state.setup_ready || {})[playerId]) return "布阵已锁定";
       return state.active_player_id === playerId ? "正在布阵" : "等待布阵";
@@ -70,7 +81,9 @@
       "article",
       `junqi-player-strip position-${position} color-${color}`
     );
-    const current = participant && context.state.active_player_id === participant.player_id;
+    const current = participant
+      && !isTerminalState(context)
+      && context.state.active_player_id === participant.player_id;
     const mine = participant && viewerId(context) === participant.player_id;
     item.classList.toggle("current", Boolean(current));
     item.classList.toggle("viewer", Boolean(mine));
@@ -113,6 +126,10 @@
   }
 
   function selectedOrigin(context) {
+    if (isTerminalState(context)) {
+      delete context.uiState.selectedSquare;
+      return "";
+    }
     return String(
       context.uiState.selectedSquare
       || (context.pendingMove && context.pendingMove.from)
@@ -166,7 +183,11 @@
     const targetAction = origin ? actionForTarget(actions, origin, square) : null;
     const lastAction = context.state.last_action || {};
     const selected = origin === square;
-    const pendingTarget = Boolean(context.pendingMove && context.pendingMove.to === square);
+    const pendingTarget = Boolean(
+      !isTerminalState(context)
+      && context.pendingMove
+      && context.pendingMove.to === square
+    );
     const interactive = Boolean(context.canMove && (originActions.length || targetAction));
     const cell = node(documentRef, "button", "junqi-square");
     cell.type = "button";
@@ -238,7 +259,7 @@
     const viewerColor = (state.color_by_player || {})[playerId] || "b";
     const order = visualOrder(viewerColor);
     const opponentColor = viewerColor === "b" ? "r" : "b";
-    const legal = Array.isArray(context.legalActions)
+    const legal = !isTerminalState(context) && Array.isArray(context.legalActions)
       ? context.legalActions.filter((action) => (
         action && (action.action === "swap" || action.action === "move")
       ))
@@ -295,6 +316,17 @@
     ensureStylesheet(context.controls.ownerDocument || document);
     const documentRef = context.controls.ownerDocument || document;
     const wrap = node(documentRef, "div", "junqi-controls");
+    if (isTerminalState(context)) {
+      delete context.uiState.selectedSquare;
+      wrap.appendChild(node(
+        documentRef,
+        "p",
+        "junqi-battle-result terminal",
+        "本局已结束 · 棋盘仅供复盘"
+      ));
+      context.controls.appendChild(wrap);
+      return;
+    }
     if (context.state.phase === "setup") {
       const hint = node(
         documentRef,

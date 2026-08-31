@@ -13,6 +13,32 @@
   touch-action: manipulation;
 }
 
+#battleStage[data-game-type="train_cards"] .board-zone,
+#battleStage[data-game-type="train_cards"] .board-frame,
+#battleStage[data-game-type="train_cards"] .game-controls {
+  width: min(100%, 880px);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.game-view:has(#battleStage[data-game-type="train_cards"]) .game-meta-secondary {
+  height: 29px;
+  min-height: 29px;
+}
+
+.game-view:has(#battleStage[data-game-type="train_cards"]) #turn {
+  height: 29px;
+  min-height: 29px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 2px solid transparent;
+}
+
+.game-view:has(#battleStage[data-game-type="train_cards"]) #turn.my-turn {
+  border-color: rgba(204, 112, 132, .55);
+}
+
 .train-cards-game,
 .train-cards-game * {
   box-sizing: border-box;
@@ -115,6 +141,10 @@
   box-shadow: inset 0 0 0 2px rgba(238,216,175,.23), inset 0 0 38px rgba(0,0,0,.24), 0 11px 27px rgba(37,50,48,.22);
 }
 
+.train-cards-table > * {
+  min-width: 0;
+}
+
 .train-cards-table::before,
 .train-cards-table::after {
   content: "";
@@ -136,6 +166,7 @@
 }
 
 .train-cards-status {
+  height: 30px;
   min-height: 30px;
   position: relative;
   z-index: 1;
@@ -153,30 +184,34 @@
 
 .train-cards-track {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
-  min-height: 138px;
+  height: 96px;
+  min-height: 96px;
   position: relative;
   z-index: 2;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  padding: 9px 12px 18px;
+  padding: 5px 8px 15px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
-  scroll-padding-inline: 12px;
+  scroll-padding-inline: 8px;
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
 }
 
 .train-cards-wagon {
   position: relative;
+  z-index: calc(var(--wagon-index, 0) + 1);
   display: block;
   flex: 0 0 auto;
 }
 
 .train-cards-wagon + .train-cards-wagon {
-  margin-left: clamp(-20px, -2.4vw, -10px);
+  margin-left: clamp(-32px, -3.8vw, -24px);
 }
 
 .train-cards-wagon::after {
@@ -190,11 +225,31 @@
   background: #b7a17e;
 }
 
+.train-cards-wagon.is-revealed {
+  animation: train-cards-reveal 240ms ease-out both;
+  transform-origin: center bottom;
+}
+
+.train-cards-wagon.is-collecting {
+  animation: train-cards-collect 220ms ease-in both;
+  transform-origin: center center;
+}
+
+@keyframes train-cards-reveal {
+  from { opacity: 0; transform: translateX(14px) scale(.9); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes train-cards-collect {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to { opacity: 0; transform: translateX(-12px) scale(.68); }
+}
+
 .train-card {
-  width: clamp(58px, 9.4vw, 76px);
-  height: clamp(88px, 14.2vw, 112px);
-  min-width: 58px;
-  min-height: 88px;
+  width: clamp(44px, 6vw, 52px);
+  height: clamp(66px, 9vw, 76px);
+  min-width: 44px;
+  min-height: 66px;
   position: relative;
   display: block;
   overflow: hidden;
@@ -215,19 +270,19 @@
 
 .train-card-corner {
   position: absolute;
-  top: 5px;
-  left: 6px;
+  top: 3px;
+  left: 4px;
   display: grid;
   justify-items: center;
   line-height: .95;
 }
 
 .train-card-rank {
-  font-size: clamp(15px, 3vw, 21px);
+  font-size: clamp(12px, 1.8vw, 15px);
 }
 
 .train-card-suit {
-  font-size: clamp(12px, 2.6vw, 18px);
+  font-size: clamp(10px, 1.5vw, 13px);
 }
 
 .train-card-center {
@@ -235,19 +290,19 @@
   inset: 23% 8% 8%;
   display: grid;
   place-items: center;
-  font-size: clamp(27px, 5.8vw, 43px);
+  font-size: clamp(20px, 3.4vw, 28px);
   font-weight: 700;
 }
 
 .train-card.joker .train-card-center {
   writing-mode: vertical-rl;
-  font-size: clamp(17px, 3.8vw, 25px);
+  font-size: clamp(12px, 2.2vw, 17px);
   letter-spacing: .1em;
 }
 
 .train-cards-empty {
   width: 100%;
-  min-height: 78px;
+  min-height: 64px;
   display: grid;
   place-items: center;
   padding: 10px;
@@ -283,20 +338,26 @@
   width: min(100%, 880px);
   max-width: 100%;
   min-width: 0;
+  height: 42px;
+  min-height: 42px;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid #d6ccbd;
-  border-radius: 14px;
-  color: #35413f;
-  background: linear-gradient(145deg, #fffdf8, #f1eadf);
-  box-shadow: 0 6px 15px rgba(55,48,39,.12);
+  gap: 8px;
+  padding: 4px 6px;
+  border: 2px solid #625149;
+  border-radius: 10px;
+  color: #f6ead1;
+  background:
+    radial-gradient(circle at 50% 0, rgba(85,148,143,.22), transparent 62%),
+    linear-gradient(155deg, #285d57, #123d3a);
+  box-shadow: inset 0 0 0 1px rgba(238,216,175,.22), 0 4px 10px rgba(37,50,48,.16);
 }
 
 .train-cards-control-copy {
   min-width: 0;
+  min-height: 30px;
   display: grid;
   gap: 2px;
+  align-content: center;
 }
 
 .train-cards-control-copy strong,
@@ -307,31 +368,40 @@
 }
 
 .train-cards-control-copy strong {
-  font-size: 14px;
+  color: #fff3d7;
+  font-size: 13px;
 }
 
 .train-cards-control-copy span {
-  color: #776c60;
-  font-size: 11px;
+  color: #c9dbd3;
+  font-size: 10px;
 }
 
 .train-cards-flip-button {
-  min-width: 112px;
-  min-height: 44px;
+  min-width: 104px;
+  min-height: 30px;
+  position: relative;
   flex: 0 0 auto;
-  padding: 9px 17px;
-  border: 1px solid #7f2932;
-  border-radius: 11px;
-  color: #fffaf0;
-  background: linear-gradient(145deg, #bf4650, #872b34);
-  box-shadow: 0 3px 7px rgba(83,35,39,.2);
-  font: 700 14px system-ui, sans-serif;
+  padding: 4px 14px;
+  border: 1px solid #9c8159;
+  border-radius: 7px;
+  color: #fff5dc;
+  background: linear-gradient(180deg, #4f796d, #2d5048);
+  box-shadow: inset 0 0 0 1px rgba(255,238,202,.2), 0 2px 5px rgba(18,31,29,.28);
+  font: 700 13px system-ui, sans-serif;
+  text-shadow: 0 1px rgba(37,28,23,.45);
   cursor: pointer;
   touch-action: manipulation;
 }
 
+.train-cards-flip-button::before {
+  content: "";
+  position: absolute;
+  inset: -7px -2px;
+}
+
 .train-cards-flip-button:focus-visible {
-  outline: 3px solid #36766b;
+  outline: 3px solid #e2bd7c;
   outline-offset: 2px;
 }
 
@@ -341,7 +411,7 @@
   box-shadow: none;
 }
 
-@media (max-width: 375px) {
+@media (max-width: 599px) {
   .board.train_cards,
   .train-cards-game,
   .train-cards-controls {
@@ -350,45 +420,163 @@
     min-width: 0;
   }
 
+  #battleStage[data-game-type="train_cards"] .board-frame,
+  #battleStage[data-game-type="train_cards"] .game-controls {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #battleStage[data-game-type="train_cards"] .game-controls {
+    margin-top: 2px;
+  }
+
+  #battleStage[data-game-type="train_cards"] .table-layout,
+  #battleStage[data-game-type="train_cards"] .battle-main-column,
+  #battleStage[data-game-type="train_cards"] .board-zone {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #battleStage[data-game-type="train_cards"] .battle-main-column {
+    gap: 4px;
+  }
+
+  #battleStage[data-game-type="train_cards"] .layout-multiplayer .board-zone {
+    gap: 2px;
+  }
+
+  #battleStage[data-game-type="train_cards"] .layout-multiplayer .room-participants {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    overflow-x: visible;
+  }
+
+  #battleStage[data-game-type="train_cards"] .layout-multiplayer.count-3 .room-participants {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #battleStage[data-game-type="train_cards"] .layout-multiplayer .room-participant {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 60px;
+    min-height: 60px;
+    grid-template-rows: 26px 13px;
+  }
+
+  #battleStage[data-game-type="train_cards"] .room-participant-copy {
+    height: 26px;
+    overflow: hidden;
+  }
+
+  #battleStage[data-game-type="train_cards"] .room-participant-detail {
+    height: 13px;
+    min-height: 13px;
+    line-height: 13px;
+  }
+
+  #battleStage[data-game-type="train_cards"] .viewer-participant-row {
+    padding-top: 0;
+  }
+
+  .train-cards-game {
+    gap: 6px;
+  }
+
   .train-cards-header {
     align-items: flex-start;
+    padding-block: 0;
   }
 
   .train-cards-title-mark {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
+    font-size: 17px;
   }
 
   .train-cards-metrics {
-    display: grid;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 3px;
   }
 
   .train-cards-metric {
-    min-height: 25px;
-    padding: 3px 7px;
+    min-height: 23px;
+    padding: 2px 6px;
+    font-size: 10px;
   }
 
   .train-cards-table {
-    padding-inline: 6px;
-    border-width: 5px;
-    border-radius: 19px;
+    gap: 4px;
+    padding: 6px 3px 14px;
+    border-width: 4px;
+    border-radius: 15px;
+  }
+
+  .train-cards-status {
+    height: 24px;
+    min-height: 24px;
+    padding: 3px 7px;
+    border-radius: 7px;
+    line-height: 1.2;
   }
 
   .train-cards-track {
-    min-height: 124px;
-    padding-inline: 7px;
+    height: 82px;
+    min-height: 82px;
+    padding: 2px 3px 12px;
+    scroll-padding-inline: 3px;
+  }
+
+  .train-cards-track .train-card {
+    width: 44px;
+    height: 66px;
+    min-width: 44px;
+    min-height: 66px;
+  }
+
+  .train-cards-empty {
+    min-height: 64px;
   }
 
   .train-cards-controls {
+    height: 39px;
+    min-height: 39px;
+    display: flex;
+    gap: 5px;
+    padding: 3px 5px;
+    border-radius: 8px;
+  }
+
+  .train-cards-control-copy {
+    min-height: 29px;
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 7px;
-    padding: 8px;
+    gap: 0;
+    padding-inline: 2px;
+    line-height: 1.15;
+  }
+
+  .train-cards-control-copy strong {
+    flex: 0 0 auto;
+    font-size: 12px;
+  }
+
+  .train-cards-control-copy span {
+    min-width: 0;
+    font-size: 9px;
   }
 
   .train-cards-flip-button {
-    width: 100%;
+    width: auto;
+    min-width: 112px;
+    min-height: 29px;
+    padding: 3px 16px;
+    font-size: 12px;
   }
 
   .train-cards-terminal-row {
@@ -403,12 +591,17 @@
   }
 
   .train-cards-control-copy span {
-    white-space: normal;
+    font-size: 8.5px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .train-card {
     transform: none;
+  }
+
+  .train-cards-wagon.is-revealed,
+  .train-cards-wagon.is-collecting {
+    animation: none;
   }
 }

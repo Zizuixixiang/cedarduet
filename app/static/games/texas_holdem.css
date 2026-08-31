@@ -199,6 +199,7 @@
 }
 .texas-seat-meta .texas-stack { color: #f2d17e; }
 .texas-seat-meta .texas-bet { color: #bde1d3; }
+.texas-seat-meta .texas-status.is-acting { color: #34240e; background: var(--gold); font-weight: 800; }
 .texas-seat-meta .texas-showdown-tag { color: #fff4cf; background: #7b4c23; }
 .texas-seat-meta .texas-hand-rank { color: #36250f; background: #edce7b; }
 .texas-seat-meta .texas-payout { color: #183526; background: #9cdda9; }
@@ -311,20 +312,132 @@
 .texas-confirm-cancel { color: #5a5055; background: #eee8ed; }
 .texas-confirm-submit { color: #fff; background: #8e3442; }
 
-@media (max-width: 620px) {
-  .texas-table { min-height: 475px; border-width: 8px; }
-  .texas-seat { width: 128px; padding: 6px; }
-  .texas-seat.is-viewer { width: 166px; top: 86%; }
-  .texas-center { top: 49%; }
-  .texas-board-cards .texas-card { width: 42px; height: 59px; }
-  .texas-controls { padding-inline: 4px; }
+@media (orientation: portrait) and (max-width: 620px) {
+  #battleStage[data-game-type="texas_holdem"] .board-frame,
+  #battleStage[data-game-type="texas_holdem"] .board.texas_holdem {
+    width: 100%;
+    min-width: 0;
+  }
+  .texas-table-scroll {
+    overflow-x: hidden;
+    touch-action: pan-y;
+  }
+  .board.texas_holdem .texas-table {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: clamp(306px, 86vw, 350px);
+    height: clamp(306px, min(86vw, 44dvh), 350px);
+    border-width: 5px;
+    border-radius: 32% / 24%;
+  }
+  .texas-table::after {
+    bottom: 24%;
+    font-size: 6px;
+    letter-spacing: .12em;
+  }
+  .texas-seat {
+    width: clamp(78px, 23vw, 92px);
+    gap: 1px;
+    padding: 3px;
+    border-radius: 7px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.08);
+  }
+  .texas-seat.is-viewer {
+    width: clamp(98px, 29vw, 114px);
+    top: 86%;
+  }
+  .texas-table[data-player-count="6"] .texas-seat[data-ring-index="2"] {
+    top: 14% !important;
+  }
+  .texas-seat.is-current {
+    box-shadow: 0 0 0 1px rgba(224,189,105,.35), 0 2px 7px rgba(0,0,0,.25);
+  }
+  .texas-seat-head { gap: 3px; }
+  .texas-avatar {
+    width: 17px;
+    height: 17px;
+    font-size: 7px;
+  }
+  .texas-seat-copy { gap: 0; }
+  .texas-seat-name { font-size: 8px; }
+  .texas-role-badges { gap: 1px; }
+  .texas-role-badges b {
+    min-width: 13px;
+    padding: 0 2px;
+    border-radius: 3px;
+    font-size: 5px;
+  }
+  .texas-hole-cards { min-height: 29px; }
+  .texas-card {
+    width: clamp(22px, 6.2vw, 25px);
+    height: clamp(30px, 8.6vw, 35px);
+    margin-left: -4px;
+    border-radius: 4px;
+    box-shadow: 1px 2px 0 rgba(0, 24, 15, .28);
+  }
+  .texas-card-rank { font-size: 10px; }
+  .texas-card-suit { font-size: 6px; }
+  .texas-card.is-hidden { padding: 2px; }
+  .texas-card-back { font-size: 4px; letter-spacing: .03em; }
+  .texas-seat-meta { gap: 1px; }
+  .texas-seat-meta span {
+    padding: 0 2px;
+    font-size: 6px;
+    line-height: 1.2;
+  }
+  .texas-center {
+    width: min(56%, 180px);
+    top: 47%;
+    gap: 2px;
+  }
+  .texas-street {
+    padding: 1px 5px;
+    font-size: 6px;
+  }
+  .texas-board-cards .texas-card {
+    width: clamp(23px, 6.6vw, 28px);
+    height: clamp(32px, 9.2vw, 39px);
+    margin-left: 2px;
+  }
+  .texas-pot { font-size: 10px; }
+  .texas-side-pots { gap: 2px; }
+  .texas-side-pots span { padding: 0 3px; font-size: 6px; }
+  .texas-result { max-width: 170px; font-size: 7px; line-height: 1.2; }
+  .texas-controls { gap: 3px; padding: 4px 3px 0; }
+  .texas-control-status { font-size: 8px; }
+  .texas-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .texas-action {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    min-height: 40px;
+    padding: 5px 6px;
+    border-radius: 7px;
+    font-size: 10px;
+  }
+  .texas-range-action {
+    width: 100%;
+    min-width: 0;
+    grid-column: span 2;
+    grid-template-columns: minmax(82px, 1fr) 72px;
+    gap: 2px 5px;
+    padding: 4px 5px;
+    border-radius: 8px;
+  }
+  .texas-range-action label { font-size: 9px; }
+  .texas-confirmation { gap: 5px; padding: 5px; font-size: 10px; }
+  .texas-confirm-cancel,
+  .texas-confirm-submit { min-height: 36px; padding: 5px 7px; font-size: 10px; }
 }
 
-@media (max-width: 375px) {
+@media (orientation: portrait) and (max-width: 375px) {
   .texas-table-scroll { border-radius: 15px; }
   .texas-actions { align-items: stretch; }
-  .texas-action { flex: 1 1 72px; min-width: 68px; }
-  .texas-range-action { flex: 1 1 100%; min-width: 100%; }
   .texas-confirmation { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 5px; }
   .texas-confirm-cancel,
   .texas-confirm-submit { min-height: 36px; padding-inline: 7px; font-size: 10px; }

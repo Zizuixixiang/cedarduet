@@ -76,6 +76,7 @@
   white-space: nowrap;
 }
 .blackjack-badge.shoe { color: #4e301b; background: #e8cc7d; border-color: #f6e6b7; }
+.blackjack-badge.acting { color: #2f200c; background: #f7d46c; border-color: #fff0ad; font-weight: 800; }
 .blackjack-badge.hidden-value { color: #e7d9ad; border-style: dashed; }
 .blackjack-badge.natural { color: #29190e; background: #f2ce68; border-color: #fff0ad; }
 .blackjack-badge.bust,

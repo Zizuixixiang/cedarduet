@@ -11,12 +11,14 @@ from app import database, framework
 from app.games import GAMES
 from app.npc_controller import run_current_npc_turn
 from app.npc_providers import (
+    BRIDGE_MESSAGE_CHAR_LIMIT,
     CedarToyBridgeNpcProvider,
     DisabledNpcProvider,
     GLOBAL_PLAYER_RULES,
     GLOBAL_SPEECH_RULES,
     NpcDecisionRequest,
     NpcProvider,
+    NpcProviderError,
     NpcSpeechRequest,
     OpenAICompatibleNpcProvider,
     ProviderDecision,
@@ -143,12 +145,15 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(parse_provider_speech('{"message":null}'))
         for required in (
+            "精简规则、当前压缩局面",
+            "最近可见增量",
             "不得把对手隐藏状态当作已知事实",
             "不得以真实披露为目的",
             "正常诈唬",
             "不要返回分析、解释或思维过程",
         ):
             self.assertIn(required, GLOBAL_SPEECH_RULES)
+        self.assertNotIn("完整可见时间线", GLOBAL_SPEECH_RULES)
         for prohibited in (
             "Yellow rolls", "I roll", "I move", "禁止复述动作", "尽量短"
         ):
@@ -257,6 +262,33 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             captured["bodies"][1]["messages"][1]["content"]
         )
         self.assertEqual(speech_payload["visible_timeline"][-1]["text"], "真实结果")
+        self.assertTrue(all(
+            len(message["content"]) <= BRIDGE_MESSAGE_CHAR_LIMIT
+            for body in captured["bodies"] for message in body["messages"]
+        ))
+
+    async def test_bridge_rejects_an_oversized_single_message_before_transport(self):
+        called = False
+
+        async def handler(request: httpx.Request):
+            nonlocal called
+            called = True
+            return httpx.Response(500, request=request)
+
+        provider = CedarToyBridgeNpcProvider(
+            bridge_url="http://127.0.0.1/internal/duel/npc-decision",
+            bridge_token="internal-test-token",
+            transport=httpx.MockTransport(handler),
+        )
+        oversized = NpcSpeechRequest(
+            **{
+                **speech_request().__dict__,
+                "public_state": {"history": "x" * 5000},
+            }
+        )
+        with self.assertRaisesRegex(NpcProviderError, "3900"):
+            await provider.speak(oversized)
+        self.assertFalse(called)
 
     async def test_http_provider_global_concurrency_limit_allows_parallel_rooms(self):
         active = 0
@@ -519,7 +551,7 @@ class NpcControllerTests(unittest.IsolatedAsyncioTestCase):
         finally:
             cursor_after.close()
 
-    async def test_context_keeps_only_latest_twenty_public_events_in_order(self):
+    async def test_context_keeps_only_latest_eight_public_events_in_order(self):
         room = self.room_at_first_npc()
         for index in range(1, 23):
             framework.post_message(
@@ -528,10 +560,10 @@ class NpcControllerTests(unittest.IsolatedAsyncioTestCase):
         provider = ScriptedProvider()
         await run_current_npc_turn(room["room_id"], provider=provider)
         events = provider.requests[0].recent_public_events
-        self.assertEqual(len(events), 20)
+        self.assertEqual(len(events), 8)
         self.assertEqual(
             [item["text"] for item in events],
-            [f"公开消息 {index:02d}" for index in range(3, 23)],
+            [f"公开消息 {index:02d}" for index in range(15, 23)],
         )
         self.assertEqual(
             [item["sequence"] for item in events],

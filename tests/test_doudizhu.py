@@ -586,6 +586,30 @@ class DoudizhuGameTests(unittest.TestCase):
             {"human-1": 0, "ai-1": 0, "ai-2": 0},
         )
 
+    def test_resignation_forfeit_covers_bidding_and_decided_sides(self):
+        bidding = self.game.result_for_resignation(
+            {"landlord_player_id": None}, "human-1", self.table
+        )
+        self.assertEqual(
+            self.game.settlement_deltas({}, bidding, self.table, 5),
+            {"human-1": -10, "ai-1": 5, "ai-2": 5},
+        )
+        playing = self.game.result_for_resignation(
+            {"landlord_player_id": "human-1", "multiplier": 6},
+            "ai-1",
+            self.table,
+        )
+        self.assertEqual(playing["winning_side"], "landlord")
+        self.assertEqual(
+            self.game.settlement_deltas(
+                {"landlord_player_id": "human-1", "multiplier": 6},
+                playing,
+                self.table,
+                5,
+            ),
+            {"human-1": 60, "ai-1": -30, "ai-2": -30},
+        )
+
     def test_public_private_npc_and_participant_relationships_are_safe(self):
         state = self.playing_state([
             ("S3", "H3", "C8"),

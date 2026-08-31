@@ -42,7 +42,7 @@
     return avatar;
   }
 
-  function createDie(documentRef, value, index, held, selectable, onToggle) {
+  function createDie(documentRef, value, index, held, selectable, onToggle, reviewOnly = false) {
     const die = documentRef.createElement(value ? "button" : "div");
     die.className = `yahtzee-die${held ? " held" : ""}${value ? "" : " empty"}`;
     die.dataset.dieIndex = String(index);
@@ -59,7 +59,9 @@
     die.setAttribute("aria-pressed", String(held));
     die.setAttribute(
       "aria-label",
-      `第 ${index + 1} 枚骰子，${value} 点，${held ? "已保留" : "未保留"}`
+      reviewOnly
+        ? `第 ${index + 1} 枚骰子，${value} 点，终局骰面`
+        : `第 ${index + 1} 枚骰子，${value} 点，${held ? "已保留" : "未保留"}`
     );
     const activePips = new Set(PIP_POSITIONS[value] || []);
     for (let position = 1; position <= 9; position += 1) {
@@ -68,12 +70,14 @@
       pip.setAttribute("aria-hidden", "true");
       face.appendChild(pip);
     }
-    const badge = documentRef.createElement("span");
-    badge.className = "yahtzee-hold-badge";
-    badge.textContent = "保留";
-    badge.setAttribute("aria-hidden", "true");
-    die.appendChild(badge);
-    die.addEventListener("click", () => onToggle(die));
+    if (!reviewOnly) {
+      const badge = documentRef.createElement("span");
+      badge.className = "yahtzee-hold-badge";
+      badge.textContent = "保留";
+      badge.setAttribute("aria-hidden", "true");
+      die.appendChild(badge);
+    }
+    if (selectable) die.addEventListener("click", () => onToggle(die));
     return die;
   }
 
@@ -124,11 +128,21 @@
     const maxRolls = Number(state.max_rolls || 3);
     const jokerActive = Boolean(state.joker_active);
     const pendingYahtzeeBonus = Number(state.pending_yahtzee_bonus || 0);
-    const humanCanMove = Boolean(context.canMove);
+    const terminal = Boolean(
+      context.isTerminal
+      || (state.flow || {}).phase === "finished"
+      || ["finished", "archived"].includes(room.status)
+    );
+    const humanCanMove = Boolean(context.canMove) && !terminal;
+    const liveTurnPlayerId = room.status === "playing"
+      && !terminal
+      && (state.flow || {}).phase !== "finished"
+      ? room.current_player_id
+      : null;
     const canSelectDice = humanCanMove && dice.length === 5 && rollsUsed < maxRolls;
     const heldMask = Array.from(
       {length: 5},
-      (_, index) => Boolean(state.held_mask && state.held_mask[index])
+      (_, index) => !terminal && Boolean(state.held_mask && state.held_mask[index])
     );
     const activePlayerId = room.current_player_id
       || (context.viewer && context.viewer.player_id)
@@ -164,11 +178,15 @@
     const actor = participants.find(
       (participant) => participant.player_id === room.current_player_id
     );
-    heading.textContent = `第 ${round} / 13 轮 · ${actor ? playerName(actor) : "本局"}`;
+    heading.textContent = terminal
+      ? `第 ${round} / 13 轮 · 本局已结束`
+      : `第 ${round} / 13 轮 · ${actor ? playerName(actor) : "本局"}`;
     const status = documentRef.createElement("span");
-    status.textContent = dice.length
+    status.textContent = terminal
+      ? "本局已结束"
+      : (dice.length
       ? `已掷 ${rollsUsed} / ${maxRolls} 次 · 点骰子选择保留`
-      : (humanCanMove ? "请先掷骰" : "等待当前玩家掷骰");
+      : (humanCanMove ? "请先掷骰" : "等待当前玩家掷骰"));
     turnCopy.append(heading, status);
 
     const diceTray = documentRef.createElement("div");
@@ -188,7 +206,8 @@
             "aria-label",
             `第 ${index + 1} 枚骰子，${dice[index]} 点，${heldMask[index] ? "已保留" : "未保留"}`
           );
-        }
+        },
+        terminal
       );
       diceTray.appendChild(die);
     }
@@ -232,21 +251,24 @@
       : "划掉类别，记 0 分";
     scratchLabel.append(scratch, scratchText);
     rollActions.append(rollButton, scratchLabel);
-    rollPanel.append(turnCopy, diceTray, rollActions);
+    rollPanel.append(turnCopy, diceTray);
+    if (!terminal) rollPanel.appendChild(rollActions);
 
     const scoreSection = documentRef.createElement("section");
     scoreSection.className = "yahtzee-score-section";
     const scoreHeading = documentRef.createElement("div");
     scoreHeading.className = "yahtzee-score-heading";
     const scoreTitle = documentRef.createElement("strong");
-    scoreTitle.textContent = context.isTerminal ? "本局计分完成" : "本轮可计分";
+    scoreTitle.textContent = terminal ? "本局计分完成" : "本轮可计分";
     const scoreHint = documentRef.createElement("span");
-    scoreHint.textContent = dice.length === 5
+    scoreHint.textContent = terminal
+      ? "最终得分已确定"
+      : (dice.length === 5
       ? (humanCanMove ? "点选类别后确认填写" : "当前骰面预估 · 等待行动玩家")
-      : "掷骰后显示各类别预估";
+      : "掷骰后显示各类别预估");
     scoreHeading.append(scoreTitle, scoreHint);
     let jokerNotice = null;
-    if (jokerActive) {
+    if (jokerActive && !terminal) {
       jokerNotice = documentRef.createElement("p");
       jokerNotice.className = "yahtzee-joker-notice";
       jokerNotice.textContent = pendingYahtzeeBonus
@@ -292,7 +314,7 @@
       const preview = previews[category.key];
       if (!categoryUnused) {
         value.textContent = `已用 · ${currentCard[category.key]} 分`;
-      } else if (context.isTerminal) {
+      } else if (terminal) {
         value.textContent = "本局结束";
       } else if (dice.length !== 5) {
         value.textContent = "待掷骰";
@@ -331,10 +353,11 @@
     participants.forEach((participant) => {
       const isViewer = context.viewer
         && participant.player_id === context.viewer.player_id;
+      const isActing = participant.player_id === liveTurnPlayerId;
       const item = documentRef.createElement("div");
       item.className = [
         "yahtzee-total-player",
-        participant.player_id === room.current_player_id ? "current" : "",
+        isActing ? "current" : "",
         isViewer ? "viewer" : "",
       ].filter(Boolean).join(" ");
       const copy = documentRef.createElement("span");
@@ -346,7 +369,14 @@
       const total = documentRef.createElement("strong");
       total.className = "yahtzee-total-score";
       total.textContent = `${(totals[participant.player_id] || {}).total || 0} 分`;
-      copy.append(name, total);
+      copy.append(name);
+      if (isActing) {
+        const action = documentRef.createElement("strong");
+        action.className = "yahtzee-total-action";
+        action.textContent = "行动中";
+        copy.appendChild(action);
+      }
+      copy.appendChild(total);
       item.append(renderAvatar(documentRef, context, participant), copy);
       totalsGrid.appendChild(item);
     });
@@ -384,7 +414,7 @@
       header.appendChild(identity);
       header.title = playerName(participant);
       header.className = [
-        participant.player_id === room.current_player_id ? "current" : "",
+        participant.player_id === liveTurnPlayerId ? "current" : "",
         isViewer ? "viewer" : "",
       ].filter(Boolean).join(" ");
       headerRow.appendChild(header);
@@ -392,7 +422,7 @@
     const actionHeader = documentRef.createElement("th");
     actionHeader.scope = "col";
     actionHeader.className = "yahtzee-score-action";
-    actionHeader.textContent = "本轮预估";
+    actionHeader.textContent = terminal ? "终局记录" : "本轮预估";
     headerRow.appendChild(actionHeader);
     tableHead.appendChild(headerRow);
     table.appendChild(tableHead);
@@ -525,7 +555,8 @@
       confirmation.append(confirmationCopy, cancel, confirm);
       scoreSection.append(confirmation);
     }
-    scoreSection.append(scoreOptions, totalsOverview, scorecardDetails);
+    if (!terminal) scoreSection.appendChild(scoreOptions);
+    scoreSection.append(totalsOverview, scorecardDetails);
     root.append(rollPanel, scoreSection);
     board.appendChild(root);
   }

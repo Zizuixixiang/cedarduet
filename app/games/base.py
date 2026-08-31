@@ -51,10 +51,42 @@ class GamePlugin(ABC):
     # Games whose rules scale liabilities (for example by cards remaining)
     # explicitly opt into their settlement hook for two-player tables too.
     uses_custom_stake_settlement: bool = False
+    # A virtual house/dealer can make the participant delta total non-zero.
+    # This remains a narrow per-game opt-in; every other game is zero-sum.
+    allows_non_zero_sum_settlement: bool = False
+    continues_with_only_system_npcs_after_resignation: bool = False
     # Games whose accepted action has an unpredictable or automatic public
     # consequence need that system delta in the moving MCP caller's immediate
     # response even when the action ends its turn.
     mcp_immediate_public_events: bool = False
+
+    def accepts_active_count_after_resignation(self, count: int) -> bool:
+        """Whether a room can continue with ``count`` active participants.
+
+        Setup/table-size validation remains separate. Most games keep the same
+        allowed counts; a game played against a virtual dealer may continue
+        with one active participant after another seat forfeits.
+        """
+        return self.accepts_player_count(count)
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        """Apply game-state effects of a forfeit before lifecycle evaluation."""
+        del state, resigned_player_id, participants
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return a concrete terminal forfeit result when the room must end."""
+        del state, resigned_player_id, participants
+        return None
 
     def resolved_allowed_player_counts(self) -> tuple[int, ...]:
         raw = self.allowed_player_counts

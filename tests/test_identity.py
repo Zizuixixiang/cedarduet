@@ -228,7 +228,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(games["yahtzee"]["supports_stakes"])
         self.assertEqual(games["blackjack"]["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(games["blackjack"]["supports_npcs"])
-        self.assertFalse(games["blackjack"]["supports_stakes"])
+        self.assertTrue(games["blackjack"]["supports_stakes"])
         self.assertEqual(
             games["texas_holdem"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
@@ -382,11 +382,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
-        self.assertIn("/static/app.js?v=0.9.3", html)
-        self.assertIn("/static/styles.css?v=0.9.6", html)
+        self.assertIn("/static/app.js?v=0.9.4", html)
+        self.assertIn("/static/styles.css?v=0.9.7", html)
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
-            html.index("/static/app.js?v=0.9.3"),
+            html.index("/static/app.js?v=0.9.4"),
         )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)

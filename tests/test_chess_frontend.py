@@ -154,7 +154,18 @@ function createHarness(state, viewerToken = "X") {
     uiState,
     helpers,
     viewer: {token: viewerToken},
-    canMove: true,
+    participants: [
+      {player_id: "white-1", display_name: "白棋手", token: "X"},
+      {player_id: "black-1", display_name: "黑棋手", token: "O"},
+    ],
+    room: {
+      status: state.game_over ? "finished" : "playing",
+      winner_player_id: state.winner_mark === "X"
+        ? "white-1" : state.winner_mark === "O" ? "black-1" : null,
+      winner: state.winner_mark === "draw" ? "draw" : null,
+    },
+    isTerminal: Boolean(state.game_over),
+    canMove: !state.game_over,
     pendingMove: null,
   };
   helpers.rerender();
@@ -285,6 +296,36 @@ assert.equal(unavailable.classList.contains("hidden"), true);
 assert.equal(unavailable.children.length, 0);
 ''')
         self.assertIn(".chess-claim-button { width: 100%; min-height: 44px; }", SCRIPT)
+
+    def test_checkmate_replaces_check_with_terminal_winner_status(self):
+        self.run_node(r'''
+const boardState = emptyBoard();
+boardState[0][4] = "b:k";
+boardState[7][4] = "w:k";
+const state = {
+  board: boardState,
+  turn_color: "b",
+  in_check: true,
+  in_checkmate: true,
+  game_over: true,
+  winner_mark: "X",
+  terminal_reason: "checkmate",
+  last_move: null,
+  legal_moves: [],
+};
+const harness = createHarness(state, "X");
+const notice = harness.board.children.find(
+  (element) => element.classList.contains("chess-check-notice")
+);
+assert.ok(notice);
+assert.equal(notice.classList.contains("terminal"), true);
+assert.equal(notice.textContent, "将死 · 对局结束 · 白棋手获胜");
+assert.equal(harness.cell("e8").classList.contains("in-check"), false);
+assert.equal(
+  harness.board.children.some((element) => element.textContent.includes("将军")),
+  false
+);
+''')
 
     def test_source_is_valid_javascript(self):
         completed = subprocess.run(

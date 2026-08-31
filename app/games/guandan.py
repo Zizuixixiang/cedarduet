@@ -73,7 +73,8 @@ class Guandan(GamePlugin):
         "【CedarDuet 娱乐筹码】\n"
         "钱包结算与上述上游升级、名次和级差计分明确分开，只在完整 2 到 A 比赛结束时进行："
         "获胜队两名玩家各获得一份房间底注，落败队两名玩家各扣一份房间底注，四人合计为 0；不按领先等级、"
-        "副数或名次差追加倍数。这只是 CedarDuet 钱包政策，不改写上游掼蛋计分。"
+        "副数或名次差追加倍数。这只是 CedarDuet 钱包政策，不改写上游掼蛋计分。任一席认输时，"
+        "其所在队立即判负并按同一队伍规则结算。"
     )
     move_format = (
         '只提交当前 private_state.legal_actions 发布的权威短 ID：'
@@ -339,6 +340,33 @@ class Guandan(GamePlugin):
         return {
             player_id: stake if player_id in winner_ids else -stake
             for player_id in player_ids
+        }
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del state
+        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        player_ids = [str(item["player_id"]) for item in ordered]
+        if resigned_player_id not in player_ids or len(player_ids) != 4:
+            raise ValueError("掼蛋认输终局固定需要四名有效参与者")
+        losing_parity = player_ids.index(resigned_player_id) % 2
+        winners = [
+            player_id for index, player_id in enumerate(player_ids)
+            if index % 2 != losing_parity
+        ]
+        winner_team = "A" if player_ids.index(winners[0]) % 2 == 0 else "B"
+        return {
+            "draw": False,
+            "reason": "resignation",
+            "resigned_player_id": resigned_player_id,
+            "winner_player_id": winners[0],
+            "winner_team": winner_team,
+            "winning_player_ids": winners,
+            "result_text": f"{TEAM_LABELS[winner_team]}因对方认输获胜",
         }
 
     def public_state(

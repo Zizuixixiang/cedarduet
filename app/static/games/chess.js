@@ -160,6 +160,15 @@
       line-height: 1;
       pointer-events: none;
     }
+    .board.chess .chess-check-notice.terminal {
+      width: max-content;
+      max-width: calc(100% - 20px);
+      color: #493023;
+      border-color: #8c653e;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.25;
+    }
     .board.chess .chess-file-label,
     .board.chess .chess-rank-label {
       position: absolute;
@@ -303,6 +312,42 @@
     return payload;
   }
 
+  function isTerminalState(context) {
+    const state = context.state || {};
+    const room = context.room || {};
+    return Boolean(
+      context.isTerminal
+      || state.game_over
+      || state.in_checkmate
+      || state.winner_mark
+      || ["finished", "archived"].includes(room.status)
+    );
+  }
+
+  function terminalStatusText(context) {
+    const state = context.state || {};
+    const room = context.room || {};
+    const winnerId = room.winner_player_id
+      || (room.result || {}).winner_player_id;
+    const winner = (context.participants || []).find(
+      (participant) => participant.player_id === winnerId
+    ) || (context.participants || []).find(
+      (participant) => participant.token === state.winner_mark
+    ) || null;
+    const winnerName = winner
+      ? (winner.display_name || winner.player_id)
+      : (state.winner_mark === "X" ? "白方" : state.winner_mark === "O" ? "黑方" : "");
+    const reason = state.in_checkmate || state.terminal_reason === "checkmate"
+      ? "将死 · "
+      : "";
+    if (state.winner_mark === "draw" || room.winner === "draw") {
+      return `${reason}对局结束 · 和棋`;
+    }
+    return winnerName
+      ? `${reason}对局结束 · ${winnerName}获胜`
+      : `${reason}对局结束`;
+  }
+
   function sameSquare(square, row, col) {
     return Boolean(square && square.row === row && square.col === col);
   }
@@ -368,6 +413,7 @@
 
   function renderBoard(context) {
     const {board, state, legalMoves, uiState, helpers} = context;
+    const terminal = isTerminalState(context);
     helpers.setBoardLayout({
       rows: 8,
       cols: 8,
@@ -386,9 +432,9 @@
     const colOrder = Array.from(
       {length: 8}, (_, index) => rotated ? 7 - index : index
     );
-    const selected = uiState.selectedSquare || null;
+    const selected = terminal ? null : (uiState.selectedSquare || null);
     const lastMove = state.last_move || null;
-    const checkedPiece = state.in_check ? `${state.turn_color}:k` : null;
+    const checkedPiece = state.in_check && !terminal ? `${state.turn_color}:k` : null;
 
     board.classList.toggle("rotated-view", rotated);
     board.dataset.viewColor = viewerColor;
@@ -423,7 +469,8 @@
           cell.classList.add("selected-origin");
         }
         if (
-          context.pendingMove
+          !terminal
+          && context.pendingMove
           && context.pendingMove.to_row === rowIndex
           && context.pendingMove.to_col === colIndex
         ) cell.classList.add("selected-target");
@@ -500,20 +547,26 @@
       });
     });
 
-    if (state.in_check) {
+    if (terminal || state.in_check) {
       const notice = document.createElement("span");
-      notice.className = "chess-check-notice";
+      notice.className = `chess-check-notice${terminal ? " terminal" : ""}`;
       notice.setAttribute("role", "status");
       notice.setAttribute("aria-live", "polite");
-      notice.textContent = `${COLOR_NAMES[state.turn_color]} · 将军`;
+      notice.textContent = terminal
+        ? terminalStatusText(context)
+        : `${COLOR_NAMES[state.turn_color]} · 将军`;
       board.appendChild(notice);
     }
-    if (Array.isArray(uiState.promotionMoves) && uiState.promotionMoves.length) {
+    if (!terminal && Array.isArray(uiState.promotionMoves) && uiState.promotionMoves.length) {
       appendPromotionPanel(context, uiState.promotionMoves, viewerColor);
     }
   }
 
   function renderControls(context) {
+    if (isTerminalState(context)) {
+      context.controls.classList.add("hidden");
+      return;
+    }
     const claimAction = (Array.isArray(context.legalActions)
       ? context.legalActions
       : []

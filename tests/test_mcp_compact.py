@@ -152,6 +152,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(pending["status"], "pending")
         self.assertEqual(pending["stake"], 9)
+        self.assertEqual(pending["stake_label"], "🪙9/人")
+        self.assertEqual(pending["stake_hint"], "")
         self.assertEqual(pending["confirmation_decision"], "accepted")
         self.assertEqual(pending["chip_balances"], {"ai": 205, "human": 200})
         for forbidden in ("room", "board_state", "rules_text", "move_format"):
@@ -727,6 +729,74 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("your_action", resigned.json())
         self.assertIn("settlement", resigned.json())
         self.assertNotIn("room", resigned.json())
+
+    async def test_custom_and_multiplayer_terminal_deltas_use_real_player_map(self):
+        texas = await self.new_room(
+            "texas_holdem",
+            mode="ai_first",
+            stake=40,
+            ai="ai-texas-real",
+            human="human-texas-real",
+        )
+        self.assertEqual(texas["stake_label"], "买入 🪙40/人")
+        self.assertEqual(texas["stake_hint"], "最大亏 40")
+        framework.respond_to_invitation(
+            texas["room_id"], "human", "human-texas-real", "accept"
+        )
+        texas_finished = framework.resign(
+            texas["room_id"], "human", "human-texas-real"
+        )
+        texas_terminal = await self.client.post("/mcp/play", json={
+            "action": "state",
+            "player_id": "ai-texas-real",
+            "room_id": texas["room_id"],
+        })
+        texas_settlement = texas_terminal.json()["settlement"]
+        expected_texas = texas_finished["result"]["settlement_deltas"]
+        self.assertEqual(
+            texas_settlement["delta"], expected_texas["ai-texas-real"]
+        )
+        self.assertEqual(texas_settlement["deltas"], expected_texas)
+        self.assertNotEqual(abs(texas_settlement["delta"]), 40)
+        self.assertNotIn("human", texas_settlement["deltas"])
+
+        doudizhu = framework.create_room(
+            "doudizhu",
+            "human_first",
+            "human",
+            "human-ddz-real",
+            opponent_id="ai-ddz-real",
+            ordered_participants=[
+                {"player_id": "human-ddz-real", "role": "human"},
+                {"player_id": "ai-ddz-real", "role": "ai"},
+                {
+                    "player_id": "npc:ddz-real",
+                    "role": "ai",
+                    "participant_kind": "system_npc",
+                    "npc_persona_id": "ddz-real",
+                },
+            ],
+            stake=5,
+        )
+        framework.respond_to_invitation(
+            doudizhu["room_id"], "ai", "ai-ddz-real", "accept"
+        )
+        framework.resign(
+            doudizhu["room_id"], "human", "human-ddz-real"
+        )
+        ddz_terminal = await self.client.post("/mcp/play", json={
+            "action": "state",
+            "player_id": "ai-ddz-real",
+            "room_id": doudizhu["room_id"],
+        })
+        ddz_settlement = ddz_terminal.json()["settlement"]
+        self.assertEqual(ddz_settlement["delta"], 5)
+        self.assertEqual(ddz_settlement["deltas"], {
+            "human-ddz-real": -10,
+            "ai-ddz-real": 5,
+            "npc:ddz-real": 5,
+        })
+        self.assertNotIn("balances", ddz_settlement)
 
     async def test_chips_ops_are_ai_owned_human_read_only_and_ledger_is_bounded(self):
         status = await self.client.post(

@@ -9,6 +9,10 @@ from app import database, framework
 from app.games import GAMES
 from app.games.base import MoveResult
 from app.npc_controller import (
+    NPC_CONTEXT_MESSAGE_LIMIT,
+    _authoritative_legal_actions,
+    _decision_request,
+    _speech_request,
     run_current_npc_turn,
     wait_for_npc_speech_tasks,
 )
@@ -30,10 +34,10 @@ class SpeechTrackingProvider(NpcProvider):
 
     async def decide(self, request):
         self.decision_requests.append(request)
-        step = next(
+        step = next((
             item for item in request.legal_actions
             if item["action"] == {"action": "step"}
-        )
+        ), request.legal_actions[0])
         message = self.decision_messages.pop(0) if self.decision_messages else None
         return ProviderDecision(step["action_id"], message)
 
@@ -219,6 +223,11 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_third_silent_full_turn_speaks_once_and_is_idempotent(self):
         room = self.room_at_quiet_npc()
         room_id = room["room_id"]
+        for index in range(25):
+            framework.post_message(
+                room_id, "human", "human-1",
+                f"强制发言长增量 {index:02d} " + "长" * 470,
+            )
         provider = SpeechTrackingProvider(speech_outcomes=["第三回合。"])
         completion_revision = None
         for turn_index in range(3):
@@ -234,6 +243,14 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(result.speech_task)
         await wait_for_npc_speech_tasks()
         self.assertEqual(len(provider.speech_requests), 1)
+        self.assertLessEqual(
+            len(provider.speech_requests[0].messages()[1]["content"]),
+            NPC_CONTEXT_MESSAGE_LIMIT,
+        )
+        self.assertIn(
+            "强制发言长增量 24",
+            provider.speech_requests[0].messages()[1]["content"],
+        )
         state = self.speech_state(room_id)
         self.assertEqual(state["silent_completed_turns"], 0)
         self.assertEqual(state["speech_pending"], 0)
@@ -290,7 +307,7 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(provider.decision_requests), 3)
         self.assertEqual(provider.speech_requests, [])
 
-    async def test_speech_context_is_complete_current_and_viewer_safe(self):
+    async def test_speech_context_is_recent_current_and_viewer_safe(self):
         room = self.room_at_quiet_npc()
         room_id = room["room_id"]
         framework.post_message(
@@ -327,10 +344,10 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(provider.speech_requests), 1)
         request = provider.speech_requests[0]
         serialized = json.dumps(request.messages(), ensure_ascii=False)
-        self.assertGreater(len(request.visible_timeline), 20)
-        self.assertIn("完整公开时间线 00", serialized)
+        self.assertLessEqual(len(request.visible_timeline), 12)
+        self.assertNotIn("完整公开时间线 00", serialized)
         self.assertIn("完整公开时间线 24", serialized)
-        self.assertIn("较早但当前 NPC 可见的私聊", serialized)
+        self.assertNotIn("较早但当前 NPC 可见的私聊", serialized)
         self.assertNotIn("绝不能泄漏给当前 NPC", serialized)
         self.assertIn("当前 NPC 的真实动作结果", serialized)
         self.assertEqual(
@@ -342,9 +359,103 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
             "private:human-1", "private:ai-1", "private:npc:bright"
         ):
             self.assertNotIn(hidden, serialized)
-        self.assertIn("测试专用", request.game_rules)
-        self.assertIn("聊天说明", request.game_rules)
+        self.assertIn("权威合法行动", request.game_rules)
         self.assertEqual(request.public_state["actions"][-1], "npc:quiet")
+        self.assertLessEqual(
+            len(request.messages()[1]["content"]), NPC_CONTEXT_MESSAGE_LIMIT
+        )
+
+    async def test_long_production_multiplayer_contexts_are_bounded_and_private(self):
+        def participants(count):
+            values = [
+                {
+                    "player_id": "human-long", "role": "human",
+                    "participant_kind": "human", "display_name": "人类",
+                },
+                {
+                    "player_id": "ai-long", "role": "ai",
+                    "participant_kind": "bound_machine", "display_name": "小机",
+                },
+            ]
+            personas = (("quiet", "安静测试机"), ("bright", "明亮测试机"))
+            values.extend({
+                "player_id": f"npc:{persona_id}", "role": "ai",
+                "participant_kind": "system_npc",
+                "npc_persona_id": persona_id, "display_name": name,
+            } for persona_id, name in personas[:count - 2])
+            return values
+
+        for game_type, player_count in (
+            ("aeroplane_chess", 4), ("doudizhu", 3), ("mahjong", 4),
+        ):
+            with self.subTest(game_type=game_type):
+                room = framework.create_room(
+                    game_type, "ai_first", "human", "human-long",
+                    opponent_id="ai-long",
+                    ordered_participants=participants(player_count),
+                    enforce_trusted_pair=True,
+                    first_player_id="npc:quiet",
+                )
+                for index in range(30):
+                    framework.post_message(
+                        room["room_id"], "human", "human-long",
+                        f"长局增量 {index:02d} " + "长" * 480,
+                    )
+                with database.write_transaction() as conn:
+                    row = conn.execute(
+                        "SELECT board_state FROM rooms WHERE room_id = ?",
+                        (room["room_id"],),
+                    ).fetchone()
+                    state = json.loads(row["board_state"])
+                    state["action_history"] = [
+                        {"turn": index, "public_note": "历史" * 200}
+                        for index in range(500)
+                    ]
+                    conn.execute(
+                        "UPDATE rooms SET board_state = ? WHERE room_id = ?",
+                        (json.dumps(state, ensure_ascii=False), room["room_id"]),
+                    )
+                loaded = framework.get_room(room["room_id"])
+                speech = _speech_request(loaded, "npc:quiet")
+                content = speech.messages()[1]["content"]
+                self.assertLessEqual(len(content), NPC_CONTEXT_MESSAGE_LIMIT)
+                self.assertLessEqual(len(speech.visible_timeline), 12)
+                self.assertNotIn("action_history", speech.public_state)
+                self.assertNotIn("长局增量 00", content)
+                self.assertIn("长局增量 29", content)
+                if game_type == "aeroplane_chess":
+                    self.assertNotIn("path_mappings", speech.public_state)
+                if game_type == "doudizhu":
+                    actor = next(
+                        item for item in loaded["participants"]
+                        if item["player_id"] == "npc:quiet"
+                    )
+                    legal = _authoritative_legal_actions(loaded, actor)
+                    decision, _mapping = _decision_request(
+                        loaded, "npc:quiet", legal
+                    )
+                    self.assertGreater(len(decision.legal_actions), 1)
+                    self.assertLessEqual(
+                        len(decision.messages()[1]["content"]),
+                        NPC_CONTEXT_MESSAGE_LIMIT,
+                    )
+                    raw_hands = loaded["board_state"]["cards"]["hands"]
+                    opponent_card_id = raw_hands["human-long"][0]["id"]
+                    own_card_id = raw_hands["npc:quiet"][0]["id"]
+                    self.assertIn(own_card_id, decision.messages()[1]["content"])
+                    self.assertNotIn(
+                        opponent_card_id, decision.messages()[1]["content"]
+                    )
+                    provider = SpeechTrackingProvider()
+                    result = await run_current_npc_turn(
+                        loaded["room_id"], provider=provider
+                    )
+                    self.assertEqual(result.source, provider.name)
+                    self.assertEqual(len(provider.decision_requests), 1)
+                    self.assertLessEqual(
+                        len(provider.decision_requests[0].messages()[1]["content"]),
+                        NPC_CONTEXT_MESSAGE_LIMIT,
+                    )
 
     async def test_speech_failure_does_not_block_and_retries_next_full_turn(self):
         room = self.room_at_quiet_npc()

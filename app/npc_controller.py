@@ -41,6 +41,13 @@ from .npc_runtime import (
 
 
 _speech_tasks: set[asyncio.Task[bool]] = set()
+NPC_CONTEXT_MESSAGE_LIMIT = 3800
+NPC_DECISION_EVENT_LIMIT = 8
+NPC_SPEECH_EVENT_LIMIT = 12
+NPC_PUBLIC_ACTION_LIMIT = 8
+NPC_PERSONA_CONTEXT_LIMIT = 320
+NPC_EVENT_TEXT_LIMIT = 160
+NPC_LEGAL_ACTION_SHORTLIST_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,81 @@ def _participant_directory(projected_room: dict[str, Any]) -> list[dict[str, Any
     ]
 
 
+def _compact_persona(persona: dict[str, str], limit: int) -> dict[str, str]:
+    compact = deepcopy(persona)
+    text = compact.get("persona")
+    if isinstance(text, str) and len(text) > limit:
+        compact["persona"] = text[: max(1, limit - 1)].rstrip() + "…"
+    return compact
+
+
+def _compact_context_value(value: Any) -> Any:
+    """Drop empty transport noise without inventing or unmasking state."""
+    if isinstance(value, dict):
+        # Tile/card projections often repeat renderer-oriented suit/rank/copy
+        # fields alongside a stable id and human-readable label. The NPC needs
+        # the latter pair; keeping every visual field makes large hands (most
+        # notably Guandan) dominate the whole bridge message.
+        if (
+            isinstance(value.get("id"), str)
+            and isinstance(value.get("label"), str)
+            and any(key in value for key in ("copy", "code"))
+        ):
+            compact_item = {
+                "id": value["id"],
+                "label": value["label"],
+            }
+            if isinstance(value.get("code"), str):
+                compact_item["code"] = value["code"]
+            if value.get("wild") is True:
+                compact_item["wild"] = True
+            return compact_item
+        compact = {}
+        for key, item in value.items():
+            projected = _compact_context_value(item)
+            if projected is None or projected == "":
+                continue
+            if isinstance(projected, (dict, list)) and not projected:
+                continue
+            compact[key] = projected
+        return compact
+    if isinstance(value, list):
+        return [_compact_context_value(item) for item in value]
+    return deepcopy(value)
+
+
+def _npc_projected_states(
+    game: Any,
+    projected_room: dict[str, Any],
+    npc_player_id: str,
+    *,
+    for_speech: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    viewer = next(
+        item for item in projected_room["participants"]
+        if item["player_id"] == npc_player_id
+    )
+    public_state = game.mcp_snapshot_state(
+        deepcopy(projected_room["board_state"]),
+        deepcopy(viewer),
+        deepcopy(projected_room["participants"]),
+    )
+    private_state = deepcopy(projected_room["private_state"])
+    # These are sent separately as an authoritative shortlist for decisions.
+    # For speech they are stale after the completed move and add no value.
+    for key in (
+        "action_history", "move_history", "dice_rolls",
+        "legal_actions", "legal_moves", "terminal_hands", "terminal_dice",
+    ):
+        public_state.pop(key, None)
+        if for_speech:
+            private_state.pop(key, None)
+    return (
+        _compact_context_value(public_state),
+        _compact_context_value(private_state),
+    )
+
+
 def _compact_visible_events(
     events: list[dict[str, Any]], participants: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -119,22 +201,80 @@ def _compact_visible_events(
             raise DuelError("NPC 公共事件行动者不属于房间")
         item: dict[str, Any] = {
             "sequence": event["sequence"],
-            "created_at": event["created_at"],
             "event_type": event["event_type"],
             "actor": actor,
         }
         text = event.get("text")
         if isinstance(text, str) and text:
-            item["text"] = text
+            item["text"] = (
+                text if len(text) <= NPC_EVENT_TEXT_LIMIT
+                else text[: NPC_EVENT_TEXT_LIMIT - 1].rstrip() + "…"
+            )
         if event["event_type"] == "move":
             move_label = event.get("move_label")
             if isinstance(move_label, str) and move_label:
                 item["move_label"] = move_label
         move = event.get("move")
         if isinstance(move, dict):
-            item["move"] = deepcopy(move)
+            item["move"] = _compact_context_value(move)
         compact.append(item)
     return compact
+
+
+def _request_content_length(request: NpcDecisionRequest | NpcSpeechRequest) -> int:
+    return len(json.dumps(
+        request.payload(), ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"),
+    ))
+
+
+def _shortlist_indices(total: int, limit: int) -> list[int]:
+    if total <= limit:
+        return list(range(total))
+    if limit <= 1:
+        return [0]
+    # Repeatedly bisect the widest remaining gap. Every larger shortlist is a
+    # superset of the previous one, while low/high bids and late special actions
+    # (for example challenge/pass) remain available from the first two slots.
+    selected = {0, total - 1}
+    while len(selected) < limit:
+        ordered = sorted(selected)
+        left, right = max(
+            zip(ordered, ordered[1:]),
+            key=lambda pair: (pair[1] - pair[0], -pair[0]),
+        )
+        if right - left <= 1:
+            break
+        selected.add((left + right) // 2)
+    return sorted(selected)
+
+
+def _private_state_for_actions(
+    private_state: dict[str, Any],
+    all_actions: list[dict[str, Any]],
+    selected_actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    compact = deepcopy(private_state)
+    details = compact.get("legal_actions")
+    if not isinstance(details, list):
+        return compact
+    # Most plugins repeat the authoritative submit-ready actions verbatim.
+    # The top-level list is sufficient and avoids sending the same cards twice.
+    if all(action in details for action in all_actions):
+        compact.pop("legal_actions", None)
+        return compact
+    selected_ids = {
+        action.get("action_id") for action in selected_actions
+        if isinstance(action.get("action_id"), str)
+    }
+    if selected_ids and all(
+        isinstance(item, dict) and isinstance(item.get("action_id"), str)
+        for item in details
+    ):
+        compact["legal_actions"] = [
+            item for item in details if item["action_id"] in selected_ids
+        ]
+    return _compact_context_value(compact)
 
 
 def _authoritative_legal_actions(
@@ -190,19 +330,25 @@ def _decision_request(
         state = deepcopy(room["board_state"])
         projected_room = project_room_for_viewer(room, npc_player_id)
         participant_directory = _participant_directory(projected_room)
-        public_state = deepcopy(projected_room["board_state"])
-        private_state = deepcopy(projected_room["private_state"])
+        public_state, private_state = _npc_projected_states(
+            game, projected_room, npc_player_id, for_speech=False
+        )
         recent_public_events = _compact_visible_events(
             list_timeline(
-                room["room_id"], 20, npc_player_id, public_only=True
+                room["room_id"], NPC_DECISION_EVENT_LIMIT,
+                npc_player_id, public_only=True,
             ),
             participant_directory,
         )
         public_actions = game.npc_public_actions(
             deepcopy(state), deepcopy(actor), participants
-        )
+        )[-NPC_PUBLIC_ACTION_LIMIT:]
+        public_actions = _compact_context_value(public_actions)
         game_rules = game.npc_compact_rules(
             deepcopy(state), deepcopy(actor), participants
+        )
+        persona_context = _compact_persona(
+            persona.model_context(), NPC_PERSONA_CONTEXT_LIMIT
         )
     except PersonaConfigError as exc:
         raise DuelError(str(exc), 503) from exc
@@ -218,23 +364,75 @@ def _decision_request(
     ):
         raise DuelError("NPC 插件必须提供规则、状态和至少一个合法行动")
     action_map = _action_map(legal_actions)
-    exposed_actions = []
-    for action in legal_actions:
-        action_id = _action_id(action)
-        exposed_actions.append({"action_id": action_id, "action": deepcopy(action)})
-    return (
-        NpcDecisionRequest(
-            persona=persona.model_context(),
+    low = 2
+    high = min(len(legal_actions), NPC_LEGAL_ACTION_SHORTLIST_LIMIT)
+    fitted_request: NpcDecisionRequest | None = None
+    while low <= high:
+        shortlist_limit = (low + high) // 2
+        selected_actions = [
+            legal_actions[index]
+            for index in _shortlist_indices(len(legal_actions), shortlist_limit)
+        ]
+        exposed_actions = [
+            {"action_id": _action_id(action), "action": deepcopy(action)}
+            for action in selected_actions
+        ]
+        request = NpcDecisionRequest(
+            persona=persona_context,
             game_rules=game_rules.strip(),
             participants=participant_directory,
             public_state=public_state,
-            private_state=private_state,
+            private_state=_private_state_for_actions(
+                private_state, legal_actions, selected_actions
+            ),
             recent_public_events=recent_public_events,
             public_actions=public_actions,
             legal_actions=exposed_actions,
-        ),
-        action_map,
+        )
+        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
+            fitted_request = request
+            low = shortlist_limit + 1
+        else:
+            high = shortlist_limit - 1
+    if fitted_request is not None:
+        return fitted_request, action_map
+
+    # Extremely verbose recent deltas must never crowd out the two choices a
+    # decision request needs. Remove oldest optional context first.
+    selected_actions = [
+        legal_actions[index]
+        for index in _shortlist_indices(len(legal_actions), 2)
+    ]
+    exposed_actions = [
+        {"action_id": _action_id(action), "action": deepcopy(action)}
+        for action in selected_actions
+    ]
+    private_for_actions = _private_state_for_actions(
+        private_state, legal_actions, selected_actions
     )
+    while True:
+        request = NpcDecisionRequest(
+            persona=persona_context,
+            game_rules=game_rules.strip(),
+            participants=participant_directory,
+            public_state=public_state,
+            private_state=private_for_actions,
+            recent_public_events=recent_public_events,
+            public_actions=public_actions,
+            legal_actions=exposed_actions,
+        )
+        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
+            return request, action_map
+        if recent_public_events:
+            recent_public_events.pop(0)
+            continue
+        if public_actions:
+            public_actions.pop(0)
+            continue
+        if len(persona_context.get("persona", "")) > 80:
+            persona_context = _compact_persona(persona_context, 80)
+            continue
+        raise DuelError("NPC 压缩决策上下文仍超过安全上限")
 
 
 def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechRequest:
@@ -249,24 +447,45 @@ def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechReques
         persona = get_persona(actor["npc_persona_id"])
         projected_room = project_room_for_viewer(room, npc_player_id)
         participants = _participant_directory(projected_room)
+        public_state, private_state = _npc_projected_states(
+            game, projected_room, npc_player_id, for_speech=True
+        )
         visible_timeline = _compact_visible_events(
             list_timeline(
-                room["room_id"], None, npc_player_id, public_only=False
+                room["room_id"], NPC_SPEECH_EVENT_LIMIT,
+                npc_player_id, public_only=False,
             ),
             participants,
+        )
+        game_rules = game.npc_compact_rules(
+            deepcopy(room["board_state"]), deepcopy(actor),
+            deepcopy(room["participants"]),
+        )
+        persona_context = _compact_persona(
+            persona.model_context(), NPC_PERSONA_CONTEXT_LIMIT
         )
     except PersonaConfigError as exc:
         raise DuelError(str(exc), 503) from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"NPC 发言上下文无效：{exc}") from exc
-    return NpcSpeechRequest(
-        persona=persona.model_context(),
-        game_rules=str(room.get("rules_text") or game.rules_text),
-        participants=participants,
-        public_state=deepcopy(projected_room["board_state"]),
-        private_state=deepcopy(projected_room["private_state"]),
-        visible_timeline=visible_timeline,
-    )
+    while True:
+        request = NpcSpeechRequest(
+            persona=persona_context,
+            game_rules=game_rules.strip(),
+            participants=participants,
+            public_state=public_state,
+            private_state=private_state,
+            visible_timeline=visible_timeline,
+        )
+        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
+            return request
+        if visible_timeline:
+            visible_timeline.pop(0)
+            continue
+        if len(persona_context.get("persona", "")) > 80:
+            persona_context = _compact_persona(persona_context, 80)
+            continue
+        raise DuelError("NPC 压缩发言上下文仍超过安全上限")
 
 
 async def _attempt_npc_speech(

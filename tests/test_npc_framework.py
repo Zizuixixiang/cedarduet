@@ -388,24 +388,24 @@ class NpcRoomContractTests(unittest.TestCase):
             room = framework.resign(room["room_id"], "ai", "ai-1")
 
         self.assertEqual(room["status"], "finished")
-        self.assertEqual(room["winner"], "draw")
+        self.assertIsNone(room["winner"])
         self.assertIsNone(room["current_player_id"])
+        self.assertFalse(room["result"]["draw"])
+        self.assertEqual(room["result"]["reason"], "resignation_forfeit")
         self.assertEqual(
-            room["result"]["reason"], "only_system_npcs_remaining"
-        )
-        self.assertEqual(
-            room["result"]["remaining_player_ids"],
+            room["result"]["winning_player_ids"],
             ["npc:quiet", "npc:bright"],
         )
         self.assertEqual(
             room["result"]["settlement_deltas"],
             {
-                "human-1": 0,
-                "ai-1": 0,
-                "npc:quiet": 0,
-                "npc:bright": 0,
+                "human-1": -10,
+                "ai-1": -10,
+                "npc:quiet": 10,
+                "npc:bright": 10,
             },
         )
+        self.assertTrue(room["result"]["settlement_zero_sum"])
         self.assertFalse(is_system_npc_turn(room))
         self.assertNotIn(room["room_id"], list_active_npc_turn_room_ids())
 
@@ -450,7 +450,9 @@ class NpcFrontendContractTests(unittest.TestCase):
         self.assertIn("allowedPlayerCounts.forEach((count)", script)
         self.assertIn("fill_with_npcs: selectedFillWithNpcs()", script)
         self.assertIn('selectedMachineCount >= 1', script)
-        self.assertIn("renderParticipantAvatar(avatarWrap, participant)", script)
+        self.assertIn(
+            "renderParticipantAvatar(avatarWrap, participant, targetRoom)", script
+        )
         self.assertIn("participant.avatar_url", script)
         badge_start = script.index("function createParticipantBadge(")
         roster_end = script.index("function renderPrivateState(", badge_start)

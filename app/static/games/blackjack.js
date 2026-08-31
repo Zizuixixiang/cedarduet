@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-blackjack-styles";
-  const STYLE_HREF = "/static/games/blackjack.css?v=1.0.0";
+  const STYLE_HREF = "/static/games/blackjack.css?v=1.0.1";
   const SUIT_SYMBOLS = Object.freeze({
     spades: "\u2660",
     hearts: "\u2665",
@@ -114,6 +114,11 @@
     const viewerId = context.viewer && context.viewer.player_id;
     const currentId = room.current_player_id || state.turn_player_id;
     const phase = state.flow && state.flow.phase || "player_turns";
+    const terminal = Boolean(
+      context.isTerminal
+      || phase === "finished"
+      || ["finished", "archived"].includes(room.status)
+    );
     const root = documentRef.createElement("section");
     root.className = "blackjack-table";
     root.setAttribute("aria-label", "21点牌桌");
@@ -163,8 +168,16 @@
     players.className = "blackjack-players";
     participants.forEach((participant) => {
       const player = (state.players || {})[participant.player_id] || {};
-      const isCurrent = participant.player_id === currentId && phase === "player_turns";
+      const isCurrent = room.status === "playing"
+        && !terminal
+        && participant.player_id === currentId
+        && phase === "player_turns";
       const isViewer = participant.player_id === viewerId;
+      const statusLabel = terminal
+        ? "已结算"
+        : (isCurrent
+        ? "行动中"
+        : (player.status === "playing" ? "等待" : (player.status_label || "等待")));
       const seat = documentRef.createElement("article");
       seat.className = [
         "blackjack-seat",
@@ -178,7 +191,7 @@
       seat.dataset.playerId = participant.player_id;
       seat.setAttribute(
         "aria-label",
-        `${playerName(participant)}，${valueLabel(player.value)}，${player.status_label || "等待"}`
+        `${playerName(participant)}，${valueLabel(player.value)}，${statusLabel}`
       );
 
       const seatHead = documentRef.createElement("header");
@@ -194,6 +207,12 @@
       identity.append(renderAvatar(documentRef, context, participant), identityCopy);
       const meta = documentRef.createElement("div");
       meta.className = "blackjack-hand-meta";
+      if (isCurrent) {
+        meta.appendChild(badge(documentRef, "行动中", "acting"));
+      }
+      if (terminal) {
+        meta.appendChild(badge(documentRef, "已结算", "settled"));
+      }
       meta.appendChild(badge(documentRef, valueLabel(player.value), "value"));
       if (player.status === "blackjack") {
         meta.appendChild(badge(documentRef, "Blackjack", "natural"));
@@ -241,14 +260,21 @@
     const legalNames = new Set(legalActions.map((action) => action && action.action));
     const viewerId = context.viewer && context.viewer.player_id;
     const viewer = (state.players || {})[viewerId] || {};
-    const current = room.current_player_id === viewerId && Boolean(context.canMove);
+    const terminal = Boolean(
+      context.isTerminal
+      || (state.flow || {}).phase === "finished"
+      || ["finished", "archived"].includes(room.status)
+    );
+    const current = !terminal
+      && room.current_player_id === viewerId
+      && Boolean(context.canMove);
     const bar = documentRef.createElement("section");
     bar.className = "blackjack-action-bar";
     bar.setAttribute("aria-label", "你的 21 点操作");
     const copy = documentRef.createElement("div");
     copy.className = "blackjack-action-copy";
     const heading = documentRef.createElement("strong");
-    heading.textContent = current ? "轮到你" : (context.isTerminal ? "本局已结算" : "等待当前玩家");
+    heading.textContent = current ? "轮到你" : (terminal ? "本局已结算" : "等待当前玩家");
     const hint = documentRef.createElement("span");
     hint.textContent = current
       ? `${valueLabel(viewer.value)} · 请选择要牌或停牌`
@@ -281,7 +307,8 @@
       makeButton("hit", "要牌", "HIT", "hit"),
       makeButton("stand", "停牌", "STAND", "stand")
     );
-    bar.append(copy, actions);
+    bar.appendChild(copy);
+    if (!terminal) bar.appendChild(actions);
     controls.appendChild(bar);
   }
 

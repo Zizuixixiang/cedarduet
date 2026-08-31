@@ -15,6 +15,15 @@
     return String((context.room && context.room.room_id) || context.roomId || "checkers");
   }
 
+  function isTerminalState(context, state = roomState(context)) {
+    return Boolean(
+      context.isTerminal
+      || state.game_over
+      || state.winner_mark
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function viewerMark(context, state) {
     if (context.viewerMark === "X" || context.viewerMark === "O") {
       return context.viewerMark;
@@ -58,6 +67,10 @@
   }
 
   function selectedOrigin(context, state) {
+    if (isTerminalState(context, state)) {
+      selections.delete(roomKey(context));
+      return null;
+    }
     if (state.forced_piece) {
       return {row: state.forced_piece.row, col: state.forced_piece.col};
     }
@@ -126,8 +139,11 @@
     if (!board || !Array.isArray(state.board) || state.board.length !== 8) return false;
 
     const mark = viewerMark(context, state);
-    const movable = canMove(context, state, mark);
-    const legalMoves = Array.isArray(state.legal_moves) ? state.legal_moves : [];
+    const terminal = isTerminalState(context, state);
+    const movable = !terminal && canMove(context, state, mark);
+    const legalMoves = !terminal && Array.isArray(state.legal_moves)
+      ? state.legal_moves
+      : [];
     const origin = selectedOrigin(context, state);
     const originMoves = origin
       ? legalMoves.filter((move) => (
@@ -137,7 +153,7 @@
     const legalOrigins = new Set(
       legalMoves.map((move) => `${move.from_row},${move.from_col}`)
     );
-    const currentPending = pendingMove(context);
+    const currentPending = terminal ? null : pendingMove(context);
     const lastMove = state.last_move || {};
     const rotated = mark === "O";
     const rowOrder = Array.from({length: 8}, (_, index) => rotated ? 7 - index : index);
@@ -149,12 +165,12 @@
     board.style.setProperty("--rows", 8);
     board.style.setProperty("--board-ratio", "1 / 1");
     board.dataset.viewMark = mark;
-    board.dataset.mustCapture = String(Boolean(state.must_capture));
-    board.dataset.forced = String(Boolean(state.forced_piece));
+    board.dataset.mustCapture = String(Boolean(!terminal && state.must_capture));
+    board.dataset.forced = String(Boolean(!terminal && state.forced_piece));
     board.setAttribute(
       "aria-label",
       `西洋跳棋 8乘8棋盘，${rotated ? "O方" : "X方"}视角`
-      + `${state.forced_piece ? "，必须继续使用同一枚棋吃子" : ""}`
+      + `${!terminal && state.forced_piece ? "，必须继续使用同一枚棋吃子" : ""}`
     );
 
     rowOrder.forEach((rowIndex, displayRow) => {
@@ -254,7 +270,9 @@
 
     if (typeof context.setSelectionHint === "function") {
       context.setSelectionHint(
-        state.forced_piece
+        terminal
+          ? "对局已结束，棋盘仅供复盘"
+          : state.forced_piece
           ? "必须继续使用已锁定的棋子吃子"
           : (origin ? "请选择亮起的服务端合法落点" : "请选择可行动棋子")
       );

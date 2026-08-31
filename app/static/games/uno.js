@@ -49,9 +49,18 @@
       : (playerId || "玩家");
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || ((context.state || {}).flow || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function isActingPlayer(context, playerId) {
     return Boolean(
-      context.room
+      !isTerminalState(context)
+      && context.room
       && context.room.status === "playing"
       && playerId
       && context.room.current_player_id === playerId
@@ -191,7 +200,9 @@
     turn.className = "uno-turn";
     turn.textContent = context.room.winner_player_id
       ? `${participantName(context, context.room.winner_player_id)} 获胜`
-      : `轮到 ${participantName(context, context.room.current_player_id)}`;
+      : (isTerminalState(context)
+      ? "本局已结束"
+      : `轮到 ${participantName(context, context.room.current_player_id)}`);
     status.append(color, direction, turn);
     shell.appendChild(status);
   }
@@ -296,7 +307,14 @@
     const state = context.state;
     const privateState = context.privateState || {};
     const hand = Array.isArray(privateState.hand) ? privateState.hand : [];
-    const actions = Array.isArray(context.legalActions) ? context.legalActions : [];
+    const terminal = isTerminalState(context);
+    if (terminal) {
+      delete context.uiState.selectedCardId;
+      delete context.uiState.selectedColor;
+    }
+    const actions = !terminal && Array.isArray(context.legalActions)
+      ? context.legalActions
+      : [];
     const playableById = new Map();
     actions.filter((action) => action.action === "play").forEach((action) => {
       const values = playableById.get(action.card_id) || [];
@@ -338,7 +356,7 @@
     scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
     hand.forEach((card, index) => {
       const legal = playableById.has(card.id);
-      const selected = context.uiState.selectedCardId === card.id;
+      const selected = !terminal && context.uiState.selectedCardId === card.id;
       const cardNode = createCard(documentRef, card, {
         interactive: true,
         legal,
@@ -348,7 +366,7 @@
       cardNode.style.setProperty("--fan-index", String(index - (hand.length - 1) / 2));
       cardNode.disabled = !context.canMove || !legal;
       cardNode.addEventListener("click", () => {
-        if (!context.helpers.canMove() || !legal) return;
+        if (terminal || !context.helpers.canMove() || !legal) return;
         saveHandScroll(context, scroller);
         if (context.uiState.selectedCardId === card.id) {
           delete context.uiState.selectedCardId;
@@ -458,6 +476,16 @@
     const controls = documentRef.createElement("section");
     controls.className = "uno-controls";
     controls.setAttribute("aria-label", "UNO 操作");
+    if (isTerminalState(context)) {
+      delete context.uiState.selectedCardId;
+      delete context.uiState.selectedColor;
+      const hint = documentRef.createElement("p");
+      hint.className = "uno-control-hint terminal";
+      hint.textContent = "本局已结束 · 终局牌面仅供复盘";
+      controls.appendChild(hint);
+      context.controls.appendChild(controls);
+      return;
+    }
 
     const catchAction = actions.find((action) => action.action === "catch_uno");
     const challengeAction = actions.find(

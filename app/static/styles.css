@@ -661,6 +661,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 10px;
   line-height: 1.3;
 }
+.stake-game-hint {
+  min-height: 1.3em;
+  margin: 0;
+  color: var(--muted);
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  line-height: 1.3;
+}
 .npc-fill-toggle {
   min-height: 44px;
   padding: 5px 8px;
@@ -1297,7 +1305,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 5px;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
   scrollbar-width: thin;
 }
 .layout-multiplayer .room-participant { flex: 0 0 116px; }
@@ -1828,6 +1836,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
+}
+.board.xiangqi .xiangqi-check-notice.terminal {
+  max-width: calc(100% - 20px);
+  color: #4f3425;
+  border-color: #87603d;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
 }
 .board.xiangqi .cell.last-move-target { background: rgba(230, 168, 177, .26); }
 .board.xiangqi .last-move-marker {
@@ -2773,6 +2789,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.yahtzee-total-action {
+  width: max-content;
+  padding: 1px 5px;
+  color: #fff;
+  background: var(--pink-dark);
+  font-size: 9px;
+  line-height: 1.25;
 }
 .yahtzee-total-score {
   color: var(--purple-darker);

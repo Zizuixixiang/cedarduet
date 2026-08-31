@@ -86,6 +86,7 @@ class Mahjong(GamePlugin):
         "这是 CedarDuet 钱包政策，不是官方麻将竞赛计分，也不改变 PyMahjongGB 番数计算。"
         "自摸时其余三家各扣一份房间底注、和牌者获得三份；点炮或抢杠和时来源玩家扣三份房间底注、"
         "和牌者获得三份，另外两家为 0；荒牌四家均为 0。番数不乘算钱包筹码。"
+        "认输采用娱乐筹码包赔：认输者 -3×stake，其余三家各 +stake。"
     )
     move_format = (
         '只能原样提交 private_state.legal_actions 中的一项，例如 '
@@ -910,6 +911,14 @@ class Mahjong(GamePlugin):
             raise ValueError("麻将筹码结算固定需要四名参与者")
         if result.get("draw"):
             return {player_id: 0 for player_id in player_ids}
+        if result.get("win_type") == "resignation_liability":
+            resigned = result.get("resigned_player_id")
+            if resigned not in player_ids:
+                raise ValueError("麻将包赔终局缺少有效认输者")
+            return {
+                player_id: -3 * stake if player_id == resigned else stake
+                for player_id in player_ids
+            }
         winner = result.get("winner_player_id")
         if winner not in player_ids:
             raise ValueError("麻将终局缺少有效和牌者")
@@ -932,6 +941,31 @@ class Mahjong(GamePlugin):
                 for player_id in player_ids
             }
         raise ValueError("麻将终局缺少有效和牌类型")
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del state
+        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        player_ids = [str(item["player_id"]) for item in ordered]
+        if resigned_player_id not in player_ids or len(player_ids) != 4:
+            raise ValueError("麻将认输包赔固定需要四名有效参与者")
+        winners = [
+            player_id for player_id in player_ids
+            if player_id != resigned_player_id
+        ]
+        return {
+            "draw": False,
+            "reason": "resignation_liability",
+            "win_type": "resignation_liability",
+            "resigned_player_id": resigned_player_id,
+            "winner_player_id": winners[0],
+            "winning_player_ids": winners,
+            "result_text": "认输包赔：认输者赔三家各一份底注",
+        }
 
     @classmethod
     def _public_meld(cls, meld: dict[str, Any], *, reveal_concealed: bool = False) -> dict[str, Any]:

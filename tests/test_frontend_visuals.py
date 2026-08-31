@@ -26,7 +26,7 @@ def function_source(name: str) -> str:
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
         registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.3"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.4"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
         liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.0"></script>'
@@ -256,6 +256,7 @@ assert.equal(gameUsesStandardMoveConfirmation("liars_dice"), false);
 const assert = require("node:assert/strict");
 const renderers = new Map([
   ["embedded", {usesEmbeddedActionFeedback: true}],
+  ["zhajinhua", {}],
   ["generic", {}],
 ]);
 const window = {DuelGameUI: {get: (gameType) => renderers.get(gameType) || null}};
@@ -814,7 +815,9 @@ assert.ok(fullColumn.every((cell) => cell.disabled));
         self.assertIn("#gameMessage.my-turn", STYLES)
         self.assertIn("const humanCanMove = canHumanMove()", render_game)
         self.assertIn('classList.toggle("my-turn", humanCanMove)', render_game)
-        self.assertIn('humanCanMove ? "现在轮到你落子" : ""', action_notice)
+        self.assertIn('targetRoom.game_type === "zhajinhua"', action_notice)
+        self.assertIn('"现在轮到你行动"', action_notice)
+        self.assertIn('"现在轮到你落子"', action_notice)
         self.assertIn(
             "roomActionNotice(room, message, humanCanMove)", render_game
         )
@@ -1594,8 +1597,13 @@ for (const playerCount of [2, 3, 4]) {{
             roster_fn,
         )
         self.assertIn("if (viewer) {", roster_fn)
-        self.assertNotIn('grid-template-columns: repeat(2, minmax(0, 1fr));',
-                         STYLES[STYLES.index(dots_scope):])
+        dots_styles = STYLES[
+            STYLES.index(dots_scope):STYLES.index(".history-drawer-tab")
+        ]
+        self.assertNotIn(
+            'grid-template-columns: repeat(2, minmax(0, 1fr));',
+            dots_styles,
+        )
 
         contained = STYLES[
             STYLES.index(f"{dots_scope} .layout-multiplayer .board-zone,"):
@@ -1929,6 +1937,7 @@ assert.equal(elements.notice.classList.contains("my-turn"), false);
     def test_xiangqi_interaction_rotation_disabling_and_true_coordinates(self):
         functions = "\n".join((
             function_source("canHumanMove"),
+            function_source("xiangqiTerminalStatusText"),
             function_source("renderXiangqiBoard"),
             function_source("latestMoveEvent"),
             function_source("authoritativeLastMove"),
@@ -2115,11 +2124,29 @@ assert.equal(blackBoard.children.filter((child) => child.tag === "button").every
 ), true);
 room.current_player_id = "human-1";
 room.status = "finished";
+room.winner_player_id = "human-1";
+room.participants = [
+  {{player_id: "human-1", display_name: "红棋手", token: "X"}},
+  {{player_id: "ai-1", display_name: "黑棋手", token: "O"}},
+];
+blackState.in_checkmate = true;
+blackState.winner_mark = "X";
+blackState.terminal_reason = "checkmate";
 blackBoard = new Element("board");
 renderXiangqiBoard(blackBoard, blackState);
 assert.equal(blackBoard.children.filter((child) => child.tag === "button").every(
   (cell) => cell.disabled
 ), true);
+const terminalNotice = blackBoard.children.find((child) => (
+  child.classList.contains("xiangqi-check-notice")
+));
+assert.equal(terminalNotice.classList.contains("terminal"), true);
+assert.equal(terminalNotice.textContent, "将死 · 对局结束 · 红棋手获胜");
+assert.equal(cellAt(blackBoard, 0, 4).classList.contains("in-check"), false);
+assert.equal(
+  blackBoard.children.some((child) => child.textContent.includes("将军")),
+  false
+);
 """
         self.run_node(harness)
 
@@ -2752,7 +2779,7 @@ for (const count of [3, 4, 5, 6]) {{
             "flex-wrap: nowrap;",
             "overflow-x: auto;",
             "overscroll-behavior-inline: contain;",
-            "touch-action: pan-x;",
+            "touch-action: pan-x pan-y;",
             "scrollbar-width: thin;",
             "flex: 0 0 116px;",
         ):
@@ -3118,6 +3145,16 @@ assert.equal(viewerSlot.children.length, 1);
 assert.equal(viewerSlot.children[0].children[1].children[0].textContent, "甲（你）");
 assert.ok(!viewerSlot.classList.contains("hidden"));
 assert.ok(!viewerRow.classList.contains("hidden"));
+
+targetRoom.status = "finished";
+renderParticipantRoster(targetRoom);
+assert.ok(roster.children.every((item) => !item.classList.contains("current")));
+assert.ok(roster.children.every((item) => item.attributes["aria-current"] === "false"));
+assert.ok(roster.children.every((item) => !item.children[2].textContent.includes("正在行动")));
+assert.ok(!viewerSlot.children[0].classList.contains("current"));
+assert.equal(viewerSlot.children[0].attributes["aria-current"], "false");
+assert.ok(!viewerSlot.children[0].children[2].textContent.includes("正在行动"));
+targetRoom.status = "playing";
 
 for (const presentation of ["embedded", "board-edge"]) {{
   activeRenderer = {{participantPresentation: presentation}};

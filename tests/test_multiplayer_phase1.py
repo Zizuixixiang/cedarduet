@@ -327,7 +327,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             production["blackjack"]["allowed_player_counts"], [2, 3, 4, 5, 6]
         )
         self.assertTrue(production["blackjack"]["supports_npcs"])
-        self.assertFalse(production["blackjack"]["supports_stakes"])
+        self.assertTrue(production["blackjack"]["supports_stakes"])
         self.assertEqual(production["texas_holdem"]["category"], "card")
         self.assertEqual(
             production["texas_holdem"]["allowed_player_counts"],

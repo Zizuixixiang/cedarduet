@@ -12,8 +12,15 @@ from app import database, framework
 from app import main as main_module
 from app.games import GAMES
 from app.games.base import MoveResult
+from app.npc_controller import NpcTurnResult
 from app.npc_providers import NpcProvider, ProviderDecision
-from app.npc_scheduler import NpcTurnScheduler
+from app.npc_scheduler import (
+    NPC_GAME_MANAGED_VISIBLE_ACTION_DELAYS_SECONDS,
+    NPC_VISIBLE_ACTION_DELAY_SECONDS,
+    NpcTurnScheduler,
+    npc_visible_action_delay_seconds,
+    npc_visible_action_pacing,
+)
 from tests.test_npc_framework import DummyNpcMultiplayer, write_persona
 
 
@@ -49,6 +56,212 @@ class BlockingProvider(DeterministicProvider):
             if item["action"] == {"action": "step"}
         )
         return ProviderDecision(step["action_id"], None)
+
+
+class NpcVisibleActionPacingTests(unittest.IsolatedAsyncioTestCase):
+    SUPPORTED_NPC_GAME_TYPES = {
+        "aeroplane_chess",
+        "banqi",
+        "blackjack",
+        "checkers",
+        "chess",
+        "chinese_checkers",
+        "dots_boxes",
+        "doudizhu",
+        "gandengyan",
+        "go",
+        "guandan",
+        "junqi",
+        "liars_dice",
+        "mahjong",
+        "texas_holdem",
+        "train_cards",
+        "uno",
+        "yahtzee",
+        "zhajinhua",
+    }
+
+    @staticmethod
+    def room(revision, current_player_id="npc:quiet", game_type="train_cards"):
+        return {
+            "room_id": "PACETEST",
+            "game_type": game_type,
+            "status": "playing",
+            "revision": revision,
+            "current_player_id": current_player_id,
+            "participants": [
+                {
+                    "player_id": "npc:quiet",
+                    "participant_kind": "system_npc",
+                    "join_status": "joined",
+                    "activity_state": "active",
+                    "active": True,
+                },
+                {
+                    "player_id": "human-1",
+                    "participant_kind": "human",
+                    "join_status": "joined",
+                    "activity_state": "active",
+                    "active": True,
+                },
+            ],
+        }
+
+    def test_every_supported_npc_game_has_one_audited_pacing_source(self):
+        supported = {
+            game_type for game_type, game in GAMES.items()
+            if game.supports_npcs
+        }
+        self.assertEqual(supported, self.SUPPORTED_NPC_GAME_TYPES)
+        pacing = {
+            game_type: npc_visible_action_pacing({"game_type": game_type})
+            for game_type, game in GAMES.items()
+            if game.supports_npcs
+        }
+        self.assertEqual(NPC_VISIBLE_ACTION_DELAY_SECONDS, 2)
+        self.assertEqual(
+            npc_visible_action_delay_seconds({"game_type": "liars_dice"}),
+            0,
+        )
+        self.assertEqual(pacing["liars_dice"].source, "none")
+        self.assertEqual(pacing["liars_dice"].effective_delay_seconds, 0)
+        self.assertEqual(pacing["liars_dice"].scheduler_delay_seconds, 0)
+
+        aeroplane = pacing["aeroplane_chess"]
+        self.assertEqual(aeroplane.source, "game_renderer")
+        self.assertEqual(aeroplane.effective_delay_seconds, 2)
+        self.assertEqual(aeroplane.scheduler_delay_seconds, 0)
+        self.assertEqual(
+            NPC_GAME_MANAGED_VISIBLE_ACTION_DELAYS_SECONDS,
+            {"aeroplane_chess": 2.0},
+        )
+        renderer = (
+            Path(__file__).resolve().parents[1]
+            / "app/static/games/aeroplane_chess.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("const NPC_VISIBLE_ACTION_PAUSE_MS = 2000;", renderer)
+
+        scheduler_paced = supported - {"aeroplane_chess", "liars_dice"}
+        self.assertTrue(scheduler_paced)
+        for game_type in scheduler_paced:
+            with self.subTest(game_type=game_type):
+                policy = pacing[game_type]
+                self.assertEqual(policy.source, "npc_scheduler")
+                self.assertGreaterEqual(policy.effective_delay_seconds, 1.2)
+                self.assertEqual(
+                    policy.scheduler_delay_seconds,
+                    policy.effective_delay_seconds,
+                )
+
+    async def test_scheduler_pauses_before_each_consecutive_npc_action(self):
+        delays = []
+        actions = []
+
+        async def record_delay(seconds):
+            delays.append(seconds)
+
+        async def apply_turn(room_id):
+            actions.append(room_id)
+            return NpcTurnResult(
+                "applied", "local", {"action": "step"}, None, None
+            )
+
+        scheduler = NpcTurnScheduler(
+            turn_runner=apply_turn,
+            action_sleeper=record_delay,
+        )
+        rooms = [
+            self.room(0),
+            self.room(1),
+            self.room(2, current_player_id="human-1"),
+        ]
+        with patch("app.npc_scheduler.get_room", side_effect=rooms):
+            outcome = await scheduler._drain_room("PACETEST")
+        self.assertEqual(outcome, "idle")
+        self.assertEqual(actions, ["PACETEST", "PACETEST"])
+        self.assertEqual(delays, [2, 2])
+
+    async def test_liars_dice_keeps_its_existing_unmodified_flow(self):
+        delays = []
+
+        async def record_delay(seconds):
+            delays.append(seconds)
+
+        async def apply_turn(_room_id):
+            return NpcTurnResult(
+                "applied", "provider", {"action": "bid"}, None, None
+            )
+
+        scheduler = NpcTurnScheduler(
+            turn_runner=apply_turn,
+            action_sleeper=record_delay,
+        )
+        rooms = [
+            self.room(0, game_type="liars_dice"),
+            self.room(1, current_player_id="human-1", game_type="liars_dice"),
+        ]
+        with patch("app.npc_scheduler.get_room", side_effect=rooms):
+            outcome = await scheduler._drain_room("PACETEST")
+        self.assertEqual(outcome, "idle")
+        self.assertEqual(delays, [])
+
+    async def test_game_managed_pause_does_not_stack_with_scheduler_pause(self):
+        delays = []
+        actions = []
+
+        async def record_delay(seconds):
+            delays.append(seconds)
+
+        async def apply_turn(room_id):
+            actions.append(room_id)
+            return NpcTurnResult(
+                "applied", "provider", {"action": "roll"}, None, None
+            )
+
+        scheduler = NpcTurnScheduler(
+            turn_runner=apply_turn,
+            action_sleeper=record_delay,
+        )
+        rooms = [
+            self.room(0, game_type="aeroplane_chess"),
+            self.room(
+                1,
+                current_player_id="human-1",
+                game_type="aeroplane_chess",
+            ),
+        ]
+        with patch("app.npc_scheduler.get_room", side_effect=rooms):
+            outcome = await scheduler._drain_room("PACETEST")
+        self.assertEqual(outcome, "idle")
+        self.assertEqual(actions, ["PACETEST"])
+        self.assertEqual(delays, [])
+
+    async def test_human_and_bound_machine_turns_are_never_delayed_or_run(self):
+        delays = []
+        actions = []
+
+        async def record_delay(seconds):
+            delays.append(seconds)
+
+        async def apply_turn(room_id):
+            actions.append(room_id)
+            return NpcTurnResult(
+                "applied", "provider", {"action": "step"}, None, None
+            )
+
+        scheduler = NpcTurnScheduler(
+            turn_runner=apply_turn,
+            action_sleeper=record_delay,
+        )
+        for participant_kind in ("human", "bound_machine"):
+            with self.subTest(participant_kind=participant_kind):
+                room = self.room(0)
+                room["participants"][0]["participant_kind"] = participant_kind
+                with patch("app.npc_scheduler.get_room", return_value=room):
+                    outcome = await scheduler._drain_room("PACETEST")
+                self.assertEqual(outcome, "idle")
+        self.assertEqual(actions, [])
+        self.assertEqual(delays, [])
 
 
 class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
@@ -90,6 +303,7 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.scheduler = NpcTurnScheduler(
             room_changed=main_module.revision_events.notify,
             in_progress_retry_seconds=0.02,
+            visible_action_delay_seconds=0,
         )
         self.scheduler_patch = patch.object(
             main_module, "npc_turn_scheduler", self.scheduler
@@ -367,7 +581,10 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
             return MoveResult(state=state, retain_turn=True)
 
         room = self.create_room(first_player_id="npc:bright")
-        capped = NpcTurnScheduler(max_consecutive_turns=3)
+        capped = NpcTurnScheduler(
+            max_consecutive_turns=3,
+            visible_action_delay_seconds=0,
+        )
         with patch.object(plugin, "apply_action", side_effect=retain_npc_turn):
             await capped.start()
             try:

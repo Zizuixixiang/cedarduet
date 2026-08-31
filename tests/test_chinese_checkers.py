@@ -380,6 +380,32 @@ class ChineseCheckersFrameworkSettlementTests(unittest.TestCase):
             for move in room["board_state"]["legal_moves"]
         ))
 
+    def test_six_player_resignation_is_immediate_minus_five_forfeit(self):
+        room = framework.create_room(
+            "chinese_checkers",
+            "human_first",
+            "human",
+            "human-1",
+            opponent_id="ai-1",
+            ordered_participants=participants(6),
+            stake=4,
+        )
+        for player_id in ("ai-1", "ai-2", "ai-3", "ai-4", "ai-5"):
+            room = framework.respond_to_invitation(
+                room["room_id"], "ai", player_id, "accept"
+            )
+        room = framework.resign(room["room_id"], "human", "human-1")
+        self.assertEqual(room["status"], "finished")
+        self.assertFalse(room["result"]["draw"])
+        self.assertEqual(room["result"]["settlement_deltas"], {
+            "human-1": -20,
+            "ai-1": 4,
+            "ai-2": 4,
+            "ai-3": 4,
+            "ai-4": 4,
+            "ai-5": 4,
+        })
+
     def test_four_player_revision_winner_tied_semantics_and_zero_sum_settlement(self):
         room = framework.create_room(
             "chinese_checkers",

@@ -26,6 +26,18 @@ from .zhajinhua import Zhajinhua
 
 GAME_CATEGORIES = frozenset({"board", "card", "dice"})
 
+# Short, centralized lobby/invitation copy. ``X`` is replaced with the room's
+# concrete integer stake; the browser uses the same metadata for a live preview.
+STAKE_PRESENTATIONS = {
+    "texas_holdem": ("买入 🪙X/人", "最大亏 X"),
+    "zhajinhua": ("计价 🪙X/单位", "最多 64X"),
+    "gandengyan": ("底注 🪙X", "按剩牌×倍率，最高16倍"),
+    "doudizhu": ("底注 🪙X", "叫分/炸弹会翻倍"),
+    "mahjong": ("底注 🪙X", "点炮最多 3X"),
+    "blackjack": ("下注 🪙X/人", "胜+X/负-X/和0"),
+}
+DEFAULT_STAKE_PRESENTATION = ("🪙X/人", "")
+
 GAMES = {
     AeroplaneChess.game_type: AeroplaneChess(),
     Banqi.game_type: Banqi(),
@@ -63,6 +75,22 @@ def get_game(game_type: str):
         raise ValueError(f"不支持的棋种：{game_type}；可选：{choices}") from exc
 
 
+def stake_presentation(game_type: str, stake: int | None = None) -> dict[str, str]:
+    """Return short stake label/hint metadata, optionally resolved for a room."""
+    label, hint = STAKE_PRESENTATIONS.get(
+        game_type, DEFAULT_STAKE_PRESENTATION
+    )
+    if stake is None:
+        return {"stake_label": label, "stake_hint": hint}
+    if stake <= 0:
+        return {"stake_label": "娱乐局", "stake_hint": ""}
+    value = str(stake)
+    return {
+        "stake_label": label.replace("X", value),
+        "stake_hint": hint.replace("X", value),
+    }
+
+
 def game_catalog() -> list[dict]:
     catalog = []
     for plugin in GAMES.values():
@@ -84,5 +112,6 @@ def game_catalog() -> list[dict]:
             "supports_stakes": plugin.supports_stakes,
             "supports_multiplayer_stakes": plugin.supports_multiplayer_stakes,
             "uses_custom_stake_settlement": plugin.uses_custom_stake_settlement,
+            **stake_presentation(plugin.game_type),
         })
     return catalog

@@ -23,8 +23,19 @@ class CapacityFrameworkTests(unittest.TestCase):
         self.addCleanup(self.db_patch.stop)
         database.init_db()
 
-    def test_same_pair_has_at_most_three_active_rooms(self):
-        for _ in range(3):
+    @staticmethod
+    def _participants(*entries: tuple[str, str]) -> list[dict]:
+        return [
+            {
+                "player_id": player_id,
+                "role": "human" if kind == "human" else "ai",
+                "participant_kind": kind,
+            }
+            for player_id, kind in entries
+        ]
+
+    def test_same_pair_has_at_most_ten_active_rooms(self):
+        for _ in range(10):
             framework.create_room(
                 "tictactoe",
                 "human_first",
@@ -32,7 +43,7 @@ class CapacityFrameworkTests(unittest.TestCase):
                 "ai-pair",
                 opponent_id="human-pair",
             )
-        with self.assertRaisesRegex(framework.DuelError, "已有 3 个活跃房间"):
+        with self.assertRaisesRegex(framework.DuelError, "已有 10 个活跃房间"):
             framework.create_room(
                 "tictactoe",
                 "human_first",
@@ -41,8 +52,8 @@ class CapacityFrameworkTests(unittest.TestCase):
                 opponent_id="human-pair",
             )
 
-    def test_join_can_fill_third_pair_room_but_not_fourth(self):
-        for _ in range(2):
+    def test_join_can_fill_tenth_pair_room_but_not_eleventh(self):
+        for _ in range(9):
             framework.create_room(
                 "tictactoe",
                 "human_first",
@@ -50,11 +61,11 @@ class CapacityFrameworkTests(unittest.TestCase):
                 "ai-join-pair",
                 opponent_id="human-join-pair",
             )
-        third = framework.create_room(
+        tenth = framework.create_room(
             "tictactoe", "human_first", "ai", "ai-join-pair"
         )
         joined = framework.join_room(
-            third["room_id"], "human", "human-join-pair"
+            tenth["room_id"], "human", "human-join-pair"
         )
         self.assertEqual(joined["status"], "playing")
         self.assertEqual(joined["current_player_id"], "human-join-pair")
@@ -66,13 +77,95 @@ class CapacityFrameworkTests(unittest.TestCase):
             "X",
         )
 
-        fourth = framework.create_room(
+        eleventh = framework.create_room(
             "tictactoe", "human_first", "ai", "ai-join-pair"
         )
-        with self.assertRaisesRegex(framework.DuelError, "已有 3 个活跃房间"):
+        with self.assertRaisesRegex(framework.DuelError, "已有 10 个活跃房间"):
             framework.join_room(
-                fourth["room_id"], "human", "human-join-pair"
+                eleventh["room_id"], "human", "human-join-pair"
             )
+
+    def test_ten_pair_rooms_still_allow_creating_and_joining_multiplayer_rooms(self):
+        human_id = "human-multiplayer-after-limit"
+        ai_id = "ai-multiplayer-after-limit"
+        for _ in range(10):
+            framework.create_room(
+                "tictactoe", "human_first", "human", human_id, ai_id
+            )
+
+        created = framework.create_room(
+            "doudizhu",
+            "human_first",
+            "human",
+            human_id,
+            ordered_participants=self._participants(
+                (human_id, "human"),
+                (ai_id, "bound_machine"),
+                ("human-created-third", "human"),
+            ),
+        )
+        self.assertEqual(created["status"], "playing")
+
+        waiting = framework.create_room(
+            "doudizhu", "human_first", "ai", ai_id
+        )
+        waiting = framework.join_room(waiting["room_id"], "human", human_id)
+        self.assertEqual(waiting["status"], "waiting")
+        joined = framework.join_room(
+            waiting["room_id"], "ai", "ai-joined-third"
+        )
+        self.assertEqual(joined["status"], "playing")
+        self.assertEqual(joined["participant_count"], 3)
+
+    def test_multiplayer_room_does_not_accumulate_pair_limit(self):
+        human_id = "human-multiplayer-quota"
+        ai_id = "ai-multiplayer-quota"
+        with patch.object(framework, "PAIR_ACTIVE_ROOM_LIMIT", 1):
+            framework.create_room(
+                "doudizhu",
+                "human_first",
+                "human",
+                human_id,
+                ordered_participants=self._participants(
+                    (human_id, "human"),
+                    (ai_id, "bound_machine"),
+                    ("human-multiplayer-third", "human"),
+                ),
+            )
+            framework.create_room(
+                "tictactoe", "human_first", "human", human_id, ai_id
+            )
+            with self.assertRaisesRegex(
+                framework.DuelError, "已有 1 个活跃房间"
+            ):
+                framework.create_room(
+                    "tictactoe", "human_first", "human", human_id, ai_id
+                )
+
+    def test_multiple_bound_machines_in_multiplayer_room_use_no_pair_quotas(self):
+        human_id = "human-many-machines"
+        first_ai_id = "ai-many-machines-one"
+        second_ai_id = "ai-many-machines-two"
+        with patch.object(framework, "PAIR_ACTIVE_ROOM_LIMIT", 1):
+            framework.create_room(
+                "doudizhu",
+                "human_first",
+                "human",
+                human_id,
+                ordered_participants=self._participants(
+                    (human_id, "human"),
+                    (first_ai_id, "bound_machine"),
+                    (second_ai_id, "bound_machine"),
+                ),
+            )
+            first_pair = framework.create_room(
+                "tictactoe", "human_first", "human", human_id, first_ai_id
+            )
+            second_pair = framework.create_room(
+                "tictactoe", "human_first", "human", human_id, second_ai_id
+            )
+        self.assertEqual(first_pair["status"], "playing")
+        self.assertEqual(second_pair["status"], "playing")
 
     def test_global_active_room_limit(self):
         with patch.object(framework, "GLOBAL_ACTIVE_ROOM_LIMIT", 2):
@@ -414,7 +507,7 @@ class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(main_module.revision_events.waiting_count, 0)
 
     async def test_new_returns_friendly_pair_limit_error(self):
-        for _ in range(3):
+        for _ in range(10):
             response = await self.client.post(
                 "/mcp/play",
                 json={
@@ -439,7 +532,7 @@ class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):
         payload = rejected.json()
         self.assertEqual(rejected.status_code, 409)
         self.assertFalse(payload["ok"])
-        self.assertIn("已有 3 个活跃房间", payload["message"])
+        self.assertIn("已有 10 个活跃房间", payload["message"])
 
 
 if __name__ == "__main__":

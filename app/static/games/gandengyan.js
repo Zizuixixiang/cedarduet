@@ -46,8 +46,18 @@
       || "玩家";
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || ((context.state || {}).flow || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function isCurrentPlayer(context, playerId) {
     return Boolean(
+      !isTerminalState(context)
+      &&
       context.room
       && context.room.status === "playing"
       && playerId
@@ -189,14 +199,14 @@
       "gandengyan-opponent-name",
       participant.display_name || playerId
     );
-    const state = element(
+    const playerState = element(
       documentRef,
       "span",
       `gandengyan-player-state${current ? " is-active" : ""}`,
-      current ? "行动中" : "等待"
+      isTerminalState(context) ? "已结束" : (current ? "行动中" : "等待")
     );
     identity.append(renderAvatar(documentRef, context, participant), name);
-    header.append(identity, state);
+    header.append(identity, playerState);
     const backs = element(documentRef, "div", "gandengyan-card-backs");
     backs.setAttribute("aria-label", `${count} 张未公开手牌`);
     for (let index = 0; index < Math.min(count, 5); index += 1) {
@@ -231,6 +241,11 @@
           `${participantName(context, lastPlay.player_id)} · ${lastPlay.cards.length} 张`
         )
       );
+    } else if (isTerminalState(context)) {
+      heading.append(
+        element(documentRef, "strong", "", "终局桌面"),
+        element(documentRef, "span", "", "本局没有保留上一手")
+      );
     } else {
       heading.append(
         element(documentRef, "strong", "", "等待引牌"),
@@ -264,7 +279,12 @@
         ));
       });
     } else {
-      passLine.appendChild(element(documentRef, "span", "gandengyan-no-pass", "暂时无人过牌"));
+      passLine.appendChild(element(
+        documentRef,
+        "span",
+        "gandengyan-no-pass",
+        isTerminalState(context) ? "终局无过牌记录" : "暂时无人过牌"
+      ));
     }
     center.append(eyebrow, heading, cards, passLine);
     shell.appendChild(center);
@@ -275,8 +295,10 @@
       ? context.privateState.hand
       : [];
     const displayHand = [...hand].reverse();
-    const selected = selectedIds(context);
-    const legal = playActions(context);
+    const terminal = isTerminalState(context);
+    if (terminal) context.uiState.selectedCardIds = [];
+    const selected = terminal ? [] : selectedIds(context);
+    const legal = terminal ? [] : playActions(context);
     const selectableIds = new Set(
       legal.flatMap((action) => action.card_ids.map(String))
     );
@@ -298,22 +320,25 @@
       documentRef,
       "span",
       "gandengyan-hand-count",
-      `${hand.length} 张 · 可多选`
+      terminal ? `${hand.length} 张 · 终局复盘` : `${hand.length} 张 · 可多选`
     );
-    const state = element(
+    const playerState = element(
       documentRef,
       "span",
       `gandengyan-player-state${current ? " is-active" : ""}`,
-      current ? "行动中" : "等待"
+      terminal ? "已结束" : (current ? "行动中" : "等待")
     );
     label.append(
       identity,
       count,
-      state
+      playerState
     );
     const scroller = element(documentRef, "div", "gandengyan-hand-scroll");
     scroller.setAttribute("role", "group");
-    scroller.setAttribute("aria-label", "我的手牌，可横向滚动并多选");
+    scroller.setAttribute(
+      "aria-label",
+      terminal ? "我的终局剩余手牌" : "我的手牌，可横向滚动并多选"
+    );
     scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
     displayHand.forEach((card) => {
       const cardId = String(card.id);
@@ -438,6 +463,19 @@
   function renderControls(context) {
     const documentRef = context.controls.ownerDocument || window.document;
     ensureStylesheet(documentRef);
+    if (isTerminalState(context)) {
+      context.uiState.selectedCardIds = [];
+      const panel = element(documentRef, "div", "gandengyan-controls");
+      const status = element(documentRef, "div", "gandengyan-selection-status");
+      status.setAttribute("role", "status");
+      status.append(
+        element(documentRef, "strong", "gandengyan-selection-title", "本局已结束"),
+        element(documentRef, "span", "gandengyan-selection-detail", "终局牌面仅供复盘")
+      );
+      panel.appendChild(status);
+      context.controls.appendChild(panel);
+      return true;
+    }
     const selected = selectedIds(context);
     const exact = exactSelectedAction(context);
     const legal = playActions(context);

@@ -54,9 +54,18 @@
     return value && (value.display_name || value.player_id) || "玩家";
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || ((context.state || {}).flow || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function isCurrentPlayer(context, playerId) {
     return Boolean(
-      context.room
+      !isTerminalState(context)
+      && context.room
       && context.room.status === "playing"
       && playerId
       && context.room.current_player_id === playerId
@@ -342,7 +351,24 @@
     center.appendChild(renderBottom(documentRef, context));
     const table = element(documentRef, "div", "doudizhu-trick");
     const heading = element(documentRef, "div", "doudizhu-trick-heading");
-    if (context.state.flow && context.state.flow.phase === "bidding") {
+    if (isTerminalState(context)) {
+      heading.append(
+        element(
+          documentRef,
+          "strong",
+          "",
+          lastPlay && lastPlay.pattern && lastPlay.pattern.label || "终局桌面"
+        ),
+        element(
+          documentRef,
+          "span",
+          "",
+          lastPlay
+            ? `${participantName(context, lastPlay.player_id)} · ${lastPlay.cards.length} 张`
+            : "本局没有保留上一手"
+        )
+      );
+    } else if (context.state.flow && context.state.flow.phase === "bidding") {
       const highest = Number((context.state.bidding || {}).highest_score || 0);
       heading.append(
         element(documentRef, "strong", "", "叫分阶段"),
@@ -384,8 +410,13 @@
       ? context.privateState.hand
       : [];
     const displayHand = cardsForDisplay(hand);
-    const selected = selectedIds(context);
-    const legal = playActions(context);
+    const terminal = isTerminalState(context);
+    if (terminal) {
+      context.uiState.selectedCardIds = [];
+      context.uiState.selectedActionId = null;
+    }
+    const selected = terminal ? [] : selectedIds(context);
+    const legal = terminal ? [] : playActions(context);
     const selectedSet = new Set(selected);
     const zone = element(documentRef, "section", "doudizhu-hand-zone");
     const label = element(documentRef, "div", "doudizhu-hand-label");
@@ -408,11 +439,19 @@
     );
     label.append(
       identity,
-      element(documentRef, "span", "", `${hand.length} 张 · 横向滚动选择`)
+      element(
+        documentRef,
+        "span",
+        "",
+        terminal ? `${hand.length} 张 · 终局复盘` : `${hand.length} 张 · 横向滚动选择`
+      )
     );
     const scroller = element(documentRef, "div", "doudizhu-hand-scroll");
     scroller.setAttribute("role", "group");
-    scroller.setAttribute("aria-label", "我的私密手牌，可横向滚动并多选");
+    scroller.setAttribute(
+      "aria-label",
+      terminal ? "我的终局剩余手牌" : "我的私密手牌，可横向滚动并多选"
+    );
     scroller.addEventListener("scroll", () => {
       const scrollLeft = Number(scroller.scrollLeft);
       if (Number.isFinite(scrollLeft)) context.uiState.handScrollLeft = Math.max(0, scrollLeft);
@@ -445,7 +484,12 @@
       scroller.appendChild(cardNode);
     });
     if (!hand.length) {
-      scroller.appendChild(element(documentRef, "span", "doudizhu-empty-hand", "等待开局或手牌已出完"));
+      scroller.appendChild(element(
+        documentRef,
+        "span",
+        "doudizhu-empty-hand",
+        terminal ? "终局无剩余手牌" : "等待开局或手牌已出完"
+      ));
     }
     zone.append(label, scroller);
     const terminalHands = context.state && context.state.terminal_hands;
@@ -497,6 +541,7 @@
     const game = element(documentRef, "div", "doudizhu-game");
     const topbar = element(documentRef, "header", "doudizhu-topbar");
     const title = element(documentRef, "div", "doudizhu-title");
+    const terminal = isTerminalState(context);
     const currentPlayerName = participantName(
       context,
       context.room && context.room.current_player_id
@@ -505,12 +550,12 @@
       documentRef,
       "span",
       "doudizhu-turn-indicator",
-      `轮到 ${currentPlayerName}`
+      terminal ? "本局已结束" : `轮到 ${currentPlayerName}`
     );
     turnIndicator.setAttribute("role", "status");
     turnIndicator.setAttribute("aria-live", "polite");
     turnIndicator.setAttribute("aria-atomic", "true");
-    turnIndicator.title = `轮到 ${currentPlayerName}`;
+    turnIndicator.title = terminal ? "本局已结束" : `轮到 ${currentPlayerName}`;
     title.append(
       element(documentRef, "span", "doudizhu-title-mark", "斗"),
       element(documentRef, "strong", "", "斗地主"),
@@ -705,6 +750,20 @@
     ensureStylesheet(documentRef);
     const panel = element(documentRef, "div", "doudizhu-controls");
     panel.setAttribute("aria-busy", String(Boolean(context.uiState.submitting)));
+    if (isTerminalState(context)) {
+      context.uiState.selectedCardIds = [];
+      context.uiState.selectedActionId = null;
+      context.uiState.selectedBidActionId = null;
+      const status = element(documentRef, "div", "doudizhu-selection-status");
+      status.setAttribute("role", "status");
+      status.append(
+        element(documentRef, "strong", "doudizhu-selection-title", "本局已结束"),
+        element(documentRef, "span", "doudizhu-selection-detail", "终局牌面仅供复盘")
+      );
+      panel.appendChild(status);
+      context.controls.appendChild(panel);
+      return true;
+    }
     if (context.state.flow && context.state.flow.phase === "bidding") {
       renderBidControls(documentRef, context, panel);
     } else {

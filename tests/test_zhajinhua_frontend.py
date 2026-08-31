@@ -266,7 +266,7 @@ state.flow.phase = "finished";
 renderer.renderBoard(finished.context);
 nodes = descendants(finished.board);
 assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-acting-state")).length, 0);
-assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-seat") && hasClass(node, "is-current")).length, 1);
+assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-seat") && hasClass(node, "is-current")).length, 0);
 ''')
 
     def test_seen_cards_and_risky_action_confirmation_cancel_and_submit_guard(self):

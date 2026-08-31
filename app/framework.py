@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from .database import connect, decode_room, write_transaction
-from .games import get_game
+from .games import get_game, stake_presentation
 from .games.base import MoveResult
 from .notifications import create_notification, mark_notifications_read
 from .npc_personas import PersonaConfigError, load_personas
@@ -14,7 +14,7 @@ from .npc_personas import PersonaConfigError, load_personas
 Role = Literal["human", "ai"]
 ROOM_ID_RE = re.compile(r"^[A-Z0-9]{8}$")
 PLAYER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$")
-PAIR_ACTIVE_ROOM_LIMIT = 3
+PAIR_ACTIVE_ROOM_LIMIT = 10
 GLOBAL_ACTIVE_ROOM_LIMIT = 500
 STALE_ROOM_DAYS = 7
 TERMINAL_RETENTION_DAYS = 7
@@ -138,11 +138,9 @@ def _decorate(room: dict) -> dict:
         result["current_actor"] = None
         result["current_actor_seat"] = None
     result["action_note"] = room["board_state"].get("last_action_note", "")
-    result["stake_label"] = (
-        f"🪙{result.get('stake', 0)}/人"
-        if result.get("stake", 0) > 0
-        else "娱乐局"
-    )
+    result.update(stake_presentation(
+        result["game_type"], result.get("stake", 0)
+    ))
     settlement_deltas = (result.get("result") or {}).get("settlement_deltas", {})
     avatar_urls: dict[str, str | None] = {}
     if any(
@@ -834,9 +832,7 @@ def list_human_rooms(
         item["game_name"] = get_game(item["game_type"]).display_name
         pending_csv = item.pop("pending_for_csv", None)
         item["pending_for"] = pending_csv.split(",") if pending_csv else []
-        item["stake_label"] = (
-            f"🪙{item['stake']}/人" if item["stake"] > 0 else "娱乐局"
-        )
+        item.update(stake_presentation(item["game_type"], item["stake"]))
         _add_retention_metadata(item)
     return result
 
@@ -928,13 +924,11 @@ def list_ai_rooms(
         if row["status"] == "pending":
             item.update(
                 stake=row["stake"],
-                stake_label=(
-                    f"🪙{row['stake']}/人" if row["stake"] > 0 else "娱乐局"
-                ),
                 initiator_player_id=row["initiator_player_id"],
                 confirmation_expires_at=row["confirmation_expires_at"],
                 confirmation_decision=row["confirmation_decision"],
             )
+            item.update(stake_presentation(row["game_type"], row["stake"]))
         result.append(item)
     return result
 
@@ -967,9 +961,7 @@ def list_human_pending_invitations(human_player_id: str) -> list[dict]:
             **dict(row),
             "game_name": get_game(row["game_type"]).display_name,
             "initiator_name": row["initiator_name"] or row["initiator_player_id"],
-            "stake_label": (
-                f"🪙{row['stake']}/人" if row["stake"] > 0 else "娱乐局"
-            ),
+            **stake_presentation(row["game_type"], row["stake"]),
         }
         for row in rows
     ]
@@ -1273,39 +1265,78 @@ def _attach_multiplayer_settlement(
     participant_count = len(room.get("participants", []))
     if room.get("stake", 0) <= 0:
         return game_result
-    if participant_count <= 2 and not game.uses_custom_stake_settlement:
-        return game_result
     if participant_count > 2 and not game.supports_multiplayer_stakes:
         raise DuelError("多人房间尚未定义筹码结算规则")
     result = dict(game_result)
     deltas = result.get("settlement_deltas")
+    legacy_two_player = False
     if deltas is None:
-        try:
-            deltas = game.settlement_deltas(
-                deepcopy(state),
-                deepcopy(result),
-                deepcopy(room["participants"]),
-                room["stake"],
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DuelError(f"游戏插件多人结算无效：{exc}") from exc
+        if participant_count == 2 and not game.uses_custom_stake_settlement:
+            if result.get("draw"):
+                return result
+            winner_player_id = result.get("winner_player_id")
+            participant_ids = {
+                participant["player_id"] for participant in room["participants"]
+            }
+            if winner_player_id not in participant_ids:
+                raise DuelError("双人筹码终局缺少有效赢家")
+            deltas = {
+                player_id: room["stake"] if player_id == winner_player_id
+                else -room["stake"]
+                for player_id in participant_ids
+            }
+            legacy_two_player = True
+        else:
+            try:
+                deltas = game.settlement_deltas(
+                    deepcopy(state),
+                    deepcopy(result),
+                    deepcopy(room["participants"]),
+                    room["stake"],
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DuelError(f"游戏插件筹码结算无效：{exc}") from exc
     if not isinstance(deltas, dict):
-        raise DuelError("多人筹码终局必须由插件提供明确 settlement_deltas")
+        raise DuelError("筹码终局必须提供明确 settlement_deltas")
     participant_ids = {
         participant["player_id"] for participant in room["participants"]
     }
     if set(deltas) != participant_ids:
-        raise DuelError("多人 settlement_deltas 必须完整覆盖房间每名参与者")
+        raise DuelError("settlement_deltas 必须完整覆盖房间每名参与者")
     if any(
         isinstance(delta, bool) or not isinstance(delta, int)
         for delta in deltas.values()
     ):
-        raise DuelError("多人 settlement_deltas 的每项必须是整数")
-    if sum(deltas.values()) != 0:
-        raise DuelError("多人 settlement_deltas 总和必须为 0")
+        raise DuelError("settlement_deltas 的每项必须是整数")
+    zero_sum = sum(deltas.values()) == 0
+    if not zero_sum and not game.allows_non_zero_sum_settlement:
+        raise DuelError("settlement_deltas 总和必须为 0")
     result["settlement_deltas"] = dict(deltas)
-    result["settlement_zero_sum"] = True
+    result["settlement_zero_sum"] = zero_sum
+    if legacy_two_player:
+        result["settlement_legacy_two_player"] = True
     return result
+
+
+def _generic_resignation_deltas(room: dict, stake: int) -> dict[str, int] | None:
+    """Fallback for a forced terminal with no game-specific team semantics."""
+    winners = [
+        item["player_id"] for item in room["participants"]
+        if item.get("join_status") == "joined" and item.get("active", True)
+    ]
+    losers = [
+        item["player_id"] for item in room["participants"]
+        if item.get("join_status") == "joined" and not item.get("active", True)
+    ]
+    if not winners or not losers:
+        return None
+    return {
+        item["player_id"]: (
+            len(losers) * stake if item["player_id"] in winners
+            else -len(winners) * stake
+        )
+        for item in room["participants"]
+    }
 
 
 def _expire_pending_invitations(conn, room_id: str | None = None) -> int:
@@ -1470,29 +1501,61 @@ def _check_global_capacity(conn) -> None:
         )
 
 
+def _one_to_one_bound_pair(
+    participants: list[dict], game
+) -> tuple[str, str] | None:
+    """Return the pair only when this roster forms a real two-player table."""
+    if not game.accepts_player_count(2):
+        return None
+    current = [
+        item for item in participants
+        if item.get("join_status", "joined") != "left"
+    ]
+    if len(current) != 2:
+        return None
+    humans = [
+        item["player_id"] for item in current
+        if item.get("participant_kind") == "human"
+    ]
+    bound_machines = [
+        item["player_id"] for item in current
+        if item.get("participant_kind") == "bound_machine"
+    ]
+    if len(humans) != 1 or len(bound_machines) != 1:
+        return None
+    return humans[0], bound_machines[0]
+
+
 def _check_pair_capacity(
-    conn, human_player_id: str | None, ai_player_id: str | None
+    conn, human_player_id: str, ai_player_id: str
 ) -> None:
-    if human_player_id is None or ai_player_id is None:
-        return
-    active_count = conn.execute(
+    candidates = conn.execute(
         """
-        SELECT COUNT(DISTINCT rooms.room_id)
+        SELECT DISTINCT rooms.room_id, rooms.game_type
         FROM rooms
         JOIN room_participants AS human
           ON human.room_id = rooms.room_id
-         AND human.role = 'human'
+         AND human.participant_kind = 'human'
          AND human.player_id = ?
          AND human.join_status <> 'left'
         JOIN room_participants AS ai
           ON ai.room_id = rooms.room_id
-         AND ai.role = 'ai'
+         AND ai.participant_kind = 'bound_machine'
          AND ai.player_id = ?
          AND ai.join_status <> 'left'
         WHERE rooms.status IN ('pending', 'waiting', 'playing')
+          AND (
+              SELECT COUNT(*)
+              FROM room_participants AS participant
+              WHERE participant.room_id = rooms.room_id
+          ) = 2
         """,
         (human_player_id, ai_player_id),
-    ).fetchone()[0]
+    ).fetchall()
+    active_count = sum(
+        get_game(row["game_type"]).accepts_player_count(2)
+        for row in candidates
+    )
     if active_count >= PAIR_ACTIVE_ROOM_LIMIT:
         raise DuelError(
             f"这对人类与 AI 已有 {PAIR_ACTIVE_ROOM_LIMIT} 个活跃房间；"
@@ -1776,17 +1839,9 @@ def create_room(
     with write_transaction() as conn:
         _maintain_rooms(conn)
         _check_global_capacity(conn)
-        humans = [
-            item["player_id"] for item in participants
-            if item["participant_kind"] == "human"
-        ]
-        ais = [
-            item["player_id"] for item in participants
-            if item["participant_kind"] == "bound_machine"
-        ]
-        for human_player_id in humans:
-            for ai_player_id in ais:
-                _check_pair_capacity(conn, human_player_id, ai_player_id)
+        pair = _one_to_one_bound_pair(participants, game)
+        if pair is not None:
+            _check_pair_capacity(conn, *pair)
         rematch_root_room_id = None
         if rematch_of_room_id is not None:
             rematch_of_room_id = _room_id(rematch_of_room_id)
@@ -1956,13 +2011,14 @@ def respond_to_invitation(
         if confirmation["decision"] == "accepted":
             raise DuelError("已同意的发起方不能再拒绝本次邀请", 409)
         if decision == "reject":
+            stake_display = stake_presentation(
+                room["game_type"], room["stake"]
+            )
             cancelled = {
                 "room_id": room_id,
                 "status": "cancelled",
                 "stake": room["stake"],
-                "stake_label": room.get("stake_label") or (
-                    f"🪙{room['stake']}/人" if room["stake"] > 0 else "娱乐局"
-                ),
+                **stake_display,
             }
             timestamp = _now()
             _close_room_invitation_notifications(
@@ -2091,21 +2147,6 @@ def join_room(
         capacity = allowed_counts[-1]
         if len(room["participants"]) >= capacity:
             raise DuelError(f"房间已满，最多允许 {capacity} 名参与者", 409)
-        humans = [
-            item["player_id"] for item in room["participants"]
-            if item.get("participant_kind") == "human"
-        ]
-        ais = [
-            item["player_id"] for item in room["participants"]
-            if item.get("participant_kind") == "bound_machine"
-        ]
-        if role == "human":
-            humans.append(player_id)
-        else:
-            ais.append(player_id)
-        for human_player_id in humans:
-            for ai_player_id in ais:
-                _check_pair_capacity(conn, human_player_id, ai_player_id)
         occupied_seats = {item["seat_index"] for item in room["participants"]}
         seat_index = next(
             seat for seat in range(capacity) if seat not in occupied_seats
@@ -2122,6 +2163,9 @@ def join_room(
                 "active": True,
             },
         ], key=lambda item: item["seat_index"])
+        pair = _one_to_one_bound_pair(prospective, game)
+        if pair is not None:
+            _check_pair_capacity(conn, *pair)
         tokens = game.tokens_for(prospective)
         if len(tokens) != len(prospective) or len(set(tokens)) != len(tokens):
             raise DuelError("游戏插件必须为每个座位分配唯一 token")
@@ -2991,15 +3035,24 @@ def resign(
             if participant["player_id"] == player_id:
                 participant["active"] = False
                 participant["activity_state"] = "inactive"
+        game = get_game(room["game_type"])
+        try:
+            game.apply_resignation(
+                room["board_state"], player_id, room["participants"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DuelError(f"游戏插件认输处理无效：{exc}") from exc
         remaining = [
             participant for participant in room["participants"]
             if participant.get("join_status") == "joined"
             and participant.get("active", True)
         ]
-        game = get_game(room["game_type"])
-        insufficient_players = not game.accepts_player_count(len(remaining))
+        insufficient_players = not game.accepts_active_count_after_resignation(
+            len(remaining)
+        )
         only_system_npcs_remaining = (
-            len(room["participants"]) > 2
+            not game.continues_with_only_system_npcs_after_resignation
+            and len(room["participants"]) > 2
             and bool(remaining)
             and all(
                 participant.get("participant_kind") == "system_npc"
@@ -3008,9 +3061,6 @@ def resign(
         )
         terminal = insufficient_players or only_system_npcs_remaining
         winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
-        winner = remaining[0]["role"] if len(remaining) == 1 else (
-            "draw" if terminal else None
-        )
         game_result = (
             {"winner_player_id": winner_player_id, "draw": False}
             if winner_player_id else {
@@ -3026,21 +3076,42 @@ def resign(
             }
             if terminal else None
         )
-        if (
-            terminal
-            and only_system_npcs_remaining
-            and not insufficient_players
-            and winner_player_id is None
-            and room.get("stake", 0) > 0
-        ):
-            game_result["settlement_deltas"] = {
-                participant["player_id"]: 0
-                for participant in room["participants"]
-            }
         if terminal:
+            try:
+                resignation_result = game.result_for_resignation(
+                    room["board_state"], player_id, room["participants"]
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DuelError(f"游戏插件认输终局无效：{exc}") from exc
+            if resignation_result is not None:
+                if not isinstance(resignation_result, dict):
+                    raise DuelError("游戏插件认输终局必须返回对象")
+                game_result = resignation_result
+            elif game_result.get("draw") and room.get("stake", 0) > 0:
+                fallback_deltas = _generic_resignation_deltas(
+                    room, room["stake"]
+                )
+                if fallback_deltas is not None:
+                    game_result = {
+                        "draw": False,
+                        "reason": "resignation_forfeit",
+                        "winning_player_ids": [
+                            item["player_id"] for item in remaining
+                        ],
+                        "settlement_deltas": fallback_deltas,
+                    }
             game_result = _attach_multiplayer_settlement(
                 game, room, room["board_state"], game_result
             )
+        winner_player_id = (
+            game_result.get("winner_player_id") if game_result else None
+        )
+        winner_participant = _participant_by_id(room, winner_player_id)
+        winner = (
+            winner_participant["role"] if winner_participant is not None
+            else "draw" if game_result and game_result.get("draw")
+            else None
+        )
         next_player_id = None
         next_turn: Role = role
         if not terminal:
@@ -3053,17 +3124,24 @@ def resign(
             if next_participant is None:
                 raise DuelError("下一行动者不属于房间")
             next_turn = next_participant["role"]
+            if "turn_player_id" in room["board_state"]:
+                room["board_state"]["turn_player_id"] = next_player_id
         timestamp = _now()
         conn.execute(
             """
             UPDATE rooms
-            SET status = ?, winner = ?, winner_player_id = ?, result_json = ?,
+            SET board_state = ?, status = ?, winner = ?, winner_player_id = ?, result_json = ?,
                 turn = ?, current_player_id = ?, revision = revision + 1,
                 updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
                 terminal_reason = CASE WHEN ? THEN 'resignation' ELSE terminal_reason END
             WHERE room_id = ?
             """,
             (
+                json.dumps(
+                    room["board_state"],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
                 "finished" if terminal else "playing",
                 winner,
                 winner_player_id,

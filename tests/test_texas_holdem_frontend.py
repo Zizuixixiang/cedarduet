@@ -21,18 +21,41 @@ class TexasHoldemFrontendStaticTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.2";',
+            'const STYLE_HREF = "/static/games/texas_holdem.css?v=1.1.0";',
             SCRIPT,
         )
         self.assertNotIn("/static/games/texas_holdem.js", HTML)
         self.assertNotIn("/static/games/texas_holdem.css", HTML)
 
-    def test_mobile_table_is_compact_and_internally_scrollable(self):
+    def test_mobile_table_and_controls_are_compact_in_portrait(self):
         self.assertIn(".texas-table-scroll", STYLE)
         self.assertIn("overflow-x: auto", STYLE)
-        self.assertIn("min-width: 600px", STYLE)
-        self.assertIn("@media (max-width: 375px)", STYLE)
-        self.assertIn("touch-action: pan-x", STYLE)
+        self.assertIn(".board.texas_holdem .texas-table", STYLE)
+        self.assertIn("min-width: 0", STYLE)
+        self.assertIn(
+            "@media (orientation: portrait) and (max-width: 620px)",
+            STYLE,
+        )
+        self.assertIn(
+            "\n".join((
+                '  #battleStage[data-game-type="texas_holdem"] .board-frame,',
+                '  #battleStage[data-game-type="texas_holdem"] .board.texas_holdem {',
+                "    width: 100%;",
+                "    min-width: 0;",
+                "  }",
+            )),
+            STYLE,
+        )
+        self.assertIn("height: clamp(306px, min(86vw, 44dvh), 350px)", STYLE)
+        self.assertIn('data-player-count="6"', STYLE)
+        self.assertIn(
+            "@media (orientation: portrait) and (max-width: 375px)",
+            STYLE,
+        )
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", STYLE)
+        self.assertIn("grid-column: span 2", STYLE)
+        self.assertIn("touch-action: pan-y", STYLE)
+        self.assertNotIn("@media (orientation: landscape)", STYLE)
 
     def test_card_faces_use_text_suit_codes_not_emoji_glyphs(self):
         for glyph in ("♠", "♥", "♦", "♣", "🂡", "🃁"):
@@ -192,6 +215,11 @@ const nodes = descendants(value.board);
 assert.equal(nodes.filter((node) => hasClass(node, "texas-seat")).length, participants.length);
 assert.equal(nodes.filter((node) => hasClass(node, "is-viewer")).length, 1);
 assert.equal(nodes.filter((node) => hasClass(node, "is-opponent")).length, participants.length - 1);
+const acting = nodes.filter((node) => hasClass(node, "is-acting"));
+assert.equal(acting.length, 1);
+assert.equal(acting[0].textContent, "行动中");
+const viewerSeat = nodes.find((node) => hasClass(node, "is-viewer"));
+assert.equal(descendants(viewerSeat).includes(acting[0]), true);
 assert.equal(nodes.filter((node) => hasClass(node, "texas-card-back")).length, (participants.length - 1) * 2);
 assert.equal(nodes.filter((node) => hasClass(node, "texas-card-rank")).length, 5);
 assert.equal(nodes.filter((node) => hasClass(node, "texas-card is-empty")).length, 0);
@@ -201,6 +229,39 @@ assert.equal(styleNodes.size, 1);
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 ''', participant_count=count)
+
+    def test_action_text_follows_other_current_seat_and_disappears_at_terminal(self):
+        self.run_node(r'''
+const other = makeContext();
+other.context.room.current_player_id="ai-1";
+other.context.canMove=false;
+renderer.renderBoard(other.context);
+let nodes=descendants(other.board);
+let acting=nodes.filter(n=>hasClass(n,"is-acting"));
+assert.equal(acting.length,1);
+assert.equal(acting[0].textContent,"行动中");
+const aiSeat=nodes.find(n=>hasClass(n,"texas-seat")&&n.dataset.playerId==="ai-1");
+assert.equal(descendants(aiSeat).includes(acting[0]),true);
+
+const pending=makeContext();
+pending.context.canMove=false;
+pending.context.room.status="pending";
+renderer.renderBoard(pending.context);
+nodes=descendants(pending.board);
+assert.equal(nodes.some(n=>hasClass(n,"is-acting")),false);
+assert.equal(nodes.some(n=>hasClass(n,"texas-seat")&&hasClass(n,"is-current")),false);
+
+const terminal=makeContext();
+terminal.context.isTerminal=true;
+terminal.context.canMove=false;
+terminal.context.room.status="finished";
+state.street="finished";
+state.game_result={result_text:"已结算",payout_by_player:{}};
+renderer.renderBoard(terminal.context);
+nodes=descendants(terminal.board);
+assert.equal(nodes.some(n=>hasClass(n,"is-acting")),false);
+assert.equal(nodes.some(n=>hasClass(n,"texas-seat")&&hasClass(n,"is-current")),false);
+''')
 
     def test_terminal_showdown_is_labeled_but_folded_holes_stay_hidden(self):
         self.run_node(r'''
@@ -217,6 +278,7 @@ assert.equal(nodes.filter(n=>hasClass(n,"texas-card-back")).length,2);
 const folded=nodes.find(n=>hasClass(n,"texas-seat")&&n.dataset.playerId==="ai-2");
 assert.equal(folded.classList.contains("is-folded"),true);
 assert.equal(descendants(folded).filter(n=>hasClass(n,"texas-card-back")).length,2);
+assert.equal(nodes.some(n=>hasClass(n,"is-acting")),false);
 ''')
 
     def test_risky_actions_require_confirmation_can_cancel_and_do_not_double_submit(self):

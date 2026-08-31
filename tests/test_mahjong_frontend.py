@@ -22,8 +22,9 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.2";', SCRIPT)
-        self.assertNotIn("mahjong", APP_SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.3";', SCRIPT)
+        self.assertNotIn('global.DuelGameUI.register("mahjong"', APP_SCRIPT)
+        self.assertNotIn("function renderMahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
         self.assertNotIn("mahjong.css", HTML)
 
@@ -209,8 +210,12 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertGreaterEqual(identity_width_at_390, 20)
 
     def test_turn_indicator_is_independent_and_positioned_by_seat_edge(self):
-        self.assertIn('el("span", "mahjong-turn-indicator", "行动")', SCRIPT)
-        self.assertIn('turnIndicator.setAttribute("aria-label", "当前行动玩家")', SCRIPT)
+        self.assertIn('el("span", "mahjong-turn-indicator", "行动中")', SCRIPT)
+        self.assertIn("response.current_responder_id", SCRIPT)
+        self.assertIn(
+            'turnIndicator.setAttribute("aria-label", "当前行动玩家，行动中")',
+            SCRIPT,
+        )
         self.assertIn("if (turnIndicator) seat.appendChild(turnIndicator);", SCRIPT)
         self.assertNotIn('badges.appendChild(el("i", "mahjong-turn", "行动"))', SCRIPT)
         self.assertIn(".mahjong-seat.current { border-color: #c89427;", STYLES)
@@ -490,7 +495,7 @@ assert.equal(handW2.attributes["aria-label"],"2万");
 assert.equal(descendants(handJ1).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀄");
 assert.equal(handJ1.attributes["aria-label"],"中");
 assert.equal(styles.size,1);
-assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.2");
+assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.3");
 ''')
 
     def test_all_tile_codes_map_to_unicode_without_replacing_aria_labels(self):
@@ -527,12 +532,59 @@ for(const [playerId,position] of [["east","top"],["south","left"],["viewer","bot
  assert.equal(current.classList.contains("current"),true);
  const directIndicators=current.children.filter(n=>hasClass(n,"mahjong-turn-indicator"));
  assert.equal(directIndicators.length,1);
- assert.equal(directIndicators[0].textContent,"行动");
- assert.equal(directIndicators[0].attributes["aria-label"],"当前行动玩家");
+ assert.equal(directIndicators[0].textContent,"行动中");
+ assert.equal(directIndicators[0].attributes["aria-label"],"当前行动玩家，行动中");
  const badges=current.children.find(n=>hasClass(n,"mahjong-seat-identity")).children.find(n=>hasClass(n,"mahjong-seat-badges"));
  assert.equal(descendants(badges).filter(n=>hasClass(n,"mahjong-turn-indicator")).length,0);
  assert.equal(seats.flatMap(seat=>seat.children).filter(n=>hasClass(n,"mahjong-turn-indicator")).length,1);
 }
+''')
+
+    def test_response_window_marks_only_authoritative_responder_and_terminal_marks_none(self):
+        self.run_node(r'''
+state.phase="response";
+state.turn_player_id="east";
+state.response_window={current_responder_id:"south",current_priority:"peng_gang"};
+let value=makeContext();
+value.context.room.current_player_id="east";
+renderer.renderBoard(value.context);
+let nodes=descendants(value.board);
+let seats=nodes.filter(n=>hasClass(n,"mahjong-seat"));
+let current=seats.filter(n=>hasClass(n,"current"));
+assert.equal(current.length,1);
+assert.equal(current[0].dataset.playerId,"south");
+assert.equal(descendants(current[0]).find(n=>hasClass(n,"mahjong-turn-indicator")).textContent,"行动中");
+assert.equal(descendants(seats.find(n=>n.dataset.playerId==="east")).some(n=>hasClass(n,"mahjong-turn-indicator")),false);
+
+state.response_window.current_responder_id="viewer";
+value=makeContext();
+value.context.room.current_player_id="east";
+renderer.renderBoard(value.context);
+nodes=descendants(value.board);
+const viewerSeat=nodes.find(n=>hasClass(n,"mahjong-seat")&&n.dataset.playerId==="viewer");
+assert.equal(viewerSeat.classList.contains("current"),true);
+assert.equal(descendants(viewerSeat).find(n=>hasClass(n,"mahjong-turn-indicator")).textContent,"行动中");
+assert.equal(nodes.find(n=>hasClass(n,"mahjong-own-hand-wrap")).classList.contains("current"),true);
+
+state.phase="finished";
+value=makeContext();
+value.context.isTerminal=true;
+value.context.room.status="finished";
+renderer.renderBoard(value.context);
+nodes=descendants(value.board);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-turn-indicator")),false);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-seat")&&hasClass(n,"current")),false);
+assert.equal(nodes.find(n=>hasClass(n,"mahjong-own-hand-wrap")).classList.contains("current"),false);
+
+state.phase="discard";
+state.response_window=null;
+state.turn_player_id="viewer";
+value=makeContext();
+value.context.room.status="pending";
+renderer.renderBoard(value.context);
+nodes=descendants(value.board);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-turn-indicator")),false);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-seat")&&hasClass(n,"current")),false);
 ''')
 
     def test_discard_is_explicit_and_kong_requires_cancelable_confirmation(self):

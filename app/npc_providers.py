@@ -37,7 +37,7 @@ GLOBAL_PLAYER_RULES = (
 )
 GLOBAL_SPEECH_RULES = (
     "你是回合制游戏中的 NPC 玩家。对局动作已经由服务器执行；"
-    "现在根据你能看到的完整规则、当前局面、自己的私有状态和完整可见时间线，"
+    "现在根据你能看到的精简规则、当前压缩局面、自己的私有状态和最近可见增量，"
     "生成一句符合 persona 的中文桌边发言。"
     "只使用系统提供的己方私有信息、公共局面和其他玩家已公开或明确对你可见的信息；"
     "允许依据公开信息正常推理和估计，但不得把对手隐藏状态当作已知事实。"
@@ -48,6 +48,9 @@ GLOBAL_SPEECH_RULES = (
     "不要返回分析、解释或思维过程。"
 )
 MAX_PROVIDER_MESSAGE_LENGTH = 200
+# CedarToy bridge rejects any individual message at 4000 characters.  Keep a
+# little headroom for boundary accounting changes outside this service.
+BRIDGE_MESSAGE_CHAR_LIMIT = 3900
 
 
 class NpcProviderError(RuntimeError):
@@ -73,8 +76,8 @@ class NpcDecisionRequest:
     public_actions: list[dict[str, Any]]
     legal_actions: list[dict[str, Any]]
 
-    def messages(self) -> list[dict[str, str]]:
-        payload = {
+    def payload(self) -> dict[str, Any]:
+        return {
             "persona": self.persona,
             "game_rules": self.game_rules,
             "participants": self.participants,
@@ -84,12 +87,15 @@ class NpcDecisionRequest:
             "public_actions": self.public_actions,
             "legal_actions": self.legal_actions,
         }
+
+    def messages(self) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": GLOBAL_PLAYER_RULES},
             {
                 "role": "user",
                 "content": json.dumps(
-                    payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                    self.payload(), ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":")
                 ),
             },
         ]
@@ -104,8 +110,8 @@ class NpcSpeechRequest:
     private_state: dict[str, Any]
     visible_timeline: list[dict[str, Any]]
 
-    def messages(self) -> list[dict[str, str]]:
-        payload = {
+    def payload(self) -> dict[str, Any]:
+        return {
             "persona": self.persona,
             "game_rules": self.game_rules,
             "participants": self.participants,
@@ -113,12 +119,15 @@ class NpcSpeechRequest:
             "private_state": self.private_state,
             "visible_timeline": self.visible_timeline,
         }
+
+    def messages(self) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": GLOBAL_SPEECH_RULES},
             {
                 "role": "user",
                 "content": json.dumps(
-                    payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                    self.payload(), ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":")
                 ),
             },
         ]
@@ -331,12 +340,26 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
         self.bridge_url = bridge_url
         self.bridge_token = bridge_token
 
+    @staticmethod
+    def _bridge_messages(
+        request: NpcDecisionRequest | NpcSpeechRequest,
+    ) -> list[dict[str, str]]:
+        messages = request.messages()
+        if any(
+            len(message.get("content", "")) > BRIDGE_MESSAGE_CHAR_LIMIT
+            for message in messages
+        ):
+            raise NpcProviderError(
+                "NPC bridge 单条 message 超过 3900 字符安全上限"
+            )
+        return messages
+
     async def decide(self, request: NpcDecisionRequest) -> ProviderDecision:
         value = await self._post_json(
             self.bridge_url,
             headers={"Authorization": f"Bearer {self.bridge_token}"},
             payload={
-                "messages": request.messages(),
+                "messages": self._bridge_messages(request),
                 "max_tokens": self.max_tokens,
                 "timeout": self.timeout,
             },
@@ -351,7 +374,7 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
             self.bridge_url,
             headers={"Authorization": f"Bearer {self.bridge_token}"},
             payload={
-                "messages": request.messages(),
+                "messages": self._bridge_messages(request),
                 "max_tokens": self.max_tokens,
                 "timeout": self.timeout,
             },

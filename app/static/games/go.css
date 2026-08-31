@@ -194,6 +194,17 @@
 .go-phase-status.play { grid-row: 2; grid-column: 1; min-width: 0; }
 .go-phase-status strong { font-size: 11px; }
 .go-phase-status small { color: var(--muted, #6d6a61); font-size: 9px; }
+.go-phase-status.finished {
+  width: min(100%, 420px);
+  padding: 7px 10px;
+  gap: 2px;
+  color: #f8f3e7;
+  background: #25483f;
+  border: 2px solid #bc9259;
+  text-align: center;
+}
+.go-phase-status.finished small { color: #f3dfbc; font-size: 10px; }
+.go-player-turn.terminal { color: var(--muted, #6d6a61); font-weight: 700; }
 .game-controls:has(.go-phase-status.play) > .go-pass {
   grid-row: 2;
   grid-column: 2;

@@ -23,7 +23,7 @@ class BlackjackFrontendTests(unittest.TestCase):
         self.assertIn("renderBoard,", RENDERER)
         self.assertIn("renderControls,", RENDERER)
         self.assertIn('const STYLE_ID = "duel-game-blackjack-styles";', RENDERER)
-        self.assertIn('const STYLE_HREF = "/static/games/blackjack.css?v=1.0.0";', RENDERER)
+        self.assertIn('const STYLE_HREF = "/static/games/blackjack.css?v=1.0.1";', RENDERER)
         self.assertIn("getElementById(STYLE_ID)", RENDERER)
         self.assertNotIn("renderBlackjack", APP)
         self.assertNotIn('"blackjack"', APP)
@@ -122,6 +122,7 @@ vm.runInNewContext(source, sandbox);
 const participants = [
   {player_id: "human-1", display_name: "人类", seat_index: 0},
   {player_id: "ai-1", display_name: "小机", seat_index: 1},
+  {player_id: "ai-2", display_name: "小机二号", seat_index: 2},
 ];
 const state = {
   shoe_decks: 4, flow: {phase: "player_turns"}, turn_player_id: "human-1",
@@ -140,6 +141,11 @@ const state = {
       value: {total: 17, soft: false, blackjack: false, bust: false},
       status: "playing", status_label: "行动中", outcome: null,
     },
+    "ai-2": {
+      hand: [{rank: "10", suit: "clubs"}, {rank: "7", suit: "hearts"}],
+      value: {total: 17, soft: false, blackjack: false, bust: false},
+      status: "playing", status_label: "行动中", outcome: null,
+    },
   },
 };
 const board = new Element("board");
@@ -149,7 +155,7 @@ const avatarCalls = [];
 const context = {
   board, controls, state, participants, legalActions: [{action: "hit"}, {action: "stand"}],
   viewer: {player_id: "human-1"}, canMove: true, isTerminal: false,
-  room: {current_player_id: "human-1"},
+  room: {current_player_id: "human-1", status: "playing"},
   helpers: {
     canMove: () => true,
     submitMove: async (move) => { submitted.push(move); return true; },
@@ -164,14 +170,61 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   sandbox.renderer.renderBoard(context);
   sandbox.renderer.renderControls(context);
   assert.equal(head.children.length, 1);
-  assert.equal(head.children[0].href, "/static/games/blackjack.css?v=1.0.0");
+  assert.equal(head.children[0].href, "/static/games/blackjack.css?v=1.0.1");
   const all = [...descendants(board), ...descendants(controls)];
   assert.ok(all.some((node) => node.classList.contains("blackjack-table")));
   const hidden = all.find((node) => node.classList.contains("is-hidden"));
   assert.equal(hidden.attributes["aria-label"], "庄家暗牌");
-  assert.equal(all.filter((node) => node.classList.contains("blackjack-seat")).length, 2);
-  assert.equal(JSON.stringify(avatarCalls), JSON.stringify(["human-1", "ai-1"]));
-  assert.equal(all.filter((node) => node.classList.contains("blackjack-seat-avatar")).length, 2);
+  const seats = all.filter((node) => node.classList.contains("blackjack-seat"));
+  assert.equal(seats.length, 3);
+  assert.equal(JSON.stringify(avatarCalls), JSON.stringify(["human-1", "ai-1", "ai-2"]));
+  assert.equal(all.filter((node) => node.classList.contains("blackjack-seat-avatar")).length, 3);
+  const actingBadges = all.filter((node) => (
+    node.classList.contains("blackjack-badge") && node.classList.contains("acting")
+  ));
+  assert.equal(actingBadges.length, 1);
+  assert.equal(actingBadges[0].textContent, "行动中");
+  assert.equal(seats.find((node) => node.dataset.playerId === "human-1").classList.contains("is-current"), true);
+  assert.equal(descendants(seats.find((node) => node.dataset.playerId === "human-1")).includes(actingBadges[0]), true);
+  assert.equal(seats.find((node) => node.dataset.playerId === "ai-1").attributes["aria-label"].endsWith("等待"), true);
+
+  const opponentBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: opponentBoard,
+    canMove: false,
+    room: {current_player_id: "ai-1", status: "playing"},
+  });
+  const opponentNodes = descendants(opponentBoard);
+  const opponentActing = opponentNodes.find((node) => node.classList.contains("acting"));
+  const opponentSeat = opponentNodes.find((node) => (
+    node.classList.contains("blackjack-seat") && node.dataset.playerId === "ai-1"
+  ));
+  assert.ok(opponentActing);
+  assert.equal(descendants(opponentSeat).includes(opponentActing), true);
+
+  const terminalBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: terminalBoard,
+    canMove: false,
+    isTerminal: true,
+    room: {current_player_id: "human-1", status: "finished"},
+  });
+  const terminalNodes = descendants(terminalBoard);
+  assert.equal(terminalNodes.some((node) => node.classList.contains("acting")), false);
+  assert.equal(terminalNodes.some((node) => node.classList.contains("is-current")), false);
+
+  const pendingBoard = new Element("board");
+  sandbox.renderer.renderBoard({
+    ...context,
+    board: pendingBoard,
+    canMove: false,
+    room: {current_player_id: "human-1", status: "pending"},
+  });
+  const pendingNodes = descendants(pendingBoard);
+  assert.equal(pendingNodes.some((node) => node.classList.contains("acting")), false);
+  assert.equal(pendingNodes.some((node) => node.classList.contains("is-current")), false);
   const fallbackBoard = new Element("board");
   sandbox.renderer.renderBoard({
     ...context,
@@ -181,7 +234,7 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   const fallbackAvatars = descendants(fallbackBoard).filter(
     (node) => node.classList.contains("blackjack-seat-avatar")
   );
-  assert.equal(JSON.stringify(fallbackAvatars.map((node) => node.textContent)), JSON.stringify(["人", "小"]));
+  assert.equal(JSON.stringify(fallbackAvatars.map((node) => node.textContent)), JSON.stringify(["人", "小", "小"]));
   const hit = all.find((node) => node.dataset.action === "hit");
   const stand = all.find((node) => node.dataset.action === "stand");
   assert.equal(hit.disabled, false);

@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-texas-holdem-styles";
-  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.0.2";
+  const STYLE_HREF = "/static/games/texas_holdem.css?v=1.1.0";
   const SUIT_TEXT = {
     spades: "S",
     hearts: "H",
@@ -129,15 +129,31 @@
     const state = context.state || {};
     const playerId = participant.player_id;
     const player = state.players && state.players[playerId] || {};
+    const currentPlayerId = (context.room && context.room.current_player_id)
+      || state.turn_player_id;
+    const terminal = Boolean(
+      context.isTerminal
+      || state.street === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+    const isActing = (context.room || {}).status === "playing"
+      && !terminal
+      && !state.game_result
+      && state.street !== "finished"
+      && currentPlayerId === playerId;
     const seat = element(
       documentRef,
       "article",
       `texas-seat${viewer ? " is-viewer" : " is-opponent"}`
     );
     seat.dataset.playerId = playerId;
-    seat.classList.toggle("is-current", (context.room.current_player_id || state.turn_player_id) === playerId);
+    seat.classList.toggle("is-current", isActing);
     seat.classList.toggle("is-folded", player.status === "folded");
     seat.classList.toggle("is-all-in", player.status === "all_in");
+    seat.setAttribute(
+      "aria-label",
+      `${nameFor(participant)}${isActing ? "，行动中" : ""}`
+    );
 
     const identity = element(documentRef, "header", "texas-seat-head");
     const copy = element(documentRef, "span", "texas-seat-copy");
@@ -152,10 +168,19 @@
       hand.appendChild(renderCard(documentRef, card, `${nameFor(participant)}的`));
     });
     const meta = element(documentRef, "div", "texas-seat-meta");
+    const statusText = terminal && player.status !== "folded"
+      ? "已结算"
+      : (STATUS_LABELS[player.status] || player.status || (terminal ? "已结算" : "在局"));
     meta.append(
       element(documentRef, "span", "texas-stack", `Stack ${Number(player.stack || 0)}`),
       element(documentRef, "span", "texas-bet", `Bet ${Number(player.current_bet || 0)}`),
-      element(documentRef, "span", "texas-status", STATUS_LABELS[player.status] || player.status || "在局")
+      element(documentRef, "span", "texas-contribution", `已投入 ${Number(player.contribution || 0)}`),
+      element(
+        documentRef,
+        "span",
+        `texas-status${isActing ? " is-acting" : ""}`,
+        isActing ? "行动中" : statusText
+      )
     );
     const handInfo = state.showdown && state.showdown[playerId];
     if (handInfo && handInfo.hand_type_label) {
@@ -247,7 +272,7 @@
       ));
     const scroll = element(documentRef, "div", "texas-table-scroll");
     scroll.tabIndex = 0;
-    scroll.setAttribute("aria-label", "德州扑克牌桌，可横向滚动");
+    scroll.setAttribute("aria-label", "德州扑克牌桌");
     scroll.addEventListener("scroll", () => saveTableScroll(context, scroll), {passive: true});
     const table = element(documentRef, "section", "texas-table");
     table.dataset.playerCount = String(participants.length);
@@ -297,6 +322,21 @@
     ensureStylesheet(documentRef);
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const uiState = context.uiState || {};
+    const terminal = Boolean(
+      context.isTerminal
+      || (context.state || {}).street === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+    if (terminal) {
+      delete uiState.texasPendingAction;
+      const shell = element(documentRef, "section", "texas-controls");
+      shell.setAttribute("aria-label", "德州扑克终局");
+      shell.appendChild(element(
+        documentRef, "p", "texas-control-status", "本手牌已结算"
+      ));
+      context.controls.replaceChildren(shell);
+      return true;
+    }
     const riskyActions = new Set(["fold", "call", "all_in"]);
     const pendingAction = legal.find(
       (action) => riskyActions.has(action.action)

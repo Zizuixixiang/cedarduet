@@ -299,7 +299,7 @@ class DotsBoxes(GamePlugin):
         participants: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         del actor, participants
-        return deepcopy(state.get("action_history", []))
+        return deepcopy(state.get("action_history", [])[-20:])
 
     def npc_legal_actions(
         self,

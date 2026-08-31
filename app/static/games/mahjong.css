@@ -135,7 +135,7 @@
   top: 4px;
   right: 4px;
 }
-.position-bottom.current .mahjong-seat-identity { padding-right: 34px; }
+.position-bottom.current .mahjong-seat-identity { padding-right: 42px; }
 .position-left .mahjong-turn-indicator,
 .position-right .mahjong-turn-indicator {
   grid-area: turn;

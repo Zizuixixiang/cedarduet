@@ -141,6 +141,14 @@ class MahjongRulesTests(unittest.TestCase):
                 self.assertEqual(deltas, expected)
                 self.assertEqual(sum(deltas.values()), 0)
 
+    def test_resignation_uses_entertainment_chip_full_liability(self):
+        result = self.game.result_for_resignation({}, "p2", self.players)
+        self.assertEqual(result["win_type"], "resignation_liability")
+        self.assertEqual(
+            self.game.settlement_deltas({}, result, self.players, 5),
+            {"p0": 5, "p1": 5, "p2": -15, "p3": 5},
+        )
+
     def test_self_draw_and_discard_win_use_engine_and_enforce_eight_fan(self):
         state = self.state()
         state["hands"]["p0"] = self.tiles([*WAITING_HAND, "W8"])

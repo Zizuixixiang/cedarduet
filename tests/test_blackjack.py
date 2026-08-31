@@ -129,7 +129,7 @@ class BlackjackFrameworkTests(unittest.TestCase):
         self.addCleanup(self.db_patch.stop)
         database.init_db()
 
-    def create(self, draw_ranks, count=2, mode="human_first"):
+    def create(self, draw_ranks, count=2, mode="human_first", stake=0):
         rng = StackedRng(draw_ranks)
         game = Blackjack(rng)
         game_patch = patch.dict(GAMES, {"blackjack": game})
@@ -142,7 +142,13 @@ class BlackjackFrameworkTests(unittest.TestCase):
             "human-1",
             opponent_id="ai-1",
             ordered_participants=participants(count),
+            stake=stake,
         )
+        if stake > 0:
+            for index in range(1, count):
+                room = framework.respond_to_invitation(
+                    room["room_id"], "ai", f"ai-{index}", "accept"
+                )
         return room, game, rng
 
     @staticmethod
@@ -155,18 +161,16 @@ class BlackjackFrameworkTests(unittest.TestCase):
             room["room_id"], self.role(player_id), player_id, {"action": action}
         )
 
-    def test_catalog_is_card_two_to_six_npc_and_entertainment_only(self):
+    def test_catalog_is_card_two_to_six_npc_and_stake_enabled(self):
         item = {entry["game_type"]: entry for entry in game_catalog()}["blackjack"]
         self.assertEqual(item["display_name"], "21点")
         self.assertEqual(item["category"], "card")
         self.assertEqual(item["allowed_player_counts"], [2, 3, 4, 5, 6])
         self.assertTrue(item["supports_npcs"])
-        self.assertFalse(item["supports_stakes"])
-        self.assertFalse(item["supports_multiplayer_stakes"])
-        with self.assertRaisesRegex(framework.DuelError, "尚未定义筹码"):
-            framework.create_room(
-                "blackjack", "human_first", "human", "human-1", "ai-1", stake=1
-            )
+        self.assertTrue(item["supports_stakes"])
+        self.assertTrue(item["supports_multiplayer_stakes"])
+        self.assertEqual(item["stake_label"], "下注 🪙X/人")
+        self.assertEqual(item["stake_hint"], "胜+X/负-X/和0")
 
     def test_random_shoe_and_draws_persist_across_reload_without_reshuffle(self):
         script = deal_script(["5", "6"], "9", ["7", "8"], "8")
@@ -235,7 +239,7 @@ class BlackjackFrameworkTests(unittest.TestCase):
             [{"action": "hit"}, {"action": "stand"}],
         )
 
-    def test_room_terminal_projection_reveals_hole_after_resignation(self):
+    def test_resignation_keeps_remaining_dealer_opponent_hand_playable(self):
         script = deal_script(["8", "9"], "10", ["7", "6"], "5")
         room, _game, _rng = self.create(script)
         raw_hole = room["board_state"]["cards"]["hands"][DEALER_ID][1]
@@ -244,8 +248,15 @@ class BlackjackFrameworkTests(unittest.TestCase):
         self.assertEqual(playing["dealer"]["hand"][1], {"hidden": True})
 
         resigned = framework.resign(room["room_id"], "human", "human-1")
-        self.assertEqual(resigned["status"], "finished")
+        self.assertEqual(resigned["status"], "playing")
+        self.assertEqual(resigned["current_player_id"], "ai-1")
+        self.assertEqual(
+            resigned["board_state"]["player_status_by_player"]["human-1"],
+            "resigned",
+        )
         self.assertFalse(resigned["board_state"]["dealer_hole_revealed"])
+        resigned = framework.resign(room["room_id"], "ai", "ai-1")
+        self.assertEqual(resigned["status"], "finished")
         terminal = framework.project_room_for_viewer(
             resigned, "human-1"
         )["board_state"]
@@ -254,6 +265,35 @@ class BlackjackFrameworkTests(unittest.TestCase):
             "rank": raw_hole["rank"], "suit": raw_hole["suit"],
         })
         self.assertNotIn(raw_hole["card_id"], json.dumps(terminal))
+
+    def test_stake_outcomes_are_independent_and_may_be_non_zero_sum(self):
+        script = deal_script(["10", "9"], "6", ["8", "8"], "9", "K")
+        room, _game, _rng = self.create(script, stake=7)
+        room = self.move(room, "stand")
+        room = self.move(room, "stand")
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["result"]["settlement_deltas"], {
+            "human-1": 7,
+            "ai-1": 7,
+        })
+        self.assertFalse(room["result"]["settlement_zero_sum"])
+
+    def test_staked_resignation_is_loss_and_other_hands_settle_once_at_end(self):
+        script = deal_script(
+            ["10", "10", "10"], "10", ["7", "7", "7"], "7"
+        )
+        room, _game, _rng = self.create(script, count=3, stake=5)
+        room = framework.resign(room["room_id"], "human", "human-1")
+        self.assertEqual(room["status"], "playing")
+        self.assertIsNone(room["result"])
+        room = self.move(room, "stand")
+        room = self.move(room, "stand")
+        self.assertEqual(room["result"]["settlement_deltas"], {
+            "human-1": -5,
+            "ai-1": 0,
+            "ai-2": 0,
+        })
+        self.assertEqual(room["result"]["outcomes_by_player"]["human-1"]["outcome"], "loss")
 
     def test_hit_retains_turn_then_bust_ends_hand_and_advances(self):
         script = deal_script(["10", "9"], "10", ["6", "8"], "7", "K")

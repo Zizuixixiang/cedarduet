@@ -102,7 +102,7 @@ class ChineseCheckers(GamePlugin):
         "- 弹珠一旦进入自己的目标营便不能离开，只能在目标营内部移动或跳跃。\n"
         "- 本局采用 anti-spoiling 防拖延规则：目标营十孔全部被占、其中至少一颗是你的棋，且其余阻挡棋只属于该营的原始拥有者时，也立即判你获胜。开局不会因此误判，第三方棋也不能冒充有效阻挡。\n\n"
         "【胜负】\n"
-        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。多人筹码局中，唯一赢家获得其余每席各一份本局筹码。"
+        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。多人筹码局中，唯一赢家获得其余每席各一份本局筹码。认输若使桌型非法则立即结算：认输者向其余每席各赔一份；六人桌即 -5×stake，其余五席各 +stake。"
     )
     move_format = (
         '提交稳定 node id：{"move":{"from":"n000","to":"n014"},'
@@ -555,12 +555,45 @@ class ChineseCheckers(GamePlugin):
         del state
         player_ids = [str(item["player_id"]) for item in participants]
         winner = result.get("winner_player_id")
+        if result.get("reason") == "resignation_forfeit":
+            resigned = result.get("resigned_player_id")
+            if resigned not in player_ids:
+                raise ValueError("中国跳棋认输终局缺少有效认输者")
+            return {
+                player_id: -stake * (len(player_ids) - 1)
+                if player_id == resigned else stake
+                for player_id in player_ids
+            }
         if winner not in player_ids or result.get("draw"):
             raise ValueError("中国跳棋终局必须有唯一有效赢家")
         return {
             player_id: stake * (len(player_ids) - 1)
             if player_id == winner else -stake
             for player_id in player_ids
+        }
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del state
+        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        player_ids = [str(item["player_id"]) for item in ordered]
+        if resigned_player_id not in player_ids:
+            raise ValueError("中国跳棋认输终局缺少有效参与者")
+        winners = [
+            player_id for player_id in player_ids
+            if player_id != resigned_player_id
+        ]
+        return {
+            "draw": False,
+            "reason": "resignation_forfeit",
+            "resigned_player_id": resigned_player_id,
+            "winner_player_id": winners[0],
+            "winning_player_ids": winners,
+            "result_text": "认输者向其余每席各赔一份底注",
         }
 
     def mcp_snapshot_state(

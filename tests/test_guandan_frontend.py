@@ -21,7 +21,7 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "embedded"', SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.15";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/guandan.css?v=0.1.16";', SCRIPT)
         self.assertNotIn('DuelGameUI.register("guandan"', APP_SCRIPT)
         self.assertNotIn("guandan.js", APP_SCRIPT)
         self.assertNotIn("guandan.css", APP_SCRIPT)
@@ -50,6 +50,12 @@ class GuandanFrontendStructureTests(unittest.TestCase):
         self.assertIn('action: "act", action_id: pass.action_id', SCRIPT)
         for forbidden in ("function canBeat", "function classify", "RANK_VALUE", "BOMB"):
             self.assertNotIn(forbidden, SCRIPT)
+
+    def test_current_seat_has_explicit_compact_action_state(self):
+        self.assertIn('context.room.status === "playing"', SCRIPT)
+        self.assertIn('current ? "行动中"', SCRIPT)
+        self.assertIn('statusNode.classList.toggle("acting", current)', SCRIPT)
+        self.assertIn(".guandan-seat-status.acting {", STYLES)
 
     def test_cards_are_css_text_not_emoji_and_mobile_targets_cover_320_375(self):
         self.assertIn("\\u2660\\uFE0E", SCRIPT)
@@ -223,6 +229,30 @@ function makeContext(legal=privateState.legal_actions){
  assert.equal(JSON.stringify(passValue.submitted[0]),JSON.stringify({action:"act",action_id:"g_pass"}));
  assert.equal(styles.size,1);
 })().catch(e=>{console.error(e);process.exitCode=1;});
+''')
+
+    def test_action_state_follows_current_seat_and_clears_at_terminal(self):
+        self.run_node(r'''
+let value=makeContext();renderer.renderBoard(value.context);let nodes=descendants(value.board);
+let current=nodes.filter(n=>hasClass(n,"guandan-seat")&&hasClass(n,"current"));
+assert.equal(current.length,1);assert.equal(current[0].dataset.playerId,"human");
+assert.equal(current[0].attributes["aria-current"],"true");
+let acting=descendants(current[0]).filter(n=>hasClass(n,"guandan-seat-status")&&hasClass(n,"acting"));
+assert.equal(acting.length,1);assert.equal(acting[0].textContent,"行动中");
+
+value=makeContext([]);value.context.room.current_player_id="right";value.context.canMove=false;
+renderer.renderBoard(value.context);nodes=descendants(value.board);
+current=nodes.filter(n=>hasClass(n,"guandan-seat")&&hasClass(n,"current"));
+assert.equal(current.length,1);assert.equal(current[0].dataset.playerId,"right");
+acting=descendants(current[0]).filter(n=>hasClass(n,"guandan-seat-status")&&hasClass(n,"acting"));
+assert.equal(acting.length,1);assert.equal(acting[0].textContent,"行动中");
+
+value=makeContext([]);value.context.room.status="finished";value.context.canMove=false;
+value.context.isTerminal=true;state.phase="finished";
+renderer.renderBoard(value.context);nodes=descendants(value.board);
+assert.equal(nodes.some(n=>hasClass(n,"guandan-seat")&&hasClass(n,"current")),false);
+assert.equal(nodes.some(n=>hasClass(n,"guandan-seat-status")&&hasClass(n,"acting")),false);
+assert.equal(nodes.some(n=>n.textContent==="行动中"),false);
 ''')
 
     def test_terminal_remaining_hands_render_in_compact_review(self):

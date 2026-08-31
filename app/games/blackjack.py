@@ -84,10 +84,11 @@ class Blackjack(GamePlugin):
     allowed_player_counts = (2, 3, 4, 5, 6)
     recommended_players = 4
     supports_npcs = True
-    # The shared settlement layer is participant-to-participant zero sum. The
-    # virtual dealer deliberately has no participant record or wallet.
-    supports_stakes = False
-    supports_multiplayer_stakes = False
+    supports_stakes = True
+    supports_multiplayer_stakes = True
+    uses_custom_stake_settlement = True
+    allows_non_zero_sum_settlement = True
+    continues_with_only_system_npcs_after_resignation = True
     mcp_immediate_public_events = True
     rules_text = (
         "【牌局】\n"
@@ -106,7 +107,10 @@ class Blackjack(GamePlugin):
         "高低决定胜、负或推和。\n\n"
         "【本版范围】\n"
         "第一版不支持 split、double、insurance 或 surrender。"
-        "本版仅支持 0 筹码娱乐局，不 mint/burn 任何筹码。"
+        "娱乐筹码下注按每席独立对虚拟庄家结算：胜 +stake、负 -stake、推和 0；"
+        "自然 Blackjack 不另付 3:2。虚拟庄家没有钱包，因此多人总和允许非 0，等同系统"
+        "增发或回收；NPC 只记录逻辑 delta，不创建钱包。认输固定按负 -stake，其他席继续"
+        "完成牌局后一次性结算。"
     )
     move_format = (
         '要牌：{"move":{"action":"hit"},"revision":当前版本}；'
@@ -281,6 +285,7 @@ class Blackjack(GamePlugin):
             "stood": "已停牌",
             "bust": "爆牌",
             "blackjack": "Blackjack",
+            "resigned": "已认输",
         }.get(status, status)
 
     def _legal_actions_for(self, state: dict[str, Any], player_id: str) -> list[dict[str, str]]:
@@ -395,7 +400,9 @@ class Blackjack(GamePlugin):
     def _settle(self, state: dict[str, Any]) -> dict[str, Any]:
         self._dealer_play(state)
         outcomes = [
-            self._outcome_for(state, player_id)
+            deepcopy(state.get("outcomes_by_player", {}).get(player_id))
+            if state["player_status_by_player"].get(player_id) == "resigned"
+            else self._outcome_for(state, player_id)
             for player_id in state["participant_order"]
         ]
         state["outcomes_by_player"] = {
@@ -429,6 +436,61 @@ class Blackjack(GamePlugin):
         state["turn_player_id"] = None
         state["flow"]["phase"] = "finished"
         return result
+
+    def accepts_active_count_after_resignation(self, count: int) -> bool:
+        return 1 <= count <= self.max_players
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("21点认输者不属于本桌")
+        value = self._value_for(state, resigned_player_id)
+        state["player_status_by_player"][resigned_player_id] = "resigned"
+        state.setdefault("outcomes_by_player", {})[resigned_player_id] = {
+            "player_id": resigned_player_id,
+            "outcome": "loss",
+            "result_text": "认输，负",
+            "total": int(value["total"]),
+            "soft": bool(value["soft"]),
+            "natural_blackjack": bool(value["blackjack"]),
+            "bust": bool(value["bust"]),
+            "resigned": True,
+        }
+
+    def result_for_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del resigned_player_id, participants
+        return self._settle(state)
+
+    def settlement_deltas(
+        self,
+        state: dict[str, Any],
+        result: dict[str, Any],
+        participants: list[dict[str, Any]],
+        stake: int,
+    ) -> dict[str, int]:
+        del state
+        outcomes = result.get("outcomes_by_player")
+        player_ids = [str(item["player_id"]) for item in participants]
+        if not isinstance(outcomes, dict) or set(outcomes) != set(player_ids):
+            raise ValueError("21点终局必须完整覆盖每席 outcome")
+        values = {"win": stake, "loss": -stake, "push": 0}
+        try:
+            return {
+                player_id: values[str(outcomes[player_id]["outcome"])]
+                for player_id in player_ids
+            }
+        except (KeyError, TypeError) as exc:
+            raise ValueError("21点终局 outcome 必须是 win/loss/push") from exc
 
     def apply_action(
         self,
@@ -653,7 +715,7 @@ class Blackjack(GamePlugin):
         participants: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         del actor, participants
-        return deepcopy(state.get("action_history", []))
+        return deepcopy(state.get("action_history", [])[-20:])
 
     def npc_legal_actions(
         self,

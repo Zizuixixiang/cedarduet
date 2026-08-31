@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-go-styles";
-  const STYLE_HREF = "/static/games/go.css?v=0.1.1";
+  const STYLE_HREF = "/static/games/go.css?v=0.1.2";
   const SIZE = 19;
   const LETTERS = "ABCDEFGHJKLMNOPQRST";
 
@@ -31,6 +31,27 @@
 
   function colorLabel(color) {
     return color === "black" ? "黑方" : color === "white" ? "白方" : "未知方";
+  }
+
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || context.state.phase === "finished"
+      || ["finished", "archived"].includes(context.room.status)
+    );
+  }
+
+  function finalScoreText(state) {
+    const result = state.game_result || {};
+    const score = state.final_score || result.scores || {};
+    const scoreLabel = (value) => (
+      value !== null && value !== "" && Number.isFinite(Number(value)) ? Number(value) : "–"
+    );
+    const black = scoreLabel(score.black);
+    const white = scoreLabel(score.white);
+    const winnerColor = state.winner_color || result.winner_color;
+    const outcome = winnerColor ? `${colorLabel(winnerColor)}获胜` : "和棋";
+    return `最终计分 黑 ${black} / 白 ${white} · ${outcome}`;
   }
 
   function coordinate(row, col) {
@@ -68,7 +89,8 @@
     const state = context.state;
     const card = document.createElement("article");
     const isViewer = participant && participant.player_id === viewerId(context);
-    const isCurrent = participant
+    const terminal = isTerminalState(context);
+    const isCurrent = !terminal && participant
       && participant.player_id === context.room.current_player_id;
     const color = participant && participant.token;
     card.className = [
@@ -95,8 +117,8 @@
     const captures = Number(state.captures && state.captures[color]) || 0;
     detail.textContent = `${colorLabel(color)} · 提子 ${captures}`;
     const turn = document.createElement("span");
-    turn.className = "go-player-turn";
-    turn.textContent = isCurrent ? "▶ 当前行动" : "等待";
+    turn.className = `go-player-turn${terminal ? " terminal" : ""}`;
+    turn.textContent = terminal ? "终局" : (isCurrent ? "▶ 当前行动" : "等待");
     copy.append(name, detail);
     card.append(avatar, copy, turn);
     return card;
@@ -225,12 +247,19 @@
   function renderControls(context) {
     const {controls, state} = context;
     const legalMap = legalActionMap(context);
+    const terminal = isTerminalState(context);
     const status = document.createElement("div");
-    status.className = `go-phase-status ${state.phase === "scoring" ? "scoring" : "play"}`;
+    status.className = `go-phase-status ${terminal ? "finished" : (
+      state.phase === "scoring" ? "scoring" : "play"
+    )}`;
     const title = document.createElement("strong");
-    title.textContent = state.phase === "scoring" ? "死子双方确认" : "行棋阶段";
+    title.textContent = terminal
+      ? "对局结束"
+      : (state.phase === "scoring" ? "死子双方确认" : "行棋阶段");
     const detail = document.createElement("small");
-    if (state.phase === "scoring") {
+    if (terminal) {
+      detail.textContent = finalScoreText(state);
+    } else if (state.phase === "scoring") {
       const confirmed = Array.isArray(state.confirmed_player_ids)
         ? state.confirmed_player_ids.length : 0;
       const score = state.score_preview || {};
@@ -240,6 +269,7 @@
     }
     status.append(title, detail);
     controls.appendChild(status);
+    if (terminal) return;
     if (state.phase === "play") {
       controls.appendChild(controlButton(
         "PASS",

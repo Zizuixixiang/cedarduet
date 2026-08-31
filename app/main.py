@@ -319,6 +319,8 @@ def _pending_ai_response(room: dict, player_id: str, message: str) -> dict:
         "room_id": room["room_id"],
         "game": room["game_type"],
         "stake": room.get("stake", 0),
+        "stake_label": room.get("stake_label", "娱乐局"),
+        "stake_hint": room.get("stake_hint", ""),
         "confirmation_decision": decision,
     }
     if room["status"] == "pending":
@@ -356,10 +358,45 @@ def _bootstrap_ai_response(
     return payload
 
 
-def _terminal_fields(room: dict) -> dict:
+def _terminal_fields(room: dict, player_id: str | None = None) -> dict:
     winner = room.get("winner")
     stake = room.get("stake", 0)
+    game_result = room.get("result") or {}
+    explicit_deltas = game_result.get("settlement_deltas")
     balances = _chip_balances(room)
+    if (
+        isinstance(explicit_deltas, dict)
+        and not game_result.get("settlement_legacy_two_player")
+    ):
+        own_delta = explicit_deltas.get(player_id) if player_id is not None else None
+        settlement = {
+            "stake": stake,
+            "delta": own_delta,
+            "deltas": dict(explicit_deltas),
+        }
+        if balances is not None:
+            settlement["balances"] = balances
+        participant = next(
+            (
+                item for item in room.get("participants", [])
+                if item["player_id"] == player_id
+            ),
+            None,
+        )
+        if participant is not None and participant.get("participant_kind") in {
+            None, "bound_machine"
+        } and participant.get("role") == "ai":
+            settlement["balance"] = get_wallet("ai", player_id)["balance"]
+        return {
+            "winner": winner,
+            "winner_player_id": room.get("winner_player_id"),
+            "result": (
+                "win" if own_delta is not None and own_delta > 0
+                else "loss" if own_delta is not None and own_delta < 0
+                else "draw"
+            ),
+            "settlement": settlement,
+        }
     if balances is None:
         return {
             "winner": winner,
@@ -415,7 +452,7 @@ def _move_delta_response(
                 payload["events"] = events
         if room["status"] in {"finished", "archived"}:
             payload["room_status"] = room["status"]
-            payload.update(_terminal_fields(room))
+            payload.update(_terminal_fields(room, player_id))
         return payload
     projected_room = project_mcp_room_for_viewer(room, player_id)
     payload = {
@@ -446,7 +483,7 @@ def _move_delta_response(
         if events:
             payload["events"] = events
     if room["status"] in {"finished", "archived"}:
-        payload.update(_terminal_fields(projected_room))
+        payload.update(_terminal_fields(projected_room, player_id))
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
     if unlocks:
         payload["unlocks"] = unlocks
@@ -1714,7 +1751,7 @@ async def _mcp_play_impl(body: McpPlayBody):
             "your_action": "leave",
         }
         if room["status"] in {"finished", "archived"}:
-            payload.update(_terminal_fields(room))
+            payload.update(_terminal_fields(room, body.player_id))
         return payload
 
     if body.action == "resign":

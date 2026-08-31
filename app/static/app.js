@@ -837,7 +837,11 @@ function renderRooms(rooms) {
     meta.textContent = `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
     const stake = document.createElement("span");
     stake.className = "room-stake";
-    stake.textContent = summary.stake_label || (summary.stake > 0 ? `🪙${summary.stake}/人` : "娱乐局");
+    const stakeLabel = summary.stake_label
+      || (summary.stake > 0 ? `🪙${summary.stake}/人` : "娱乐局");
+    stake.textContent = summary.stake_hint
+      ? `${stakeLabel}（${summary.stake_hint}）`
+      : stakeLabel;
     copy.append(title, meta, stake);
 
     const state = document.createElement("span");
@@ -957,7 +961,10 @@ function renderPendingInvitations(invitations = [], outgoingRooms = []) {
     title.title = title.textContent;
     const meta = document.createElement("span");
     meta.className = "pending-meta";
-    meta.textContent = `棋种：${invitation.game_name} · ${invitation.stake_label}`;
+    const stakeText = invitation.stake_hint
+      ? `${invitation.stake_label}（${invitation.stake_hint}）`
+      : invitation.stake_label;
+    meta.textContent = `棋种：${invitation.game_name} · ${stakeText}`;
     copy.append(title, meta);
     const accept = document.createElement("button");
     accept.className = "pixel-btn";
@@ -983,7 +990,10 @@ function renderPendingInvitations(invitations = [], outgoingRooms = []) {
     title.textContent = `${summary.game_name} · 房间 ${summary.room_id} 已创建`;
     const meta = document.createElement("span");
     meta.className = "pending-meta";
-    meta.textContent = `${summary.stake_label} · ${pendingConfirmationText(summary)}`;
+    const stakeText = summary.stake_hint
+      ? `${summary.stake_label}（${summary.stake_hint}）`
+      : summary.stake_label;
+    meta.textContent = `${stakeText} · ${pendingConfirmationText(summary)}`;
     copy.append(title, meta);
     const view = document.createElement("button");
     view.className = "pixel-btn secondary";
@@ -1395,6 +1405,30 @@ function selectedGameRequirement() {
   };
 }
 
+function resolvedStakeMetadata(game, stake) {
+  const value = String(stake);
+  return {
+    label: String(game?.stake_label || "🪙X/人").replaceAll("X", value),
+    hint: String(game?.stake_hint || "").replaceAll("X", value),
+  };
+}
+
+function renderSelectedStakeHint() {
+  const gameType = $("gameType").value;
+  const game = identity && Array.isArray(identity.games)
+    ? identity.games.find((item) => item.game_type === gameType)
+    : null;
+  const stake = Number($("stake").value);
+  const previewStake = Number.isInteger(stake) && stake > 0 ? stake : "X";
+  const metadata = resolvedStakeMetadata(game, previewStake);
+  const copy = metadata.hint
+    ? `${metadata.label}（${metadata.hint}）`
+    : metadata.label;
+  $("gameStakeHint").textContent = stake > 0
+    ? copy
+    : `0 为娱乐局；非零时：${copy}`;
+}
+
 function selectedTargetPlayerCount() {
   const {maxPlayers} = selectedGameRequirement();
   if (maxPlayers <= 2) return 2;
@@ -1661,6 +1695,7 @@ async function loadIdentity({quiet = false} = {}) {
     renderUnreadBadges(identity.unread);
     syncGameTypeOptions(data.games || []);
     syncMachinePicker(data.machines || []);
+    renderSelectedStakeHint();
     const invitations = data.pending_invitations || [];
     const {outgoing, remainingRooms} = partitionLobbyPendingRooms(
       data.rooms || [], invitations
@@ -1921,6 +1956,11 @@ function connect4LandingRow(state, colIndex) {
 }
 
 function renderConnect4Board(board, state) {
+  const terminal = Boolean(
+    typeof room !== "undefined"
+    && room
+    && ["finished", "archived"].includes(room.status)
+  );
   const landingRows = Array.from(
     {length: state.cols},
     (_, colIndex) => connect4LandingRow(state, colIndex)
@@ -1932,10 +1972,16 @@ function renderConnect4Board(board, state) {
       const landingRow = landingRows[colIndex];
       cell.classList.add("column-button");
       cell.disabled = !canHumanMove() || landingRow < 0;
-      cell.ariaLabel = mark
-        ? `第 ${colIndex + 1} 列，第 ${rowIndex + 1} 行为${pieceDescription(mark)}；选择此列`
-        : `第 ${colIndex + 1} 列空位；选择后棋片落到第 ${landingRow + 1} 行`;
-      const selected = movesEqual(pendingMove, payload) && rowIndex === landingRow;
+      cell.ariaLabel = terminal
+        ? (mark
+          ? `第 ${colIndex + 1} 列，第 ${rowIndex + 1} 行为${pieceDescription(mark)}`
+          : `第 ${colIndex + 1} 列，第 ${rowIndex + 1} 行为空位`)
+        : (mark
+          ? `第 ${colIndex + 1} 列，第 ${rowIndex + 1} 行为${pieceDescription(mark)}；选择此列`
+          : `第 ${colIndex + 1} 列空位；选择后棋片落到第 ${landingRow + 1} 行`);
+      const selected = !terminal
+        && movesEqual(pendingMove, payload)
+        && rowIndex === landingRow;
       cell.classList.toggle("selected", selected);
       cell.setAttribute("aria-pressed", String(selected));
       if (selected) cell.classList.add(`preview-${state.marks.human.toLowerCase()}`);
@@ -2038,6 +2084,11 @@ function renderDotsBoard(board, state) {
 }
 
 function renderJungleBoard(board, state) {
+  const terminal = Boolean(
+    typeof room !== "undefined"
+    && room
+    && ["finished", "archived"].includes(room.status)
+  );
   const humanMark = state.marks.human;
   const rotated = humanMark === "O";
   const rowOrder = Array.from(
@@ -2074,12 +2125,14 @@ function renderJungleBoard(board, state) {
         cell.appendChild(terrainElement);
       }
       if (
-        selectedJungleCell
+        !terminal
+        && selectedJungleCell
         && selectedJungleCell.row === rowIndex
         && selectedJungleCell.col === colIndex
       ) cell.classList.add("selected-origin");
       if (
-        pendingMove
+        !terminal
+        && pendingMove
         && pendingMove.to_row === rowIndex
         && pendingMove.to_col === colIndex
       ) cell.classList.add("selected");
@@ -2097,8 +2150,9 @@ function renderJungleBoard(board, state) {
         + `${terrain ? `，${terrain.name}` : "，陆地"}`
         + `${piece ? `，${ownerDescription(owner)}的${JUNGLE_SYMBOLS[piece.split(":")[1]]}` : "，空位"}`
       );
-      cell.disabled = !canHumanMove();
+      cell.disabled = terminal || !canHumanMove();
       cell.addEventListener("click", () => {
+        if (terminal || !canHumanMove()) return;
         if (!selectedJungleCell) {
           if (!piece || !piece.startsWith(`${humanMark}:`)) return;
           selectedJungleCell = {row: rowIndex, col: colIndex};
@@ -2195,6 +2249,31 @@ function liarsBidSelectionFor(state) {
   return defaultLiarsBidSelection(state);
 }
 
+function xiangqiTerminalStatusText(state, targetRoom) {
+  const winnerId = targetRoom.winner_player_id
+    || (targetRoom.result || {}).winner_player_id;
+  const participants = Array.isArray(targetRoom.participants)
+    ? targetRoom.participants
+    : [];
+  const winner = participants.find(
+    (participant) => participant.player_id === winnerId
+  ) || participants.find(
+    (participant) => participant.token === state.winner_mark
+  ) || null;
+  const winnerName = winner
+    ? (winner.display_name || winner.player_id)
+    : (state.winner_mark === "X" ? "红方" : state.winner_mark === "O" ? "黑方" : "");
+  const reason = state.in_checkmate || state.terminal_reason === "checkmate"
+    ? "将死 · "
+    : (state.in_stalemate || state.terminal_reason === "stalemate" ? "困毙 · " : "");
+  if (state.winner_mark === "draw" || targetRoom.winner === "draw") {
+    return `${reason}对局结束 · 和棋`;
+  }
+  return winnerName
+    ? `${reason}对局结束 · ${winnerName}获胜`
+    : `${reason}对局结束`;
+}
+
 function rememberLiarsBidSelection(quantity, face) {
   liarsBidDraft = {
     roomId: room && room.room_id,
@@ -2206,6 +2285,13 @@ function rememberLiarsBidSelection(quantity, face) {
 }
 
 function renderXiangqiBoard(board, state) {
+  const terminal = Boolean(
+    ["finished", "archived"].includes(room.status)
+    || state.in_checkmate
+    || state.in_stalemate
+    || state.in_draw
+    || state.winner_mark
+  );
   const humanColor = state.marks && state.marks.human === "O" ? "b" : "r";
   const rotated = humanColor === "b";
   const rowOrder = Array.from(
@@ -2215,7 +2301,7 @@ function renderXiangqiBoard(board, state) {
     {length: 9}, (_, index) => rotated ? 8 - index : index
   );
   const legalMoves = Array.isArray(state.legal_moves) ? state.legal_moves : [];
-  const selectedMoves = selectedXiangqiCell
+  const selectedMoves = !terminal && selectedXiangqiCell
     ? legalMoves.filter((candidate) => (
       candidate.from_row === selectedXiangqiCell.row
       && candidate.from_col === selectedXiangqiCell.col
@@ -2248,7 +2334,8 @@ function renderXiangqiBoard(board, state) {
       if (displayRow === 4) cell.classList.add("river-top");
       if (displayRow === 5) cell.classList.add("river-bottom");
       if (
-        selectedXiangqiCell
+        !terminal
+        && selectedXiangqiCell
         && selectedXiangqiCell.row === rowIndex
         && selectedXiangqiCell.col === colIndex
       ) cell.classList.add("selected-origin");
@@ -2280,7 +2367,12 @@ function renderXiangqiBoard(board, state) {
         token.textContent = XIANGQI_SYMBOLS[pieceColor][pieceType];
         token.setAttribute("aria-hidden", "true");
         cell.appendChild(token);
-        if (pieceType === "k" && pieceColor === state.turn_color && state.in_check) {
+        if (
+          !terminal
+          && pieceType === "k"
+          && pieceColor === state.turn_color
+          && state.in_check
+        ) {
           cell.classList.add("in-check");
         }
       }
@@ -2321,13 +2413,15 @@ function renderXiangqiBoard(board, state) {
     });
   });
 
-  board.classList.toggle("in-check-state", Boolean(state.in_check));
-  if (state.in_check) {
+  board.classList.toggle("in-check-state", Boolean(state.in_check && !terminal));
+  if (terminal || state.in_check) {
     const notice = document.createElement("span");
-    notice.className = "xiangqi-check-notice";
+    notice.className = `xiangqi-check-notice${terminal ? " terminal" : ""}`;
     notice.setAttribute("role", "status");
     notice.setAttribute("aria-live", "polite");
-    notice.textContent = `${state.turn_color === "r" ? "红方" : "黑方"} · 将军`;
+    notice.textContent = terminal
+      ? xiangqiTerminalStatusText(state, room)
+      : `${state.turn_color === "r" ? "红方" : "黑方"} · 将军`;
     board.appendChild(notice);
   }
 
@@ -2335,6 +2429,12 @@ function renderXiangqiBoard(board, state) {
 
 function renderLiarsDice(board, state) {
   const flow = state.flow || {};
+  const terminal = Boolean(
+    (typeof room !== "undefined"
+      && room
+      && ["finished", "archived"].includes(room.status))
+    || flow.phase === "finished"
+  );
   const roundNumber = flow.round_number;
   const outcome = state.last_round_result;
   const isHistoricalResult = Boolean(
@@ -2343,11 +2443,13 @@ function renderLiarsDice(board, state) {
     && Number.isInteger(roundNumber)
     && outcome.round < roundNumber
   );
-  const awaitingRoundAcknowledgement = (
+  const awaitingRoundAcknowledgement = !terminal && (
     flow.phase === "awaiting_round_acknowledgement"
   );
   const showRoundResult = (
-    awaitingRoundAcknowledgement || liarsRoundResultIsVisible(state)
+    (terminal && Boolean(outcome))
+    || awaitingRoundAcknowledgement
+    || liarsRoundResultIsVisible(state)
   );
   let result = null;
   if (outcome && showRoundResult) {
@@ -2413,6 +2515,25 @@ function renderLiarsDice(board, state) {
     result.appendChild(reveal);
   }
   if (awaitingRoundAcknowledgement) {
+    if (result) board.appendChild(result);
+    return;
+  }
+
+  if (terminal) {
+    const terminalReview = document.createElement("section");
+    terminalReview.className = "liars-current-round liars-terminal-review";
+    terminalReview.ariaLabel = "吹牛骰子整局终局复盘";
+    const terminalHeading = document.createElement("div");
+    terminalHeading.className = "liars-round-heading";
+    const terminalTitle = document.createElement("strong");
+    terminalTitle.textContent = Number.isInteger(roundNumber)
+      ? `第 ${roundNumber} 轮 · 已结算`
+      : "本局已结束";
+    const terminalStatus = document.createElement("span");
+    terminalStatus.textContent = "整局已结束，仅保留终局复盘";
+    terminalHeading.append(terminalTitle, terminalStatus);
+    terminalReview.appendChild(terminalHeading);
+    board.appendChild(terminalReview);
     if (result) board.appendChild(result);
     return;
   }
@@ -3150,10 +3271,14 @@ function tableParticipantsFor(targetRoom) {
 function createParticipantBadge(participant, targetRoom) {
   const viewer = viewerParticipantFor(targetRoom);
   const isViewer = Boolean(viewer && participant.player_id === viewer.player_id);
+  const isCurrent = Boolean(
+    targetRoom.status === "playing"
+    && participant.player_id === targetRoom.current_player_id
+  );
   const badge = document.createElement("article");
   badge.className = `room-participant seat-${participant.seat_index}`;
   badge.classList.toggle("viewer", isViewer);
-  if (participant.player_id === targetRoom.current_player_id) {
+  if (isCurrent) {
     badge.classList.add("current");
   }
   if (!participant.active || participant.activity_state !== "active") {
@@ -3168,7 +3293,7 @@ function createParticipantBadge(participant, targetRoom) {
   if (participant.activity_state === "eliminated") states.push("已淘汰");
   else if (participant.activity_state === "inactive") states.push("暂停行动");
   else if (participant.activity_state === "skipped") states.push("本轮跳过");
-  badge.setAttribute("aria-current", participant.player_id === targetRoom.current_player_id ? "true" : "false");
+  badge.setAttribute("aria-current", isCurrent ? "true" : "false");
   if (isViewer) badge.setAttribute("aria-label", `${participant.display_name || participant.player_id}，我的席位`);
   const avatarWrap = document.createElement("span");
   avatarWrap.className = "room-participant-avatar";
@@ -3193,9 +3318,13 @@ function createParticipantBadge(participant, targetRoom) {
   const fragments = Object.entries(metadata).map(
     ([key, value]) => `${metadataLabels[key] || key} ${value}`
   );
-  if (participant.player_id === targetRoom.current_player_id) fragments.unshift("▶ 正在行动");
+  if (isCurrent) fragments.unshift("▶ 正在行动");
   if (isViewer) fragments.unshift("你的席位");
   if (states.length) fragments.push(states.join("/"));
+  if (Number.isInteger(participant.settlement_delta)) {
+    const delta = participant.settlement_delta;
+    fragments.push(`结算 ${delta > 0 ? "+" : ""}${delta}`);
+  }
   detail.textContent = fragments.join(" · ");
   detail.classList.toggle("hidden", !fragments.length);
   badge.append(avatarWrap, copy, detail);
@@ -3423,7 +3552,11 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
   $("turn").classList.toggle("my-turn", humanCanMove);
-  $("roomStake").textContent = room.stake_label || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
+  const roomStakeLabel = room.stake_label
+    || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
+  $("roomStake").textContent = room.stake_hint
+    ? `${roomStakeLabel}（${room.stake_hint}）`
+    : roomStakeLabel;
   const roundText = authoritativeRoundText(room);
   $("roundText").textContent = roundText;
   $("roundMeta").classList.toggle("hidden", !roundText);
@@ -3433,7 +3566,20 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("resignButton").disabled = room.status !== "playing";
   $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
-  $("resultBannerText").textContent = resultText;
+  const settlementEntries = isTerminal(room) && Array.isArray(room.participants)
+    ? room.participants.filter(
+      (participant) => Number.isInteger(participant.settlement_delta)
+    )
+    : [];
+  const settlementText = settlementEntries.length
+    ? `筹码结算 ${settlementEntries.map((participant) => {
+      const delta = participant.settlement_delta;
+      return `${participant.display_name || participant.player_id} ${delta > 0 ? "+" : ""}${delta}`;
+    }).join(" / ")}`
+    : "";
+  $("resultBannerText").textContent = settlementText
+    ? `${resultText} · ${settlementText}`
+    : resultText;
   renderRetention(room);
   showWaitModeModalOnce(room);
   showNotice(
@@ -3722,9 +3868,13 @@ $("gameCategory").addEventListener("change", gameCategoryChanged);
 $("gameType").addEventListener("change", () => {
   updateGameTokenEstimate();
   configureParticipantPicker();
+  renderSelectedStakeHint();
 });
 $("mode").addEventListener("change", updateCreateButtonState);
-$("stake").addEventListener("input", updateCreateButtonState);
+$("stake").addEventListener("input", () => {
+  updateCreateButtonState();
+  renderSelectedStakeHint();
+});
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
 $("notificationBell").addEventListener("click", openNotificationList);
 $("closeNotificationModalButton").addEventListener("click", closeNotificationModal);

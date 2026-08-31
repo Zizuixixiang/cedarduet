@@ -2,7 +2,9 @@
   "use strict";
 
   const STYLE_ID = "duel-game-train-cards-styles";
-  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.2";
+  const STYLE_HREF = "/static/games/train_cards.css?v=1.0.8";
+  const COLLECTION_HOLD_MS = 600;
+  const COLLECTION_COLLAPSE_MS = 220;
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -46,6 +48,14 @@
       || "玩家";
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || (context.state.flow || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function cardName(card) {
     if (!card) return "未知牌";
     if (card.rank === "small_joker") return "小王";
@@ -85,7 +95,7 @@
   function lastActionSummary(context) {
     const action = context.state.last_action;
     if (!action || action.action !== "flip") {
-      return "等待第一张牌驶上轨道";
+      return isTerminalState(context) ? "本局已结束" : "等待第一张牌驶上轨道";
     }
     const actor = participantName(context, action.player_id);
     const card = cardName(action.revealed_card);
@@ -132,6 +142,151 @@
     return review;
   }
 
+  function actionFingerprint(context, action) {
+    if (!action || action.action !== "flip" || !action.revealed_card) return "";
+    const room = context.room || {};
+    const flow = context.state && context.state.flow || {};
+    const revision = room.revision === undefined || room.revision === null
+      ? flow.turn_number || ""
+      : room.revision;
+    return [
+      room.room_id || "train-cards",
+      revision,
+      action.player_id || "",
+      action.revealed_card.id || "",
+      Number(action.collected_count) || 0,
+    ].join(":");
+  }
+
+  function collectedCardsFor(context, action) {
+    if (Array.isArray(action && action.collected_cards) && action.collected_cards.length) {
+      return action.collected_cards;
+    }
+    const collection = context.state && context.state.last_collection;
+    return Array.isArray(collection && collection.cards) ? collection.cards : [];
+  }
+
+  function scheduleCollectionPhase(context, transition, windowRef) {
+    if (!windowRef || typeof windowRef.setTimeout !== "function") return;
+    if (transition.phase === "holding" && !transition.holdScheduled) {
+      transition.holdScheduled = true;
+      windowRef.setTimeout(() => {
+        const current = context.uiState.trainCardsCollectionTransition;
+        if (current !== transition || current.phase !== "holding") return;
+        current.phase = "collecting";
+        context.helpers.rerender();
+      }, COLLECTION_HOLD_MS);
+      return;
+    }
+    if (transition.phase === "collecting" && !transition.collapseScheduled) {
+      transition.collapseScheduled = true;
+      windowRef.setTimeout(() => {
+        const current = context.uiState.trainCardsCollectionTransition;
+        if (current !== transition || current.phase !== "collecting") return;
+        context.uiState.trainCardsCollectionTransition = null;
+        context.helpers.rerender();
+      }, COLLECTION_COLLAPSE_MS);
+    }
+  }
+
+  function tablePresentation(context, documentRef) {
+    const finalCards = Array.isArray(context.state.table_cards)
+      ? context.state.table_cards
+      : [];
+    const uiState = context.uiState || (context.uiState = {});
+    const action = context.state.last_action;
+    const fingerprint = actionFingerprint(context, action);
+    const existing = uiState.trainCardsCollectionTransition;
+    const windowRef = documentRef && documentRef.defaultView || window;
+
+    if (existing && existing.fingerprint === fingerprint) {
+      scheduleCollectionPhase(context, existing, windowRef);
+      const revealIndex = existing.revealPending ? existing.cards.length - 1 : -1;
+      existing.revealPending = false;
+      return {
+        cards: existing.cards,
+        collectionStart: existing.collectionStart,
+        phase: existing.phase,
+        revealIndex,
+      };
+    }
+    if (!fingerprint || uiState.trainCardsPresentedActionFingerprint === fingerprint) {
+      return {cards: finalCards, collectionStart: -1, phase: "final", revealIndex: -1};
+    }
+
+    uiState.trainCardsPresentedActionFingerprint = fingerprint;
+    const collectedCards = collectedCardsFor(context, action);
+    const collectedCount = Math.max(
+      Number(action && action.collected_count) || 0,
+      Number(context.state.last_collection && context.state.last_collection.count) || 0
+    );
+    if (collectedCount > 0 && collectedCards.length) {
+      const transition = {
+        fingerprint,
+        phase: "holding",
+        cards: finalCards.concat(collectedCards),
+        collectionStart: finalCards.length,
+        revealPending: true,
+        holdScheduled: false,
+        collapseScheduled: false,
+      };
+      uiState.trainCardsCollectionTransition = transition;
+      scheduleCollectionPhase(context, transition, windowRef);
+      transition.revealPending = false;
+      return {
+        cards: transition.cards,
+        collectionStart: transition.collectionStart,
+        phase: transition.phase,
+        revealIndex: transition.cards.length - 1,
+      };
+    }
+
+    uiState.trainCardsCollectionTransition = null;
+    return {
+      cards: finalCards,
+      collectionStart: -1,
+      phase: "final",
+      revealIndex: finalCards.length - 1,
+    };
+  }
+
+  function restoreTrackPosition(context, track, tableCards) {
+    const documentRef = track.ownerDocument || context.board.ownerDocument || window.document;
+    const uiState = context.uiState || (context.uiState = {});
+    const tail = tableCards.length ? tableCards[tableCards.length - 1] : null;
+    const fingerprint = `${tableCards.length}:${tail && tail.id || ""}`;
+    const followNewCard = uiState.trainCardsTableFingerprint !== fingerprint;
+    uiState.trainCardsTableFingerprint = fingerprint;
+
+    track.addEventListener("scroll", () => {
+      const scrollLeft = Number(track.scrollLeft);
+      if (Number.isFinite(scrollLeft)) {
+        uiState.trainCardsTrackScrollLeft = Math.max(0, scrollLeft);
+      }
+    }, {passive: true});
+
+    const restore = () => {
+      const maxScrollLeft = Math.max(
+        0,
+        Number(track.scrollWidth || 0) - Number(track.clientWidth || 0)
+      );
+      const savedScrollLeft = Number(uiState.trainCardsTrackScrollLeft);
+      const target = followNewCard
+        ? maxScrollLeft
+        : Math.min(
+          maxScrollLeft,
+          Number.isFinite(savedScrollLeft) ? Math.max(0, savedScrollLeft) : 0
+        );
+      track.scrollLeft = target;
+      uiState.trainCardsTrackScrollLeft = target;
+    };
+    restore();
+    const windowRef = documentRef && documentRef.defaultView || window;
+    if (windowRef && typeof windowRef.requestAnimationFrame === "function") {
+      windowRef.requestAnimationFrame(restore);
+    }
+  }
+
   function renderBoard(context) {
     const documentRef = context.board.ownerDocument || window.document;
     ensureStylesheet(documentRef);
@@ -141,6 +296,9 @@
       large: true,
       ariaLabel: "开火车公开牌列",
     });
+    const presentation = tablePresentation(context, documentRef);
+    const tableCards = presentation.cards;
+    const terminal = isTerminalState(context);
     const game = element(documentRef, "div", "train-cards-game");
     const header = element(documentRef, "header", "train-cards-header");
     const title = element(documentRef, "div", "train-cards-title");
@@ -149,16 +307,15 @@
       element(documentRef, "strong", "", "开火车")
     );
     const metrics = element(documentRef, "div", "train-cards-metrics");
-    const tableCards = Array.isArray(context.state.table_cards)
-      ? context.state.table_cards
-      : [];
     metrics.append(
       element(documentRef, "span", "train-cards-metric", `桌面 ${tableCards.length} 张`),
       element(
         documentRef,
         "span",
         "train-cards-metric active",
-        `在局 ${(context.state.active_player_ids || []).length} 人`
+        terminal
+          ? "终局复盘"
+          : `在局 ${(context.state.active_player_ids || []).length} 人`
       )
     );
     header.append(title, metrics);
@@ -172,11 +329,18 @@
     );
     status.setAttribute("aria-live", "polite");
     const track = element(documentRef, "div", "train-cards-track");
+    track.dataset.transitionPhase = presentation.phase;
     track.setAttribute("role", "list");
     track.setAttribute("aria-label", `桌面公开牌列，共 ${tableCards.length} 张`);
     if (tableCards.length) {
       tableCards.forEach((card, index) => {
-        const wrapper = element(documentRef, "span", "train-cards-wagon");
+        const classNames = ["train-cards-wagon"];
+        if (index >= presentation.collectionStart && presentation.collectionStart >= 0) {
+          classNames.push("is-collected-segment");
+          if (presentation.phase === "collecting") classNames.push("is-collecting");
+        }
+        if (index === presentation.revealIndex) classNames.push("is-revealed");
+        const wrapper = element(documentRef, "span", classNames.join(" "));
         wrapper.setAttribute("role", "listitem");
         wrapper.style.setProperty("--wagon-index", index);
         wrapper.appendChild(createCard(documentRef, card));
@@ -187,7 +351,7 @@
         documentRef,
         "span",
         "train-cards-empty",
-        "轨道为空 · 轮到先手翻牌"
+        terminal ? "轨道为空 · 本局已结束" : "轨道为空 · 轮到先手翻牌"
       ));
     }
     table.append(status, track);
@@ -195,12 +359,14 @@
     if (review) table.appendChild(review);
     game.append(header, table);
     context.board.appendChild(game);
+    restoreTrackPosition(context, track, tableCards);
     return true;
   }
 
   function renderControls(context) {
     const documentRef = context.controls.ownerDocument || window.document;
     ensureStylesheet(documentRef);
+    const terminal = isTerminalState(context);
     const flipAction = (Array.isArray(context.legalActions) ? context.legalActions : [])
       .find((action) => action && action.action === "flip") || null;
     const panel = element(documentRef, "div", "train-cards-controls");
@@ -211,38 +377,67 @@
         documentRef,
         "strong",
         "",
-        context.canMove && flipAction ? "轮到你发车" : "等待列车轮转"
+        terminal
+          ? "本局已结束"
+          : (context.canMove && flipAction
+          ? "轮到你发车"
+          : `等待 ${participantName(context, context.room && context.room.current_player_id)} 翻牌`)
       ),
       element(
         documentRef,
         "span",
         "",
-        context.canMove && flipAction
+        terminal
+          ? "牌局已结算，不再翻牌"
+          : (context.canMove && flipAction
           ? "牌面由裁判安全翻开，无需选择或猜牌"
-          : "行动权会自动跳过已淘汰席位"
+          : "行动权会自动跳过已淘汰席位")
       )
     );
-    const button = element(documentRef, "button", "train-cards-flip-button", "翻下一张");
+    const button = element(
+      documentRef,
+      "button",
+      "train-cards-flip-button",
+      terminal ? "已结束" : "翻下一张"
+    );
     button.type = "button";
-    button.disabled = !context.canMove || !flipAction || Boolean(context.uiState.submitting);
-    button.setAttribute("aria-label", "翻开自己牌堆最上方一张牌");
+    button.disabled = terminal
+      || !context.canMove
+      || !flipAction
+      || Boolean(context.uiState.submitting);
+    button.setAttribute(
+      "aria-label",
+      terminal ? "本局已结束" : "翻开自己牌堆最上方一张牌"
+    );
     button.addEventListener("click", async () => {
-      if (!context.helpers.canMove() || !flipAction || context.uiState.submitting) return;
+      if (
+        terminal
+        || !context.helpers.canMove()
+        || !flipAction
+        || context.uiState.submitting
+      ) return;
       context.uiState.submitting = true;
-      context.helpers.rerender();
+      panel.setAttribute("aria-busy", "true");
+      if (
+        documentRef.activeElement === button
+        && typeof button.blur === "function"
+      ) button.blur();
+      button.disabled = true;
       const submitted = await context.helpers.submitMove({...flipAction});
       if (!submitted) {
         context.uiState.submitting = false;
         context.helpers.rerender();
       }
     });
-    panel.append(copy, button);
+    panel.appendChild(copy);
+    if (!terminal) panel.appendChild(button);
     context.controls.appendChild(panel);
     return true;
   }
 
   const renderer = Object.freeze({
     participantPresentation: "generic",
+    usesEmbeddedActionFeedback: true,
     usesStandardMoveConfirmation: false,
     ownsPrivateStatePresentation: true,
     renderBoard,

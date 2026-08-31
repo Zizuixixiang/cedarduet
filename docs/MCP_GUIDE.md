@@ -4,6 +4,11 @@
 `npc:*` 不能作为 MCP 身份。先用 `state` 取得 `revision`，落子时原样带回。陈旧
 revision 返回 409，调用方应重新 `state`，不得盲目重放。
 
+`rooms/new/accept/reject` 的 pending 结果包含短 `stake_label/stake_hint`，确认邀请前
+即可知道买入、计价单位、倍率或最大风险，不必等待 playing bootstrap。`resign` 是
+明确认输，非零筹码必按败方规则结算；`leave` 是独立的房间生命周期动作，不能与认输
+互换使用。
+
 本地 clone 可使用 `python -m app.local_mcp` 提供的标准 stdio adapter。它不接受
 调用方提供身份字段，固定以 `local-ai` 调用 loopback gateway，并由 gateway 注入
 绑定人类 `local-human`；adapter 仍通过本页同一个 `POST /mcp/play`，不直接调用内部
@@ -26,6 +31,11 @@ bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
 一次返回它从上次消费以来全部可见事件；终局、归档、取消、本人离席、淘汰或失活也会提前
 返回必要增量，避免永远等不到回合。游标前进后，同一事件不会再次返回。轮到当前小机
 时，隐藏信息游戏可额外返回 `private_state`。
+
+带筹码的自定义终局以 `room.result.settlement_deltas` 为权威。MCP `settlement.delta`
+是当前小机自己的真实整数 delta，`settlement.deltas` 是按稳定 `player_id` 的完整映射；
+多人终局不会伪造 `human/ai` 两格。仅普通双人固定 ±stake 终局继续保留旧
+`delta={"ai":...,"human":...}` 兼容形状。
 
 本地状态丢失或怀疑漏增量时可随时读取当前完整安全视图：
 
@@ -374,7 +384,7 @@ bootstrap 的参与者与结构化字段生成，因此不在裁判事件内重�
 
 ## 21点 `blackjack`
 
-人数为 2–6，支持系统 NPC，固定 `supports_stakes=false`。虚拟庄家不是 participant，
+人数为 2–6，支持系统 NPC，也支持非零 stake。虚拟庄家不是 participant，
 没有玩家 ID 或钱包。每个房间只进行一局，使用服务端持久化的 4 副标准牌 shoe；
 刷新、进程重启或重复读取不会重洗、重发或重抽。玩家按座位行动，只能从当前 viewer
 的 `private_state.legal_actions` 原样选择：
@@ -400,8 +410,8 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 hit 的裁判 delta 只补随机 `new_card`；stand 不发重复 delta，最后一家结束后才一次补庄家亮牌/补牌与 outcomes。
 `private_state` 至少包含查看者自己的权威 `hand`、`value`、`status` 和
 `legal_actions`。NPC 只能选择同一份服务端合法行动，不接收或推导 shoe 内容。
-正常结算和房间级终局（例如认输归档）都会翻开庄家暗牌，但仍不公开 shoe 或
-`card_id`。
+正常结算和房间级终局都会翻开庄家暗牌，但仍不公开 shoe 或 `card_id`。认输席记为
+`loss/-stake`；只要仍有参与者可对庄家完成该手，房间继续而不提前结算其他席。
 
 由于每名玩家分别与庄家比较，通用单赢家字段以 terminal `draw=true` 收口；真实结果
 在 `room.result` 与公共 `board_state.game_result` 中完整返回：
@@ -419,7 +429,9 @@ hit 的裁判 delta 只补随机 `new_card`；stand 不发重复 delta，最后�
 ```
 
 实际 outcome 还包含 `total/soft/natural_blackjack/bust`；庄家摘要包含相同的点数与
-自然牌/爆牌标记。这里没有 settlement delta，也不会创建、销毁或转移筹码。
+自然牌/爆牌标记。每席独立结算为胜 `+stake`、负 `-stake`、推和 `0`，自然牌不另付
+3:2；参与者总和可以非 0，差额由系统增发/回收。该非零和校验豁免只对 21点显式开启。
+NPC 席进入 `settlement_deltas`，但不创建钱包。
 
 ## UNO `uno`
 
@@ -447,11 +459,11 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 斗地主 `doudizhu`
 
-固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。普通叫分和 pass 的公开变化已全在 move 与前态中，不重发裁判 delta；若出牌 move 已带 `card_ids/pattern_type` 也不重复。兼容只提交短 `action_id` 的调用方时，裁判仅补本次公开的 `card_ids/pattern_type/pattern_label`。只有确定地主时另一次补 `landlord_player_id` 和随机公开的三个 `bottom_card_ids`。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
+固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。普通叫分和 pass 的公开变化已全在 move 与前态中，不重发裁判 delta；若出牌 move 已带 `card_ids/pattern_type` 也不重复。兼容只提交短 `action_id` 的调用方时，裁判仅补本次公开的 `card_ids/pattern_type/pattern_label`。只有确定地主时另一次补 `landlord_player_id` 和随机公开的三个 `bottom_card_ids`。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。认输者所在阵营立即判负并按当前 multiplier 结算；地主未定时采用确定性三人 forfeit：认输者 `-2×stake`，其余两席各 `+stake`。
 
 ## 掼蛋 `guandan`
 
-固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。MCP 的 `private_state.legal_actions` 为 `guandan_parametric_v1`：`hand` 是稳定索引的牌面列表，`options` 每行按 `fields` 给出 suffix/kind/pattern/main_rank/size/wild_count/suit 和一个可提交示例索引组。选择任一符合该权威语义项的本人手牌索引，排序后用 base36 且以逗号连接，提交 `action_id_prefix + suffix + "." + indexes`；pass/接风等无牌动作省略点号与 indexes。服务端将前缀绑定当前全部核心合法集，并把参数动作还原为实际核心 `action_id`；所有花色、牌面、赖子用法和牌型解释均可选，示例不限制其他合法索引组。不要构造未发布的语义项。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；进行中他人手牌不进入 bootstrap、delta 或 full_state，真实终局才以 `terminal_hands` 公开剩余牌。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
+固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。MCP 的 `private_state.legal_actions` 为 `guandan_parametric_v1`：`hand` 是稳定索引的牌面列表，`options` 每行按 `fields` 给出 suffix/kind/pattern/main_rank/size/wild_count/suit 和一个可提交示例索引组。选择任一符合该权威语义项的本人手牌索引，排序后用 base36 且以逗号连接，提交 `action_id_prefix + suffix + "." + indexes`；pass/接风等无牌动作省略点号与 indexes。服务端将前缀绑定当前全部核心合法集，并把参数动作还原为实际核心 `action_id`；所有花色、牌面、赖子用法和牌型解释均可选，示例不限制其他合法索引组。不要构造未发布的语义项。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；进行中他人手牌不进入 bootstrap、delta 或 full_state，真实终局才以 `terminal_hands` 公开剩余牌。带 stake 时获胜队两人各 +stake，败方两人各 -stake；任一席认输即其所在队判负。
 
 ## 炸金花 `zhajinhua`
 
@@ -471,7 +483,7 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 麻将 `mahjong`
 
-固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。进行中摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。`mahjong_delta` 是真正 patch：每次只发生变化的 `phase/turn_player_id/wall_remaining`、单张 `discard_added/discard_removed`、单个 `meld_added/meld_changed`与紧凑 `response`；不每步重发全部牌河或副露历史。终局才一次附 `game_result/terminal_hands`。调用方以 bootstrap 为底按事件顺序应用 patch，丢失时用 `full_state` 恢复。真实终局以 `terminal_hands` 公开各席剩余牌并补全暗杠，牌墙内容继续隐藏。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
+固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。进行中摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。`mahjong_delta` 是真正 patch：每次只发生变化的 `phase/turn_player_id/wall_remaining`、单张 `discard_added/discard_removed`、单个 `meld_added/meld_changed`与紧凑 `response`；不每步重发全部牌河或副露历史。终局才一次附 `game_result/terminal_hands`。调用方以 bootstrap 为底按事件顺序应用 patch，丢失时用 `full_state` 恢复。真实终局以 `terminal_hands` 公开各席剩余牌并补全暗杠，牌墙内容继续隐藏。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0；认输按娱乐筹码包赔，认输者 `-3×stake`、其余三家各 `+stake`。
 
 ## 翻翻棋 `banqi`
 
@@ -493,6 +505,8 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 孔的固定 node 坐标和营区，调用方应缓存。full_state 只重发当前 `pieces`、营区归属、
 进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，不重复 canonical
 path、固定 `nodes/camps` 或历史。
+六人桌有人认输时不会进入非法五人状态：认输者 `-5×stake`，其余五席各
+`+stake`。
 
 ## 国际象棋 `chess`
 

@@ -219,6 +219,22 @@ class GuandanPluginTests(unittest.TestCase):
             {item["player_id"]: 0 for item in self.players},
         )
 
+    def test_resignation_makes_resigning_team_lose(self):
+        result = self.game.result_for_resignation(
+            self.state, "human-1", self.players
+        )
+        self.assertEqual(result["winner_team"], "B")
+        self.assertEqual(result["winning_player_ids"], ["ai-1", "npc:two"])
+        self.assertEqual(
+            self.game.settlement_deltas(self.state, result, self.players, 9),
+            {
+                "human-1": -9,
+                "ai-1": 9,
+                "npc:one": -9,
+                "npc:two": 9,
+            },
+        )
+
 
 class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.3.2";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.3.3";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -48,6 +48,34 @@
     return POSITION_ORDER[difference];
   }
 
+  function isTerminalState(context) {
+    const state = context.state || {};
+    const room = context.room || {};
+    return Boolean(
+      context.isTerminal
+      || state.phase === "finished"
+      || (state.flow || {}).phase === "finished"
+      || ["finished", "archived"].includes(room.status)
+    );
+  }
+
+  function actionablePlayerId(context) {
+    if (isTerminalState(context)) return null;
+    const state = context.state || {};
+    if (!context.room || context.room.status !== "playing") return null;
+    const response = state.response_window;
+    if (response && response.current_responder_id) {
+      return response.current_responder_id;
+    }
+    if (
+      state.phase === "response"
+      || (state.flow || {}).phase === "response"
+    ) {
+      return null;
+    }
+    return state.turn_player_id || (context.room && context.room.current_player_id) || null;
+  }
+
   function publicTile(tile, {button = false} = {}) {
     if (!tile || tile.back) {
       const back = el("span", "mahjong-tile mahjong-tile-back");
@@ -81,9 +109,7 @@
     const state = context.state || {};
     const viewerId = context.viewer && context.viewer.player_id;
     const isViewer = participant.player_id === viewerId;
-    const current = participant.player_id === (
-      state.turn_player_id || (context.room && context.room.current_player_id)
-    );
+    const current = participant.player_id === actionablePlayerId(context);
     const seat = el("section", `mahjong-seat position-${position}`);
     seat.dataset.playerId = participant.player_id;
     seat.dataset.position = position;
@@ -110,9 +136,9 @@
     identity.append(avatar, name, badges);
 
     const turnIndicator = current
-      ? el("span", "mahjong-turn-indicator", "行动")
+      ? el("span", "mahjong-turn-indicator", "行动中")
       : null;
-    if (turnIndicator) turnIndicator.setAttribute("aria-label", "当前行动玩家");
+    if (turnIndicator) turnIndicator.setAttribute("aria-label", "当前行动玩家，行动中");
 
     const backs = el("div", "mahjong-opponent-hand");
     if (!isViewer) {
@@ -159,13 +185,17 @@
     const primary = el("strong", "mahjong-round", `${state.round_label || "东一局"} · 圈风${state.prevalent_wind || "东"}`);
     const wall = el("span", "mahjong-wall-count", `牌墙 ${Number(state.wall_remaining || 0)} 张`);
     const current = (context.participants || []).find(
-      (item) => item.player_id === state.turn_player_id
+      (item) => item.player_id === actionablePlayerId(context)
     );
     let actionText = current
       ? `当前：${current.display_name || current.player_id}（${state.seat_winds && state.seat_winds[current.player_id] || "?"}家）`
       : "本手已结束";
     const response = state.response_window;
-    if (response && response.current_responder_id) {
+    if (
+      current
+      && response
+      && response.current_responder_id === current.player_id
+    ) {
       const responder = (context.participants || []).find(
         (item) => item.player_id === response.current_responder_id
       );
@@ -200,9 +230,10 @@
 
   function ownHandNode(context) {
     const wrap = el("section", "mahjong-own-hand-wrap");
+    const terminal = isTerminalState(context);
+    if (terminal) delete context.uiState.mahjongSelectedTileId;
     const viewerId = context.viewer && context.viewer.player_id;
-    const turnPlayerId = (context.state && context.state.turn_player_id)
-      || (context.room && context.room.current_player_id);
+    const turnPlayerId = actionablePlayerId(context);
     wrap.classList.toggle("current", Boolean(viewerId && viewerId === turnPlayerId));
     const head = el("div", "mahjong-own-hand-head");
     const shanten = context.privateState && context.privateState.shanten;
@@ -212,23 +243,25 @@
       : `我的手牌 · ${shanten === 0 ? "听牌" : `${shanten} 向听`}${basis === "after_best_discard" ? "（最佳打牌后）" : ""}`;
     const scroll = el("div", "mahjong-own-hand-scroll");
     scroll.addEventListener("scroll", () => saveHandScroll(context, scroll), {passive: true});
-    const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
+    const legal = !terminal && Array.isArray(context.legalActions)
+      ? context.legalActions
+      : [];
     const discardById = new Map();
     legal.filter((action) => action.kind === "discard").forEach((action) => {
       const id = String(action.action_id || "").slice("discard:".length);
       discardById.set(id, action);
     });
-    const selected = context.uiState.mahjongSelectedTileId;
+    const selected = terminal ? null : context.uiState.mahjongSelectedTileId;
     const drawnId = context.privateState && context.privateState.drawn_tile_id;
     (context.privateState && context.privateState.hand || []).forEach((tile) => {
       const node = publicTile(tile, {button: true});
-      const selectable = discardById.has(String(tile.id));
+      const selectable = !terminal && discardById.has(String(tile.id));
       node.disabled = !selectable;
       node.classList.toggle("selected", selected === tile.id);
       node.classList.toggle("drawn", drawnId === tile.id);
       node.setAttribute("aria-pressed", String(selected === tile.id));
       node.addEventListener("click", () => {
-        if (!selectable) return;
+        if (terminal || !selectable) return;
         saveHandScroll(context, scroll);
         context.uiState.mahjongSelectedTileId = selected === tile.id ? null : tile.id;
         context.helpers.rerender();
@@ -374,8 +407,9 @@
   function renderControls(context) {
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const controls = el("div", "mahjong-controls");
-    if (context.isTerminal) {
+    if (isTerminalState(context)) {
       delete context.uiState.mahjongPendingActionId;
+      delete context.uiState.mahjongSelectedTileId;
       controls.appendChild(controlHint("本手已结束", "terminal"));
       context.controls.replaceChildren(controls);
       return;

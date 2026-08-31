@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.7";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.8";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -126,6 +126,37 @@
     ) || "玩家";
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || (context.state.flow || {}).phase === "finished"
+      || ["finished", "archived"].includes(context.room.status)
+    );
+  }
+
+  function terminalWinner(context) {
+    const winnerId = context.state.winner_player_id
+      || context.room.winner_player_id
+      || (context.room.result || {}).winner_player_id;
+    const participant = (context.participants || []).find(
+      (item) => item.player_id === winnerId
+    ) || null;
+    if (!winnerId) return null;
+    const color = colorForPlayer(context.state, winnerId);
+    return {
+      playerId: winnerId,
+      name: participant ? playerName(participant) : winnerId,
+      color,
+    };
+  }
+
+  function terminalResultCopy(context) {
+    const winner = terminalWinner(context);
+    return winner
+      ? `${winner.name} · ${COLOR_LABELS[winner.color]}获胜`
+      : "本局已结束";
+  }
+
   function homeCountForPlayer(state, playerId) {
     const planes = (state.planes || {})[playerId];
     return Array.isArray(planes)
@@ -165,6 +196,9 @@
 
   function createEdgeIdentity(documentRef, context, participant, color, point) {
     const homeCount = homeCountForPlayer(context.state, participant.player_id);
+    const current = context.room.status === "playing"
+      && !isTerminalState(context)
+      && participant.player_id === context.room.current_player_id;
     const item = documentRef.createElement("article");
     const viewerId = context.viewer && context.viewer.player_id;
     item.className = [
@@ -172,7 +206,7 @@
       "aeroplane-edge-participant",
       `seat-${participant.seat_index}`,
       `color-${color}`,
-      participant.player_id === context.room.current_player_id ? "current" : "",
+      current ? "current" : "",
       participant.player_id === viewerId ? "viewer" : "",
     ].filter(Boolean).join(" ");
     item.dataset.playerId = participant.player_id;
@@ -201,7 +235,10 @@
     name.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
     nameRow.append(name, createHomeCount(documentRef, homeCount));
     const label = documentRef.createElement("small");
-    label.textContent = COLOR_LABELS[color];
+    label.className = current ? "aeroplane-turn-state" : "";
+    label.textContent = current
+      ? `${COLOR_LABELS[color]} · 行动中`
+      : COLOR_LABELS[color];
     copy.append(nameRow, label);
     item.append(avatar, copy);
     return item;
@@ -601,6 +638,7 @@
   }
 
   function appendLegalTargets(documentRef, shell, context, quarterTurns) {
+    if (isTerminalState(context)) return;
     const state = context.state;
     const currentColor = colorForPlayer(state, context.room.current_player_id);
     const seen = new Set();
@@ -721,7 +759,9 @@
           if (!submitted) token.disabled = false;
         });
       }
-      if (room.current_player_id === playerId) token.dataset.currentPlayer = "true";
+      if (!isTerminalState(context) && room.current_player_id === playerId) {
+        token.dataset.currentPlayer = "true";
+      }
       shell.appendChild(token);
     });
   }
@@ -762,18 +802,23 @@
       state, context.viewer && context.viewer.player_id
     );
     board.dataset.viewerRotation = String(quarterTurns * 90);
+    board.dataset.phase = isTerminalState(context) ? "finished" : (state.flow || {}).phase;
 
     const root = documentRef.createElement("section");
-    root.className = "aeroplane-game";
+    root.className = `aeroplane-game${isTerminalState(context) ? " terminal" : ""}`;
     const heading = documentRef.createElement("header");
     heading.className = "aeroplane-board-heading";
     const current = (context.participants || []).find(
       (participant) => participant.player_id === room.current_player_id
     );
     const title = documentRef.createElement("strong");
-    title.textContent = `${playerName(current)} · ${COLOR_LABELS[colorForPlayer(state, room.current_player_id)]}`;
+    title.textContent = isTerminalState(context)
+      ? "本局已结束"
+      : `${playerName(current)} · ${COLOR_LABELS[colorForPlayer(state, room.current_player_id)]}`;
     const status = documentRef.createElement("span");
-    status.textContent = turnCopy(context);
+    status.textContent = isTerminalState(context)
+      ? terminalResultCopy(context)
+      : turnCopy(context);
     heading.append(title, status);
 
     const shell = documentRef.createElement("div");
@@ -798,9 +843,11 @@
     const lastRoll = state.last_roll;
     activity.appendChild(createDie(documentRef, lastRoll && lastRoll.value, true));
     const activityCopy = documentRef.createElement("span");
-    activityCopy.textContent = state.last_action_note || (
-      lastRoll ? `上一骰 ${lastRoll.value} 点` : "等待第一位玩家掷骰"
-    );
+    activityCopy.textContent = isTerminalState(context)
+      ? terminalResultCopy(context)
+      : (state.last_action_note || (
+        lastRoll ? `上一骰 ${lastRoll.value} 点` : "等待第一位玩家掷骰"
+      ));
     activity.appendChild(activityCopy);
     root.appendChild(heading);
     if (edgeRoster) root.appendChild(edgeRoster.top);
@@ -828,16 +875,20 @@
     const actionCopy = documentRef.createElement("div");
     actionCopy.className = "aeroplane-action-copy";
     const actionTitle = documentRef.createElement("strong");
-    actionTitle.textContent = phase === "awaiting_plane_choice"
-      ? `本次 ${Number((state.last_roll || {}).value || 0)} 点 · ${turnCopy(context)}`
-      : turnCopy(context);
+    actionTitle.textContent = isTerminalState(context)
+      ? terminalResultCopy(context)
+      : (phase === "awaiting_plane_choice"
+        ? `本次 ${Number((state.last_roll || {}).value || 0)} 点 · ${turnCopy(context)}`
+        : turnCopy(context));
     const streak = documentRef.createElement("span");
     const sixes = Number(state.consecutive_sixes || 0);
-    streak.textContent = sixes
-      ? `连续 6：${sixes} / 3${sixes === 2 ? "，下个 6 将触发惩罚" : ""}`
-      : (phase === "awaiting_plane_choice"
-        ? "点击棋盘上高亮的飞机完成行动"
-        : "本回合掷骰");
+    streak.textContent = isTerminalState(context)
+      ? "对局结束，不再掷骰或移动"
+      : (sixes
+        ? `连续 6：${sixes} / 3${sixes === 2 ? "，下个 6 将触发惩罚" : ""}`
+        : (phase === "awaiting_plane_choice"
+          ? "点击棋盘上高亮的飞机完成行动"
+          : "本回合掷骰"));
     actionCopy.append(actionTitle, streak);
     const rollButton = documentRef.createElement("button");
     rollButton.type = "button";

@@ -96,6 +96,14 @@
     return state.players && state.players[playerId] || {};
   }
 
+  function isTerminalState(context) {
+    return Boolean(
+      context.isTerminal
+      || ((context.state || {}).flow || {}).phase === "finished"
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
+  }
+
   function statusText(state, playerId) {
     const player = playerStatus(state, playerId);
     if (player.status && player.status !== "active") {
@@ -130,11 +138,13 @@
     const playerId = participant.player_id;
     const state = context.state;
     const player = playerStatus(state, playerId);
-    const current = context.room.current_player_id === playerId;
+    const current = !isTerminalState(context)
+      && context.room.status === "playing"
+      && context.room.current_player_id === playerId;
     const acting = Boolean(
       current
       && context.room.status === "playing"
-      && !context.isTerminal
+      && !isTerminalState(context)
     );
     const seat = element(
       documentRef,
@@ -331,6 +341,21 @@
     ensureStylesheet(documentRef);
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const uiState = context.uiState || {};
+    if (isTerminalState(context)) {
+      delete uiState.zhajinhuaPendingActionKey;
+      const shell = element(documentRef, "section", "zhajinhua-controls");
+      shell.setAttribute("aria-label", "炸金花终局");
+      const status = element(
+        documentRef,
+        "div",
+        "zhajinhua-control-status",
+        "本局已结束"
+      );
+      status.setAttribute("aria-live", "polite");
+      shell.appendChild(status);
+      context.controls.replaceChildren(shell);
+      return true;
+    }
     const riskyActions = new Set(["call", "raise", "compare", "fold"]);
     const pendingAction = legal.find(
       (action) => riskyActions.has(action.action)

@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-guandan-styles";
-  const STYLE_HREF = "/static/games/guandan.css?v=0.1.15";
+  const STYLE_HREF = "/static/games/guandan.css?v=0.1.16";
   const SUITS = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -41,6 +41,15 @@
   function playerName(context, playerId) {
     const item = participant(context, playerId);
     return (item && (item.display_name || item.player_id)) || playerId || "玩家";
+  }
+
+  function isMatchTerminal(context) {
+    return Boolean(
+      context.isTerminal
+      || ((context.state || {}).phase === "finished"
+        && (context.state || {}).match_result)
+      || ["finished", "archived"].includes((context.room || {}).status)
+    );
   }
 
   function cardName(card) {
@@ -185,7 +194,12 @@
     );
     seat.dataset.playerId = playerId;
     seat.dataset.seatIndex = String(item.seat_index);
-    seat.classList.toggle("current", context.room.current_player_id === playerId);
+    const terminal = isMatchTerminal(context);
+    const current = !terminal
+      && context.room.status === "playing"
+      && context.room.current_player_id === playerId;
+    seat.classList.toggle("current", current);
+    seat.setAttribute("aria-current", current ? "true" : "false");
     seat.classList.toggle("viewer", context.viewer && context.viewer.player_id === playerId);
     const passIds = new Set((context.state.current_trick || {}).pass_player_ids || []);
     seat.classList.toggle("passed", passIds.has(playerId));
@@ -201,9 +215,13 @@
     );
     const relation = position === "top"
       ? "对家" : position === "bottom" ? "我" : "对手";
-    const status = passIds.has(playerId)
-      ? "已过" : (metadata.deal_status || (context.room.current_player_id === playerId ? "行动中" : "在局"));
+    const status = terminal
+      ? "已结束"
+      : (current ? "行动中" : (passIds.has(playerId)
+        ? "已过" : (metadata.deal_status || "在局")));
     const meta = element(documentRef, "span", "guandan-seat-meta");
+    const statusNode = element(documentRef, "span", "guandan-seat-status", status);
+    statusNode.classList.toggle("acting", current);
     meta.append(
       element(documentRef, "span", "guandan-seat-relation", relation),
       element(
@@ -212,7 +230,7 @@
         "guandan-seat-level",
         `${metadata.level || (context.state.team_levels || {})[team] || "2"} 级`
       ),
-      element(documentRef, "span", "guandan-seat-status", status)
+      statusNode
     );
     words.append(title, meta);
     identity.append(avatar, words);
@@ -284,6 +302,11 @@
         element(documentRef, "strong", "", play.pattern && play.pattern.label || "出牌"),
         element(documentRef, "span", "", `${playerName(context, play.player_id)} · ${play.cards.length} 张`)
       );
+    } else if (isMatchTerminal(context)) {
+      heading.append(
+        element(documentRef, "strong", "", "终局桌面"),
+        element(documentRef, "span", "", "本局没有保留上一手")
+      );
     } else {
       heading.append(
         element(documentRef, "strong", "", trick.wind_follow ? "接风" : "等待领出"),
@@ -317,8 +340,13 @@
     const hand = context.privateState && Array.isArray(context.privateState.hand)
       ? context.privateState.hand : [];
     const displayHand = [...hand].reverse();
-    const selected = selectedIds(context);
-    const actions = cardActions(context);
+    const terminal = isMatchTerminal(context);
+    if (terminal) {
+      context.uiState.selectedCardIds = [];
+      context.uiState.chosenActionId = null;
+    }
+    const selected = terminal ? [] : selectedIds(context);
+    const actions = terminal ? [] : cardActions(context);
     const byId = new Map(hand.map((card) => [String(card.id), card]));
     const selectable = new Set(actions.flatMap((action) => action.card_ids.map(
       (id) => cardSignature(byId.get(String(id)))
@@ -332,12 +360,17 @@
         documentRef,
         "span",
         "",
-        `${hand.length} 张 · ${singleChoicePhase ? "选择 1 张" : "横向滑动，多选出牌"}`
+        terminal
+          ? `${hand.length} 张 · 终局复盘`
+          : `${hand.length} 张 · ${singleChoicePhase ? "选择 1 张" : "横向滑动，多选出牌"}`
       )
     );
     const scroller = element(documentRef, "div", "guandan-hand-scroll");
     scroller.setAttribute("role", "group");
-    scroller.setAttribute("aria-label", "我的私密手牌，可横向滚动选择");
+    scroller.setAttribute(
+      "aria-label",
+      terminal ? "我的终局剩余手牌" : "我的私密手牌，可横向滚动选择"
+    );
     scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
     displayHand.forEach((card) => {
       const cardId = String(card.id);
@@ -431,6 +464,16 @@
   function renderControls(context) {
     const documentRef = context.controls.ownerDocument || window.document;
     ensureStylesheet(documentRef);
+    if (isMatchTerminal(context)) {
+      context.uiState.selectedCardIds = [];
+      context.uiState.chosenActionId = null;
+      const panel = element(documentRef, "div", "guandan-controls");
+      const status = element(documentRef, "div", "guandan-selection-status");
+      status.appendChild(element(documentRef, "strong", "", "比赛已结束 · 终局复盘"));
+      panel.appendChild(status);
+      context.controls.appendChild(panel);
+      return true;
+    }
     const actions = cardActions(context);
     const exact = exactActions(context);
     const selected = selectedIds(context);
