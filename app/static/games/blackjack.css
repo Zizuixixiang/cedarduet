@@ -212,6 +212,7 @@
   color: #f3e5b9;
   font-size: 10px;
 }
+.blackjack-seat-result:empty { display: none; }
 .blackjack-result-summary {
   margin: 12px 0 0;
   padding: 9px 12px;
@@ -269,17 +270,20 @@
   .blackjack-dealer { min-height: 94px; padding-inline: 3px; }
   .blackjack-hand-copy { min-width: 82px; }
   .blackjack-player-region { max-height: min(330px, 42vh); }
-  .blackjack-players { grid-template-columns: 1fr; gap: 7px; }
-  .blackjack-seat { padding: 7px; }
-  .blackjack-seat > header { align-items: flex-start; }
+  .blackjack-players { grid-template-columns: 1fr; gap: 5px; }
+  .blackjack-seat { padding: 5px 7px 3px; }
+  .blackjack-seat > header { align-items: center; gap: 6px; }
   .blackjack-seat-identity { grid-template-columns: 22px minmax(0, 1fr); gap: 6px; }
+  .blackjack-seat-identity-copy { gap: 0; line-height: 1.1; }
   .blackjack-seat-avatar { width: 22px; height: 22px; max-width: 22px; max-height: 22px; }
   .blackjack-card { width: clamp(38px, 13vw, 50px); height: clamp(55px, 18vw, 72px); }
   .blackjack-cards { min-height: 58px; }
-  .blackjack-action-bar { gap: 8px; padding: 8px; }
+  .blackjack-action-bar { gap: 8px; padding: 5px 8px; }
   .blackjack-action-copy { max-width: 34%; }
   .blackjack-action-buttons { flex: 1 1 auto; }
-  .blackjack-action { min-width: 0; min-height: 48px; flex: 1 1 0; padding-inline: 8px; }
+  .blackjack-action { min-width: 0; min-height: 40px; flex: 1 1 0; padding: 3px 8px; }
+  .blackjack-action strong { line-height: 1.1; }
+  .blackjack-action span { line-height: 1; }
 }
 
 @media (max-width: 360px) {
