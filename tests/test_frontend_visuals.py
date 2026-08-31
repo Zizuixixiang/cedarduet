@@ -263,12 +263,16 @@ const isTerminal = (room) => room.status === "finished";
 const roomTurnText = () => "对局已结束";
 ''' + sources + r'''
 const embedded = {game_type: "embedded", status: "playing"};
+const zhajinhua = {game_type: "zhajinhua", status: "playing"};
 const generic = {game_type: "generic", status: "playing"};
 const longMoveResult = "人类落子成功，已通知等待中的 AI。掷出 6 点，请从 4 架可移动飞机中选择。";
 assert.equal(roomActionNotice(embedded, "现在轮到你落子", true), "");
 assert.equal(roomActionNotice(embedded, longMoveResult, true), "");
 assert.equal(roomActionNotice(generic, longMoveResult, true), longMoveResult);
 assert.equal(roomActionNotice(generic, "", true), "现在轮到你落子");
+assert.equal(roomActionNotice(zhajinhua, "", true), "现在轮到你行动");
+assert.equal(roomActionNotice(zhajinhua, "现在轮到你落子", true), "现在轮到你行动");
+assert.equal(roomActionNotice(zhajinhua, longMoveResult, true), longMoveResult);
 assert.equal(
   roomActionNotice({game_type: "generic", status: "finished"}, "", false),
   "对局已结束"

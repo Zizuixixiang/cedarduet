@@ -188,6 +188,21 @@
 }
 
 .zhajinhua-seat-badges { min-width: 0; gap: 5px; }
+.zhajinhua-seat.has-acting-state .zhajinhua-seat-badges { flex-wrap: wrap; }
+.zhajinhua-acting-state {
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  border: 1px solid rgba(255,220,139,.88);
+  border-radius: 999px;
+  color: #3d2908;
+  background: linear-gradient(145deg, #ffe8a5, #e7bd65);
+  box-shadow: 0 0 0 2px rgba(231,189,101,.2), 0 2px 7px rgba(0,0,0,.2);
+  font: 850 9px/1.2 system-ui, sans-serif;
+  white-space: nowrap;
+}
 .zhajinhua-status,
 .zhajinhua-contribution {
   padding: 2px 5px;
@@ -358,7 +373,13 @@
 
 @media (max-width: 599px) {
   .board.zhajinhua { width: 100%; max-width: 100%; }
-  .zhajinhua-table { min-height: 430px; border-width: 5px; border-radius: 22px; }
+  .zhajinhua-table {
+    min-height: 418px;
+    gap: 7px;
+    padding-block: 10px 9px;
+    border-width: 5px;
+    border-radius: 22px;
+  }
   .zhajinhua-opponents { grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); }
   .zhajinhua-seat.is-opponent { padding-inline: 5px; }
   .zhajinhua-seat.is-opponent .zhajinhua-card {
@@ -369,12 +390,54 @@
   .zhajinhua-seat.is-opponent .zhajinhua-card:first-child { margin-left: 0; }
   .zhajinhua-seat.is-opponent .zhajinhua-card-corner { top: 2px; left: 3px; }
   .zhajinhua-seat.is-opponent .zhajinhua-card-center { font-size: 20px; }
+  .zhajinhua-actions { row-gap: 5px; }
+  .zhajinhua-action { min-height: 40px; padding-block: 6px; }
+  .zhajinhua-actions[data-action-count="6"] {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 7px;
+    row-gap: 5px;
+  }
+  .zhajinhua-actions[data-action-count="6"] .zhajinhua-action {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 12px;
+  }
+
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-table {
+    min-height: 398px;
+    grid-template-rows: auto minmax(112px, 1fr) auto;
+    gap: 5px;
+    padding-block: 8px;
+  }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-opponents { row-gap: 4px; }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-seat.is-opponent {
+    gap: 3px;
+    padding-block: 4px;
+  }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-seat.is-opponent .zhajinhua-hand {
+    padding-top: 0;
+  }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-seat.is-opponent .zhajinhua-card.is-hidden {
+    height: clamp(38px, 11vw, 52px);
+  }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-center { gap: 2px; }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-pot-value {
+    min-width: 62px;
+    min-height: 62px;
+    border-width: 4px;
+    font-size: clamp(20px, 4.5vw, 30px);
+  }
+  .zhajinhua-game[data-player-count="6"] .zhajinhua-compare {
+    min-height: 23px;
+    padding-block: 3px;
+  }
 }
 
 @media (max-width: 375px) {
-  .zhajinhua-topbar { align-items: flex-start; }
-  .zhajinhua-metrics { display: grid; grid-template-columns: repeat(2, auto); }
-  .zhajinhua-metric:last-child { grid-column: 1 / -1; justify-content: center; }
+  .zhajinhua-topbar { align-items: center; }
+  .zhajinhua-metrics { display: flex; flex-wrap: nowrap; align-items: center; gap: 3px; }
   .zhajinhua-table { min-height: 414px; padding-inline: 6px; }
   .zhajinhua-opponents { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .zhajinhua-seat.is-opponent:nth-child(5) { grid-column: 1 / -1; width: 50%; justify-self: center; }

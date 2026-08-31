@@ -3374,7 +3374,17 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   if (renderer && renderer.usesEmbeddedActionFeedback === true) return "";
   if (isTerminal(targetRoom)) return roomTurnText(targetRoom);
-  return message || (humanCanMove ? "现在轮到你落子" : "");
+  const humanTurnNotice = targetRoom.game_type === "zhajinhua"
+    ? "现在轮到你行动"
+    : "现在轮到你落子";
+  if (
+    humanCanMove
+    && targetRoom.game_type === "zhajinhua"
+    && message === "现在轮到你落子"
+  ) {
+    return humanTurnNotice;
+  }
+  return message || (humanCanMove ? humanTurnNotice : "");
 }
 
 function renderGame(nextRoom, message = "", timeline = []) {

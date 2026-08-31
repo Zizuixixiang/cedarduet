@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-zhajinhua-styles";
-  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.2";
+  const STYLE_HREF = "/static/games/zhajinhua.css?v=1.0.4";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -130,13 +130,20 @@
     const playerId = participant.player_id;
     const state = context.state;
     const player = playerStatus(state, playerId);
+    const current = context.room.current_player_id === playerId;
+    const acting = Boolean(
+      current
+      && context.room.status === "playing"
+      && !context.isTerminal
+    );
     const seat = element(
       documentRef,
       "article",
       viewer ? "zhajinhua-seat is-viewer" : "zhajinhua-seat is-opponent"
     );
     seat.dataset.playerId = playerId;
-    seat.classList.toggle("is-current", context.room.current_player_id === playerId);
+    seat.classList.toggle("is-current", current);
+    seat.classList.toggle("has-acting-state", acting);
     seat.classList.toggle("is-out", player.status && player.status !== "active");
 
     const identity = element(documentRef, "div", "zhajinhua-seat-identity");
@@ -150,6 +157,14 @@
       )
     );
     const badges = element(documentRef, "div", "zhajinhua-seat-badges");
+    if (acting) {
+      badges.appendChild(element(
+        documentRef,
+        "span",
+        "zhajinhua-acting-state",
+        "行动中"
+      ));
+    }
     badges.append(
       element(documentRef, "span", "zhajinhua-status", statusText(state, playerId)),
       element(
@@ -356,6 +371,7 @@
     );
     status.setAttribute("aria-live", "polite");
     const actions = element(documentRef, "div", "zhajinhua-actions");
+    actions.dataset.actionCount = String(legal.length);
     legal.forEach((action) => {
       const button = element(
         documentRef,

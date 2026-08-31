@@ -28,7 +28,9 @@ class ZhajinhuaFrontendStructureTests(unittest.TestCase):
             SCRIPT,
         )
         self.assertIn('if (!isMultiplayerRoom(targetRoom)) return "duel";', APP_SCRIPT)
-        self.assertNotIn("zhajinhua", APP_SCRIPT)
+        self.assertNotIn("function renderZhajinhua", APP_SCRIPT)
+        self.assertNotIn('case "zhajinhua"', APP_SCRIPT)
+        self.assertIn('targetRoom.game_type === "zhajinhua"', APP_SCRIPT)
         self.assertNotIn("/static/games/zhajinhua.js", HTML)
         self.assertNotIn("zhajinhua.css", HTML)
 
@@ -60,6 +62,13 @@ class ZhajinhuaFrontendStructureTests(unittest.TestCase):
         self.assertIn("min-height: 44px;", STYLES)
         self.assertIn("@media (max-width: 375px)", STYLES)
         self.assertIn("@media (max-width: 320px)", STYLES)
+        self.assertIn('.zhajinhua-game[data-player-count="6"]', STYLES)
+        self.assertIn('.zhajinhua-actions[data-action-count="6"]', STYLES)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", STYLES)
+        self.assertIn("actions.dataset.actionCount = String(legal.length);", SCRIPT)
+        self.assertIn('"zhajinhua-acting-state"', SCRIPT)
+        self.assertIn('"行动中"', SCRIPT)
+        self.assertIn(".zhajinhua-acting-state {", STYLES)
         for emoji in ("🃏", "🎴", "♠️", "♥️", "♣️", "♦️", "🪙"):
             self.assertNotIn(emoji, SCRIPT + STYLES)
 
@@ -226,6 +235,40 @@ renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
 ''')
 
+    def test_acting_state_follows_own_and_opponent_turns_and_clears_at_terminal(self):
+        self.run_node(r'''
+const ownTurn = makeContext();
+renderer.renderBoard(ownTurn.context);
+let nodes = descendants(ownTurn.board);
+let states = nodes.filter((node) => hasClass(node, "zhajinhua-acting-state"));
+assert.equal(states.length, 1);
+assert.equal(states[0].textContent, "行动中");
+let currentSeat = nodes.find((node) => hasClass(node, "zhajinhua-seat") && hasClass(node, "is-current"));
+assert.ok(currentSeat);
+assert.equal(hasClass(currentSeat, "is-viewer"), true);
+assert.equal(descendants(currentSeat).includes(states[0]), true);
+
+const opponentTurn = makeContext();
+opponentTurn.context.room.current_player_id = "ai-1";
+renderer.renderBoard(opponentTurn.context);
+nodes = descendants(opponentTurn.board);
+states = nodes.filter((node) => hasClass(node, "zhajinhua-acting-state"));
+assert.equal(states.length, 1);
+currentSeat = nodes.find((node) => hasClass(node, "zhajinhua-seat") && hasClass(node, "is-current"));
+assert.equal(currentSeat.dataset.playerId, "ai-1");
+assert.equal(hasClass(currentSeat, "is-opponent"), true);
+assert.equal(descendants(currentSeat).includes(states[0]), true);
+
+const finished = makeContext();
+finished.context.room.status = "finished";
+finished.context.isTerminal = true;
+state.flow.phase = "finished";
+renderer.renderBoard(finished.context);
+nodes = descendants(finished.board);
+assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-acting-state")).length, 0);
+assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-seat") && hasClass(node, "is-current")).length, 1);
+''')
+
     def test_seen_cards_and_risky_action_confirmation_cancel_and_submit_guard(self):
         self.run_node(r'''
 (async () => {
@@ -273,6 +316,24 @@ assert.equal(nodes.filter((node) => hasClass(node, "is-opponent")).length, 5);
 assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-card-back")).length, 18);
 assert.equal(value.board.dataset.playerCount, "6");
 ''', participant_count=6)
+
+    def test_six_legal_actions_expose_count_for_mobile_three_by_two_layout(self):
+        self.run_node(r'''
+privateState.legal_actions.push({action: "compare", target_player_id: "ai-2", cost: 2});
+const value = makeContext();
+renderer.renderControls(value.context);
+let nodes = descendants(value.controls);
+let actions = nodes.find((node) => hasClass(node, "zhajinhua-actions"));
+assert.equal(actions.dataset.actionCount, "6");
+assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-action")).length, 6);
+
+value.context.legalActions = privateState.legal_actions.slice(0, 4);
+renderer.renderControls(value.context);
+nodes = descendants(value.controls);
+actions = nodes.find((node) => hasClass(node, "zhajinhua-actions"));
+assert.equal(actions.dataset.actionCount, "4");
+assert.equal(nodes.filter((node) => hasClass(node, "zhajinhua-action")).length, 4);
+''')
 
     def test_two_player_renderer_does_not_duplicate_outer_opponent_seat(self):
         self.run_node(r'''
