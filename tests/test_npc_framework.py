@@ -19,7 +19,12 @@ from app.npc_personas import (
     resolve_avatar_file,
     select_personas,
 )
-from app.npc_runtime import complete_npc_decision, reserve_npc_decision
+from app.npc_runtime import (
+    complete_npc_decision,
+    list_active_npc_turn_room_ids,
+    reserve_npc_decision,
+)
+from app.npc_scheduler import is_system_npc_turn
 
 
 class DummyNpcMultiplayer(GamePlugin):
@@ -367,6 +372,42 @@ class NpcRoomContractTests(unittest.TestCase):
             if item["participant_kind"] == "system_npc"
         ]
         self.assertTrue(all(item["wallet_label"] == "???" for item in npc_rows))
+
+    def test_resign_finishes_when_only_active_joined_system_npcs_remain(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        with patch.object(plugin, "allowed_player_counts", (2, 3, 4)):
+            room = self.create_room()
+            room = framework.respond_to_invitation(
+                room["room_id"], "ai", "ai-1", "accept"
+            )
+
+            room = framework.resign(room["room_id"], "human", "human-1")
+            self.assertEqual(room["status"], "playing")
+            self.assertEqual(room["current_player_id"], "ai-1")
+
+            room = framework.resign(room["room_id"], "ai", "ai-1")
+
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["winner"], "draw")
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(
+            room["result"]["reason"], "only_system_npcs_remaining"
+        )
+        self.assertEqual(
+            room["result"]["remaining_player_ids"],
+            ["npc:quiet", "npc:bright"],
+        )
+        self.assertEqual(
+            room["result"]["settlement_deltas"],
+            {
+                "human-1": 0,
+                "ai-1": 0,
+                "npc:quiet": 0,
+                "npc:bright": 0,
+            },
+        )
+        self.assertFalse(is_system_npc_turn(room))
+        self.assertNotIn(room["room_id"], list_active_npc_turn_room_ids())
 
     def test_production_pair_and_plugin_opt_in_are_mandatory(self):
         participants = self.participants()

@@ -2963,7 +2963,16 @@ def resign(
             and participant.get("active", True)
         ]
         game = get_game(room["game_type"])
-        terminal = not game.accepts_player_count(len(remaining))
+        insufficient_players = not game.accepts_player_count(len(remaining))
+        only_system_npcs_remaining = (
+            len(room["participants"]) > 2
+            and bool(remaining)
+            and all(
+                participant.get("participant_kind") == "system_npc"
+                for participant in remaining
+            )
+        )
+        terminal = insufficient_players or only_system_npcs_remaining
         winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
         winner = remaining[0]["role"] if len(remaining) == 1 else (
             "draw" if terminal else None
@@ -2972,13 +2981,28 @@ def resign(
             {"winner_player_id": winner_player_id, "draw": False}
             if winner_player_id else {
                 "draw": True,
-                "reason": "insufficient_players",
+                "reason": (
+                    "only_system_npcs_remaining"
+                    if only_system_npcs_remaining and not insufficient_players
+                    else "insufficient_players"
+                ),
                 "remaining_player_ids": [
                     participant["player_id"] for participant in remaining
                 ],
             }
             if terminal else None
         )
+        if (
+            terminal
+            and only_system_npcs_remaining
+            and not insufficient_players
+            and winner_player_id is None
+            and room.get("stake", 0) > 0
+        ):
+            game_result["settlement_deltas"] = {
+                participant["player_id"]: 0
+                for participant in room["participants"]
+            }
         if terminal:
             game_result = _attach_multiplayer_settlement(
                 game, room, room["board_state"], game_result
