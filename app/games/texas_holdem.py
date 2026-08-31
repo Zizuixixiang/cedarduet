@@ -78,8 +78,7 @@ class TexasHoldem(GamePlugin):
         "完整支持 fold/check/call/bet/raise/all-in。开池最小下注为 10；加注至少"
         "等于本街最后一次完整 bet/raise 的增量。小于完整增量的 short all-in 合法，"
         "但单次不足额加注不会为已经行动者重新开放加注权；连续不足额加注累计达到"
-        "一个完整增量时重新开放。下注额均由服务端给出的权威合法行动边界裁定。"
-        "边界裁定。\n\n"
+        "一个完整增量时重新开放。下注额均由服务端给出的权威合法行动边界裁定。\n\n"
         "【发牌、底池与摊牌】\n"
         "依次完成 preflop、flop、turn、river；无人可继续行动时自动发完公共牌。"
         "弃牌只剩一人时立即结算且不公开任何底牌。多人 all-in 按总投入自动分 main/"
@@ -643,20 +642,21 @@ class TexasHoldem(GamePlugin):
         if not isinstance(applied, MoveResult):
             return applied
         public = self.public_state(applied.state, participants)
-        delta: dict[str, Any] = {
-            "action": deepcopy(applied.state["last_action"]),
-            "street": public["street"],
-            "board": deepcopy(public["board"]),
-            "pot": public["pot"],
-            "total_pot": public["total_pot"],
-            "pots": deepcopy(public["pots"]),
-            "players": deepcopy(public["players"]),
-            "next_player_id": public["turn_player_id"],
+        action_street = str(applied.state["last_action"]["street"])
+        street_board_count = {
+            "preflop": 0, "flop": 3, "turn": 4, "river": 5,
         }
+        delta: dict[str, Any] = {}
+        if public["street"] != action_street:
+            delta["street"] = public["street"]
+            previous_count = street_board_count.get(action_street, 0)
+            added = deepcopy(public["board"][previous_count:])
+            if added:
+                delta["board_added"] = added
         if applied.state.get("game_result") is not None:
-            delta["showdown"] = deepcopy(public["showdown"])
-            delta["result"] = deepcopy(public["game_result"])
-        applied.public_event = {"texas_holdem_delta": delta}
+            if public["showdown"]:
+                delta["showdown"] = deepcopy(public["showdown"])
+        applied.public_event = {"texas_holdem_delta": delta} if delta else None
         return applied
 
     def result_for(

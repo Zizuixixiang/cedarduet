@@ -551,14 +551,7 @@ class ZhajinhuaMcpTests(unittest.IsolatedAsyncioTestCase):
         peek_payload = peek.json()
         self.assertTrue(peek_payload["your_turn"])
         self.assertEqual(len(card_faces(peek_payload["private_state"])), 3)
-        self.assertTrue(all(not card_faces(event) for event in peek_payload["events"]))
-        public_delta = next(
-            event["zhajinhua_delta"]
-            for event in peek_payload["events"]
-            if "zhajinhua_delta" in event
-        )
-        self.assertEqual(public_delta["pot"], 3)
-        self.assertTrue(public_delta["players"]["ai-mcp"]["seen"])
+        self.assertNotIn("events", peek_payload)
 
         called = await self.client.post(
             "/mcp/play",
@@ -573,7 +566,7 @@ class ZhajinhuaMcpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(called.status_code, 200, called.text)
         self.assertEqual(called.json()["current_actor"]["player_id"], "ai-other")
-        self.assertTrue(all(not card_faces(event) for event in called.json()["events"]))
+        self.assertNotIn("events", called.json())
 
         other_delta = await self.client.post(
             "/mcp/play",
@@ -582,7 +575,12 @@ class ZhajinhuaMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(other_delta.status_code, 200, other_delta.text)
         self.assertFalse(card_faces(other_delta.json()))
         self.assertTrue(any(
-            "zhajinhua_delta" in event for event in other_delta.json().get("events", [])
+            event.get("move", {}).get("action") == "call"
+            for event in other_delta.json().get("events", [])
+        ))
+        self.assertFalse(any(
+            "zhajinhua_delta" in event
+            for event in other_delta.json().get("events", [])
         ))
 
         own_snapshot = await self.client.post(

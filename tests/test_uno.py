@@ -278,9 +278,9 @@ class UnoRulesTests(unittest.TestCase):
         self.assertEqual(len(state["cards"]["hands"]["player-1"]), 6)
         self.assertTrue(state["last_challenge"]["challenge_succeeded"])
         delta = result.public_event["uno_delta"]
-        self.assertTrue(
-            delta["penalty_state"]["last_challenge"]["challenge_succeeded"]
-        )
+        self.assertTrue(delta["challenge_succeeded"])
+        self.assertEqual(delta["penalized_player_id"], "player-1")
+        self.assertEqual(delta["draw_count"], 4)
         for private_id in (
             "yellow-number-1-1", "yellow-number-2-1",
             "yellow-number-3-1", "yellow-number-4-1",
@@ -366,14 +366,7 @@ class UnoRulesTests(unittest.TestCase):
         result = self.game.progress_after_action(
             before, move, self.actor(0), self.players, result
         )
-        delta = result.public_event["uno_delta"]
-        self.assertEqual(delta["top_discard"]["id"], "red-draw_two-1")
-        self.assertEqual(delta["current_color"], "red")
-        self.assertEqual(delta["penalty_state"]["last_penalty"]["draw_count"], 2)
-        self.assertEqual(delta["uno_state"]["last"]["status"], "catchable")
-        self.assertEqual(delta["hand_counts"]["player-2"], 3)
-        for private_id in ("blue-number-3-1", "blue-number-4-1"):
-            self.assertNotIn(private_id, json.dumps(delta, ensure_ascii=False))
+        self.assertIsNone(result.public_event)
 
         before = deepcopy(state)
         catch = {"action": "catch_uno"}
@@ -381,12 +374,7 @@ class UnoRulesTests(unittest.TestCase):
         result = self.game.progress_after_action(
             before, catch, self.actor(2), self.players, result
         )
-        catch_delta = result.public_event["uno_delta"]
-        self.assertEqual(catch_delta["uno_state"]["last"]["status"], "caught")
-        self.assertEqual(catch_delta["uno_state"]["last"]["draw_count"], 2)
-        self.assertEqual(catch_delta["hand_counts"]["player-1"], 3)
-        for private_id in ("blue-number-1-1", "blue-number-2-1"):
-            self.assertNotIn(private_id, json.dumps(catch_delta, ensure_ascii=False))
+        self.assertIsNone(result.public_event)
 
     def test_drawn_playable_card_may_be_played_or_passed_only(self):
         state = self.scenario({

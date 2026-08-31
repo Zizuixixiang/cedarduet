@@ -687,63 +687,36 @@ class Doudizhu(GamePlugin):
         participants: list[dict[str, Any]],
         applied: dict[str, Any] | MoveResult,
     ) -> dict[str, Any] | MoveResult:
-        del state, move, actor, participants
+        del state, actor, participants
         if not isinstance(applied, MoveResult):
             return applied
         action = applied.state.get("last_action")
         if not isinstance(action, dict):
             return applied
-        card_state = public_card_state(applied.state)
-        delta: dict[str, Any] = {
-            "action": action["action"],
-            "player_id": action.get("player_id"),
-            "next_actor_player_id": applied.state.get("turn_player_id"),
-            "hand_counts": card_state["hand_counts"],
-            "deal_number": int(applied.state.get("deal_number", 0)),
-        }
+        delta: dict[str, Any] = {}
         if action["action"] == "bid":
-            delta.update({
-                "score": int(action["score"]),
-                "bidding": deepcopy(applied.state.get("bidding")),
-                "all_pass_redeal": bool(action.get("all_pass_redeal", False)),
-                "landlord_decided": bool(action.get("landlord_decided", False)),
-            })
             if action.get("landlord_decided"):
                 delta.update({
+                    "kind": "landlord_decided",
                     "landlord_player_id": applied.state["landlord_player_id"],
-                    "roles_by_player": deepcopy(applied.state["roles_by_player"]),
-                    "bottom_cards": deepcopy(applied.state["bottom_cards"]),
-                    "base_score": int(applied.state["base_score"]),
-                    "multiplier": int(applied.state["multiplier"]),
+                    "bottom_card_ids": [
+                        card["id"] for card in applied.state["bottom_cards"]
+                    ],
                 })
         elif action["action"] == "play":
-            delta.update({
-                key: deepcopy(action[key])
-                for key in (
-                    "trick", "sequence", "cards", "pattern", "multiplier",
-                    "bomb_count",
-                )
-            })
-            if applied.state.get("winner_player_id"):
-                delta.update({
-                    "finished": True,
-                    "winner_player_id": applied.state["winner_player_id"],
-                    "winning_side": applied.state["winning_side"],
-                    "winning_player_ids": deepcopy(applied.state["winning_player_ids"]),
-                })
-        elif action["action"] == "pass":
-            delta.update({
-                "trick": int(action["trick"]),
-                "trick_ended": bool(action["trick_ended"]),
-                "pass_player_ids": list(
-                    (applied.state.get("trick") or {}).get("pass_player_ids", [])
-                    if not action["trick_ended"]
-                    else action.get("pass_player_ids", [])
-                ),
-            })
-            if action.get("trick_ended"):
-                delta["next_leader_player_id"] = action["next_leader_player_id"]
-        applied.public_event = {"doudizhu_delta": delta}
+            # MCP callers may submit only the short authoritative action_id.
+            # The played physical cards become public, so supplement only the
+            # information missing from that compact move instead of resending
+            # trick/hand-count/multiplier state that can be derived locally.
+            if not isinstance(move.get("card_ids"), list):
+                delta["kind"] = "play"
+                delta["card_ids"] = [card["id"] for card in action["cards"]]
+            if not isinstance(move.get("pattern_type"), str):
+                delta.setdefault("kind", "play")
+                pattern = action["pattern"]
+                delta["pattern_type"] = pattern["type"]
+                delta["pattern_label"] = pattern["label"]
+        applied.public_event = {"doudizhu_delta": delta} if delta else None
         return applied
 
     def check_winner(self, state: dict[str, Any]) -> str | None:

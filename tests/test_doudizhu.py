@@ -242,9 +242,10 @@ class DoudizhuGameTests(unittest.TestCase):
         public = self.game.public_state(state, self.table)
         self.assertEqual(public["bottom_cards"], original_bottom)
         delta = result.public_event["doudizhu_delta"]
-        self.assertTrue(delta["landlord_decided"])
-        self.assertEqual(delta["bottom_cards"], original_bottom)
-        self.assertEqual(delta["hand_counts"]["ai-2"], 20)
+        self.assertEqual(delta["kind"], "landlord_decided")
+        self.assertEqual(
+            delta["bottom_card_ids"], [card["id"] for card in original_bottom]
+        )
 
     def test_three_points_ends_bidding_immediately(self):
         state = self.game.initialize_for_first_player(self.table, "human-1")
@@ -267,11 +268,7 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertEqual(state["bidding"]["opener_player_id"], "ai-2")
         self.assertEqual([len(hand) for hand in state["cards"]["hands"].values()], [17, 17, 17])
         self.assertNotEqual(state["cards"]["hands"]["ai-2"], first_hand)
-        delta = result.public_event["doudizhu_delta"]
-        self.assertTrue(delta["all_pass_redeal"])
-        encoded = json.dumps(delta, ensure_ascii=False)
-        for card in state["cards"]["hands"]["human-1"]:
-            self.assertNotIn(f'"{card["id"]}"', encoded)
+        self.assertIsNone(result.public_event)
 
     def test_authoritative_physical_actions_and_ambiguous_interpretations(self):
         state = self.playing_state([
@@ -332,8 +329,14 @@ class DoudizhuGameTests(unittest.TestCase):
         )
         self.assertEqual([card["id"] for card in state["last_action"]["cards"]], ["D10"])
         self.assertEqual(
-            [card["id"] for card in progressed.public_event["doudizhu_delta"]["cards"]],
-            ["D10"],
+            progressed.public_event,
+            {
+                "doudizhu_delta": {
+                    "kind": "play",
+                    "pattern_type": "solo",
+                    "pattern_label": "单张",
+                }
+            },
         )
 
     def test_rank_equivalent_pair_accepts_any_two_and_rejects_forged_replacements(self):
@@ -502,7 +505,7 @@ class DoudizhuGameTests(unittest.TestCase):
         self.assertEqual(state["turn_player_id"], "human-1")
         self.assertIsNone(state["trick"]["last_play"])
         self.assertEqual(state["trick"]["pass_player_ids"], [])
-        self.assertTrue(result.public_event["doudizhu_delta"]["trick_ended"])
+        self.assertIsNone(result.public_event)
         self.assertNotIn("pass", {action["action"] for action in self.game.legal_actions_for(state, "human-1")})
 
     def test_successful_follow_clears_pass_state(self):
@@ -529,8 +532,7 @@ class DoudizhuGameTests(unittest.TestCase):
         self.apply(state, "ai-2", "pass")
         _action, result = self.apply(state, "human-1", "play", pattern_type="rocket")
         self.assertEqual((state["multiplier"], state["bomb_count"]), (8, 2))
-        delta = result.public_event["doudizhu_delta"]
-        self.assertEqual((delta["multiplier"], delta["bomb_count"]), (8, 2))
+        self.assertIsNone(result.public_event)
 
     def test_farmer_finish_returns_team_winners_and_chip_settlement(self):
         state = self.playing_state([
@@ -548,9 +550,7 @@ class DoudizhuGameTests(unittest.TestCase):
             self.game.settlement_deltas(state, result.result, self.table, 5),
             {"human-1": -30, "ai-1": 15, "ai-2": 15},
         )
-        delta = result.public_event["doudizhu_delta"]
-        self.assertTrue(delta["finished"])
-        self.assertEqual(delta["winning_side"], "farmers")
+        self.assertIsNone(result.public_event)
 
     def test_stake_multiplier_examples_cover_landlord_and_farmer_wins(self):
         state = {
@@ -745,13 +745,8 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(moved.status_code, 200, moved.text)
-        delta = next(
-            item["doudizhu_delta"] for item in moved.json()["events"]
-            if "doudizhu_delta" in item
-        )
-        self.assertEqual((delta["action"], delta["score"]), ("bid", 1))
+        self.assertNotIn("events", moved.json())
         self.assertNotIn("private_state", moved.json())
-        self.assertNotIn("cards", json.dumps(delta, ensure_ascii=False))
 
         latest = framework.get_room(room_id)
         ai2_action = next(
@@ -800,18 +795,31 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(played.status_code, 200, played.text)
-        play_delta = next(
-            item["doudizhu_delta"] for item in played.json()["events"]
-            if "doudizhu_delta" in item and item["doudizhu_delta"]["action"] == "play"
-        )
+        referee_deltas = [
+            event["doudizhu_delta"]
+            for event in played.json().get("events", [])
+            if "doudizhu_delta" in event
+        ]
         self.assertEqual(
-            {card["id"] for card in play_delta["cards"]}, set(play["card_ids"])
+            [item["kind"] for item in referee_deltas],
+            ["landlord_decided", "play"],
         )
-        unplayed = {
-            card["id"] for card in snapshot["private_state"]["hand"]
-        } - set(play["card_ids"])
-        encoded_delta = json.dumps(play_delta, ensure_ascii=False)
-        self.assertTrue(all(card_id not in encoded_delta for card_id in unplayed))
+        self.assertNotIn("cards", referee_deltas[0])
+        play_delta = referee_deltas[-1]
+        self.assertEqual(play_delta["kind"], "play")
+        self.assertEqual(set(play_delta["card_ids"]), set(play["card_ids"]))
+        public_bottom_ids = {
+            card["id"] for card in snapshot["board_state"]["bottom_cards"]
+        }
+        unplayed_private = (
+            {card["id"] for card in snapshot["private_state"]["hand"]}
+            - set(play["card_ids"])
+            - public_bottom_ids
+        )
+        encoded_response = json.dumps(played.json(), ensure_ascii=False)
+        self.assertTrue(
+            all(card_id not in encoded_response for card_id in unplayed_private)
+        )
 
     async def test_mcp_all_pass_redeal_returns_only_actors_new_private_hand(self):
         participants = seats()
@@ -863,13 +871,7 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["private_state"]["hand"]), 17)
         after_ids = {card["id"] for card in payload["private_state"]["hand"]}
         self.assertNotEqual(before_ids, after_ids)
-        delta = next(
-            item["doudizhu_delta"] for item in payload["events"]
-            if "doudizhu_delta" in item
-        )
-        self.assertTrue(delta["all_pass_redeal"])
-        encoded_delta = json.dumps(delta, ensure_ascii=False)
-        self.assertTrue(all(card_id not in encoded_delta for card_id in after_ids))
+        self.assertNotIn("events", payload)
         latest = framework.get_room(room_id)
         for other_id in ("human-1", "ai-2"):
             for card in latest["board_state"]["cards"]["hands"][other_id]:

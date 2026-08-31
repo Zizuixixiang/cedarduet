@@ -331,10 +331,15 @@ def project_mcp_snapshot_for_viewer(
             deepcopy(viewer),
             deepcopy(projected["participants"]),
         )
+        private_state = game.mcp_private_state(
+            deepcopy(projected["private_state"]),
+            deepcopy(viewer),
+            deepcopy(projected["participants"]),
+        )
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件 MCP 快照投影无效：{exc}") from exc
-    if not isinstance(board_state, dict):
-        raise DuelError("游戏插件 mcp_snapshot_state 必须返回对象")
+    if not isinstance(board_state, dict) or not isinstance(private_state, dict):
+        raise DuelError("游戏插件 MCP 快照与私有投影必须返回对象")
 
     participants = []
     for item in projected["participants"]:
@@ -373,8 +378,37 @@ def project_mcp_snapshot_for_viewer(
         "current_actor": current_actor,
         "participants": participants,
         "board_state": board_state,
-        "private_state": deepcopy(projected["private_state"]),
+        "private_state": private_state,
     }
+
+
+def project_mcp_room_for_viewer(
+    room: dict, viewer_player_id: str
+) -> dict:
+    """Return the one-time/turn MCP projection without changing Web state."""
+    projected = project_room_for_viewer(room, viewer_player_id)
+    game = get_game(room["game_type"])
+    viewer = _participant_by_id(projected, viewer_player_id)
+    if viewer is None:
+        raise DuelError("viewer 不是该房间参与者", 403)
+    try:
+        projected["board_state"] = game.mcp_bootstrap_state(
+            deepcopy(projected["board_state"]),
+            deepcopy(viewer),
+            deepcopy(projected["participants"]),
+        )
+        projected["private_state"] = game.mcp_private_state(
+            deepcopy(projected["private_state"]),
+            deepcopy(viewer),
+            deepcopy(projected["participants"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"游戏插件 MCP 投影无效：{exc}") from exc
+    if not isinstance(projected["board_state"], dict) or not isinstance(
+        projected["private_state"], dict
+    ):
+        raise DuelError("游戏插件 MCP 启动与私有投影必须返回对象")
+    return projected
 
 
 def _project_event_for_viewer(

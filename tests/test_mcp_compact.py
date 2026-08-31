@@ -589,7 +589,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             roll_delta = rolled.json()["events"][0]["yahtzee_delta"]
             self.assertEqual(roll_delta["dice"], [6] * 5)
-            self.assertEqual(roll_delta["roll_number"], 1)
+            self.assertEqual(set(roll_delta), {"dice"})
             scored = await self.client.post(
                 "/mcp/play",
                 json={
@@ -600,7 +600,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             score_delta = scored.json()["events"][0]["yahtzee_delta"]
             self.assertEqual(score_delta["score"], 50)
-            self.assertEqual(score_delta["yahtzee_bonus"], 0)
+            self.assertNotIn("yahtzee_bonus", score_delta)
 
         uno = await self.new_room(
             "uno", ai="ai-uno-delta", human="human-uno-delta"
@@ -616,13 +616,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "move": {"action": "draw"},
             },
         )
-        uno_delta = drawn.json()["events"][0]["uno_delta"]
-        self.assertEqual(uno_delta["action"], "draw")
-        self.assertIn("hand_counts", uno_delta)
-        self.assertIn("deck_count", uno_delta)
-        encoded_uno = json.dumps(uno_delta, ensure_ascii=False)
-        self.assertNotIn("card_id", encoded_uno)
-        self.assertTrue(all(card_id not in encoded_uno for card_id in own_uno_ids))
+        self.assertNotIn("events", drawn.json())
 
         gandengyan = await self.new_room(
             "gandengyan",
@@ -641,14 +635,9 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "room_id": gandengyan["room"]["room_id"], "move": play,
             },
         )
-        gdy_delta = played.json()["events"][0]["gandengyan_delta"]
-        self.assertEqual(gdy_delta["action"], "play")
-        self.assertEqual(
-            {card["id"] for card in gdy_delta["cards"]}, set(play["card_ids"])
-        )
-        self.assertIn("multiplier", gdy_delta)
+        self.assertNotIn("events", played.json())
         unplayed_ids = {card["id"] for card in hand} - set(play["card_ids"])
-        encoded_gdy = json.dumps(gdy_delta, ensure_ascii=False)
+        encoded_gdy = json.dumps(played.json(), ensure_ascii=False)
         self.assertTrue(all(card_id not in encoded_gdy for card_id in unplayed_ids))
 
         blackjack_game = GAMES["blackjack"]
@@ -676,8 +665,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                     "move": {"action": "stand"},
                 },
             )
-            stand_delta = stood.json()["events"][0]["blackjack_delta"]
-            self.assertNotIn("dealer", stand_delta)
+            self.assertNotIn("events", stood.json())
             framework.play_move(
                 blackjack["room"]["room_id"],
                 "human", "human-bj-delta", {"action": "stand"},

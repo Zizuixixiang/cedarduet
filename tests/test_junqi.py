@@ -1,4 +1,5 @@
 import asyncio
+import json
 import tempfile
 import unittest
 from copy import deepcopy
@@ -413,15 +414,57 @@ class JunqiMcpTests(unittest.IsolatedAsyncioTestCase):
             [{"action": "auto_setup"}],
         )
         self.assertFalse(any(
+            item["action"] == "swap"
+            for item in room["private_state"]["legal_actions"]
+        ))
+        spec = room["private_state"]["legal_action_spec"]
+        self.assertEqual(spec["format"], "junqi_setup_v1")
+        self.assertEqual(len(spec["swap"]["own_squares"]), 25)
+        self.assertLess(
+            len(json.dumps(room["private_state"], ensure_ascii=False)), 2_000
+        )
+        self.assertFalse(any(
             isinstance(piece, dict) and "rank" in piece
             for piece in room["board_state"]["board"].values()
         ))
+
+        pieces = room["private_state"]["pieces"]
+        destinations = spec["swap"]["destinations_by_rank"]
+
+        def allowed(square):
+            rank = pieces[square]
+            key = {0: "0_bomb", 10: "10_landmine", 11: "11_flag"}.get(
+                rank, "other"
+            )
+            return destinations[key]
+
+        swap = next(
+            {"action": "swap", "from": start, "to": end}
+            for start in spec["swap"]["own_squares"]
+            for end in spec["swap"]["own_squares"]
+            if start != end and end in allowed(start) and start in allowed(end)
+        )
+        swapped = await self.client.post(
+            "/mcp/play",
+            json={
+                "action": "move", "player_id": "ai-mcp",
+                "room_id": room["room_id"], "revision": room["revision"],
+                "move": swap,
+            },
+        )
+        self.assertEqual(swapped.status_code, 200, swapped.text)
+        self.assertTrue(swapped.json()["your_turn"])
+        self.assertEqual(
+            swapped.json()["private_state"]["legal_action_spec"]["format"],
+            "junqi_setup_v1",
+        )
 
         ai_setup = await self.client.post(
             "/mcp/play",
             json={
                 "action": "move", "player_id": "ai-mcp", "room_id": room["room_id"],
-                "revision": room["revision"], "move": {"action": "auto_setup"},
+                "revision": swapped.json()["revision"],
+                "move": {"action": "auto_setup"},
             },
         )
         self.assertEqual(ai_setup.status_code, 200, ai_setup.text)

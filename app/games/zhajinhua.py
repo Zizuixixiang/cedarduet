@@ -569,22 +569,12 @@ class Zhajinhua(GamePlugin):
         action = applied.state.get("last_action")
         if not isinstance(action, dict):
             return applied
-        delta: dict[str, Any] = {
-            "action": deepcopy(action),
-            "pot": int(applied.state["pot"]),
-            "blind_unit": int(applied.state["blind_unit"]),
-            "round_number": int(applied.state["flow"]["round_number"]),
-            "turn_number": int(applied.state["flow"]["turn_number"]),
-            "next_player_id": applied.state.get("turn_player_id"),
-            "players": deepcopy(applied.state["player_state_by_player"]),
-        }
+        delta: dict[str, Any] = {}
         if action.get("action") == "compare":
             delta["compare"] = deepcopy(applied.state.get("last_compare"))
-        if applied.state.get("flow", {}).get("phase") == "finished":
-            delta["result"] = deepcopy(applied.state.get("game_result"))
-            if applied.state.get("revealed_hands"):
-                delta["showdown"] = deepcopy(applied.state["revealed_hands"])
-        applied.public_event = {"zhajinhua_delta": delta}
+        if applied.state.get("revealed_hands"):
+            delta["showdown"] = deepcopy(applied.state["revealed_hands"])
+        applied.public_event = {"zhajinhua_delta": delta} if delta else None
         return applied
 
     def result_for(

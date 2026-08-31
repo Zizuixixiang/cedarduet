@@ -142,13 +142,7 @@ class YahtzeeJokerRuleTests(unittest.TestCase):
             second,
         )
         self.assertEqual(second.public_event["yahtzee_delta"], {
-            "action": "score",
-            "round": 1,
-            "category": "sixes",
-            "category_label": "六点",
             "score": 30,
-            "scratched": False,
-            "joker": True,
             "yahtzee_bonus": 100,
         })
         state = second.state

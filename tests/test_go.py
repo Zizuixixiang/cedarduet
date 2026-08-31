@@ -1,4 +1,5 @@
 import asyncio
+import json
 import tempfile
 import unittest
 from copy import deepcopy
@@ -328,7 +329,14 @@ class GoMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bootstrap["bootstrap"])
         board_state = bootstrap["room"]["board_state"]
         self.assertEqual(len(board_state["board"]), 19)
-        self.assertEqual(len(board_state["legal_actions"]), 362)
+        self.assertNotIn("legal_actions", board_state)
+        private = bootstrap["room"]["private_state"]
+        self.assertEqual(private["legal_actions"], [{"action": "pass"}])
+        spec = private["legal_action_spec"]
+        self.assertEqual(spec["format"], "coordinate_rows_v1")
+        self.assertEqual(spec["action"], "play")
+        self.assertEqual(spec["columns_by_row"], ["0-18"] * 19)
+        self.assertLess(len(json.dumps(private, ensure_ascii=False)), 500)
         self.assertNotIn("engine_history", board_state)
         room_id = bootstrap["room"]["room_id"]
 
@@ -343,14 +351,7 @@ class GoMcpTests(unittest.IsolatedAsyncioTestCase):
         delta = moved.json()
         self.assertNotIn("room", delta)
         self.assertNotIn("board_state", delta)
-        go_deltas = [
-            event["go_delta"] for event in delta.get("events", [])
-            if "go_delta" in event
-        ]
-        self.assertEqual(go_deltas[-1]["placed"], {
-            "row": 9, "col": 9, "color": "black",
-        })
-        self.assertEqual(go_deltas[-1]["captured"], [])
+        self.assertNotIn("events", delta)
 
         request = {
             "action": "state", "player_id": "ai-go",
@@ -363,6 +364,8 @@ class GoMcpTests(unittest.IsolatedAsyncioTestCase):
         snapshot = first.json()["snapshot"]
         self.assertEqual(snapshot["board_state"]["board"][9][9], "black")
         self.assertNotIn("engine_history", snapshot["board_state"])
+        self.assertNotIn("legal_actions", snapshot["board_state"])
+        self.assertEqual(snapshot["private_state"], {})
 
 
 if __name__ == "__main__":

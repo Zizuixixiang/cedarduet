@@ -236,6 +236,74 @@ class Go(GamePlugin):
         snapshot.pop("legal_actions", None)
         return snapshot
 
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        # The browser uses this list to make 361 intersections clickable.  MCP
+        # receives the same authority in the compact row-range spec below.
+        snapshot.pop("legal_actions", None)
+        return snapshot
+
+    @staticmethod
+    def _column_ranges(columns: list[int]) -> str:
+        if not columns:
+            return ""
+        parts: list[str] = []
+        start = previous = columns[0]
+        for column in columns[1:]:
+            if column == previous + 1:
+                previous = column
+                continue
+            parts.append(str(start) if start == previous else f"{start}-{previous}")
+            start = previous = column
+        parts.append(str(start) if start == previous else f"{start}-{previous}")
+        return ",".join(parts)
+
+    def mcp_private_state(
+        self,
+        private_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del viewer, participants
+        actions = private_state.get("legal_actions")
+        if not isinstance(actions, list):
+            return deepcopy(private_state)
+        coordinates = [
+            action for action in actions
+            if action.get("action") in {"play", "toggle_dead"}
+        ]
+        standalone = [
+            deepcopy(action) for action in actions if action not in coordinates
+        ]
+        if not coordinates:
+            return {"legal_actions": standalone}
+        coordinate_action = str(coordinates[0]["action"])
+        columns_by_row = [
+            self._column_ranges(sorted(
+                int(action["col"])
+                for action in coordinates
+                if action.get("action") == coordinate_action
+                and int(action["row"]) == row
+            ))
+            for row in range(self.BOARD_SIZE)
+        ]
+        return {
+            "legal_actions": standalone,
+            "legal_action_spec": {
+                "format": "coordinate_rows_v1",
+                "action": coordinate_action,
+                "columns_by_row": columns_by_row,
+                "submit": {"action": coordinate_action, "row": "row index", "col": "listed column"},
+            },
+        }
+
     def participant_summary(
         self,
         state: dict[str, Any],
@@ -334,6 +402,11 @@ class Go(GamePlugin):
                 "phase": updated["phase"],
                 "captures": deepcopy(updated["captures"]),
             }
+            public_delta: dict[str, Any] = {}
+            if applied["action"] == "play" and applied.get("captured"):
+                public_delta["captured"] = deepcopy(applied["captured"])
+            if updated["phase"] != state.get("phase"):
+                public_delta["phase"] = updated["phase"]
             note = (
                 "双方已连续 pass，进入死子双方确认阶段。"
                 if updated["phase"] == "scoring"
@@ -345,7 +418,9 @@ class Go(GamePlugin):
             return MoveResult(
                 updated,
                 note=note,
-                public_event={"go_delta": deepcopy(updated["last_delta"])},
+                public_event=(
+                    {"go_delta": public_delta} if public_delta else None
+                ),
             )
 
         if checked["action"] == "toggle_dead":
@@ -374,10 +449,15 @@ class Go(GamePlugin):
                 "dead_removed": removed,
                 "score_preview": deepcopy(updated["score_preview"]),
             }
+            public_delta = {
+                "dead_added": added,
+                "dead_removed": removed,
+                "score_preview": deepcopy(updated["score_preview"]),
+            }
             return MoveResult(
                 updated,
                 note="死子集合已修改，双方需要重新确认。",
-                public_event={"go_delta": deepcopy(updated["last_delta"])},
+                public_event={"go_delta": public_delta},
             )
 
         updated = deepcopy(state)
@@ -389,7 +469,7 @@ class Go(GamePlugin):
         )
         participant_ids = [str(item) for item in updated["players_by_color"].values()]
         settled = all(confirmations.get(player_id) == signature for player_id in participant_ids)
-        delta: dict[str, Any] = {
+        last_delta: dict[str, Any] = {
             "kind": "confirm_score",
             "player_id": str(actor["player_id"]),
             "confirmed_player_ids": sorted(
@@ -399,6 +479,7 @@ class Go(GamePlugin):
             ),
             "settled": settled,
         }
+        delta: dict[str, Any] = {}
         result = None
         note = "已确认当前死子集合，等待对方确认。"
         if settled:
@@ -442,17 +523,18 @@ class Go(GamePlugin):
             updated["game_result"] = deepcopy(result)
             delta["score"] = deepcopy(result["scores"])
             delta["winner_color"] = winner_color
+            last_delta.update(deepcopy(delta))
             note = (
                 f"双方确认完成：黑 {black_score:g}，白 {white_score:g}（含贴目），"
                 f"{('黑方' if winner_color == 'black' else '白方') if winner_color else '双方'}"
                 f"{'获胜' if winner_color else '和棋'}。"
             )
-        updated["last_delta"] = deepcopy(delta)
+        updated["last_delta"] = last_delta
         return MoveResult(
             updated,
             note=note,
             result=result,
-            public_event={"go_delta": delta},
+            public_event={"go_delta": delta} if delta else None,
         )
 
     def validate_move(

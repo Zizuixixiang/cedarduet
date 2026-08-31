@@ -490,23 +490,15 @@ class Yahtzee(GamePlugin):
             return applied
         if move.get("action") == "roll":
             delta = {
-                "action": "roll",
-                "round": int(applied.state["flow"]["round_number"]),
-                "roll_number": int(applied.state["rolls_used"]),
-                "held_mask": list(applied.state["held_mask"]),
                 "dice": list(applied.state["dice"]),
             }
         else:
             scoring = applied.state.get("last_scoring")
             if not isinstance(scoring, dict):
                 return applied
-            delta = {
-                key: deepcopy(scoring[key])
-                for key in (
-                    "action", "round", "category", "category_label", "score",
-                    "scratched", "joker", "yahtzee_bonus",
-                )
-            }
+            delta = {"score": int(scoring["score"])}
+            if int(scoring["yahtzee_bonus"]):
+                delta["yahtzee_bonus"] = int(scoring["yahtzee_bonus"])
         applied.public_event = {"yahtzee_delta": delta}
         return applied
 

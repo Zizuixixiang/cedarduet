@@ -640,26 +640,21 @@ class Gandengyan(GamePlugin):
         action = applied.state.get("last_action")
         if not isinstance(action, dict):
             return applied
-        card_state = public_card_state(applied.state)
         if action.get("action") == "play":
-            delta = {
-                key: deepcopy(action[key])
-                for key in (
-                    "action", "trick", "cards", "pattern", "multiplier",
-                )
-            }
-            delta["hand_counts"] = card_state["hand_counts"]
+            # card_ids and optional pattern hints already travel in the player
+            # move; the remaining public changes are deterministic.
+            return applied
         elif action.get("action") == "trick_end":
             delta = {
-                key: deepcopy(action[key])
-                for key in (
-                    "action", "trick", "winner_player_id", "pass_player_ids",
-                    "draw_counts", "deck_count",
-                )
+                "kind": "trick_end",
+                "winner_player_id": action["winner_player_id"],
+                "draw_counts": {
+                    player_id: count
+                    for player_id, count in action["draw_counts"].items()
+                    if count
+                },
+                "deck_count": int(action["deck_count"]),
             }
-            delta["next_leader_player_id"] = action["winner_player_id"]
-            delta["hand_counts"] = card_state["hand_counts"]
-            delta["multiplier"] = int(applied.state["multiplier"])
         else:
             return applied
         applied.public_event = {"gandengyan_delta": delta}

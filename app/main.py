@@ -31,6 +31,7 @@ from .framework import (
     play_move,
     post_message,
     project_mcp_snapshot_for_viewer,
+    project_mcp_room_for_viewer,
     project_room_for_viewer,
     read_new_room_events,
     resign,
@@ -335,7 +336,7 @@ def _bootstrap_ai_response(
 ) -> dict:
     if not claimed and not claim_mcp_bootstrap(room["room_id"], player_id):
         return _move_delta_response(room, player_id)
-    projected_room = project_room_for_viewer(room, player_id)
+    projected_room = project_mcp_room_for_viewer(room, player_id)
     payload = {
         "ok": True,
         "status": room["status"],
@@ -416,7 +417,7 @@ def _move_delta_response(
             payload["room_status"] = room["status"]
             payload.update(_terminal_fields(room))
         return payload
-    projected_room = project_room_for_viewer(room, player_id)
+    projected_room = project_mcp_room_for_viewer(room, player_id)
     payload = {
         "ok": True,
         "status": room["status"],

@@ -3,6 +3,7 @@ import json
 import random
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,6 +78,44 @@ class GuandanPluginTests(unittest.TestCase):
                 self.players[0],
             )
 
+    def test_mcp_parametric_actions_cover_every_core_choice_and_submit_alias(self):
+        private = self.game.private_state(
+            self.state, self.players[0], self.players
+        )
+        compact = self.game.mcp_private_state(
+            private, self.players[0], self.players
+        )
+        spec = compact["legal_actions"]
+        self.assertEqual(spec["format"], "guandan_parametric_v1")
+        self.assertLess(len(json.dumps(compact, ensure_ascii=False)), 15_000)
+        self.assertLess(
+            len(json.dumps(compact, ensure_ascii=False)),
+            len(json.dumps(private, ensure_ascii=False)) * 0.1,
+        )
+
+        hand = private["hand"]
+        prefix, options = self.game._mcp_options(hand, private["legal_actions"])
+        self.assertEqual(prefix, spec["action_id_prefix"])
+        self.assertEqual(
+            {
+                action["action_id"]
+                for option in options for action in option["actions"]
+            },
+            {action["action_id"] for action in private["legal_actions"]},
+        )
+        option = spec["options"][0]
+        suffix, indexes = option[0], option[-1]
+        action_id = prefix + suffix
+        if indexes:
+            action_id += "." + ",".join(
+                self.game._base36(index) for index in indexes
+            )
+        move = {"action": "act", "action_id": action_id}
+        self.game.validate_action(self.state, move, self.players[0])
+        self.assertIsNotNone(
+            self.game.apply_action(deepcopy(self.state), move, self.players[0])
+        )
+
     def test_public_projection_contains_no_other_hands_or_observations(self):
         public = self.game.public_state(self.state, self.players)
         serialized = json.dumps(public, ensure_ascii=False)
@@ -140,8 +179,8 @@ class GuandanPluginTests(unittest.TestCase):
         )
         delta = result.public_event["guandan_delta"]
         self.assertEqual(delta["kind"], "play")
-        self.assertEqual(delta["player_id"], "human-1")
-        self.assertEqual(delta["hand_counts"]["human-1"], 26)
+        self.assertEqual(len(delta["cards"]), len(legal[0]["card_ids"]))
+        self.assertIn("pattern", delta)
         serialized = json.dumps(delta, ensure_ascii=False)
         for card_id in before_other_ids:
             self.assertNotIn(card_id, serialized)
@@ -241,13 +280,20 @@ class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("room", delta)
         self.assertTrue(delta["your_turn"])
         self.assertEqual(len(delta["private_state"]["hand"]), 27)
+        action_spec = delta["private_state"]["legal_actions"]
+        self.assertEqual(action_spec["format"], "guandan_parametric_v1")
+        self.assertLess(
+            len(json.dumps(delta["private_state"], ensure_ascii=False)), 20_000
+        )
         public_deltas = [
             event["guandan_delta"] for event in delta.get("events", [])
             if isinstance(event.get("guandan_delta"), dict)
         ]
         self.assertTrue(public_deltas)
         self.assertEqual(public_deltas[-1]["kind"], "play")
-        self.assertEqual(public_deltas[-1]["hand_counts"]["human-1"], 26)
+        self.assertEqual(
+            len(public_deltas[-1]["cards"]), len(human_legal["card_ids"])
+        )
 
         request = {
             "action": "state", "player_id": "ai-1",

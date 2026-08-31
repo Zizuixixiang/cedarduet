@@ -434,17 +434,11 @@ class TrainCardsMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(moved.status_code, 200, moved.text)
         delta_payload = moved.json()
         delta = delta_payload["events"][0]["train_cards_delta"]
-        self.assertEqual(delta["action"], "flip")
-        for required in (
-            "revealed_card", "actor_player_id", "collected_cards",
-            "collected_count", "table_cards", "hand_counts",
-            "active_player_ids", "current_player_id", "phase",
-            "winner_player_id", "draw_reason",
-        ):
-            self.assertIn(required, delta)
+        self.assertEqual(set(delta), {"revealed_card"})
         revealed_id = delta["revealed_card"]["id"]
         self.assertIn(revealed_id, hidden_before)
         after_raw = framework.get_room(room["room_id"])["board_state"]
+        self.assertEqual(after_raw["cards"]["discard"][-1]["id"], revealed_id)
         still_hidden = {
             card["id"]
             for hand in after_raw["cards"]["hands"].values()
@@ -464,8 +458,15 @@ class TrainCardsMcpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(snapshot_response.status_code, 200, snapshot_response.text)
         snapshot = snapshot_response.json()["snapshot"]
-        self.assertEqual(snapshot["board_state"]["table_cards"], delta["table_cards"])
-        self.assertEqual(snapshot["board_state"]["hand_counts"], delta["hand_counts"])
+        projected_after = framework.project_room_for_viewer(
+            framework.get_room(room["room_id"]), "ai-train"
+        )["board_state"]
+        self.assertEqual(
+            snapshot["board_state"]["table_cards"], projected_after["table_cards"]
+        )
+        self.assertEqual(
+            snapshot["board_state"]["hand_counts"], projected_after["hand_counts"]
+        )
         self.assertEqual(snapshot["private_state"], {"legal_actions": []})
         encoded_snapshot = json.dumps(
             {
@@ -509,10 +510,29 @@ class TrainCardsMcpTests(unittest.IsolatedAsyncioTestCase):
                 "full_state": True,
             },
         )
-        self.assertEqual(
-            second_delta["table_cards"],
-            final_snapshot.json()["snapshot"]["board_state"]["table_cards"],
+        self.assertEqual(set(second_delta), {"revealed_card"})
+        revealed = second_delta["revealed_card"]
+        previous_table = deepcopy(snapshot["board_state"]["table_cards"])
+        match_index = next(
+            (
+                index for index in range(len(previous_table) - 1, -1, -1)
+                if matching_rank(previous_table[index]) == matching_rank(revealed)
+            ),
+            None,
         )
+        expected_table = (
+            previous_table + [revealed]
+            if match_index is None
+            else previous_table[:match_index]
+        )
+        final_board = final_snapshot.json()["snapshot"]["board_state"]
+        self.assertEqual(final_board["table_cards"], expected_table)
+        previous_counts = deepcopy(snapshot["board_state"]["hand_counts"])
+        collected_count = (
+            0 if match_index is None else len(previous_table) - match_index + 1
+        )
+        previous_counts["human-train"] += collected_count - 1
+        self.assertEqual(final_board["hand_counts"], previous_counts)
 
     async def test_local_npc_fill_does_not_require_a_model_provider(self):
         persona = SimpleNamespace(id="conductor", display_name="列车员")

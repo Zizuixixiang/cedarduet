@@ -19,7 +19,8 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 move 追加一个 `{"name":"双弈裁判","<game>_delta":{...}}`。这类结果在行动者失去
 回合时也会直接进入本次 move 响应。插件 delta 中按参与者映射的公共计数可以使用
 bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
-普通 message、其他参与者的 move 和 round_result 只进入房间增量事件游标（不是下文
+普通 message、其他参与者的 move 和未声明“立即公开”的 round_result 只进入
+房间增量事件游标（不是下文
 四类持久化未读通知），不会唤醒尚未
 获得行动权的小机，也不会被 `state wait=false` 提前消费。真正轮到该小机时，服务端
 一次返回它从上次消费以来全部可见事件；终局、归档、取消、本人离席、淘汰或失活也会提前
@@ -265,9 +266,12 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 }
 ```
 
-质疑动作在一个 SQLite 写事务内完成 `bidding -> revealing -> bidding/finished`：公开
-本轮全部骰子、判断叫点、扣除一枚、标记淘汰、确定下一轮首位并重掷存活者骰子。
-上一轮揭骰保存在公共 `last_round_result`，新一轮当前骰子不会进入公共状态。
+质疑动作在一个 SQLite 写事务内公开本轮全部骰子、判断叫点、扣除一枚、
+标记淘汰并确定下一轮首位。若未终局，流程停在
+`awaiting_round_acknowledgement`：已揭骰保存在公共 `last_round_result`，当前骰子
+暂不重掷。只有已认证人类向 `/api/rooms/{room_id}/move` 提交
+`{"action":"acknowledge_round"}` 并带暂停时 revision 后，服务端才重掷存活者骰子、
+进入下一轮 `bidding`。MCP 小机不能代替人类确认。
 仅真实终局会额外发布 `terminal_dice`，用于复盘各席最终骰子。
 
 首次 bootstrap 的安全投影形状：
@@ -295,20 +299,25 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
   "name": "双弈裁判",
   "round_result": {
     "round": 1,
-    "challenger": "Sirius",
-    "bidder": "南杉",
     "bid": {"quantity": 4, "face": 5},
     "actual_count": 3,
     "bid_holds": false,
-    "loser": "南杉",
+    "loser_player_id": "human-1",
     "loser_remaining_dice": 4,
     "eliminated": false,
     "next_round": 2,
-    "next_starter": "南杉",
-    "summary": "第 1 轮：……"
+    "next_starter_player_id": "human-1",
+    "revealed_dice_by_player": {
+      "human-1": [2, 3, 5, 5, 6],
+      "ai-42": [1, 2, 3, 4, 6]
+    }
   }
 }
 ```
+
+该事件在 challenge 的 MCP 响应当次即使行动者暂时无回合也立即返回，与之前
+未读的公开 move 保持时间顺序；事件游标前进后不再重复。`summary` 和显示名可由
+bootstrap 的参与者与结构化字段生成，因此不在裁判事件内重发。
 
 任何查看者都只能得到自己的 `private_state.dice`。其他人的当前骰子、完整内部
 `dice_by_player` 和查看者无关的私密合法行动不会出现在 Web 或 MCP 响应中。NPC
@@ -354,6 +363,8 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 `totals_by_player`、当前 `dice`、`held_mask`、`rolls_used` 和权威
 `score_previews`。NPC 只从规则引擎给出的保留方案和计分动作中选择；第三次
 掷骰后只剩计分动作。
+裁判 `yahtzee_delta` 在 roll 后只补随机的五枚 `dice`；score move 已有类别，
+因此只补服务端权威 `score`，实际发生额外快艇时再加非零 `yahtzee_bonus`。
 
 上半区 63 分加 35 分。快艇格已记 50 后，每个重复快艇另加 100 分并累计进总分。
 此时启用 Joker：匹配点数的上栏格未填就必须优先填；已填才能选下栏，葫芦/小顺/
@@ -386,6 +397,7 @@ A 自动按 1/11 取不爆牌最优值；自然 Blackjack 仅指首两张 A + 10
 公开 `board_state.players` 含每名玩家已经发出的牌、soft/hard 点数、手牌状态与终局
 outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`；投影不返回
 原始 `cards`、shoe 计数或任何 `card_id`，增量 move 事件也只包含 `hit/stand`。
+hit 的裁判 delta 只补随机 `new_card`；stand 不发重复 delta，最后一家结束后才一次补庄家亮牌/补牌与 outcomes。
 `private_state` 至少包含查看者自己的权威 `hand`、`value`、`status` 和
 `legal_actions`。NPC 只能选择同一份服务端合法行动，不接收或推导 shoe 内容。
 正常结算和房间级终局（例如认输归档）都会翻开庄家暗牌，但仍不公开 shoe 或
@@ -413,32 +425,33 @@ outcome。庄家阶段前，`board_state.dealer.hand[1]` 恒为 `{hidden:true}`�
 
 行动必须从自己的 `private_state.legal_actions` 原样选择；手牌只存在于自己的
 `private_state.hand`。公共 move 可见打出的牌、选色与 UNO 声明，但摸牌永远不公开
-牌面。裁判的 `uno_delta` 用当前 `hand_counts/deck_count/phase` 同步摸牌后果；出牌时
-另含 `top_discard/current_color/direction`，罚牌、WDF 质疑和抓 UNO 只给公共人数、
-张数与结果。`pending_wild_draw_four.was_legal` 和任何新摸牌身份都不会进入公共投影或
+牌面。普通出牌、摸牌、抓 UNO 和接受 WDF 都可由前态与 move 推导，不再发裁判
+delta。只有 WDF challenge 依赖未公开的出牌前手牌，因此当次补一次
+`challenge_succeeded/penalized_player_id/draw_count/deck_count`。
+`pending_wild_draw_four.was_legal` 和任何新摸牌身份都不会进入公共投影或
 事件。仅真实终局会发布按原手牌稳定顺序排列的 `terminal_hands`，牌堆内容仍隐藏。
 完整功能牌与终局规则仍以 bootstrap `rules_text` 为准。
 
 ## 干瞪眼 `gandengyan`
 
 只能从自己的 `private_state.legal_actions` 选择 `play` 或 `pass`。出牌 move 的
-`card_ids` 在打出后成为公开信息；裁判 `gandengyan_delta` 补充权威牌型、倍率和公共
-手牌张数。其余人全过时，delta 以 `trick_end` 给出本墩赢家/下一领牌、各席摸牌张数、
-剩余牌堆和更新后的手牌张数，绝不包含新摸牌身份。炸弹、跟牌与筹码倍率细则看
+`card_ids` 在打出后成为公开信息，牌型、倍率和手牌张数可由前态与该 move 推导，
+普通出牌不再重发裁判 delta。其余人全过后发一次 `trick_end`，只含本墩赢家、
+各席非零摸牌张数和剩余牌堆数，绝不包含新摸牌身份。炸弹、跟牌与筹码倍率细则看
 bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游戏牌力从左强到右弱
 排列；牌堆剩余内容继续隐藏。
 
 ## 开火车 `train_cards`
 
-2–6 人，只有一个权威动作 `flip`。进行中牌堆顺序始终隐藏；公共增量只发布本次翻出的牌、公开牌列、是否发生同点收牌、收牌数量及各席剩余张数。仅真实终局以 `terminal_hands` 公开各席剩余牌，未翻牌堆仍不公开。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。带 stake 时每名败者扣一个 stake，唯一赢家获得其余席位的总和；循环/动作上限导致的平局全部结算 0。
+2–6 人，只有一个权威动作 `flip`。进行中牌堆顺序始终隐藏；裁判增量只补本次随机翻出的 `revealed_card`，公开牌列、同点收牌和各席剩余张数均由前态与该牌推导；终局时才附加 winner 或 draw_reason。仅真实终局以 `terminal_hands` 公开各席剩余牌，未翻牌堆仍不公开。大小王共同按“王”匹配，不是万能牌；本项目采用 54 张严格轮流版。调用方不得预知或推算下一张牌。带 stake 时每名败者扣一个 stake，唯一赢家获得其余席位的总和；循环/动作上限导致的平局全部结算 0。
 
 ## 斗地主 `doudizhu`
 
-固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
+固定三人。叫分和出牌都只从本人的 `private_state.legal_actions` 原样选择。牌型识别、比较和合法组合由 vendored `onestraw/doudizhu` 0.1.5 语义提供；物理 `card_ids` 由服务端绑定，调用方不得自行枚举。普通叫分和 pass 的公开变化已全在 move 与前态中，不重发裁判 delta；若出牌 move 已带 `card_ids/pattern_type` 也不重复。兼容只提交短 `action_id` 的调用方时，裁判仅补本次公开的 `card_ids/pattern_type/pattern_label`。只有确定地主时另一次补 `landlord_player_id` 和随机公开的三个 `bottom_card_ids`。地主确定前 3 张底牌隐藏，确定后公开；进行中其他人的手牌只显示张数，真实终局才以 `terminal_hands` 按高到低公开各席剩余牌。`pass` 仅在当前牌墩允许时出现。带 stake 时最终单位为 `stake × multiplier`：地主胜收两份、两农民各付一份；农民胜反向结算。
 
 ## 掼蛋 `guandan`
 
-固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。为控制上下文体积，本人合法行动以短 `action_id` 发布：只提交 `{"action":"act","action_id":"g_..."}`，不要重建牌型或 `card_ids`。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；进行中他人手牌不进入 bootstrap、delta 或 full_state，真实终局才以 `terminal_hands` 公开剩余牌。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
+固定四人、对家组队、两副牌，房间是一场从 2 打到 A 的完整升级赛。运行时规则核心为 vendored `rlcard-guandan` v0.1.0。MCP 的 `private_state.legal_actions` 为 `guandan_parametric_v1`：`hand` 是稳定索引的牌面列表，`options` 每行按 `fields` 给出 suffix/kind/pattern/main_rank/size/wild_count/suit 和一个可提交示例索引组。选择任一符合该权威语义项的本人手牌索引，排序后用 base36 且以逗号连接，提交 `action_id_prefix + suffix + "." + indexes`；pass/接风等无牌动作省略点号与 indexes。服务端将前缀绑定当前全部核心合法集，并把参数动作还原为实际核心 `action_id`；所有花色、牌面、赖子用法和牌型解释均可选，示例不限制其他合法索引组。不要构造未发布的语义项。进贡/还贡、抗贡、接风、级牌和升级状态都由服务端持久化；进行中他人手牌不进入 bootstrap、delta 或 full_state，真实终局才以 `terminal_hands` 公开剩余牌。带 stake 时获胜队两人各 +stake，败方两人各 -stake。
 
 ## 炸金花 `zhajinhua`
 
@@ -446,19 +459,19 @@ bootstrap 规则。仅真实终局会发布各席 `terminal_hands`，按该游�
 
 ## 军棋 `junqi`
 
-固定双人暗棋陆战军棋。布阵阶段只从本人私有合法行动选择 `swap/shuffle/ready/auto_setup`；进入行棋后再从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔在进行中不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示，真实终局再公开棋盘上全部剩余军衔。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。带 stake 时按双人标准赢家 +stake、败者 -stake。
+固定双人暗棋陆战军棋。布阵阶段 `legal_actions` 只列出 `shuffle/ready/auto_setup`；手工 swap 保留在 `junqi_setup_v1` 的 `legal_action_spec.swap`，按 `own_squares` 选两个己方占用格，并用 `destinations_by_rank` 同时检查两枚棋交换后的布阵限制，提交 `{"action":"swap","from":"...","to":"..."}`。进入行棋后仍从权威 `move` 列表提交 `from/to`。对手未公开棋子的军衔在进行中不会出现在公共棋盘、MCP bootstrap/delta/full_state 或 legal actions；碰撞、司令阵亡、军旗等按规则必须公开时才揭示，真实终局再公开棋盘上全部剩余军衔。棋子碰撞、棋盘拓扑、铁路/工兵转弯和布阵合法性由 vendored `online-junqi` 核心判定。带 stake 时按双人标准赢家 +stake、败者 -stake。
 
 ## 德州扑克 `texas_holdem`
 
-2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。进行中底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。showdown 只公开按规则应亮的仍有资格席位，fold/muck 不因终局复盘而强制公开。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
+2–6 人 no-limit Hold'em，一房一手，每席固定 200 内部筹码。进行中底牌只在本人的 `private_state`；公共状态包含按钮/盲注、公共牌、各席剩余 stack、已投入、fold/all-in 状态和可审计的 pot/side-pot。普通下注信息已在 move 中，不重发整个 players/pots；自动转街时才补 `street/board_added`，真正摊牌时补 `showdown`。showdown 只公开按规则应亮的仍有资格席位，fold/muck 不因终局复盘而强制公开。只能从 `private_state.legal_actions` 选择 `check/fold/call/bet/raise/all_in`；`bet/raise.amount` 表示本街下注总额，必须位于服务端给出的 `min_amount..max_amount`。PyPokerEngine 提供牌桌、下注事务、牌力与 side-pot 核心，本地适配锁定 heads-up 顺序、short all-in 与 raise reopening 等语义。带 stake 时 stake 是每席完整真实买入而非内部筹码单价，终局按最终内部栈比例分配总买入池，单席最多亏 stake。
 
 ## 围棋 `go`
 
-固定双人 19×19，黑先，白贴 7.5，禁止自杀，positional superko，中国面积计分。`play(row,col)`、`pass` 都必须来自权威 legal actions；连续两次 pass 后进入死子确认阶段，可 `toggle_dead(row,col)`，任一方修改死子集合会清空双方确认，双方对同一集合执行 `confirm_score` 后才结算。Tenuki 规则核心负责落子、提子、劫/超级劫、死子分组和计分；完整历史随状态持久化以保证刷新后 superko 不丢失。带 stake 时按双人标准赢家 +stake、败者 -stake，和棋双方 0。
+固定双人 19×19，黑先，白贴 7.5，禁止自杀，positional superko，中国面积计分。MCP 不枚举 361 个 play JSON：`coordinate_rows_v1.columns_by_row` 用 `0-18` 或逗号分隔区间列出每一行当前合法列，用其 `action` 与列出的 `row/col` 提交；`pass`/`confirm_score` 仍直接列在 `legal_actions`。连续两次 pass 后进入死子确认阶段，可 `toggle_dead(row,col)`，任一方修改死子集合会清空双方确认，双方对同一集合执行 `confirm_score` 后才结算。Tenuki 规则核心负责落子、提子、劫/超级劫、死子分组和计分；完整历史随状态持久化以保证刷新后 superko 不丢失。带 stake 时按双人标准赢家 +stake、败者 -stake，和棋双方 0。
 
 ## 麻将 `mahjong`
 
-固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。进行中摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。真实终局以 `terminal_hands` 公开各席剩余牌并补全暗杠，牌墙内容继续隐藏。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
+固定四人、136 张无花、东一局，采用国标 8 番起和的首版配置。进行中摸牌、手牌与本人可响应动作只进入 `private_state`；公开状态只含弃牌、副露、牌数、轮次/座风以及规则要求公开的信息。`mahjong_delta` 是真正 patch：每次只发生变化的 `phase/turn_player_id/wall_remaining`、单张 `discard_added/discard_removed`、单个 `meld_added/meld_changed`与紧凑 `response`；不每步重发全部牌河或副露历史。终局才一次附 `game_result/terminal_hands`。调用方以 bootstrap 为底按事件顺序应用 patch，丢失时用 `full_state` 恢复。真实终局以 `terminal_hands` 公开各席剩余牌并补全暗杠，牌墙内容继续隐藏。吃、碰、明杠、暗杠、加杠、抢杠和、自摸、点炮及响应优先级由服务端状态机管理，胡牌/番数调用 vendored PyMahjongGB `MahjongFanCalculator`，向听调用 `MahjongShanten`。调用方只能提交本人当前 `action_id`，不得自行算番或构造响应。首版无花、单手结束、单和制。带 stake 时自摸由三家各付 stake；点炮或抢杠和由来源玩家独付 3×stake；荒牌全部 0。
 
 ## 翻翻棋 `banqi`
 

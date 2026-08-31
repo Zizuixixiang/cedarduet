@@ -149,6 +149,38 @@ class GamePlugin(ABC):
             snapshot.pop(key, None)
         return snapshot
 
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return the public board included in the one-time MCP bootstrap.
+
+        Web projections keep using :meth:`public_state`.  Games whose public
+        Web board contains a renderer-oriented duplicate of private legal
+        actions can remove only that duplicate here without weakening the
+        canonical browser contract.
+        """
+        del viewer, participants
+        return deepcopy(public_state)
+
+    def mcp_private_state(
+        self,
+        private_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a submit-ready private projection for MCP responses.
+
+        The input has already passed the game's viewer-safe ``private_state``
+        boundary, so implementations may compact it but can never gain access
+        to another participant's hidden state.  The default preserves the
+        existing representation.
+        """
+        del viewer, participants
+        return deepcopy(private_state)
+
     def participant_summary(
         self,
         state: dict[str, Any],

@@ -222,6 +222,114 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertEqual(len(claimed.state["melds"]["p2"][0]["tiles"]), 4)
         self.assertIsNotNone(claimed.state["drawn_tile_id"])
 
+    def test_public_deltas_rebuild_discards_melds_and_response_incrementally(self):
+        state = self.state()
+        state["hands"]["p0"] = self.tiles(["W3", *FILLER, "F2", "F3"])
+        state["hands"]["p1"] = self.tiles(["W1", "W2", *FILLER])
+        state["hands"]["p2"] = self.tiles(["W3", "W3", *FILLER])
+        old_discards = self.tiles(["B7", "B8", "B9"])
+        old_meld_tiles = self.tiles(["T2", "T3", "T4"])
+        state["discards"]["p3"] = old_discards
+        state["melds"]["p3"] = [{
+            "kind": "chi", "tiles": old_meld_tiles,
+            "source_player_id": "p2", "engine_tile": "T3", "offer": 2,
+        }]
+
+        def normalized(public):
+            return {
+                "phase": public["phase"],
+                "turn_player_id": public["turn_player_id"],
+                "wall_remaining": public["wall_remaining"],
+                "discards": {
+                    player_id: [self.game._delta_tile(tile) for tile in pile]
+                    for player_id, pile in public["discards"].items()
+                },
+                "melds": {
+                    player_id: [self.game._delta_meld(meld) for meld in melds]
+                    for player_id, melds in public["melds"].items()
+                },
+                "response": self.game._delta_response(
+                    public.get("response_window")
+                ),
+            }
+
+        cache = normalized(self.game.public_state(state, self.players))
+
+        def apply_delta(delta):
+            for key in ("phase", "turn_player_id", "wall_remaining"):
+                if key in delta:
+                    cache[key] = delta[key]
+            if "discard_added" in delta:
+                cache["discards"][delta["player_id"]].append(
+                    delta["discard_added"]
+                )
+            if "discard_removed" in delta:
+                removed = delta["discard_removed"]
+                tile = cache["discards"][removed["player_id"]].pop()
+                self.assertEqual(tile["id"], removed["tile_id"])
+            if "meld_added" in delta:
+                added = delta["meld_added"]
+                player_id = added.get("player_id", delta["player_id"])
+                cache["melds"][player_id].append(added["meld"])
+            for changed in delta.get("meld_changed", []):
+                cache["melds"][changed["player_id"]][changed["index"]] = (
+                    changed["meld"]
+                )
+            if "response" in delta:
+                cache["response"] = delta["response"]
+
+        deltas = []
+
+        discard = next(
+            action for action in self.game.legal_actions_for(state, "p0")
+            if action["kind"] == "discard"
+            and action["tile_id"] == state["hands"]["p0"][0]["id"]
+        )
+        before = deepcopy(state)
+        applied = self.game.apply_action(
+            state, self.submit(discard), self.players[0]
+        )
+        applied = self.game.progress_after_action(
+            before, self.submit(discard), self.players[0], self.players, applied
+        )
+        state = applied.state
+        deltas.append(applied.public_event["mahjong_delta"])
+        apply_delta(deltas[-1])
+        self.assertEqual(cache, normalized(self.game.public_state(state, self.players)))
+
+        passed_action = self.action(self.game, state, "p2", "pass")
+        before = deepcopy(state)
+        applied = self.game.apply_action(
+            state, self.submit(passed_action), self.players[2]
+        )
+        applied = self.game.progress_after_action(
+            before, self.submit(passed_action), self.players[2], self.players, applied
+        )
+        state = applied.state
+        deltas.append(applied.public_event["mahjong_delta"])
+        apply_delta(deltas[-1])
+        self.assertEqual(cache, normalized(self.game.public_state(state, self.players)))
+
+        chi = self.action(self.game, state, "p1", "chi")
+        before = deepcopy(state)
+        applied = self.game.apply_action(state, self.submit(chi), self.players[1])
+        applied = self.game.progress_after_action(
+            before, self.submit(chi), self.players[1], self.players, applied
+        )
+        state = applied.state
+        deltas.append(applied.public_event["mahjong_delta"])
+        apply_delta(deltas[-1])
+        self.assertEqual(cache, normalized(self.game.public_state(state, self.players)))
+
+        encoded = json.dumps(deltas, ensure_ascii=False)
+        for tile in [*old_discards, *old_meld_tiles]:
+            self.assertNotIn(tile["id"], encoded)
+        for tile in (tile for hand in state["hands"].values() for tile in hand):
+            self.assertNotIn(tile["id"], encoded)
+        self.assertTrue(all("discards" not in delta for delta in deltas))
+        self.assertTrue(all("melds" not in delta for delta in deltas))
+        self.assertLess(max(len(json.dumps(delta, ensure_ascii=False)) for delta in deltas), 500)
+
     def test_concealed_gang_and_added_gang_robbing_window(self):
         concealed = self.state()
         concealed["hands"]["p0"] = self.tiles(["J2"] * 4 + FILLER[:10])

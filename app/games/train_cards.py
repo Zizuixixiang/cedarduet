@@ -378,22 +378,16 @@ class TrainCards(GamePlugin):
         if not isinstance(applied, MoveResult):
             return applied
         public = self.public_state(applied.state, participants)
+        last_action = public["last_action"]
+        delta: dict[str, Any] = {
+            "revealed_card": deepcopy(last_action["revealed_card"]),
+        }
+        if public["winner_player_id"] is not None:
+            delta["winner_player_id"] = public["winner_player_id"]
+        if public["draw_reason"] is not None:
+            delta["draw_reason"] = public["draw_reason"]
         applied.public_event = {
-            "train_cards_delta": {
-                "action": "flip",
-                "revealed_card": deepcopy(public["last_action"]["revealed_card"]),
-                "actor_player_id": public["last_action"]["player_id"],
-                "collected_cards": deepcopy(public["last_action"]["collected_cards"]),
-                "collected_count": public["last_action"]["collected_count"],
-                "eliminated_player_id": public["last_action"]["eliminated_player_id"],
-                "table_cards": deepcopy(public["table_cards"]),
-                "hand_counts": deepcopy(public["hand_counts"]),
-                "active_player_ids": list(public["active_player_ids"]),
-                "current_player_id": public["current_player_id"],
-                "phase": public["flow"]["phase"],
-                "winner_player_id": public["winner_player_id"],
-                "draw_reason": public["draw_reason"],
-            }
+            "train_cards_delta": delta
         }
         return applied
 

@@ -865,9 +865,12 @@ class Mahjong(GamePlugin):
         participants: list[dict[str, Any]],
         applied: dict[str, Any] | MoveResult,
     ) -> dict[str, Any] | MoveResult:
-        del state, move, actor, participants
         if isinstance(applied, MoveResult):
-            applied.public_event = {"mahjong_delta": self._public_delta(applied.state)}
+            applied.public_event = {
+                "mahjong_delta": self._public_delta(
+                    state, applied.state, participants
+                )
+            }
         return applied
 
     def validate_move(
@@ -1138,16 +1141,105 @@ class Mahjong(GamePlugin):
             projected["move"] = {"action": "act"}
         return projected
 
-    def _public_delta(self, state: dict[str, Any]) -> dict[str, Any]:
-        public = self.public_state(state, [])
+    @staticmethod
+    def _delta_tile(tile: dict[str, Any]) -> dict[str, Any]:
         return {
-            key: deepcopy(public[key])
-            for key in (
-                "phase", "turn_player_id", "wall_remaining", "hand_counts",
-                "melds", "discards", "last_discard", "response_window",
-                "last_action", "game_result",
-            )
+            key: deepcopy(tile[key]) for key in ("id", "code")
         }
+
+    @classmethod
+    def _delta_meld(cls, meld: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "kind": meld["kind"],
+            "tiles": [
+                deepcopy(tile) if tile.get("back") else cls._delta_tile(tile)
+                for tile in meld.get("tiles", [])
+            ],
+            "source_player_id": meld.get("source_player_id"),
+        }
+
+    @classmethod
+    def _delta_response(
+        cls, response: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if response is None:
+            return None
+        return {
+            "current_responder_id": response.get("current_responder_id"),
+            "current_priority": response.get("current_priority"),
+            "remaining_responses": int(response.get("remaining_responses", 0)),
+        }
+
+    def _public_delta(
+        self,
+        before_state: dict[str, Any],
+        after_state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        before = self.public_state(before_state, participants)
+        after = self.public_state(after_state, participants)
+        last_action = after.get("last_action") or {}
+        delta: dict[str, Any] = {
+            "kind": last_action.get("kind"),
+            "player_id": last_action.get("player_id"),
+        }
+        for key in ("phase", "turn_player_id", "wall_remaining"):
+            if before.get(key) != after.get(key):
+                delta[key] = deepcopy(after.get(key))
+
+        for player_id, after_pile in after["discards"].items():
+            before_pile = before["discards"].get(player_id, [])
+            if after_pile == before_pile:
+                continue
+            if after_pile[:-1] == before_pile:
+                delta["discard_added"] = self._delta_tile(after_pile[-1])
+            elif before_pile[:-1] == after_pile:
+                delta["discard_removed"] = {
+                    "player_id": player_id,
+                    "tile_id": before_pile[-1]["id"],
+                }
+            else:
+                delta.setdefault("discards_changed", {})[player_id] = [
+                    self._delta_tile(tile) for tile in after_pile
+                ]
+
+        for player_id, after_melds in after["melds"].items():
+            before_melds = before["melds"].get(player_id, [])
+            if after_melds == before_melds:
+                continue
+            if after_melds[:-1] == before_melds:
+                delta["meld_added"] = {
+                    "meld": self._delta_meld(after_melds[-1]),
+                }
+                if player_id != delta.get("player_id"):
+                    delta["meld_added"]["player_id"] = player_id
+                continue
+            changed = [
+                index for index, (old, new) in enumerate(
+                    zip(before_melds, after_melds)
+                ) if old != new
+            ]
+            if len(before_melds) == len(after_melds) and len(changed) == 1:
+                index = changed[0]
+                delta.setdefault("meld_changed", []).append({
+                    "player_id": player_id,
+                    "index": index,
+                    "meld": self._delta_meld(after_melds[index]),
+                })
+            else:
+                delta.setdefault("melds_changed", {})[player_id] = [
+                    self._delta_meld(meld) for meld in after_melds
+                ]
+
+        before_response = self._delta_response(before.get("response_window"))
+        after_response = self._delta_response(after.get("response_window"))
+        if before_response != after_response:
+            delta["response"] = after_response
+        if before.get("game_result") != after.get("game_result"):
+            delta["game_result"] = deepcopy(after.get("game_result"))
+            if after.get("terminal_hands") is not None:
+                delta["terminal_hands"] = deepcopy(after["terminal_hands"])
+        return delta
 
     def npc_compact_rules(
         self,

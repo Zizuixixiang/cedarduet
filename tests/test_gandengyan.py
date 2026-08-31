@@ -278,11 +278,12 @@ class GandengyanRuleTests(unittest.TestCase):
         self.assertIn("C6", [card["id"] for card in state["cards"]["hands"]["ai-2"]])
         self.assertEqual(state["cards"]["deck"], [])
         delta = result.public_event["gandengyan_delta"]
-        self.assertEqual(delta["action"], "trick_end")
+        self.assertEqual(delta["kind"], "trick_end")
         self.assertEqual(delta["draw_counts"], {
             "human-1": 1, "ai-1": 1, "ai-2": 1,
         })
-        self.assertEqual(delta["next_leader_player_id"], "human-1")
+        self.assertEqual(delta["winner_player_id"], "human-1")
+        self.assertEqual(delta["deck_count"], 0)
         self.assertNotIn("H6", json.dumps(delta, ensure_ascii=False))
 
     def test_emptying_deck_stops_later_seats_from_drawing(self):

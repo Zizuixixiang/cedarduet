@@ -494,12 +494,7 @@ class Blackjack(GamePlugin):
         if not isinstance(applied, MoveResult):
             return applied
         player_id = str(actor["player_id"])
-        value = self._value_for(applied.state, player_id)
-        delta: dict[str, Any] = {
-            "action": move["action"],
-            "value": deepcopy(value),
-            "status": applied.state["player_status_by_player"][player_id],
-        }
+        delta: dict[str, Any] = {}
         if move["action"] == "hit":
             delta["new_card"] = self._public_card(
                 self._hand_for(applied.state, player_id)[-1]
@@ -510,8 +505,7 @@ class Blackjack(GamePlugin):
             delta["outcomes_by_player"] = deepcopy(
                 applied.state["outcomes_by_player"]
             )
-            delta["result_text"] = applied.state["result_text"]
-        applied.public_event = {"blackjack_delta": delta}
+        applied.public_event = {"blackjack_delta": delta} if delta else None
         return applied
 
     def result_for(

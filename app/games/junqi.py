@@ -540,6 +540,56 @@ class Junqi(GamePlugin):
         snapshot.pop("public_actions", None)
         return snapshot
 
+    def mcp_private_state(
+        self,
+        private_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del viewer, participants
+        projected = deepcopy(private_state)
+        actions = projected.get("legal_actions")
+        if not isinstance(actions, list) or not any(
+            action.get("action") == "swap" for action in actions
+        ):
+            return projected
+        camp = str(projected.get("camp"))
+        pieces = projected.get("pieces") or {}
+        own_squares = sorted(
+            (str(square) for square in pieces),
+            key=lambda square: (int(square[1:]), square[0]),
+        )
+        front_row = 6 if camp == "b" else 7
+        rear_rows = {1, 2} if camp == "b" else {11, 12}
+        headquarters = {"b1", "d1"} if camp == "b" else {"b12", "d12"}
+        projected["legal_actions"] = [
+            deepcopy(action) for action in actions
+            if action.get("action") != "swap"
+        ]
+        projected["legal_action_spec"] = {
+            "format": "junqi_setup_v1",
+            "swap": {
+                "submit": {"action": "swap", "from": "own square", "to": "own square"},
+                "own_squares": own_squares,
+                "destinations_by_rank": {
+                    "0_bomb": [
+                        square for square in own_squares
+                        if int(square[1:]) != front_row
+                    ],
+                    "10_landmine": [
+                        square for square in own_squares
+                        if int(square[1:]) in rear_rows
+                    ],
+                    "11_flag": [
+                        square for square in own_squares if square in headquarters
+                    ],
+                    "other": own_squares,
+                },
+                "rule": "from/to must both hold your pieces; each piece rank must allow the other's square",
+            },
+        }
+        return projected
+
     def participant_summary(
         self,
         state: dict[str, Any],

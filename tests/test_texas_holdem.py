@@ -226,10 +226,12 @@ class TexasHoldemCoreTests(unittest.TestCase):
     def test_complete_four_street_betting_and_showdown_conserve_chips(self):
         roster, state = self.new_state(3)
         seen_streets = []
+        public_deltas = []
         while state["game_result"] is None:
             seen_streets.append(state["street"])
             applied = self.apply(state, roster)
-            self.assertIn("texas_holdem_delta", applied.public_event)
+            if applied.public_event is not None:
+                public_deltas.append(applied.public_event["texas_holdem_delta"])
         public = self.game.public_state(state, roster)
         self.assertEqual(
             set(seen_streets), {"preflop", "flop", "turn", "river"}
@@ -238,6 +240,8 @@ class TexasHoldemCoreTests(unittest.TestCase):
         self.assertEqual(public["pot"], 0)
         self.assertEqual(public["total_pot"], 30)
         self.assertEqual(sum(player["stack"] for player in public["players"].values()), 600)
+        self.assertTrue(any("board_added" in delta for delta in public_deltas))
+        self.assertIn("showdown", public_deltas[-1])
         self.assertEqual(len(public["showdown"]), 3)
 
     def test_all_in_calls_run_out_board_and_end_the_room(self):
@@ -729,13 +733,9 @@ class TexasHoldemMcpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(moved.status_code, 200, moved.text)
         payload = moved.json()
-        public_delta = next(
-            event["texas_holdem_delta"]
-            for event in payload["events"]
-            if "texas_holdem_delta" in event
-        )
-        self.assertEqual(public_delta["pot"], 25)
-        self.assertFalse(card_faces(public_delta))
+        self.assertNotIn("events", payload)
+        self.assertEqual(payload["current_actor"]["player_id"], "ai-other")
+        self.assertFalse(card_faces(payload))
 
         snapshot_response = await self.client.post(
             "/mcp/play",

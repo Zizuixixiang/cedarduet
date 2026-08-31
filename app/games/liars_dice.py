@@ -19,6 +19,7 @@ class LiarsDice(GamePlugin):
     supports_npcs = True
     supports_stakes = True
     supports_multiplayer_stakes = True
+    mcp_immediate_public_events = True
     rules_text = (
         "【目标】\n"
         "通过叫点和质疑让其他玩家失去全部骰子，成为最后留下的人。\n\n"
@@ -370,20 +371,20 @@ class LiarsDice(GamePlugin):
         applied.public_event = {
             "round_result": {
                 "round": int(outcome["round"]),
-                "challenger": challenger_name,
-                "bidder": bidder_name,
                 "bid": {
                     "quantity": int(bid["quantity"]),
                     "face": int(bid["face"]),
                 },
                 "actual_count": int(outcome["actual_count"]),
                 "bid_holds": bool(outcome["bid_holds"]),
-                "loser": loser_name,
+                "loser_player_id": loser_id,
                 "loser_remaining_dice": int(outcome["loser_remaining_dice"]),
                 "eliminated": bool(outcome["eliminated"]),
                 "next_round": outcome.get("next_round"),
-                "next_starter": outcome.get("next_starter_display_name"),
-                "summary": summary,
+                "next_starter_player_id": starter_id,
+                "revealed_dice_by_player": deepcopy(
+                    outcome["revealed_dice_by_player"]
+                ),
             }
         }
         return applied

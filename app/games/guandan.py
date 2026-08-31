@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import random
 from copy import deepcopy
 from typing import Any
@@ -75,9 +76,10 @@ class Guandan(GamePlugin):
         "副数或名次差追加倍数。这只是 CedarDuet 钱包政策，不改写上游掼蛋计分。"
     )
     move_format = (
-        '只提交规则核心发布的短 ID：{"move":{"action":"act",'
-        '"action_id":"g_..."},"revision":当前版本}。action_id 必须来自本人当前'
-        " private_state.legal_actions；不得自行枚举或改写 card_ids。"
+        '只提交当前 private_state.legal_actions 发布的权威短 ID：'
+        '{"move":{"action":"act","action_id":"g_..."},"revision":当前版本}。'
+        "MCP 紧凑表中的 action_id 由 action_id_prefix 与行内 suffix 直接拼接；"
+        "不得自行枚举或改写牌索引。"
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:
@@ -129,6 +131,10 @@ class Guandan(GamePlugin):
         pattern_type = action.get("pattern_type")
         if pattern_type:
             compact["pattern_type"] = str(pattern_type)
+        pattern = action.get("pattern")
+        if isinstance(pattern, dict):
+            compact["main_rank"] = pattern.get("main_rank")
+            compact["size"] = int(pattern.get("size", len(compact["card_ids"])))
         return compact
 
     @staticmethod
@@ -195,11 +201,7 @@ class Guandan(GamePlugin):
         if not isinstance(action_id, str) or not action_id.startswith("g_"):
             raise ValueError("action_id 必须是规则核心发布的 g_ 短 ID")
         player_id = str(actor["player_id"])
-        if not any(
-            action["action_id"] == action_id
-            for action in GuandanEngine.legal_actions(state, player_id)
-        ):
-            raise ValueError("action_id 不在规则核心当前发布的 legal_actions 中")
+        self._canonical_action_id(state, player_id, action_id)
 
     def apply_action(
         self,
@@ -209,7 +211,10 @@ class Guandan(GamePlugin):
     ) -> MoveResult:
         self.validate_action(state, move, actor)
         player_id = str(actor["player_id"])
-        transition = GuandanEngine.apply_action(state, player_id, str(move["action_id"]))
+        action_id = self._canonical_action_id(
+            state, player_id, str(move["action_id"])
+        )
+        transition = GuandanEngine.apply_action(state, player_id, action_id)
         result = self.result_for(state, [])
         return MoveResult(
             state=state,
@@ -228,8 +233,48 @@ class Guandan(GamePlugin):
     ) -> dict[str, Any] | MoveResult:
         del state, move, actor, participants
         if isinstance(applied, MoveResult):
+            raw = self._public_delta(applied.state)
+            kind = str(raw.get("kind"))
+            delta: dict[str, Any] = {"kind": kind}
+            if kind == "play":
+                delta["cards"] = [
+                    {
+                        "id": card["id"],
+                        "label": card["label"],
+                        **({"wild": True} if card.get("wild") else {}),
+                    }
+                    for card in raw.get("cards", [])
+                ]
+                pattern = raw.get("pattern") or {}
+                delta["pattern"] = {
+                    key: deepcopy(pattern[key])
+                    for key in ("type", "label", "main_rank") if key in pattern
+                }
+            elif kind == "pass":
+                if raw.get("trick_end"):
+                    delta["trick_end"] = True
+            elif kind == "wind_follow":
+                delta["wind_follow"] = True
+            else:
+                card = raw.get("card")
+                if isinstance(card, dict):
+                    delta["card"] = {
+                        "id": card["id"], "label": card["label"],
+                        **({"wild": True} if card.get("wild") else {}),
+                    }
+                delta["tribute"] = deepcopy(raw.get("tribute"))
+            if raw.get("deal_end") is not None:
+                delta.update({
+                    "deal_end": deepcopy(raw["deal_end"]),
+                    "phase": raw.get("phase"),
+                    "level_rank": raw.get("level_rank"),
+                    "team_levels": deepcopy(raw.get("team_levels")),
+                    "tribute": deepcopy(raw.get("tribute")),
+                })
+                if raw.get("match_result") is not None:
+                    delta["match_result"] = deepcopy(raw["match_result"])
             applied.public_event = {
-                "guandan_delta": self._public_delta(applied.state)
+                "guandan_delta": delta
             }
         return applied
 
@@ -403,6 +448,165 @@ class Guandan(GamePlugin):
         snapshot = deepcopy(public_state)
         snapshot.pop("last_public_delta", None)
         return snapshot
+
+    def mcp_private_state(
+        self,
+        private_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del viewer, participants
+        hand = private_state.get("hand")
+        actions = private_state.get("legal_actions")
+        if not isinstance(hand, list) or not isinstance(actions, list):
+            return deepcopy(private_state)
+        prefix, options = self._mcp_options(hand, actions)
+        pattern_labels = {
+            str(option["pattern_type"]): str(option["label"])
+            for option in options if option.get("pattern_type")
+        }
+        fields = [
+            "suffix", "kind", "pattern", "main_rank", "size",
+            "wild_count", "suit", "example_hand_indexes",
+        ]
+        items = [
+            [
+                self._base36(index),
+                option["kind"],
+                option.get("pattern_type"),
+                option.get("main_rank"),
+                option["size"],
+                option["wild_count"],
+                option.get("suit"),
+                option["example_hand_indexes"],
+            ]
+            for index, option in enumerate(options)
+        ]
+        return {
+            "hand": [
+                f"{card['label']}{'（逢人配）' if card.get('wild') else ''}"
+                for card in hand
+            ],
+            "legal_actions": {
+                "format": "guandan_parametric_v1",
+                "action_id_prefix": prefix,
+                "fields": fields,
+                "options": items,
+                "pattern_labels": pattern_labels,
+                "submit": {
+                    "action": "act",
+                    "action_id": (
+                        "action_id_prefix + option suffix + '.' + sorted "
+                        "base36 hand indexes joined by ','; omit '.' for no-card actions"
+                    ),
+                },
+                "coverage": (
+                    "every core action is selectable: choose any hand indexes "
+                    "matching an authoritative semantic option; the example is not a limit"
+                ),
+            },
+            "legal_action_count": int(private_state.get("legal_action_count", len(actions))),
+            "option_count": len(items),
+        }
+
+    @staticmethod
+    def _base36(value: int) -> str:
+        alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+        if value == 0:
+            return "0"
+        encoded = ""
+        while value:
+            value, digit = divmod(value, 36)
+            encoded = alphabet[digit] + encoded
+        return encoded
+
+    @classmethod
+    def _mcp_options(
+        cls,
+        hand: list[dict[str, Any]],
+        actions: list[dict[str, Any]],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        index_by_id = {
+            str(card["id"]): index for index, card in enumerate(hand)
+        }
+        options: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for action in actions:
+            indexes = [
+                index_by_id[str(card_id)]
+                for card_id in action.get("card_ids", [])
+            ]
+            wild_count = sum(bool(hand[index].get("wild")) for index in indexes)
+            suit = None
+            if action.get("pattern_type") == "straight_flush" and indexes:
+                suit = hand[indexes[0]].get("suit")
+            signature = (
+                str(action["kind"]), action.get("pattern_type"),
+                action.get("main_rank"), action.get("size", len(indexes)),
+                wild_count, suit,
+            )
+            option = options.setdefault(signature, {
+                "kind": str(action["kind"]),
+                "pattern_type": action.get("pattern_type"),
+                "label": str(action.get("label") or action["kind"]),
+                "main_rank": action.get("main_rank"),
+                "size": int(action.get("size", len(indexes))),
+                "wild_count": wild_count,
+                "suit": suit,
+                "example_hand_indexes": sorted(indexes),
+                "actions": [],
+            })
+            option["actions"].append(deepcopy(action))
+        semantic_options = list(options.values())
+        digest = hashlib.sha256(
+            "\0".join(
+                str(action["action_id"]) for action in actions
+            ).encode("utf-8")
+        ).hexdigest()[:10]
+        return f"g_m{digest}_", semantic_options
+
+    @classmethod
+    def _canonical_action_id(
+        cls, state: dict[str, Any], player_id: str, action_id: str
+    ) -> str:
+        core = GuandanEngine.legal_actions(state, player_id)
+        if any(action["action_id"] == action_id for action in core):
+            return action_id
+        level_rank = str(state.get("level_rank", "2"))
+        hand = sorted(
+            state.get("hands", {}).get(player_id, []),
+            key=lambda card: card_sort_key(card, level_rank),
+        )
+        compact = [cls._compact_legal(action) for action in core]
+        prefix, options = cls._mcp_options(hand, compact)
+        if action_id.startswith(prefix):
+            encoded = action_id[len(prefix):]
+            option_suffix, separator, encoded_indexes = encoded.partition(".")
+            try:
+                option_index = int(option_suffix, 36)
+                indexes = (
+                    [int(item, 36) for item in encoded_indexes.split(",")]
+                    if separator and encoded_indexes else []
+                )
+            except ValueError:
+                indexes = []
+                option_index = -1
+            if (
+                0 <= option_index < len(options)
+                and indexes == sorted(set(indexes))
+                and all(0 <= index < len(hand) for index in indexes)
+            ):
+                option = options[option_index]
+                index_by_id = {
+                    str(card["id"]): index for index, card in enumerate(hand)
+                }
+                for choice in option["actions"]:
+                    choice_indexes = sorted(
+                        index_by_id[str(card_id)]
+                        for card_id in choice.get("card_ids", [])
+                    )
+                    if choice_indexes == indexes:
+                        return str(choice["action_id"])
+        raise ValueError("action_id 不在规则核心当前发布的 legal_actions 中")
 
     def participant_summary(
         self,

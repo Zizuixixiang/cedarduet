@@ -666,25 +666,25 @@ class Uno(GamePlugin):
             return applied
         del state
         public = self.public_state(applied.state, participants)
-        delta: dict[str, Any] = {
-            "action": action,
-            "phase": public["flow"]["phase"],
-            "hand_counts": public["hand_counts"],
-            "deck_count": public["deck_count"],
-        }
+        del actor
+        delta: dict[str, Any] = {}
         if action == "play":
-            delta.update({
-                "top_discard": public["top_discard"],
-                "current_color": public["current_color"],
-                "direction": public["direction"],
-            })
-        if action in {
-            "play", "challenge_wild_draw_four", "accept_draw_four",
-        }:
-            delta["penalty_state"] = public["penalty_state"]
-        if action in {"play", "draw", "catch_uno"}:
-            delta["uno_state"] = public["uno_state"]
-        applied.public_event = {"uno_delta": delta}
+            # card_id/color/uno are already in the player move; skip/reverse,
+            # draw-two and declaration windows are deterministic from it.
+            return applied
+        if action in {"draw", "catch_uno", "accept_draw_four"}:
+            return applied
+        if action == "challenge_wild_draw_four":
+            challenge = public["penalty_state"]["last_challenge"] or {}
+            delta = {
+                "challenge_succeeded": bool(
+                    challenge.get("challenge_succeeded")
+                ),
+                "penalized_player_id": challenge.get("penalized_player_id"),
+                "draw_count": int(challenge.get("draw_count", 0)),
+                "deck_count": public["deck_count"],
+            }
+        applied.public_event = {"uno_delta": delta} if delta else None
         return applied
 
     def result_for(
