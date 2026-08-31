@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-chinese-checkers-styles";
-  const STYLE_HREF = "/static/games/chinese_checkers.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/chinese_checkers.css?v=0.1.17";
 
   function ensureStylesheet() {
     if (!document || !document.head || document.getElementById(STYLE_ID)) return;
@@ -58,39 +58,81 @@
     ) || "玩家";
   }
 
+  function targetProgressForPlayer(state, playerId) {
+    const targetCamp = Number(
+      state.target_camps_by_player
+      && state.target_camps_by_player[playerId]
+    );
+    const token = state.tokens_by_player && state.tokens_by_player[playerId];
+    if (!Number.isInteger(targetCamp) || !token) return 0;
+    const campNodes = state.camps && state.camps[String(targetCamp)];
+    const targetNodeIds = Array.isArray(campNodes)
+      ? campNodes
+      : (state.nodes || [])
+        .filter((node) => node.camp === targetCamp)
+        .map((node) => node.id);
+    const pieces = state.pieces || {};
+    return targetNodeIds.reduce(
+      (total, nodeId) => total + (pieces[nodeId] === token ? 1 : 0),
+      0
+    );
+  }
+
   function visualCampCenter(nodes, camp, rotationSteps) {
     const positions = nodes
       .filter((node) => node.camp === camp)
       .map((node) => visualPosition(node, rotationSteps));
-    if (!positions.length) return {left: 50, top: 50};
+    if (!positions.length) return null;
     return positions.reduce(
-      (total, point) => ({
-        left: total.left + point.left / positions.length,
-        top: total.top + point.top / positions.length,
+      (total, position) => ({
+        left: total.left + position.left / positions.length,
+        top: total.top + position.top / positions.length,
       }),
       {left: 0, top: 0}
     );
   }
 
-  function createEdgeIdentity(context, participant, camp, position) {
+  function compareVisualRosterEntries(left, right) {
+    return left.position.left - right.position.left
+      || left.camp - right.camp
+      || Number(left.participant.seat_index) - Number(right.participant.seat_index)
+      || String(left.participant.player_id || "").localeCompare(
+        String(right.participant.player_id || "")
+      );
+  }
+
+  function fixedRowSlots(edge, count) {
+    if (count === 1) return [`${edge}-2`];
+    if (count === 2) return [`${edge}-1`, `${edge}-3`];
+    return [`${edge}-1`, `${edge}-2`, `${edge}-3`];
+  }
+
+  function createEdgeIdentity(context, participant, camp, slot) {
     const viewerId = viewerPlayerId(context);
-    const column = position.left < 34 ? 1 : (position.left > 66 ? 3 : 2);
-    const edge = position.top < 50 ? "top" : "bottom";
+    const isCurrent = participant.player_id === context.room.current_player_id;
+    const column = Number(slot.slice(-1));
+    const progress = targetProgressForPlayer(
+      context.state || {},
+      participant.player_id
+    );
     const item = document.createElement("article");
     item.className = [
       "board-edge-participant",
       "cc-edge-participant",
       `seat-${participant.seat_index}`,
-      participant.player_id === context.room.current_player_id ? "current" : "",
+      isCurrent ? "current" : "",
       participant.player_id === viewerId ? "viewer" : "",
     ].filter(Boolean).join(" ");
     item.dataset.playerId = participant.player_id;
     item.dataset.camp = String(camp);
-    item.dataset.visualEdge = `${edge}-${column}`;
+    item.dataset.visualEdge = slot;
+    item.dataset.targetProgress = String(progress);
     item.style.setProperty("--edge-column", column);
     item.setAttribute(
       "aria-label",
-      `${playerName(participant)}，起始营 ${camp + 1}${participant.player_id === viewerId ? "，你" : ""}`
+      `${playerName(participant)}，起始营 ${camp + 1}，目标 ${progress}/10`
+      + `${isCurrent ? "，行动中" : ""}`
+      + `${participant.player_id === viewerId ? "，你" : ""}`
     );
     const avatar = document.createElement("span");
     avatar.className = "board-edge-avatar";
@@ -105,9 +147,28 @@
     const copy = document.createElement("span");
     copy.className = "board-edge-copy";
     const name = document.createElement("strong");
-    name.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
+    const nameText = document.createElement("span");
+    nameText.className = "cc-edge-player-name";
+    nameText.textContent = `${playerName(participant)}${participant.player_id === viewerId ? "（你）" : ""}`;
+    name.appendChild(nameText);
+    if (isCurrent) {
+      const currentLabel = document.createElement("span");
+      currentLabel.className = "cc-current-turn-label";
+      currentLabel.textContent = "行动中";
+      name.appendChild(currentLabel);
+    }
     const label = document.createElement("small");
-    label.textContent = `起始营 ${camp + 1}`;
+    label.className = "cc-edge-meta";
+    const progressLabel = document.createElement("span");
+    progressLabel.className = "cc-edge-progress";
+    progressLabel.textContent = `目标${progress}/10`;
+    const separator = document.createElement("span");
+    separator.className = "cc-edge-separator";
+    separator.textContent = "·";
+    const campLabel = document.createElement("span");
+    campLabel.className = "cc-edge-start-camp";
+    campLabel.textContent = `起始营${camp + 1}`;
+    label.append(progressLabel, separator, campLabel);
     copy.append(name, label);
     item.append(avatar, copy);
     return item;
@@ -115,19 +176,43 @@
 
   function edgeRosters(context, nodes, rotationSteps) {
     if ((context.participants || []).length <= 2) return null;
-    const top = document.createElement("div");
-    const bottom = document.createElement("div");
-    top.className = "cc-edge-roster top";
-    bottom.className = "cc-edge-roster bottom";
-    (context.participants || []).forEach((participant) => {
+    const entries = (context.participants || []).map((participant) => {
       const camp = Number(
         context.state.start_camps_by_player
         && context.state.start_camps_by_player[participant.player_id]
       );
-      if (!Number.isInteger(camp)) return;
-      const position = visualCampCenter(nodes, camp, rotationSteps);
-      const item = createEdgeIdentity(context, participant, camp, position);
-      (position.top < 50 ? top : bottom).appendChild(item);
+      const position = Number.isInteger(camp)
+        ? visualCampCenter(nodes, camp, rotationSteps)
+        : null;
+      return {participant, camp, position};
+    }).filter((entry) => entry.position);
+    const topEntries = entries
+      .filter((entry) => entry.position.top < 50)
+      .sort(compareVisualRosterEntries);
+    const bottomEntries = entries
+      .filter((entry) => entry.position.top >= 50)
+      .sort(compareVisualRosterEntries);
+    const topSlots = fixedRowSlots("top", topEntries.length);
+    const bottomSlots = fixedRowSlots("bottom", bottomEntries.length);
+    const top = document.createElement("div");
+    const bottom = document.createElement("div");
+    top.className = "cc-edge-roster top";
+    bottom.className = "cc-edge-roster bottom";
+    topEntries.forEach((entry, index) => {
+      top.appendChild(createEdgeIdentity(
+        context,
+        entry.participant,
+        entry.camp,
+        topSlots[index]
+      ));
+    });
+    bottomEntries.forEach((entry, index) => {
+      bottom.appendChild(createEdgeIdentity(
+        context,
+        entry.participant,
+        entry.camp,
+        bottomSlots[index]
+      ));
     });
     return {top, bottom};
   }
@@ -378,24 +463,25 @@
       });
       playfield.appendChild(hole);
     });
-
-    const progress = Number(
-      state.target_progress_by_player
-      && state.target_progress_by_player[playerId]
-    );
-    const badge = document.createElement("span");
-    badge.className = "cc-progress-badge";
-    badge.setAttribute("role", "status");
-    badge.textContent = `目标营 ${Number.isFinite(progress) ? progress : 0} / 10`;
-    playfield.appendChild(badge);
     return true;
   }
 
   function renderControls(context) {
     ensureStylesheet();
     const controls = context.controls;
+    const state = context.state || {};
+    const playerId = viewerPlayerId(context);
     const legend = document.createElement("div");
     legend.className = "cc-legend";
+    if ((context.participants || []).length <= 2) {
+      const viewerProgress = document.createElement("span");
+      viewerProgress.className = "cc-legend-item viewer-progress";
+      viewerProgress.setAttribute("role", "status");
+      viewerProgress.textContent = (
+        `目标营 ${targetProgressForPlayer(state, playerId)}/10`
+      );
+      legend.appendChild(viewerProgress);
+    }
     const step = document.createElement("span");
     step.className = "cc-legend-item step";
     step.textContent = "相邻一步";
@@ -404,7 +490,7 @@
     jump.textContent = "连续跳终点";
     const path = document.createElement("span");
     path.className = "cc-legend-item path";
-    path.textContent = "细线为服务端 canonical path";
+    path.textContent = "细线表示连续跳跃路径";
     legend.append(step, jump, path);
     controls.appendChild(legend);
   }

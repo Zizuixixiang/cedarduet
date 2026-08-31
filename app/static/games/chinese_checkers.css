@@ -1,6 +1,6 @@
 .board.chinese_checkers {
   --cc-ink: #2f3240;
-  --cc-paper: #eee5d0;
+  --cc-paper: #e8e5df;
   width: min(94vw, 680px);
   max-width: 100%;
   aspect-ratio: 0.88 / 1;
@@ -13,19 +13,58 @@
   border: clamp(5px, 1vw, 9px) solid #4a4352;
   border-radius: clamp(18px, 4vw, 34px);
   background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .95), transparent 47%),
-    linear-gradient(145deg, #f6efdf 0%, #ddd0b9 62%, #cbbda7 100%);
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .84), transparent 47%),
+    linear-gradient(145deg, #f2f1ed 0%, #dfdcd6 62%, #cbc7c0 100%);
   box-shadow:
-    0 0 0 2px #bba982,
+    0 0 0 2px #b7b0a8,
     0 0 0 6px rgba(58, 52, 67, .16),
     0 22px 46px rgba(43, 38, 51, .24),
     inset 0 2px 0 rgba(255, 255, 255, .84);
   touch-action: manipulation;
 }
 
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .battle-main-column,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .table-layout,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .board-zone {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .board.chinese_checkers.multiplayer-board,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-edge-roster,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-playfield,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .game-controls,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .move-confirm,
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-legend {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+#battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .board-frame {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  box-sizing: border-box;
+}
+
 .board.chinese_checkers.multiplayer-board {
   aspect-ratio: auto;
+  max-width: 100%;
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   gap: 5px;
   overflow: visible;
   isolation: auto;
@@ -48,10 +87,10 @@
   border: clamp(5px, 1vw, 9px) solid #4a4352;
   border-radius: clamp(18px, 4vw, 34px);
   background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .95), transparent 47%),
-    linear-gradient(145deg, #f6efdf 0%, #ddd0b9 62%, #cbbda7 100%);
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, .84), transparent 47%),
+    linear-gradient(145deg, #f2f1ed 0%, #dfdcd6 62%, #cbc7c0 100%);
   box-shadow:
-    0 0 0 2px #bba982,
+    0 0 0 2px #b7b0a8,
     0 0 0 6px rgba(58, 52, 67, .16),
     0 22px 46px rgba(43, 38, 51, .24),
     inset 0 2px 0 rgba(255, 255, 255, .84);
@@ -60,7 +99,9 @@
 
 .cc-edge-roster {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
@@ -68,9 +109,107 @@
 
 .cc-edge-participant {
   grid-column: var(--edge-column);
-  width: min(138px, 100%);
+  width: 100%;
+  max-width: 138px;
+  height: 44px;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-rows: 24px 8px;
+  column-gap: 5px;
+  row-gap: 1px;
+  align-content: center;
 }
 
+.cc-edge-participant .board-edge-copy {
+  display: contents;
+}
+
+.cc-edge-participant .board-edge-avatar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cc-edge-participant .board-edge-copy strong {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.cc-edge-participant .cc-edge-player-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-edge-participant .cc-current-turn-label {
+  flex: 0 0 auto;
+  color: #c1121f;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .92);
+}
+
+.cc-edge-participant .cc-edge-meta {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: stretch;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0 2px;
+  overflow: visible;
+  text-overflow: initial;
+  white-space: nowrap;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.cc-edge-participant .cc-edge-meta > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.cc-edge-participant .cc-edge-progress { font-weight: 700; }
+.cc-edge-participant .cc-edge-separator,
+.cc-edge-participant .cc-edge-start-camp { font-weight: 400; }
+
+.cc-edge-participant.current {
+  outline: 2px solid var(--seat-color);
+  outline-offset: -2px;
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, .88),
+    inset 0 0 0 4px color-mix(in srgb, var(--seat-color) 74%, transparent),
+    inset 0 0 9px color-mix(in srgb, var(--seat-color) 32%, transparent);
+}
+
+.cc-edge-participant .board-edge-avatar.current-turn-avatar {
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.cc-edge-participant .board-edge-avatar.current-turn-avatar::after {
+  content: none;
+  display: none;
+  box-shadow: none;
+}
+
+.cc-edge-participant[data-visual-edge$="-1"] { justify-self: start; }
 .cc-edge-participant[data-visual-edge$="-2"] { justify-self: center; }
 .cc-edge-participant[data-visual-edge$="-3"] { justify-self: end; }
 
@@ -86,15 +225,14 @@
   background:
     repeating-linear-gradient(
       30deg,
-      rgba(75, 67, 80, .035) 0 1px,
+      rgba(72, 68, 79, .03) 0 1px,
       transparent 1px 8px
     ),
-    linear-gradient(145deg, rgba(255, 255, 255, .54), rgba(184, 168, 145, .33));
+    linear-gradient(145deg, rgba(255, 255, 255, .5), rgba(168, 165, 164, .27));
   filter: drop-shadow(0 8px 10px rgba(63, 54, 66, .12));
 }
 
 .board.chinese_checkers .cc-hole {
-  --camp-fill: #d5c9b6;
   width: clamp(17px, 5.05%, 31px);
   aspect-ratio: 1;
   padding: 0;
@@ -113,34 +251,33 @@
     radial-gradient(circle at 42% 38%, #7b7180 0 14%, #554f5b 38%, #312e37 72%);
   box-shadow:
     inset 1px 2px 3px rgba(22, 20, 26, .55),
-    0 1px 0 rgba(255, 255, 255, .82),
-    0 0 0 3px color-mix(in srgb, var(--camp-fill) 45%, transparent);
+    0 1px 0 rgba(255, 255, 255, .82);
   cursor: default;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
-.board.chinese_checkers .cc-hole.camp-0 { --camp-fill: #c8919d; }
-.board.chinese_checkers .cc-hole.camp-1 { --camp-fill: #d4ad68; }
-.board.chinese_checkers .cc-hole.camp-2 { --camp-fill: #83b5a5; }
-.board.chinese_checkers .cc-hole.camp-3 { --camp-fill: #8e9fc8; }
-.board.chinese_checkers .cc-hole.camp-4 { --camp-fill: #9b88bd; }
-.board.chinese_checkers .cc-hole.camp-5 { --camp-fill: #79a8bd; }
-
-.board.chinese_checkers .cc-hole.viewer-start-camp {
-  box-shadow:
-    inset 1px 2px 3px rgba(22, 20, 26, .55),
-    0 1px 0 rgba(255, 255, 255, .82),
-    0 0 0 3px color-mix(in srgb, var(--camp-fill) 62%, transparent);
+.board.chinese_checkers .cc-hole.camp-0,
+.board.chinese_checkers .cc-hole.camp-1,
+.board.chinese_checkers .cc-hole.camp-2,
+.board.chinese_checkers .cc-hole.camp-3,
+.board.chinese_checkers .cc-hole.camp-4,
+.board.chinese_checkers .cc-hole.camp-5 {
+  background:
+    radial-gradient(
+      circle at 42% 38%,
+      color-mix(in srgb, #7b7180 88%, var(--camp-fill)) 0 14%,
+      color-mix(in srgb, #554f5b 92%, var(--camp-fill)) 38%,
+      color-mix(in srgb, #312e37 94%, var(--camp-fill)) 72%
+    );
 }
 
-.board.chinese_checkers .cc-hole.viewer-target-camp {
-  box-shadow:
-    inset 1px 2px 3px rgba(22, 20, 26, .55),
-    0 1px 0 rgba(255, 255, 255, .82),
-    0 0 0 3px rgba(65, 112, 101, .38),
-    0 0 0 5px rgba(244, 239, 218, .56);
-}
+.board.chinese_checkers .cc-hole.camp-0 { --camp-fill: #b58f99; }
+.board.chinese_checkers .cc-hole.camp-1 { --camp-fill: #b7a27c; }
+.board.chinese_checkers .cc-hole.camp-2 { --camp-fill: #88a69e; }
+.board.chinese_checkers .cc-hole.camp-3 { --camp-fill: #929db6; }
+.board.chinese_checkers .cc-hole.camp-4 { --camp-fill: #9b90ae; }
+.board.chinese_checkers .cc-hole.camp-5 { --camp-fill: #839fac; }
 
 .board.chinese_checkers .cc-hole:not(:disabled) {
   cursor: pointer;
@@ -155,9 +292,9 @@
 }
 
 .board.chinese_checkers .cc-marble {
-  --marble-light: #f39bab;
-  --marble-mid: #be4963;
-  --marble-dark: #6b2539;
+  --marble-light: #e9a1ad;
+  --marble-mid: #b85267;
+  --marble-dark: #6d3041;
   width: 118%;
   aspect-ratio: 1;
   position: absolute;
@@ -179,30 +316,15 @@
   pointer-events: none;
 }
 
-.board.chinese_checkers .cc-marble.seat-1 {
-  --marble-light: #8de2d3;
-  --marble-mid: #269c90;
-  --marble-dark: #175a5a;
-}
-.board.chinese_checkers .cc-marble.seat-2 {
-  --marble-light: #ffe28b;
-  --marble-mid: #d99724;
-  --marble-dark: #7d4a16;
-}
-.board.chinese_checkers .cc-marble.seat-3 {
-  --marble-light: #c7a7f0;
-  --marble-mid: #7858b1;
-  --marble-dark: #3f2d72;
-}
-.board.chinese_checkers .cc-marble.seat-4 {
-  --marble-light: #94c9ef;
-  --marble-mid: #397db4;
-  --marble-dark: #244a75;
-}
+.board.chinese_checkers .cc-marble.seat-0,
+.board.chinese_checkers .cc-marble.seat-1,
+.board.chinese_checkers .cc-marble.seat-2,
+.board.chinese_checkers .cc-marble.seat-3,
+.board.chinese_checkers .cc-marble.seat-4,
 .board.chinese_checkers .cc-marble.seat-5 {
-  --marble-light: #b3dc83;
-  --marble-mid: #659c39;
-  --marble-dark: #365b2b;
+  --marble-light: color-mix(in srgb, var(--seat-soft) 82%, #fff);
+  --marble-mid: color-mix(in srgb, var(--seat-color) 72%, #8c8790);
+  --marble-dark: color-mix(in srgb, var(--seat-ink) 82%, #34313a);
 }
 
 .board.chinese_checkers .cc-marble-gleam {
@@ -328,24 +450,6 @@
   vector-effect: non-scaling-stroke;
 }
 
-.board.chinese_checkers .cc-progress-badge {
-  padding: 6px 10px;
-  position: absolute;
-  left: 50%;
-  bottom: 1.2%;
-  z-index: 12;
-  transform: translateX(-50%);
-  border: 1px solid rgba(57, 54, 66, .34);
-  border-radius: 999px;
-  color: var(--cc-ink);
-  background: rgba(255, 250, 236, .9);
-  box-shadow: 0 3px 8px rgba(48, 43, 54, .12);
-  font: 750 clamp(10px, 1.8vw, 13px)/1 system-ui, sans-serif;
-  letter-spacing: .04em;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .cc-legend {
   width: min(94vw, 680px);
   max-width: 100%;
@@ -376,6 +480,10 @@
   box-sizing: border-box;
 }
 
+.cc-legend-item.viewer-progress::before {
+  background: #8da783;
+}
+
 .cc-legend-item.path::before {
   width: 14px;
   height: 0;
@@ -385,12 +493,32 @@
 }
 
 @media (max-width: 599px) {
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .board-frame,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .board.chinese_checkers.multiplayer-board,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-edge-roster,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-playfield,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .game-controls,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .move-confirm,
+  #battleStage[data-game-type="chinese_checkers"].multiplayer-presentation .cc-legend {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
   .board.chinese_checkers {
     width: min(96vw, 520px);
     border-width: 4px;
     border-radius: 18px;
     box-shadow:
-      0 0 0 2px #bba982,
+      0 0 0 2px #b7b0a8,
       0 10px 24px rgba(43, 38, 51, .2),
       inset 0 2px 0 rgba(255, 255, 255, .78);
   }
@@ -399,13 +527,14 @@
     border-width: 4px;
     border-radius: 18px;
     box-shadow:
-      0 0 0 2px #bba982,
+      0 0 0 2px #b7b0a8,
       0 10px 24px rgba(43, 38, 51, .2),
       inset 0 2px 0 rgba(255, 255, 255, .78);
   }
 
   .cc-edge-participant {
-    min-height: 30px;
+    height: 42px;
+    min-height: 42px;
     padding: 2px 4px;
   }
 
@@ -416,11 +545,6 @@
 
   .board.chinese_checkers .cc-legal-marker.jump-marker {
     border-width: 2px;
-  }
-
-  .board.chinese_checkers .cc-progress-badge {
-    padding: 5px 8px;
-    bottom: .8%;
   }
 
   .cc-legend {
@@ -437,10 +561,6 @@
   .board.chinese_checkers .cc-hole {
     width: 17px;
   }
-
-  .board.chinese_checkers .cc-progress-badge {
-    font-size: 9px;
-  }
 }
 
 @media (max-width: 320px) {
@@ -449,6 +569,11 @@
     border-width: 3px;
   }
   .board.chinese_checkers .cc-playfield { border-width: 3px; }
+
+  .cc-edge-participant .cc-edge-meta {
+    gap: 0 1px;
+    font-size: 7px;
+  }
 
   .board.chinese_checkers .cc-hole {
     width: 16px;
