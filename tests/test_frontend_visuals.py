@@ -2767,6 +2767,8 @@ for (const count of [3, 4, 5, 6]) {{
             function_source("gameCategoryFor"),
             function_source("compareGamePlayerCounts"),
             function_source("compareGameDisplayNames"),
+            function_source("gameTokenEstimateLabel"),
+            function_source("updateGameTokenEstimate"),
             function_source("sortedGamesForCategory"),
             function_source("syncGameTypeOptions"),
             function_source("gameCategoryChanged"),
@@ -2798,8 +2800,9 @@ class Select {{
 }}
 const categorySelect = new Select("board");
 const gameSelect = new Select("othello");
+const gameTokenEstimate = {{textContent: ""}};
 const document = {{createElement: () => new Option()}};
-const elements = {{gameCategory: categorySelect, gameType: gameSelect}};
+const elements = {{gameCategory: categorySelect, gameType: gameSelect, gameTokenEstimate}};
 const $ = (id) => elements[id];
 {functions}
 const games = [
@@ -2821,6 +2824,7 @@ assert.deepEqual(
   ]
 );
 assert.equal(gameSelect.value, "othello");
+assert.equal(gameTokenEstimate.textContent, "（约30–120 token/轮）");
 
 const futureGames = [
   {{game_type: "wide", display_name: "阿宽", category: "board", allowed_player_counts: [2, 3, 4, 5, 6]}},
@@ -2836,8 +2840,12 @@ assert.deepEqual(
 
 categorySelect.value = "dice";
 syncGameTypeOptions(games);
-assert.deepEqual(gameSelect.options.map((option) => option.textContent), ["吹牛骰子 / 2–6人"]);
+assert.deepEqual(
+  gameSelect.options.map((option) => option.textContent),
+  ["吹牛骰子 / 2–6人"]
+);
 assert.equal(gameSelect.value, "liars_dice");
+assert.equal(gameTokenEstimate.textContent, "（约50–150 token/轮）");
 assert.equal(gameSelect.disabled, false);
 
 categorySelect.value = "card";
@@ -2859,11 +2867,12 @@ assert.equal(gameSelect.value, "liars_dice");
 assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
 """
         self.run_node(harness)
-        game_field_start = HTML.index('<div class="pixel-field">\n                <span>棋种</span>')
+        game_field_start = HTML.index('<div class="pixel-field">\n                <span>棋种 <span id="gameTokenEstimate"')
         game_field = HTML[
             game_field_start:
             HTML.index('<label class="pixel-field">', game_field_start)
         ]
+        self.assertIn('<span id="gameTokenEstimate"', game_field)
         self.assertIn('<div class="game-type-selects">', game_field)
         self.assertLess(
             game_field.index('<select id="gameCategory"'),
@@ -2908,10 +2917,9 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
             '$("gameType").dispatchEvent(new Event("change"))',
             function_source("gameCategoryChanged"),
         )
-        self.assertIn(
-            '$("gameType").addEventListener("change", configureParticipantPicker);',
-            SCRIPT,
-        )
+        self.assertIn('$("gameType").addEventListener("change", () => {', SCRIPT)
+        self.assertIn("updateGameTokenEstimate();", SCRIPT)
+        self.assertIn("configureParticipantPicker();", SCRIPT)
 
     def test_empty_game_category_disables_creation_safely(self):
         update_state = function_source("updateCreateButtonState")

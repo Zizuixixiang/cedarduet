@@ -1291,6 +1291,43 @@ function compareGameDisplayNames(left, right) {
   );
 }
 
+function gameTokenEstimateLabel(gameType) {
+  return ({
+    aeroplane_chess: "约40–150 token/轮",
+    banqi: "约50–150 token/轮",
+    blackjack: "约100–220 token/轮",
+    tictactoe: "约20–60 token/轮",
+    texas_holdem: "约120–300 token/轮",
+    train_cards: "约40–100 token/轮",
+    gomoku: "约30–100 token/轮",
+    go: "约100–250 token/轮",
+    gandengyan: "约220–450 token/轮",
+    guandan: "约700–1500 token/轮",
+    othello: "约30–120 token/轮",
+    connect4: "约20–70 token/轮",
+    checkers: "约40–150 token/轮",
+    chess: "约40–180 token/轮",
+    chinese_checkers: "约40–200 token/轮",
+    dots_boxes: "约30–120 token/轮",
+    doudizhu: "约300–600 token/轮",
+    liars_dice: "约50–150 token/轮",
+    mahjong: "约600–1200 token/轮",
+    yahtzee: "约80–200 token/轮",
+    uno: "约250–500 token/轮",
+    jungle: "约30–120 token/轮",
+    junqi: "约100–500 token/轮",
+    xiangqi: "约30–150 token/轮",
+    zhajinhua: "约120–250 token/轮",
+  })[gameType] || "";
+}
+
+function updateGameTokenEstimate() {
+  const label = $("gameTokenEstimate");
+  if (!label) return;
+  const estimate = gameTokenEstimateLabel($("gameType").value);
+  label.textContent = estimate ? `（${estimate}）` : "";
+}
+
 function sortedGamesForCategory(games, category) {
   return (Array.isArray(games) ? games : [])
     .filter((game) => game && game.game_type && gameCategoryFor(game) === category)
@@ -1324,11 +1361,13 @@ function syncGameTypeOptions(games) {
     select.appendChild(option);
     select.value = "";
     select.disabled = true;
+    updateGameTokenEstimate();
     return;
   }
   select.disabled = false;
   const values = [...select.options].map((option) => option.value);
   select.value = values.includes(previousValue) ? previousValue : values[0];
+  updateGameTokenEstimate();
 }
 
 function gameCategoryChanged() {
@@ -3670,7 +3709,10 @@ $("targetPlayerCount").addEventListener("change", () => {
 });
 $("fillWithNpcs").addEventListener("change", renderCreateSeatPreview);
 $("gameCategory").addEventListener("change", gameCategoryChanged);
-$("gameType").addEventListener("change", configureParticipantPicker);
+$("gameType").addEventListener("change", () => {
+  updateGameTokenEstimate();
+  configureParticipantPicker();
+});
 $("mode").addEventListener("change", updateCreateButtonState);
 $("stake").addEventListener("input", updateCreateButtonState);
 $("refreshRoomsButton").addEventListener("click", () => loadIdentity());
