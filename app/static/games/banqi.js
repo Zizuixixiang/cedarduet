@@ -39,12 +39,6 @@
     } = context;
     const setPendingMove = context.setPendingMove || helpers.selectMove;
     const clearPendingMove = context.clearPendingMove || helpers.clearSelection;
-    helpers?.setBoardLayout({
-      rows: state.rows || state.board.length,
-      cols: state.cols || state.board[0]?.length,
-      large: true,
-      ariaLabel: "翻翻棋棋盘",
-    });
     const positionKey = `${room.room_id}:${room.revision}`;
     if (positionKey !== renderedPositionKey) {
       renderedPositionKey = positionKey;

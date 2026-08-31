@@ -35,6 +35,7 @@ class BanqiFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("Math.random", BANQI)
         self.assertNotIn("😀", BANQI)
         self.assertNotIn("🀄", BANQI)
+        self.assertNotIn("setBoardLayout", BANQI)
 
     def test_visual_states_and_mobile_hit_area_are_explicit(self):
         for selector in (
@@ -57,13 +58,15 @@ class BanqiFrontendStructureTests(unittest.TestCase):
             'const STYLE_HREF = "/static/games/banqi.css?v=0.1.0"', BANQI
         )
         self.assertIn("ensureStylesheet();", BANQI)
-        self.assertIn("padding-bottom: clamp(14px, 2.2vw, 20px);", BANQI_STYLES)
+        self.assertNotIn("padding-bottom", BANQI_STYLES)
+        self.assertIn("--cols: 4;", BANQI_STYLES)
+        self.assertIn("--rows: 8;", BANQI_STYLES)
+        self.assertIn("--board-ratio: 4 / 8;", BANQI_STYLES)
         self.assertIn("overflow: visible;", BANQI_STYLES)
         self.assertIn("width: min(76%, 63px);", BANQI_STYLES)
         self.assertIn("border-color: rgba(68, 29, 19, .42);", BANQI_STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn("width: min(92vw, 340px);", mobile)
-        self.assertIn("padding-bottom: 13px;", BANQI_STYLES)
         self.assertIn("width: min(78%, 59px);", BANQI_STYLES)
         for viewport in (320, 375):
             board_width = min(viewport * 0.92, 340)
@@ -120,9 +123,8 @@ global.window = window;
 require({str(script_path)!r});
 assert.equal(typeof renderer.renderBoard, "function");
 
-const boardLayout = {{}};
 const modernHelpers = {{
-  setBoardLayout: (layout) => Object.assign(boardLayout, layout),
+  setBoardLayout: () => assert.fail("Banqi must not override the shared board layout"),
   selectMove: (action) => {{ chosen = action; }},
   clearSelection: () => {{ cleared += 1; }},
 }};
@@ -163,7 +165,6 @@ let board = render();
 assert.equal(board.children.length, 32);
 assert.equal(head.children.length, 1);
 assert.equal(head.children[0].href, "/static/games/banqi.css?v=0.1.0");
-assert.deepEqual(boardLayout, {{rows: 8, cols: 4, large: true, ariaLabel: "翻翻棋棋盘"}});
 assert.match(cellAt(board, 0, 1).ariaLabel, /身份未公开/);
 assert.equal(cellAt(board, 0, 1).classList.contains("just-revealed"), true);
 cellAt(board, 0, 0).click();

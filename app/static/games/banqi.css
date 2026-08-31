@@ -1,5 +1,7 @@
 .board.banqi {
-  padding-bottom: clamp(14px, 2.2vw, 20px);
+  --cols: 4;
+  --rows: 8;
+  --board-ratio: 4 / 8;
   overflow: visible;
 }
 
@@ -15,10 +17,6 @@
 }
 
 @media (max-width: 599px) {
-  .board.banqi {
-    padding-bottom: 13px;
-  }
-
   .board.banqi .banqi-piece {
     width: min(78%, 59px);
   }
