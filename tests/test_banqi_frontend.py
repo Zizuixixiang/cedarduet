@@ -61,15 +61,17 @@ class BanqiFrontendStructureTests(unittest.TestCase):
         self.assertNotIn("padding-bottom", BANQI_STYLES)
         self.assertIn("--cols: 4;", BANQI_STYLES)
         self.assertIn("--rows: 8;", BANQI_STYLES)
-        self.assertIn("--board-ratio: 4 / 8;", BANQI_STYLES)
-        self.assertIn("overflow: visible;", BANQI_STYLES)
-        self.assertIn("width: min(76%, 63px);", BANQI_STYLES)
-        self.assertIn("border-color: rgba(68, 29, 19, .42);", BANQI_STYLES)
+        self.assertIn("--board-ratio: 3 / 4;", BANQI_STYLES)
+        self.assertNotIn("padding:", BANQI_STYLES)
+        self.assertNotIn("overflow:", BANQI_STYLES)
+        self.assertIn("width: min(74%, 60px);", BANQI_STYLES)
+        self.assertNotIn("border-color", BANQI_STYLES)
+        self.assertNotIn("box-shadow", BANQI_STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
-        self.assertIn("width: min(92vw, 340px);", mobile)
-        self.assertIn("width: min(78%, 59px);", BANQI_STYLES)
+        self.assertIn("width: min(94vw, 360px);", BANQI_STYLES)
+        self.assertIn("width: min(74%, 57px);", BANQI_STYLES)
         for viewport in (320, 375):
-            board_width = min(viewport * 0.92, 340)
+            board_width = min(viewport * 0.94, 360)
             cell_width = (board_width - 8 - 18 - 12) / 4
             self.assertGreaterEqual(cell_width, 64)
 
