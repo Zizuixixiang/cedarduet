@@ -7,6 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
 BANQI = (ROOT / "app" / "static" / "games" / "banqi.js").read_text(encoding="utf-8")
+BANQI_STYLES = (ROOT / "app" / "static" / "games" / "banqi.css").read_text(
+    encoding="utf-8"
+)
 STYLES = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 NODE = shutil.which("node")
@@ -49,18 +52,19 @@ class BanqiFrontendStructureTests(unittest.TestCase):
         ):
             self.assertIn(selector, STYLES)
         self.assertIn("repeating-conic-gradient", STYLES)
-        banqi_board = STYLES[
-            STYLES.index(".board.banqi {"):
-            STYLES.index("}", STYLES.index(".board.banqi {"))
-        ]
-        self.assertIn("padding-bottom: clamp(14px, 2.2vw, 20px);", banqi_board)
-        self.assertIn("overflow: visible;", banqi_board)
-        self.assertIn("width: min(76%, 63px);", STYLES)
-        self.assertIn("border: 1px solid rgba(68, 29, 19, .42);", STYLES)
+        self.assertIn('const STYLE_ID = "duel-banqi-styles"', BANQI)
+        self.assertIn(
+            'const STYLE_HREF = "/static/games/banqi.css?v=0.1.0"', BANQI
+        )
+        self.assertIn("ensureStylesheet();", BANQI)
+        self.assertIn("padding-bottom: clamp(14px, 2.2vw, 20px);", BANQI_STYLES)
+        self.assertIn("overflow: visible;", BANQI_STYLES)
+        self.assertIn("width: min(76%, 63px);", BANQI_STYLES)
+        self.assertIn("border-color: rgba(68, 29, 19, .42);", BANQI_STYLES)
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn("width: min(92vw, 340px);", mobile)
-        self.assertIn("padding-bottom: 13px;", mobile)
-        self.assertIn("width: min(78%, 59px);", mobile)
+        self.assertIn("padding-bottom: 13px;", BANQI_STYLES)
+        self.assertIn("width: min(78%, 59px);", BANQI_STYLES)
         for viewport in (320, 375):
             board_width = min(viewport * 0.92, 340)
             cell_width = (board_width - 8 - 18 - 12) / 4
@@ -100,7 +104,12 @@ class Element {{
   addEventListener(name, callback) {{ this.listeners[name] = callback; }}
   click() {{ if (!this.disabled && this.listeners.click) this.listeners.click(); }}
 }}
-const document = {{createElement: (tag) => new Element(tag)}};
+const head = new Element("head");
+const document = {{
+  head,
+  createElement: (tag) => new Element(tag),
+  getElementById: (id) => head.children.find((child) => child.id === id) || null,
+}};
 let renderer = null;
 const window = {{DuelGameUI: {{register: (name, value) => {{
   assert.equal(name, "banqi");
@@ -152,6 +161,8 @@ const cellAt = (board, row, col) => board.children.find((cell) => (
 
 let board = render();
 assert.equal(board.children.length, 32);
+assert.equal(head.children.length, 1);
+assert.equal(head.children[0].href, "/static/games/banqi.css?v=0.1.0");
 assert.deepEqual(boardLayout, {{rows: 8, cols: 4, large: true, ariaLabel: "翻翻棋棋盘"}});
 assert.match(cellAt(board, 0, 1).ariaLabel, /身份未公开/);
 assert.equal(cellAt(board, 0, 1).classList.contains("just-revealed"), true);

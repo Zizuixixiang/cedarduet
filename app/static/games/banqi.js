@@ -1,12 +1,23 @@
 (function registerBanqiRenderer() {
   "use strict";
 
+  const STYLE_ID = "duel-banqi-styles";
+  const STYLE_HREF = "/static/games/banqi.css?v=0.1.0";
   const SYMBOLS = {
     r: {k: "帅", a: "仕", b: "相", r: "车", n: "马", c: "炮", p: "兵"},
     b: {k: "将", a: "士", b: "象", r: "车", n: "马", c: "炮", p: "卒"},
   };
   let selectedOrigin = null;
   let renderedPositionKey = null;
+
+  function ensureStylesheet() {
+    if (!document || !document.head || document.getElementById(STYLE_ID)) return;
+    const link = document.createElement("link");
+    link.id = STYLE_ID;
+    link.rel = "stylesheet";
+    link.href = STYLE_HREF;
+    document.head.appendChild(link);
+  }
 
   const sameSquare = (left, row, col) => Boolean(
     left && left.row === row && left.col === col
@@ -22,6 +33,7 @@
   }
 
   function renderBoard(context) {
+    ensureStylesheet();
     const {
       board, state, room, canMove, pendingMove, helpers,
     } = context;
