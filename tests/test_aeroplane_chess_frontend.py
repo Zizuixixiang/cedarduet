@@ -550,19 +550,19 @@ const nextTimeline = [
 ];
 const beats = renderer.transitionFeedbackBeats({previousTimeline, nextTimeline});
 assert.deepEqual(JSON.parse(JSON.stringify(beats)), [
-  {phase: "roll", text: "许知衡掷出 4 点", dieValue: 4, durationMs: 1200},
+  {phase: "roll", text: "许知衡掷出 4 点", dieValue: 4, durationMs: 2000},
   {
     phase: "move",
     text: "许知衡：蓝方 1 号机前进 4 点，并触发跳跃。",
     dieValue: 4,
-    durationMs: 1200,
+    durationMs: 2000,
   },
-  {phase: "roll", text: "许知衡掷出 2 点", dieValue: 2, durationMs: 1200},
+  {phase: "roll", text: "许知衡掷出 2 点", dieValue: 2, durationMs: 2000},
   {
     phase: "result",
     text: "许知衡：没有可移动飞机，服务端已自动结束本回合。",
     dieValue: 2,
-    durationMs: 1200,
+    durationMs: 2000,
   },
 ]);
 assert.equal(typeof renderer.transitionFeedback, "function");
@@ -595,7 +595,7 @@ feedbackTimeoutObserver = () => snapshots.push({
   active: activity.classList.contains("npc-feedback-active"),
 });
 await renderer.transitionFeedback({document, previousTimeline, nextTimeline});
-assert.deepEqual(feedbackDelays, [1200, 1200, 1200, 1200]);
+assert.deepEqual(feedbackDelays, [2000, 2000, 2000, 2000]);
 assert.equal(
   JSON.stringify(snapshots.map((item) => item.text)),
   JSON.stringify(Array.from(beats, (item) => item.text))

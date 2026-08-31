@@ -19,8 +19,7 @@
     5: [1, 3, 5, 7, 9],
     6: [1, 3, 4, 6, 7, 9],
   };
-  const NPC_ROLL_FEEDBACK_MS = 1200;
-  const NPC_ACTION_FEEDBACK_MS = 1200;
+  const NPC_VISIBLE_ACTION_PAUSE_MS = 2000;
   const AIRPORT_POINTS = {
     red: [[6.75, 87.75], [12.25, 87.75], [6.75, 93.25], [12.25, 93.25]],
     yellow: [[6.75, 6.75], [12.25, 6.75], [6.75, 12.25], [12.25, 12.25]],
@@ -332,14 +331,14 @@
           phase: "roll",
           text: prefix,
           dieValue: value,
-          durationMs: NPC_ROLL_FEEDBACK_MS,
+          durationMs: NPC_VISIBLE_ACTION_PAUSE_MS,
         });
         if ((delta.auto_pass || delta.penalty) && detail) {
           beats.push({
             phase: "result",
             text: `${name}：${detail}`,
             dieValue: value,
-            durationMs: NPC_ACTION_FEEDBACK_MS,
+            durationMs: NPC_VISIBLE_ACTION_PAUSE_MS,
           });
         }
       } else if (delta.action === "move") {
@@ -347,7 +346,7 @@
           phase: "move",
           text: `${name}：${String(event.text || "完成移动").trim()}`,
           dieValue: Number(delta.die) || null,
-          durationMs: NPC_ACTION_FEEDBACK_MS,
+          durationMs: NPC_VISIBLE_ACTION_PAUSE_MS,
         });
       }
     });
