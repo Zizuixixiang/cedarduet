@@ -1068,6 +1068,15 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn('"本轮已结算。确认后才会重新掷骰并开始下一轮。"', renderer)
         self.assertIn('`知道了，开始第 ${nextRound} 轮`', renderer)
         self.assertIn(".liars-current-round {", STYLES)
+        self.assertIn('currentTurnPrefix.textContent = "轮到："', renderer)
+        self.assertIn('humanCanMove ? "你" : liarsParticipantName', renderer)
+        turn_name_start = STYLES.index(".liars-turn-name {")
+        turn_name_style = STYLES[
+            turn_name_start:STYLES.index("\n}", turn_name_start) + 2
+        ]
+        self.assertIn("overflow: hidden;", turn_name_style)
+        self.assertIn("text-overflow: ellipsis;", turn_name_style)
+        self.assertIn("white-space: nowrap;", turn_name_style)
         self.assertIn(".liars-round-result {", STYLES)
         self.assertIn("`第 ${outcome.round} 轮结算`", renderer)
         self.assertNotIn("上一轮：", renderer)
@@ -2404,6 +2413,7 @@ const document = {{createElement: (tagName) => new Element(tagName)}};
 const participants = new Map([
   ["human-1", {{display_name: "人类一号"}}],
   ["ai-1", {{display_name: "小机一号"}}],
+  ["ai-long", {{display_name: "Codex_杉星_0828_特别长的行动玩家名字"}}],
 ]);
 const participantByPlayerId = (playerId) => participants.get(playerId) || null;
 
@@ -2464,6 +2474,12 @@ assert.equal(board.children.length, 2);
 const [currentRound, previousRound] = board.children;
 assert.equal(currentRound.className, "liars-current-round");
 assert.match(allText(currentRound), /第 2 轮 · 当前轮/);
+assert.equal(currentRound.children[0].children[0].textContent, "第 2 轮 · 当前轮");
+assert.equal(currentRound.children[0].children[1].className, "liars-turn-line");
+assert.equal(currentRound.children[0].children[1].children[0].textContent, "轮到：");
+assert.equal(currentRound.children[0].children[1].children[1].textContent, "你");
+assert.equal(currentRound.children[0].children[1].children[1].className, "liars-turn-name");
+assert.equal(currentRound.children[0].children.length, 3);
 assert.match(allText(currentRound), /本轮骰子已按剩余数量重新掷出并隐藏/);
 assert.match(allText(currentRound), /本轮当前叫点/);
 assert.match(allText(currentRound), /轮到你叫点/);
@@ -2485,12 +2501,29 @@ room = {{
 const waitingBoard = new Element("div");
 renderLiarsDice(waitingBoard, postChallengeState);
 const waitingRound = waitingBoard.children[0];
+assert.equal(waitingRound.children[0].children[0].textContent, "第 2 轮 · 当前轮");
+assert.equal(waitingRound.children[0].children[1].children[0].textContent, "轮到：");
+assert.equal(waitingRound.children[0].children[1].children[1].textContent, "小机一号");
 assert.match(allText(waitingRound), /等待 小机一号 首叫/);
 assert.match(allText(waitingRound), /等待首叫/);
 assert.doesNotMatch(allText(waitingRound), /轮到你叫点/);
 const waitingControls = waitingRound.children[2];
 assert.equal(waitingControls.children[2].disabled, true);
 assert.equal(waitingControls.children[3].disabled, true);
+
+room.current_player_id = "ai-long";
+room.current_actor = {{
+  player_id: "ai-long",
+  display_name: "Codex_杉星_0828_特别长的行动玩家名字",
+}};
+const longNameBoard = new Element("div");
+renderLiarsDice(longNameBoard, postChallengeState);
+const longNameHeading = longNameBoard.children[0].children[0];
+const longTurnName = longNameHeading.children[1].children[1];
+assert.equal(longNameHeading.children[0].textContent, "第 2 轮 · 当前轮");
+assert.equal(longTurnName.className, "liars-turn-name");
+assert.equal(longTurnName.textContent, "Codex_杉星_0828_特别长的行动玩家名字");
+assert.equal(longTurnName.title, longTurnName.textContent);
 
 humanTurn = true;
 room.current_player_id = "human-1";
@@ -2591,6 +2624,9 @@ renderLiarsDice(terminalBoard, {{
   pending_next_round: null,
 }});
 assert.doesNotMatch(allText(terminalBoard), /知道了，开始第/);
+assert.equal(terminalBoard.children[0].children[0].children[0].textContent, "第 2 轮 · 已结算");
+assert.equal(terminalBoard.children[0].children[0].children.length, 2);
+assert.equal(terminalBoard.children[1].children[0].textContent, "第 2 轮结算");
 
 (async () => {{
   humanTurn = true;

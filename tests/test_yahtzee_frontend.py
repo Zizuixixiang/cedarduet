@@ -33,11 +33,13 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         )
         self.assertIn('badge.textContent = "保留"', RENDERER)
         self.assertIn('die.setAttribute("aria-pressed", String(held))', RENDERER)
+        self.assertIn('face.className = "yahtzee-die-face";', RENDERER)
         self.assertNotIn("🎲", RENDERER)
         self.assertIn(".yahtzee-die {", STYLES)
-        self.assertIn("border-radius: 12px;", STYLES)
+        self.assertIn(".yahtzee-die-face {", STYLES)
+        self.assertIn("border-radius: 7px;", STYLES)
         self.assertIn(".yahtzee-pip.on { background: currentColor;", STYLES)
-        self.assertIn(".yahtzee-die.held {", STYLES)
+        self.assertIn(".yahtzee-die.held .yahtzee-die-face {", STYLES)
         self.assertIn(".yahtzee-die.held .yahtzee-hold-badge { display: block; }", STYLES)
 
     def test_scorecard_has_thirteen_rows_all_players_previews_and_zero_toggle(self):
@@ -63,6 +65,13 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         self.assertIn('"上半区奖励", "upper_bonus"', RENDERER)
         self.assertIn('"重复快艇奖励", "yahtzee_bonus"', RENDERER)
         self.assertIn('"总分", "total"', RENDERER)
+        self.assertIn('scoreOptions.className = "yahtzee-score-options";', RENDERER)
+        self.assertIn('option.className = [', RENDERER)
+        self.assertIn('value.textContent = `已用 · ${currentCard[category.key]} 分`;', RENDERER)
+        self.assertIn('scorecardDetails.className = "yahtzee-scorecard-details";', RENDERER)
+        self.assertIn("scorecardDetails.open = Boolean(uiState.yahtzeeScorecardOpen);", RENDERER)
+        self.assertIn('"完整 13 项计分卡 · 展开查看"', RENDERER)
+        self.assertIn('totalsOverview.className = "yahtzee-totals-overview";', RENDERER)
 
     def test_joker_and_pending_bonus_have_clear_non_emoji_ui(self):
         self.assertIn("const jokerActive = Boolean(state.joker_active);", RENDERER)
@@ -81,8 +90,12 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
         self.assertIn(".board.yahtzee { width: 100%; max-width: 100%; }", mobile)
         self.assertIn(".yahtzee-roll-panel { grid-template-columns: 1fr;", mobile)
-        self.assertIn("width: clamp(45px, 14.5vw, 58px);", mobile)
-        self.assertIn("touch-action: pan-x;", STYLES)
+        self.assertIn(".yahtzee-die {\n    width: 44px;\n    height: 44px;", mobile)
+        self.assertIn("width: clamp(26px, 8vw, 31px);", mobile)
+        self.assertIn(".yahtzee-score-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }", mobile)
+        self.assertIn(".yahtzee-totals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }", mobile)
+        self.assertIn("grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));", STYLES)
+        self.assertIn("touch-action: auto;", STYLES)
         self.assertIn(
             ".yahtzee-joker-notice { padding: 6px 7px; font-size: 10px; }",
             mobile,
@@ -99,6 +112,52 @@ class YahtzeeFrontendStructureTests(unittest.TestCase):
         self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", RENDERER)
         self.assertIn('avatar.textContent = Array.from(String(playerName(participant)).trim())[0] || "?";', RENDERER)
         self.assertIn('identity.className = "yahtzee-player-heading";', RENDERER)
+
+    def test_scorecard_details_width_and_header_avatars_are_contained(self):
+        details_start = STYLES.index(".yahtzee-scorecard-details {")
+        details = STYLES[details_start:STYLES.index("}", details_start)]
+        self.assertIn("width: 100%;", details)
+        self.assertIn("min-width: 0;", details)
+        self.assertIn("max-width: 100%;", details)
+        self.assertIn("contain: inline-size;", details)
+        self.assertIn("overflow: hidden;", details)
+
+        summary_start = STYLES.index(".yahtzee-scorecard-summary {")
+        summary = STYLES[summary_start:STYLES.index("}", summary_start)]
+        self.assertIn("width: 100%;", summary)
+        self.assertIn("max-width: 100%;", summary)
+        self.assertIn("display: list-item;", summary)
+
+        scroll_start = STYLES.index(".yahtzee-scorecard-scroll {")
+        scroll = STYLES[scroll_start:STYLES.index("}", scroll_start)]
+        self.assertIn("width: 100%;", scroll)
+        self.assertIn("min-width: 0;", scroll)
+        self.assertIn("max-width: 100%;", scroll)
+        self.assertIn("overflow-x: auto;", scroll)
+
+        header_start = STYLES.index(".yahtzee-scorecard thead th {")
+        header = STYLES[header_start:STYLES.index("}", header_start)]
+        self.assertIn("vertical-align: middle;", header)
+        self.assertIn(
+            ".yahtzee-player-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }",
+            STYLES,
+        )
+        current_avatar_start = STYLES.index(
+            ".yahtzee-scorecard thead .yahtzee-player-avatar.current-turn-avatar {"
+        )
+        current_avatar = STYLES[
+            current_avatar_start:STYLES.index("}", current_avatar_start)
+        ]
+        self.assertIn("position: static;", current_avatar)
+        self.assertIn("z-index: auto;", current_avatar)
+        self.assertIn("overflow: hidden;", current_avatar)
+        self.assertIn("outline: 0;", current_avatar)
+        self.assertIn("box-shadow: none;", current_avatar)
+        self.assertIn("transform: none;", current_avatar)
+        self.assertIn(
+            ".yahtzee-scorecard thead .yahtzee-player-avatar.current-turn-avatar::after { display: none; }",
+            STYLES,
+        )
 
     @unittest.skipUnless(NODE, "node is required for JavaScript syntax validation")
     def test_renderer_is_valid_javascript(self):
@@ -199,8 +258,18 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
 (async () => {
   sandbox.renderer.renderBoard(context);
   const all = descendants(board);
-  assert.equal(JSON.stringify(avatarCalls), JSON.stringify(["human-1", "ai-1"]));
-  assert.equal(all.filter((item) => item.classList.contains("yahtzee-player-avatar")).length, 2);
+  assert.equal(
+    JSON.stringify(avatarCalls),
+    JSON.stringify(["human-1", "ai-1", "human-1", "ai-1"])
+  );
+  assert.equal(all.filter((item) => item.classList.contains("yahtzee-player-avatar")).length, 4);
+  const scoreOptions = all.filter((item) => item.classList.contains("yahtzee-score-option"));
+  assert.equal(scoreOptions.length, 13);
+  assert.equal(scoreOptions.filter((item) => item.classList.contains("selectable")).length, 13);
+  const scorecardDetails = all.find((item) => item.classList.contains("yahtzee-scorecard-details"));
+  assert.equal(scorecardDetails.tag, "details");
+  assert.equal(scorecardDetails.open, false);
+  assert.equal(all.filter((item) => item.classList.contains("yahtzee-total-player")).length, 2);
   const fallbackBoard = new Element("board");
   sandbox.renderer.renderBoard({
     ...context,
@@ -213,7 +282,7 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   });
   assert.equal(JSON.stringify(descendants(fallbackBoard).filter(
     (item) => item.classList.contains("yahtzee-player-avatar")
-  ).map((item) => item.textContent)), JSON.stringify(["人", "小"]));
+  ).map((item) => item.textContent)), JSON.stringify(["人", "小", "人", "小"]));
   const dice = all.filter((item) => (
     item.classList.contains("yahtzee-die") && item.tag === "button"
   ));
@@ -230,7 +299,10 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   );
   const scratch = all.find((item) => item.tag === "input");
   scratch.checked = true;
-  let score = all.find((item) => item.classList.contains("yahtzee-score-button"));
+  let score = all.find((item) => (
+    item.classList.contains("yahtzee-score-option")
+    && item.classList.contains("selectable")
+  ));
   await score.click();
   assert.equal(submitted.length, 1);
   assert.equal(context.uiState.yahtzeePendingCategory, "ones");
@@ -247,7 +319,10 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
   board.children = [];
   sandbox.renderer.renderBoard(context);
   next = descendants(board);
-  score = next.find((item) => item.classList.contains("yahtzee-score-button"));
+  score = next.find((item) => (
+    item.classList.contains("yahtzee-score-option")
+    && item.classList.contains("selectable")
+  ));
   await score.click();
   board.children = [];
   sandbox.renderer.renderBoard(context);
@@ -275,9 +350,22 @@ const descendants = (root) => [root, ...root.children.flatMap(descendants)];
     ...context,
     board: jokerBoard,
     state: jokerState,
+    uiState: {},
     legalActions: [{action: "score", category: "fours"}],
   });
   const jokerAll = descendants(jokerBoard);
+  const jokerOptions = jokerAll.filter((item) => (
+    item.classList.contains("yahtzee-score-option")
+  ));
+  assert.equal(jokerOptions.length, 13);
+  assert.equal(jokerOptions.filter((item) => item.classList.contains("selectable")).length, 1);
+  assert.equal(
+    jokerOptions.find((item) => item.classList.contains("selectable")).children[1].textContent,
+    "20 分"
+  );
+  const usedOption = jokerOptions.find((item) => item.classList.contains("used"));
+  assert.equal(usedOption.disabled, true);
+  assert.equal(usedOption.children[1].textContent, "已用 · 50 分");
   const jokerScores = jokerAll.filter((item) => (
     item.classList.contains("yahtzee-score-button")
   ));

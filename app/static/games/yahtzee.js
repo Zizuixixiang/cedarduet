@@ -46,6 +46,10 @@
     const die = documentRef.createElement(value ? "button" : "div");
     die.className = `yahtzee-die${held ? " held" : ""}${value ? "" : " empty"}`;
     die.dataset.dieIndex = String(index);
+    const face = documentRef.createElement("span");
+    face.className = "yahtzee-die-face";
+    face.setAttribute("aria-hidden", "true");
+    die.appendChild(face);
     if (!value) {
       die.setAttribute("aria-hidden", "true");
       return die;
@@ -62,7 +66,7 @@
       const pip = documentRef.createElement("span");
       pip.className = `yahtzee-pip${activePips.has(position) ? " on" : ""}`;
       pip.setAttribute("aria-hidden", "true");
-      die.appendChild(pip);
+      face.appendChild(pip);
     }
     const badge = documentRef.createElement("span");
     badge.className = "yahtzee-hold-badge";
@@ -126,7 +130,10 @@
       {length: 5},
       (_, index) => Boolean(state.held_mask && state.held_mask[index])
     );
-    const currentCard = (state.scorecards || {})[room.current_player_id] || {};
+    const activePlayerId = room.current_player_id
+      || (context.viewer && context.viewer.player_id)
+      || (participants[0] && participants[0].player_id);
+    const currentCard = (state.scorecards || {})[activePlayerId] || {};
     const scoreActionIsLegal = (categoryKey) => (
       !hasAuthoritativeActions
         ? !Object.prototype.hasOwnProperty.call(currentCard, categoryKey)
@@ -232,9 +239,11 @@
     const scoreHeading = documentRef.createElement("div");
     scoreHeading.className = "yahtzee-score-heading";
     const scoreTitle = documentRef.createElement("strong");
-    scoreTitle.textContent = "计分卡";
+    scoreTitle.textContent = context.isTerminal ? "本局计分完成" : "本轮可计分";
     const scoreHint = documentRef.createElement("span");
-    scoreHint.textContent = "— 未填 · 数字为已填得分 · 右栏为本轮预估";
+    scoreHint.textContent = dice.length === 5
+      ? (humanCanMove ? "点选类别后确认填写" : "当前骰面预估 · 等待行动玩家")
+      : "掷骰后显示各类别预估";
     scoreHeading.append(scoreTitle, scoreHint);
     let jokerNotice = null;
     if (jokerActive) {
@@ -244,6 +253,104 @@
         ? `重复快艇：本次另加 ${pendingYahtzeeBonus} 分；Joker 已限定可填格。`
         : "Joker：本次没有重复快艇奖励；已限定可填格。";
     }
+
+    const previews = state.score_previews || {};
+    const scoreOptions = documentRef.createElement("div");
+    scoreOptions.className = "yahtzee-score-options";
+    scoreOptions.setAttribute("role", "group");
+    scoreOptions.setAttribute("aria-label", "本轮各计分类别预估");
+    categories.forEach((category) => {
+      const categoryUnused = !Object.prototype.hasOwnProperty.call(
+        currentCard, category.key
+      );
+      const scoreIsLegal = scoreActionIsLegal(category.key);
+      const canChoose = (
+        humanCanMove
+        && dice.length === 5
+        && categoryUnused
+        && scoreIsLegal
+        && !uiState.yahtzeeSubmitting
+      );
+      const option = documentRef.createElement("button");
+      option.type = "button";
+      option.className = [
+        "yahtzee-score-option",
+        categoryUnused ? "" : "used",
+        canChoose ? "selectable" : "",
+        pendingCategory && pendingCategory.key === category.key ? "selected" : "",
+      ].filter(Boolean).join(" ");
+      option.disabled = !canChoose;
+      option.setAttribute(
+        "aria-pressed",
+        String(Boolean(pendingCategory && pendingCategory.key === category.key))
+      );
+      const label = documentRef.createElement("span");
+      label.className = "yahtzee-score-option-label";
+      label.textContent = category.label;
+      const value = documentRef.createElement("strong");
+      value.className = "yahtzee-score-option-value";
+      const preview = previews[category.key];
+      if (!categoryUnused) {
+        value.textContent = `已用 · ${currentCard[category.key]} 分`;
+      } else if (context.isTerminal) {
+        value.textContent = "本局结束";
+      } else if (dice.length !== 5) {
+        value.textContent = "待掷骰";
+      } else if (!scoreIsLegal) {
+        value.textContent = "本轮不可选";
+      } else {
+        value.textContent = preview === undefined ? "—" : `${preview} 分`;
+      }
+      option.setAttribute(
+        "aria-label",
+        !categoryUnused
+          ? `${category.label}，已使用，${currentCard[category.key]} 分`
+          : `${category.label}，${value.textContent}${canChoose ? "，点击选择" : ""}`
+      );
+      if (canChoose) {
+        option.addEventListener("click", () => {
+          if (uiState.yahtzeeSubmitting) return;
+          uiState.yahtzeeScratch = Boolean(scratch.checked);
+          uiState.yahtzeePendingCategory = category.key;
+          if (helpers && typeof helpers.rerender === "function") helpers.rerender();
+        });
+      }
+      option.append(label, value);
+      scoreOptions.appendChild(option);
+    });
+
+    const totals = state.totals_by_player || {};
+    const totalsOverview = documentRef.createElement("section");
+    totalsOverview.className = "yahtzee-totals-overview";
+    totalsOverview.setAttribute("aria-label", "各玩家当前总分");
+    const totalsTitle = documentRef.createElement("strong");
+    totalsTitle.className = "yahtzee-totals-title";
+    totalsTitle.textContent = "当前总分";
+    const totalsGrid = documentRef.createElement("div");
+    totalsGrid.className = "yahtzee-totals-grid";
+    participants.forEach((participant) => {
+      const isViewer = context.viewer
+        && participant.player_id === context.viewer.player_id;
+      const item = documentRef.createElement("div");
+      item.className = [
+        "yahtzee-total-player",
+        participant.player_id === room.current_player_id ? "current" : "",
+        isViewer ? "viewer" : "",
+      ].filter(Boolean).join(" ");
+      const copy = documentRef.createElement("span");
+      copy.className = "yahtzee-total-copy";
+      const name = documentRef.createElement("span");
+      name.className = "yahtzee-total-name";
+      name.textContent = `${playerName(participant)}${isViewer ? "（你）" : ""}`;
+      name.title = playerName(participant);
+      const total = documentRef.createElement("strong");
+      total.className = "yahtzee-total-score";
+      total.textContent = `${(totals[participant.player_id] || {}).total || 0} 分`;
+      copy.append(name, total);
+      item.append(renderAvatar(documentRef, context, participant), copy);
+      totalsGrid.appendChild(item);
+    });
+    totalsOverview.append(totalsTitle, totalsGrid);
 
     const scroller = documentRef.createElement("div");
     scroller.className = "yahtzee-scorecard-scroll";
@@ -268,7 +375,12 @@
       const name = documentRef.createElement("span");
       name.className = "yahtzee-player-name";
       name.textContent = `${playerName(participant)}${isViewer ? "（你）" : ""}`;
-      identity.append(renderAvatar(documentRef, context, participant), name);
+      const headerAvatar = renderAvatar(documentRef, context, participant);
+      headerAvatar.className = String(headerAvatar.className || "")
+        .replace(/\bcurrent-turn-avatar\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      identity.append(headerAvatar, name);
       header.appendChild(identity);
       header.title = playerName(participant);
       header.className = [
@@ -308,7 +420,7 @@
       });
       const actionCell = documentRef.createElement("td");
       actionCell.className = "yahtzee-score-action";
-      const preview = (state.score_previews || {})[category.key];
+      const preview = previews[category.key];
       const categoryUnused = !Object.prototype.hasOwnProperty.call(
         currentCard, category.key
       );
@@ -343,13 +455,27 @@
       row.appendChild(actionCell);
       body.appendChild(row);
     });
-    const totals = state.totals_by_player || {};
     appendScoreSummary(documentRef, body, "上半区小计", "upper_subtotal", participants, totals);
     appendScoreSummary(documentRef, body, "上半区奖励", "upper_bonus", participants, totals);
     appendScoreSummary(documentRef, body, "重复快艇奖励", "yahtzee_bonus", participants, totals);
     appendScoreSummary(documentRef, body, "总分", "total", participants, totals);
     table.appendChild(body);
     scroller.appendChild(table);
+    const scorecardDetails = documentRef.createElement("details");
+    scorecardDetails.className = "yahtzee-scorecard-details";
+    scorecardDetails.open = Boolean(uiState.yahtzeeScorecardOpen);
+    const scorecardSummary = documentRef.createElement("summary");
+    scorecardSummary.className = "yahtzee-scorecard-summary";
+    scorecardSummary.textContent = scorecardDetails.open
+      ? "完整 13 项计分卡 · 收起"
+      : "完整 13 项计分卡 · 展开查看";
+    scorecardDetails.addEventListener("toggle", () => {
+      uiState.yahtzeeScorecardOpen = Boolean(scorecardDetails.open);
+      scorecardSummary.textContent = scorecardDetails.open
+        ? "完整 13 项计分卡 · 收起"
+        : "完整 13 项计分卡 · 展开查看";
+    });
+    scorecardDetails.append(scorecardSummary, scroller);
     scoreSection.append(scoreHeading);
     if (jokerNotice) scoreSection.append(jokerNotice);
     if (pendingCategory) {
@@ -359,7 +485,7 @@
       confirmation.setAttribute("aria-label", "确认填写快艇计分类别");
       const confirmationCopy = documentRef.createElement("span");
       confirmationCopy.className = "yahtzee-score-confirmation-copy";
-      const preview = (state.score_previews || {})[pendingCategory.key];
+      const preview = previews[pendingCategory.key];
       confirmationCopy.textContent = uiState.yahtzeeScratch
         ? `已选择：划掉${pendingCategory.label}，记 0 分`
         : `已选择：${pendingCategory.label}，记 ${preview === undefined ? 0 : preview} 分`;
@@ -399,7 +525,7 @@
       confirmation.append(confirmationCopy, cancel, confirm);
       scoreSection.append(confirmation);
     }
-    scoreSection.append(scroller);
+    scoreSection.append(scoreOptions, totalsOverview, scorecardDetails);
     root.append(rollPanel, scoreSection);
     board.appendChild(root);
   }
@@ -408,7 +534,7 @@
     participantPresentation: "embedded",
     glyph: "艇",
     usesStandardMoveConfirmation: false,
-    boardLabel: "快艇骰子与计分卡",
+    boardLabel: "快艇骰子、计分预估与计分卡",
     renderBoard,
   };
 

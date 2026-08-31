@@ -2383,12 +2383,31 @@ function renderLiarsDice(board, state) {
   currentRound.ariaLabel = Number.isInteger(roundNumber)
     ? `第 ${roundNumber} 轮当前操作区`
     : "当前轮操作区";
+  const humanCanMove = canHumanMove();
+  const currentTurnName = (
+    flow.phase !== "finished"
+    && room
+    && room.status === "playing"
+    && room.current_player_id
+  )
+    ? (humanCanMove ? "你" : liarsParticipantName(room.current_player_id))
+    : null;
   const roundHeading = document.createElement("div");
   roundHeading.className = "liars-round-heading";
   const roundTitle = document.createElement("strong");
   roundTitle.textContent = Number.isInteger(roundNumber)
     ? `第 ${roundNumber} 轮${flow.phase === "finished" ? " · 已结算" : " · 当前轮"}`
     : "当前轮";
+  const currentTurnLine = document.createElement("div");
+  currentTurnLine.className = "liars-turn-line";
+  const currentTurnPrefix = document.createElement("span");
+  currentTurnPrefix.className = "liars-turn-prefix";
+  currentTurnPrefix.textContent = "轮到：";
+  const currentTurnNameElement = document.createElement("span");
+  currentTurnNameElement.className = "liars-turn-name";
+  currentTurnNameElement.textContent = currentTurnName || "";
+  currentTurnNameElement.title = currentTurnName || "";
+  currentTurnLine.append(currentTurnPrefix, currentTurnNameElement);
   const roundStatus = document.createElement("span");
   if (isHistoricalResult) {
     roundStatus.textContent = "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
@@ -2397,7 +2416,9 @@ function renderLiarsDice(board, state) {
   } else {
     roundStatus.textContent = "本轮骰子已掷出并隐藏（仅自己可见）";
   }
-  roundHeading.append(roundTitle, roundStatus);
+  roundHeading.append(roundTitle);
+  if (currentTurnName) roundHeading.append(currentTurnLine);
+  roundHeading.append(roundStatus);
   currentRound.appendChild(roundHeading);
 
   const heading = document.createElement("div");
@@ -2406,7 +2427,6 @@ function renderLiarsDice(board, state) {
   bidLabel.textContent = "本轮当前叫点";
   const bidValue = document.createElement("strong");
   const currentBid = state.current_bid;
-  const humanCanMove = canHumanMove();
   if (currentBid) {
     const bidder = participantByPlayerId(currentBid.bidder_player_id);
     bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点 · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
