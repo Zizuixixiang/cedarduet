@@ -87,6 +87,7 @@
 .gandengyan-metrics {
   min-width: 0;
   justify-content: flex-end;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
@@ -163,7 +164,10 @@
 
 .gandengyan-opponent.current {
   border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(231,189,101,.2), inset 0 1px rgba(255,255,255,.1);
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  background: rgba(77,82,45,.68);
+  box-shadow: 0 0 20px rgba(231,189,101,.3), inset 0 1px rgba(255,255,255,.1);
 }
 
 .gandengyan-opponent.passed {
@@ -210,10 +214,32 @@
   white-space: nowrap;
 }
 
-.gandengyan-opponent-state {
+.gandengyan-player-state {
+  width: 4.6em;
+  min-width: 4.6em;
+  min-height: 20px;
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
   color: #e9d8b9;
+  background: rgba(3,29,24,.42);
   font-size: .88em;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.gandengyan-player-state.is-active {
+  border-color: rgba(255,220,139,.88);
+  color: #3d2908;
+  background: linear-gradient(145deg, #ffe8a5, #e7bd65);
+  box-shadow: 0 0 0 2px rgba(231,189,101,.2), 0 2px 8px rgba(0,0,0,.2);
+  font-weight: 850;
 }
 
 .gandengyan-card-backs {
@@ -351,11 +377,21 @@
   gap: 5px;
 }
 
+.gandengyan-hand-zone.current {
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(231,189,101,.2), rgba(4,34,28,.18) 38px, transparent);
+  box-shadow: inset 0 0 0 2px rgba(231,189,101,.68);
+}
+
 .gandengyan-hand-label {
   min-width: 0;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 4px;
+  min-height: 34px;
+  justify-content: flex-start;
+  gap: clamp(6px, 2vw, 10px);
+  padding: 5px 7px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  background: rgba(3,31,26,.48);
   font-size: 12px;
 }
 
@@ -364,13 +400,25 @@
   white-space: nowrap;
 }
 
+.gandengyan-hand-label > .hand-player-identity {
+  flex: 0 1 auto;
+}
+
+.gandengyan-hand-count {
+  flex: 0 0 auto;
+}
+
+.gandengyan-hand-label .gandengyan-player-state.is-active {
+  color: #3d2908;
+}
+
 .gandengyan-hand-scroll {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 122px;
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   padding: 17px 10px 8px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -399,7 +447,7 @@
 .gandengyan-terminal-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(62px, 22%) minmax(0, 1fr);
   align-items: center;
   gap: 5px;
 }
@@ -410,16 +458,29 @@
   white-space: nowrap;
 }
 .gandengyan-terminal-cards {
+  --terminal-card-width: 30px;
   min-width: 0;
-  display: flex;
-  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns:
+    repeat(var(--terminal-leading-card-count), minmax(16px, 1fr))
+    var(--terminal-card-width);
+  align-items: center;
+  gap: 0;
   padding: 2px;
   overflow-x: auto;
-  touch-action: pan-x;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  contain: inline-size;
+  touch-action: pan-x pan-y;
 }
+.gandengyan-terminal-cards.single,
+.gandengyan-terminal-cards.empty { grid-template-columns: minmax(0, 1fr); }
 .gandengyan-terminal-cards .gandengyan-card {
-  width: 30px;
-  min-width: 30px;
+  width: var(--terminal-card-width);
+  min-width: var(--terminal-card-width);
   height: 44px;
   min-height: 44px;
   padding: 2px;
@@ -564,6 +625,10 @@ button.gandengyan-card:focus-visible {
   font-size: 11px;
 }
 
+.gandengyan-selection-detail:empty {
+  display: none;
+}
+
 .gandengyan-action-buttons {
   gap: 7px;
 }
@@ -626,6 +691,30 @@ button.gandengyan-card:focus-visible {
     padding: 6px 4px;
   }
 
+  .gandengyan-opponent-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 4px;
+    width: 100%;
+    text-align: center;
+  }
+
+  .gandengyan-opponent-identity {
+    width: 100%;
+    justify-content: center;
+    gap: 3px;
+  }
+
+  .gandengyan-opponent-name {
+    min-width: 0;
+    max-width: calc(100% - 23px);
+  }
+
+  .gandengyan-opponent-header > .gandengyan-player-state {
+    justify-self: center;
+  }
+
   .gandengyan-opponent-avatar {
     width: 20px;
     height: 20px;
@@ -637,14 +726,64 @@ button.gandengyan-card:focus-visible {
     padding-right: 24px;
   }
 
+  .gandengyan-card {
+    width: clamp(52px, 9vw, 56px);
+    height: clamp(80px, 13.5vw, 84px);
+    min-width: 52px;
+    min-height: 80px;
+  }
+
+  button.gandengyan-card {
+    min-width: 52px;
+    min-height: 80px;
+  }
+
   .gandengyan-trick-cards {
     min-height: 94px;
     padding-inline: 5px;
   }
 
+  .gandengyan-hand-zone {
+    gap: 2px;
+  }
+
   .gandengyan-hand-scroll {
-    min-height: 116px;
-    padding-inline: 7px;
+    min-height: 100px;
+    padding: 8px 5px 4px;
+  }
+
+  .gandengyan-hand-scroll .gandengyan-card + .gandengyan-card {
+    margin-left: -14px;
+  }
+
+  .gandengyan-hand-scroll button.gandengyan-card,
+  .gandengyan-hand-scroll button.gandengyan-card.selectable:hover:not(:disabled),
+  .gandengyan-hand-scroll button.gandengyan-card.selectable:focus-visible:not(:disabled) {
+    transform: none;
+  }
+
+  .gandengyan-hand-scroll button.gandengyan-card.selected,
+  .gandengyan-hand-scroll button.gandengyan-card.selected:hover:not(:disabled),
+  .gandengyan-hand-scroll button.gandengyan-card.selected:focus-visible:not(:disabled) {
+    transform: translateY(-8px);
+  }
+
+  .gandengyan-controls {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .gandengyan-action-buttons {
+    gap: 5px;
+  }
+
+  .gandengyan-play-button,
+  .gandengyan-pass-button {
+    min-width: 64px;
+    min-height: 38px;
+    padding: 5px 16px;
+    border-radius: 9px;
+    font-size: 13px;
   }
 }
 
@@ -654,7 +793,8 @@ button.gandengyan-card:focus-visible {
   }
 
   .gandengyan-metrics {
-    display: grid;
+    display: flex;
+    flex-wrap: nowrap;
     gap: 3px;
   }
 
@@ -672,13 +812,6 @@ button.gandengyan-card:focus-visible {
     grid-template-rows: auto minmax(158px, auto) auto;
   }
 
-  .gandengyan-opponent-header {
-    display: grid;
-    justify-items: center;
-  }
-
-  .gandengyan-opponent-identity { width: 100%; justify-content: center; gap: 3px; }
-
   .gandengyan-opponent-avatar {
     width: 18px;
     height: 18px;
@@ -687,7 +820,11 @@ button.gandengyan-card:focus-visible {
     font-size: 8px;
   }
 
-  .gandengyan-opponent-state {
+  .gandengyan-player-state {
+    width: 4.6em;
+    min-width: 4.6em;
+    min-height: 18px;
+    padding-inline: 3px;
     font-size: 9px;
   }
 
@@ -704,16 +841,17 @@ button.gandengyan-card:focus-visible {
 
   .gandengyan-action-buttons {
     width: 100%;
+    justify-self: stretch;
   }
 
   .gandengyan-terminal-row {
-    grid-template-columns: 62px minmax(0, 1fr);
+    grid-template-columns: 54px minmax(0, 1fr);
   }
 
   .gandengyan-play-button,
   .gandengyan-pass-button {
     min-width: 0;
-    min-height: 44px;
+    min-height: 38px;
     flex: 1 1 0;
   }
 }

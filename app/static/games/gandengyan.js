@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-gandengyan-styles";
-  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.3";
+  const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.6";
   const SUIT_TEXT = {
     spades: "\u2660\uFE0E",
     hearts: "\u2665\uFE0E",
@@ -44,6 +44,15 @@
     );
     return participant && (participant.display_name || participant.player_id)
       || "玩家";
+  }
+
+  function isCurrentPlayer(context, playerId) {
+    return Boolean(
+      context.room
+      && context.room.status === "playing"
+      && playerId
+      && context.room.current_player_id === playerId
+    );
   }
 
   function renderAvatar(documentRef, context, participant) {
@@ -166,9 +175,11 @@
   function renderOpponent(documentRef, context, participant, passIds) {
     const playerId = participant.player_id;
     const count = Number((context.state.hand_counts || {})[playerId] || 0);
+    const current = isCurrentPlayer(context, playerId);
     const seat = element(documentRef, "article", "gandengyan-opponent");
     seat.dataset.playerId = playerId;
-    seat.classList.toggle("current", context.room.current_player_id === playerId);
+    seat.classList.toggle("current", current);
+    seat.setAttribute("aria-current", current ? "true" : "false");
     seat.classList.toggle("passed", passIds.has(playerId));
     const header = element(documentRef, "div", "gandengyan-opponent-header");
     const identity = element(documentRef, "span", "gandengyan-opponent-identity");
@@ -181,10 +192,8 @@
     const state = element(
       documentRef,
       "span",
-      "gandengyan-opponent-state",
-      passIds.has(playerId)
-        ? "已过"
-        : context.room.current_player_id === playerId ? "出牌中" : "等待"
+      `gandengyan-player-state${current ? " is-active" : ""}`,
+      current ? "行动中" : "等待"
     );
     identity.append(renderAvatar(documentRef, context, participant), name);
     header.append(identity, state);
@@ -273,15 +282,40 @@
     );
     const handZone = element(documentRef, "section", "gandengyan-hand-zone");
     const label = element(documentRef, "div", "gandengyan-hand-label");
+    const viewerId = context.viewer && context.viewer.player_id;
+    const current = isCurrentPlayer(context, viewerId);
+    handZone.classList.toggle("current", current);
+    handZone.setAttribute("aria-current", current ? "true" : "false");
+    const viewer = (context.participants || []).find(
+      (participant) => participant.player_id === viewerId
+    ) || null;
+    const identity = element(documentRef, "span", "hand-player-identity");
+    identity.append(
+      renderAvatar(documentRef, context, viewer),
+      element(documentRef, "strong", "", "我的手牌")
+    );
+    const count = element(
+      documentRef,
+      "span",
+      "gandengyan-hand-count",
+      `${hand.length} 张 · 可多选`
+    );
+    const state = element(
+      documentRef,
+      "span",
+      `gandengyan-player-state${current ? " is-active" : ""}`,
+      current ? "行动中" : "等待"
+    );
     label.append(
-      element(documentRef, "strong", "", "我的手牌"),
-      element(documentRef, "span", "", `${hand.length} 张 · 可多选`)
+      identity,
+      count,
+      state
     );
     const scroller = element(documentRef, "div", "gandengyan-hand-scroll");
     scroller.setAttribute("role", "group");
     scroller.setAttribute("aria-label", "我的手牌，可横向滚动并多选");
     scroller.addEventListener("scroll", () => saveHandScroll(context, scroller), {passive: true});
-    displayHand.forEach((card, index) => {
+    displayHand.forEach((card) => {
       const cardId = String(card.id);
       const isSelected = selected.includes(cardId);
       const selectable = selectableIds.has(cardId);
@@ -291,10 +325,6 @@
         selectable,
         disabled: !context.canMove || !selectable || Boolean(context.uiState.submitting),
       });
-      const middle = (displayHand.length - 1) / 2;
-      const angle = Math.max(-6, Math.min(6, (index - middle) * 0.75));
-      cardNode.style.setProperty("--fan-angle", `${angle}deg`);
-      cardNode.style.setProperty("--hand-index", index);
       cardNode.addEventListener("click", () => {
         if (!context.helpers.canMove() || !selectable || context.uiState.submitting) return;
         saveHandScroll(context, scroller);
@@ -330,6 +360,13 @@
           `${participant.display_name || participant.player_id} · ${cards.length} 张`
         ));
         const faces = element(documentRef, "div", "gandengyan-terminal-cards");
+        faces.classList.toggle("single", cards.length === 1);
+        faces.classList.toggle("empty", cards.length === 0);
+        faces.style.setProperty(
+          "--terminal-leading-card-count",
+          String(Math.max(0, cards.length - 1))
+        );
+        faces.setAttribute("aria-label", `${cards.length} 张终局剩余手牌`);
         cards.forEach((card) => faces.appendChild(createCard(documentRef, card)));
         if (!cards.length) {
           faces.appendChild(element(documentRef, "span", "gandengyan-terminal-empty", "0 张 · 已出完"));
@@ -422,14 +459,14 @@
       detail.textContent = `${exact.card_ids.length} 张，可出牌`;
     } else if (selected.length && possibleCompletions.length) {
       summary.textContent = `已选 ${selected.length} 张`;
-      detail.textContent = `继续选择，可补全为 ${possibleCompletions.length} 个服务端合法组合`;
+      detail.textContent = "继续选择以补全合法牌型";
     } else if (selected.length) {
       summary.textContent = `已选 ${selected.length} 张`;
       detail.textContent = "当前组合不在服务端合法行动中";
     } else {
       summary.textContent = context.canMove ? "请选择手牌" : "等待其他玩家";
       detail.textContent = context.canMove
-        ? `${legal.length} 个服务端合法组合`
+        ? ""
         : "轮到你时才能出牌";
     }
     status.append(summary, detail);

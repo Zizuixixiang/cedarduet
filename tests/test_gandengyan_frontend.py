@@ -25,12 +25,12 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.3";', SCRIPT
+            'const STYLE_HREF = "/static/games/gandengyan.css?v=0.1.6";', SCRIPT
         )
         self.assertIn('link.dataset.duelGameStyle = "gandengyan";', SCRIPT)
         self.assertIn("terminal_hands", SCRIPT)
         self.assertIn(".gandengyan-terminal-cards", STYLES)
-        self.assertNotIn("gandengyan", APP_SCRIPT)
+        self.assertNotIn('window.DuelGameUI.register("gandengyan"', APP_SCRIPT)
         self.assertIn("renderer.ownsPrivateStatePresentation === true", APP_SCRIPT)
         self.assertNotIn("/static/games/gandengyan.js", HTML)
         self.assertNotIn("gandengyan.css", HTML)
@@ -49,6 +49,7 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
             "function canBeat",
             "RANK_VALUE",
             "BOMB_STRENGTH",
+            "个服务端合法组合",
         ):
             self.assertNotIn(forbidden, SCRIPT)
 
@@ -74,6 +75,26 @@ class GandengyanFrontendStructureTests(unittest.TestCase):
         self.assertIn('status.setAttribute("aria-live", "polite")', SCRIPT)
         self.assertIn("button.gandengyan-card.selectable {", STYLES)
         self.assertNotIn("filter: saturate(.55) brightness(.82);", STYLES)
+        self.assertIn(".gandengyan-player-state.is-active {", STYLES)
+        self.assertIn("margin-left: -14px;", STYLES)
+        self.assertIn("min-width: 64px;", STYLES)
+        self.assertIn("min-height: 38px;", STYLES)
+        self.assertNotIn('style.setProperty("--fan-angle"', SCRIPT)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", mobile)
+        self.assertIn("justify-items: center;", mobile)
+        self.assertIn("transform: none;", mobile)
+        self.assertIn("transform: translateY(-8px);", mobile)
+        self.assertIn("min-height: 100px;", mobile)
+        self.assertIn("padding: 8px 5px 4px;", mobile)
+        self.assertIn("gap: 2px;", mobile)
+        self.assertNotIn("gandengyan-hand-meta", SCRIPT + STYLES)
+        terminal_cards = STYLES[STYLES.index(".gandengyan-terminal-cards {"):]
+        self.assertIn("--terminal-card-width: 30px;", terminal_cards)
+        self.assertIn("minmax(16px, 1fr)", terminal_cards)
+        self.assertIn("contain: inline-size;", terminal_cards)
+        self.assertIn("overflow-x: auto;", terminal_cards)
+        self.assertIn("touch-action: pan-x pan-y;", terminal_cards)
 
     def test_opponent_avatars_use_the_shared_helper_with_compact_fallback(self):
         self.assertIn("context.helpers.renderParticipantAvatar(avatar, participant)", SCRIPT)
@@ -236,21 +257,80 @@ assert.equal(JSON.stringify(nodes.filter(
 ).map((node) => node.dataset.cardId)), JSON.stringify(["JOKER-S", "C8", "H4", "S4"]));
 assert.equal(JSON.stringify(privateState.hand.map((card) => card.id)), JSON.stringify(["S4", "H4", "C8", "JOKER-S"]));
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent")).length, 2);
-assert.equal(JSON.stringify(value.avatarCalls), JSON.stringify(["ai-1", "ai-2"]));
-assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent-avatar")).length, 2);
+assert.equal(JSON.stringify(value.avatarCalls), JSON.stringify(["ai-1", "ai-2", "human-1"]));
+assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent-avatar")).length, 3);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-card-back")).length, 8);
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-opponent") && hasClass(node, "passed")).length, 1);
+const playerStates = nodes.filter((node) => hasClass(node, "gandengyan-player-state"));
+assert.equal(JSON.stringify(playerStates.map((node) => node.textContent)), JSON.stringify(["等待", "等待", "行动中"]));
+assert.equal(playerStates.filter((node) => hasClass(node, "is-active")).length, 1);
+const handLabel = nodes.find((node) => hasClass(node, "gandengyan-hand-label"));
+assert.equal(handLabel.children.length, 3);
+assert.equal(hasClass(handLabel.children[0], "hand-player-identity"), true);
+assert.equal(hasClass(handLabel.children[1], "gandengyan-hand-count"), true);
+assert.equal(hasClass(handLabel.children[2], "gandengyan-player-state"), true);
 assert.equal(value.board.dataset.multiplier, "4");
+const opponentTurn = makeContext();
+opponentTurn.context.room.current_player_id = "ai-1";
+renderer.renderBoard(opponentTurn.context);
+const opponentStates = descendants(opponentTurn.board).filter(
+  (node) => hasClass(node, "gandengyan-player-state")
+);
+assert.equal(JSON.stringify(opponentStates.map((node) => node.textContent)), JSON.stringify(["行动中", "等待", "等待"]));
+assert.equal(opponentStates.filter((node) => hasClass(node, "is-active")).length, 1);
 assert.equal(styleNodes.size, 1);
 const fallback = makeContext();
 delete fallback.context.helpers.renderParticipantAvatar;
 renderer.renderBoard(fallback.context);
 assert.equal(JSON.stringify(descendants(fallback.board).filter(
   (node) => hasClass(node, "gandengyan-opponent-avatar")
-).map((node) => node.textContent)), JSON.stringify(["小", "小"]));
+).map((node) => node.textContent)), JSON.stringify(["小", "小", "南"]));
 renderer.renderBoard(makeContext().context);
 assert.equal(styleNodes.size, 1);
-assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.3");
+assert.equal(styleNodes.get("duel-game-gandengyan-styles").href, "/static/games/gandengyan.css?v=0.1.6");
+''')
+
+    def test_six_unselected_hand_cards_share_one_baseline_and_angle(self):
+        self.run_node(r'''
+const value = makeContext();
+value.context.privateState.hand = [
+  ...privateState.hand,
+  {id: "D9", suit: "diamonds", rank: "9"},
+  {id: "S10", suit: "spades", rank: "10"},
+];
+renderer.renderBoard(value.context);
+const cards = descendants(value.board).filter(
+  (node) => hasClass(node, "gandengyan-card") && node.tag === "button"
+);
+assert.equal(cards.length, 6);
+assert.equal(cards.every((node) => node.style["--fan-angle"] === undefined), true);
+assert.equal(cards.every((node) => !hasClass(node, "selected")), true);
+const count = descendants(value.board).find((node) => hasClass(node, "gandengyan-hand-count"));
+assert.equal(count.textContent, "6 张 · 可多选");
+''')
+
+    def test_four_player_table_keeps_three_opponent_statuses_consistent(self):
+        self.run_node(r'''
+const value = makeContext();
+value.context.participants = [
+  participants[0],
+  {...participants[1], display_name: "名字很长的小机一号"},
+  participants[2],
+  {player_id: "ai-3", display_name: "小机三号", seat_index: 3},
+];
+value.context.state = {
+  ...state,
+  hand_counts: {...state.hand_counts, "ai-3": 6},
+};
+value.context.room.current_player_id = "ai-2";
+renderer.renderBoard(value.context);
+const seats = descendants(value.board).filter((node) => hasClass(node, "gandengyan-opponent"));
+assert.equal(seats.length, 3);
+const headers = descendants(value.board).filter((node) => hasClass(node, "gandengyan-opponent-header"));
+assert.equal(headers.length, 3);
+const states = headers.map((header) => header.children[1]);
+assert.equal(states.every((node) => hasClass(node, "gandengyan-player-state")), true);
+assert.equal(JSON.stringify(states.map((node) => node.textContent)), JSON.stringify(["等待", "行动中", "等待"]));
 ''')
 
     def test_terminal_review_shows_all_hands_strongest_on_the_left(self):
@@ -266,6 +346,7 @@ terminal.context.state = {...state, flow: {phase: "finished"}, terminal_hands: {
   "human-1": [],
   "ai-1": [
     {id: "JOKER-B", suit: "joker", rank: "big_joker"},
+    {id: "S10", suit: "spades", rank: "10"},
     {id: "H2", suit: "hearts", rank: "2"},
     {id: "S4", suit: "spades", rank: "4"},
   ],
@@ -284,8 +365,13 @@ assert.deepEqual(rows.map((node) => node.dataset.playerId), ["human-1", "ai-1", 
 assert.equal(nodes.filter((node) => hasClass(node, "gandengyan-terminal-empty")).length, 1);
 const aiOne = rows.find((node) => node.dataset.playerId === "ai-1");
 assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), [
-  "JOKER-B", "H2", "S4",
+  "JOKER-B", "S10", "H2", "S4",
 ]);
+assert.equal(aiOne.children[1].style["--terminal-leading-card-count"], "3");
+assert.equal(aiOne.children[1].attributes["aria-label"], "4 张终局剩余手牌");
+assert.equal(hasClass(aiOne.children[1], "single"), false);
+const emptyHand = rows.find((node) => node.dataset.playerId === "human-1").children[1];
+assert.equal(hasClass(emptyHand, "empty"), true);
 ''')
 
     def test_multi_selection_submits_exact_server_action_and_pass_is_separate(self):
@@ -322,6 +408,7 @@ assert.deepEqual(aiOne.children[1].children.map((node) => node.dataset.cardId), 
   assert.equal(value.rerenders(), 2);
   renderer.renderControls(value.context);
   let controls = descendants(value.controls);
+  assert.equal(controls.some((node) => node.textContent.includes("服务端合法组合")), false);
   const play = controls.find((node) => hasClass(node, "gandengyan-play-button"));
   assert.equal(play.disabled, false);
   await play.listeners.click();
