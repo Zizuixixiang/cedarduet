@@ -1353,7 +1353,7 @@ function sortedGamesForCategory(games, category) {
     .map(({game}) => game);
 }
 
-function syncGameTypeOptions(games) {
+function syncGameTypeOptions(games, {preserveSelection = true} = {}) {
   const select = $("gameType");
   const previousValue = select.value;
   const category = $("gameCategory").value;
@@ -1379,7 +1379,7 @@ function syncGameTypeOptions(games) {
   }
   select.disabled = false;
   const values = [...select.options].map((option) => option.value);
-  select.value = values.includes(previousValue) ? previousValue : values[0];
+  select.value = preserveSelection && values.includes(previousValue) ? previousValue : values[0];
   updateGameTokenEstimate();
 }
 
@@ -1696,7 +1696,7 @@ async function loadIdentity({quiet = false} = {}) {
     $("heroPair").textContent = data.identity_label;
     renderHumanChipBalance(data.wallet.balance);
     renderUnreadBadges(identity.unread);
-    syncGameTypeOptions(data.games || []);
+    syncGameTypeOptions(data.games || [], {preserveSelection: !initialIdentityLoad});
     syncMachinePicker(data.machines || []);
     renderSelectedStakeHint();
     const invitations = data.pending_invitations || [];

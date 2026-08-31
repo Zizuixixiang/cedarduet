@@ -2854,7 +2854,7 @@ const games = [
   {{game_type: "othello", display_name: "黑白棋", category: "board", allowed_player_counts: [2]}},
   {{game_type: "jungle", display_name: "斗兽棋", category: "board", allowed_player_counts: [2]}},
 ];
-syncGameTypeOptions(games);
+syncGameTypeOptions(games, {{preserveSelection: false}});
 assert.deepEqual(
   gameSelect.options.map((option) => option.textContent),
   [
@@ -2862,6 +2862,12 @@ assert.deepEqual(
     "五子棋 / 2人", "象棋 / 2人", "点格棋 / 2–4人",
   ]
 );
+assert.equal(gameSelect.options[0].value, "jungle");
+assert.equal(gameSelect.value, "jungle");
+assert.equal(gameTokenEstimate.textContent, "（约30–120 token/轮）");
+
+gameSelect.value = "othello";
+syncGameTypeOptions(games);
 assert.equal(gameSelect.value, "othello");
 assert.equal(gameTokenEstimate.textContent, "（约30–120 token/轮）");
 
@@ -2936,6 +2942,7 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
         self.assertIn("井字棋 / 2人", game_select)
         self.assertIn("点格棋 / 2–4人", game_select)
         self.assertNotIn("吹牛骰子 / 2–6人", game_select)
+        self.assertNotIn(" selected", game_select)
         game_type_styles = STYLES[
             STYLES.index(".game-type-selects {"):
             STYLES.index("}", STYLES.index(".game-type-selects {"))
@@ -2947,9 +2954,9 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
         )
         self.assertEqual(STYLES.count(".game-type-selects {"), 1)
         loader = function_source("loadIdentity")
-        self.assertIn("syncGameTypeOptions(data.games || [])", loader)
+        self.assertIn("syncGameTypeOptions(data.games || [], {preserveSelection: !initialIdentityLoad})", loader)
         self.assertLess(
-            loader.index("syncGameTypeOptions(data.games || [])"),
+            loader.index("syncGameTypeOptions(data.games || [], {preserveSelection: !initialIdentityLoad})"),
             loader.index("syncMachinePicker(data.machines || [])"),
         )
         self.assertIn(
