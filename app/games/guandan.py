@@ -78,7 +78,7 @@ class Guandan(GamePlugin):
     )
     move_format = (
         '只提交当前 private_state.legal_actions 发布的权威短 ID：'
-        '{"move":{"action":"act","action_id":"g_..."},"revision":当前版本}。'
+        '{"move":{"action":"act","action_id":"g_..."}}。'
         "MCP 紧凑表中的 action_id 由 action_id_prefix 与行内 suffix 直接拼接；"
         "不得自行枚举或改写牌索引。"
     )

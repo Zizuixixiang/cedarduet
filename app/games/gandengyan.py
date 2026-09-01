@@ -287,8 +287,8 @@ class Gandengyan(GamePlugin):
         "乘 2，最高 8 倍。不采用春天、天胡或其他地区附加翻倍。"
     )
     move_format = (
-        '出牌：{"move":{"action":"play","card_ids":["S3"]},"revision":当前版本}；'
-        '过牌：{"move":{"action":"pass"},"revision":当前版本}。只能从 private_state.'
+        '出牌：{"move":{"action":"play","card_ids":["S3"]}}；'
+        '过牌：{"move":{"action":"pass"}}。只能从 private_state.'
         "legal_actions 中选择服务端发布的组合。"
     )
 

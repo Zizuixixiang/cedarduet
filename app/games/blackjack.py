@@ -107,14 +107,13 @@ class Blackjack(GamePlugin):
         "高低决定胜、负或推和。\n\n"
         "【本版范围】\n"
         "第一版不支持 split、double、insurance 或 surrender。"
-        "娱乐筹码下注按每席独立对虚拟庄家结算：胜 +stake、负 -stake、推和 0；"
+        "娱乐筹码下注按每席独立对虚拟庄家结算：胜加一份底注、负扣一份底注、推和 0；"
         "自然 Blackjack 不另付 3:2。虚拟庄家没有钱包，因此多人总和允许非 0，等同系统"
-        "增发或回收；NPC 只记录逻辑 delta，不创建钱包。认输固定按负 -stake，其他席继续"
+        "增发或回收；NPC 只记录逻辑 delta，不创建钱包。认输固定扣一份底注，其他席继续"
         "完成牌局后一次性结算。"
     )
     move_format = (
-        '要牌：{"move":{"action":"hit"},"revision":当前版本}；'
-        '停牌：{"move":{"action":"stand"},"revision":当前版本}。'
+        '要牌：{"move":{"action":"hit"}}；停牌：{"move":{"action":"stand"}}。'
         "只能从 private_state.legal_actions 选择。"
     )
 

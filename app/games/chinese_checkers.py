@@ -102,11 +102,11 @@ class ChineseCheckers(GamePlugin):
         "- 弹珠一旦进入自己的目标营便不能离开，只能在目标营内部移动或跳跃。\n"
         "- 本局采用 anti-spoiling 防拖延规则：目标营十孔全部被占、其中至少一颗是你的棋，且其余阻挡棋只属于该营的原始拥有者时，也立即判你获胜。开局不会因此误判，第三方棋也不能冒充有效阻挡。\n\n"
         "【胜负】\n"
-        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。多人筹码局中，唯一赢家获得其余每席各一份本局筹码。认输若使桌型非法则立即结算：认输者向其余每席各赔一份；六人桌即 -5×stake，其余五席各 +stake。"
+        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。多人筹码局中，唯一赢家获得其余每席各一份本局筹码。认输若使桌型非法则立即结算：认输者向其余每席各赔一份；六人桌扣 5 份底注，其余五席各得 1 份底注。"
     )
     move_format = (
-        '提交稳定 node id：{"move":{"from":"n000","to":"n014"},'
-        '"revision":当前版本}；可附 kind="step" 或 "jump"。服务端从当前棋面计算'
+        '提交稳定 node id：{"move":{"from":"n000","to":"n014"}}；'
+        '可附 kind="step" 或 "jump"。服务端从当前棋面计算'
         "权威 legal_moves，并为每个跳跃终点选择一条稳定 canonical path；客户端无需逐跳"
         "提交，也不得提交自选 path。"
     )
@@ -610,15 +610,32 @@ class ChineseCheckers(GamePlugin):
         snapshot.pop("nodes", None)
         snapshot.pop("camps", None)
         snapshot.pop("legal_moves_by_player", None)
-        snapshot["legal_moves"] = [
+        snapshot["legal_moves"] = self._mcp_legal_moves(snapshot)
+        return snapshot
+
+    @staticmethod
+    def _mcp_legal_moves(state: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
             {
                 key: move[key]
                 for key in ("from", "to", "kind")
                 if key in move
             }
-            for move in snapshot.get("legal_moves", [])
+            for move in state.get("legal_moves", [])
         ]
-        return snapshot
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap.pop("legal_moves_by_player", None)
+        bootstrap["legal_moves"] = self._mcp_legal_moves(bootstrap)
+        return bootstrap
 
     def participant_summary(
         self,

@@ -34,7 +34,7 @@ class Checkers(GamePlugin):
     )
     move_format = (
         '每次移动或多跳中的每一跳都提交真实零起始坐标：{"move":{"from_row":5,'
-        '"from_col":0,"to_row":4,"to_col":1},"revision":当前版本}；row、col 均为 '
+        '"from_col":0,"to_row":4,"to_col":1}}；row、col 均为 '
         "0–7。多跳时服务端保留同一玩家行动权，并只发布被锁定棋子的下一跳 legal_moves。"
     )
 

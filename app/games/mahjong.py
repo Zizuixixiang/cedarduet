@@ -86,10 +86,10 @@ class Mahjong(GamePlugin):
         "这是 CedarDuet 钱包政策，不是官方麻将竞赛计分，也不改变 PyMahjongGB 番数计算。"
         "自摸时其余三家各扣一份房间底注、和牌者获得三份；点炮或抢杠和时来源玩家扣三份房间底注、"
         "和牌者获得三份，另外两家为 0；荒牌四家均为 0。番数不乘算钱包筹码。"
-        "认输采用娱乐筹码包赔：认输者 -3×stake，其余三家各 +stake。"
+        "认输采用娱乐筹码包赔：认输者扣 3 份底注，其余三家各得 1 份底注。"
     )
     move_format = (
-        '只能原样提交 private_state.legal_actions 中的一项，例如 '
+        '只能把 private_state.legal_actions 中的一项原样作为 params.move，如 '
         '{"action":"act","action_id":"discard:W1-1"}；不得自行构造牌面、番数或响应。'
     )
 
@@ -1147,6 +1147,23 @@ class Mahjong(GamePlugin):
         snapshot = deepcopy(public_state)
         snapshot.pop("action_history", None)
         return snapshot
+
+    def mcp_private_state(
+        self,
+        private_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del viewer, participants
+        projected = deepcopy(private_state)
+        projected["legal_actions"] = [
+            {
+                "action": action["action"],
+                "action_id": action["action_id"],
+            }
+            for action in projected.get("legal_actions", [])
+        ]
+        return projected
 
     def participant_summary(
         self,

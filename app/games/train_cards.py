@@ -119,7 +119,7 @@ class TrainCards(GamePlugin):
         "达到动作上限造成的平局，所有参与者均结算 0。"
     )
     move_format = (
-        '翻牌：{"move":{"action":"flip"},"revision":当前版本}。'
+        '翻牌：{"move":{"action":"flip"}}。'
         "只原样选择 private_state.legal_actions；牌面由裁判翻开并通过公开增量发布。"
     )
 

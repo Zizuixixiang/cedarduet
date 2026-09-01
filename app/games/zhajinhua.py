@@ -90,9 +90,9 @@ class Zhajinhua(GamePlugin):
         "变动；0 筹码娱乐房始终不变动钱包。"
     )
     move_format = (
-        '看牌：{"move":{"action":"peek"},"revision":当前版本}；'
+        '看牌：{"move":{"action":"peek"}}；'
         "跟注、加注、弃牌、比牌必须原样选择 private_state.legal_actions 中的对象，"
-        "包括服务端给出的 cost、unit 或 target_player_id。"
+        "作为 params.move，包括服务端给出的 cost、unit 或 target_player_id。"
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:

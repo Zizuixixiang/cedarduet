@@ -85,6 +85,77 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(games["aeroplane_chess"]["allowed_player_counts"], [2, 3, 4])
         self.assertTrue(games["aeroplane_chess"]["supports_npcs"])
         self.assertTrue(games["aeroplane_chess"]["supports_stakes"])
+        for item in games.values():
+            self.assertNotIn("rules_text", item)
+            self.assertNotIn("move_format", item)
+
+    async def test_focus_game_move_formats_come_from_real_bootstrap(self):
+        player_counts = {
+            "doudizhu": 3,
+            "mahjong": 4,
+            "uno": 2,
+            "texas_holdem": 2,
+            "zhajinhua": 2,
+        }
+        for index, (game_type, player_count) in enumerate(player_counts.items()):
+            with self.subTest(game_type=game_type):
+                ai = f"ai-format-{index}"
+                human = f"human-format-{index}"
+                participant_ids = [ai, human] + [
+                    f"ai-format-{index}-{seat}"
+                    for seat in range(2, player_count)
+                ]
+                request = {
+                    "action": "new",
+                    "player_id": ai,
+                    "opponent_id": human,
+                    "game_type": game_type,
+                    "mode": "ai_first",
+                }
+                if player_count > 2:
+                    request.update({
+                        "participant_ids": participant_ids,
+                        "target_player_count": player_count,
+                    })
+                response = await self.client.post("/mcp/play", json=request)
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                self.assertTrue(payload["bootstrap"])
+                self.assertEqual(
+                    payload["room"]["move_format"],
+                    get_game(game_type).move_format,
+                )
+                if game_type == "mahjong":
+                    legal = payload["room"]["private_state"]["legal_actions"]
+                    self.assertTrue(legal)
+                    self.assertTrue(all(
+                        set(action) == {"action", "action_id"}
+                        for action in legal
+                    ))
+
+    async def test_bootstrap_legal_move_lists_are_submit_ready(self):
+        expected_keys = {
+            "chinese_checkers": {"from", "to", "kind"},
+            "xiangqi": {"from_row", "from_col", "to_row", "to_col"},
+        }
+        for index, game_type in enumerate(
+            ("aeroplane_chess", "chess", "chinese_checkers", "xiangqi")
+        ):
+            with self.subTest(game_type=game_type):
+                payload = await self.new_room(
+                    game_type,
+                    ai=f"ai-legal-{index}",
+                    human=f"human-legal-{index}",
+                )
+                state = payload["room"]["board_state"]
+                self.assertNotIn("legal_moves_by_player", state)
+                if game_type in {"aeroplane_chess", "chess"}:
+                    self.assertNotIn("legal_moves", state)
+                    self.assertTrue(state["legal_actions"])
+                else:
+                    self.assertTrue(state["legal_moves"])
+                    for move in state["legal_moves"]:
+                        self.assertEqual(set(move), expected_keys[game_type])
 
     def assert_full_room(self, payload, *, ai_balance=205, human_balance=200):
         self.assertTrue(payload["bootstrap"])

@@ -108,14 +108,30 @@ class Xiangqi(GamePlugin):
         snapshot = super().mcp_snapshot_state(
             public_state, viewer, participants
         )
-        snapshot["legal_moves"] = [
+        snapshot["legal_moves"] = self._mcp_legal_moves(snapshot)
+        return snapshot
+
+    @staticmethod
+    def _mcp_legal_moves(state: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
             {
                 key: move[key]
                 for key in ("from_row", "from_col", "to_row", "to_col")
             }
-            for move in snapshot.get("legal_moves", [])
+            for move in state.get("legal_moves", [])
         ]
-        return snapshot
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap["legal_moves"] = self._mcp_legal_moves(bootstrap)
+        return bootstrap
 
     def state_from_fen(self, fen: str) -> dict[str, Any]:
         """Build a test/admin position through the authoritative engine."""

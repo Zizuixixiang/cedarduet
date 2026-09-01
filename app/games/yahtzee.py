@@ -110,9 +110,9 @@ class Yahtzee(GamePlugin):
         "所有人各完成 13 回合后，将上栏奖励和重复快艇奖励计入总分，总分最高者获胜；最高分并列则和局。本游戏只开娱乐局，不支持筹码；刷新页面不会重掷已经出现的结果。"
     )
     move_format = (
-        '掷骰：{"move":{"action":"roll","hold_indices":[0,2]},"revision":当前版本}，'
+        '掷骰：{"move":{"action":"roll","hold_indices":[0,2]}}，'
         "也可用长度为 5 的 held_mask；首次掷骰保留项必须为空。"
-        '计分：{"move":{"action":"score","category":"full_house"},"revision":当前版本}；'
+        '计分：{"move":{"action":"score","category":"full_house"}}；'
         "明确划掉可另传 zero:true。"
     )
 

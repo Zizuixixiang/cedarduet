@@ -35,10 +35,10 @@ class Chess(GamePlugin):
     )
     move_format = (
         '移动使用零起始坐标：{"move":{"from_row":6,"from_col":4,'
-        '"to_row":4,"to_col":4},"revision":当前版本}；row 0 是黑方底线，'
+        '"to_row":4,"to_col":4}}；row 0 是黑方底线，'
         'col 0 是 a 线。兵升变必须另加 "promotion":"q|r|b|n"。'
         '当前局面满足三次重复或 50 回合条件时，可提交 '
-        '{"move":{"action":"claim_draw"},"revision":当前版本} 申和。'
+        '{"move":{"action":"claim_draw"}} 申和。'
     )
     piece_names = {
         "p": "兵",
@@ -156,6 +156,18 @@ class Chess(GamePlugin):
         # legal_actions is the compact submit-ready form of legal_moves.
         snapshot.pop("legal_moves", None)
         return snapshot
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap.pop("legal_moves", None)
+        return bootstrap
 
     def initial_state(self) -> dict[str, Any]:
         try:

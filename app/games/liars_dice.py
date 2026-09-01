@@ -33,8 +33,8 @@ class LiarsDice(GamePlugin):
         "失去全部骰子即淘汰，最后一名仍有骰子的玩家获胜。"
     )
     move_format = (
-        '叫点：{"move":{"action":"bid","quantity":3,"face":4},"revision":当前版本}；'
-        '质疑：{"move":{"action":"challenge"},"revision":当前版本}。'
+        '叫点：{"move":{"action":"bid","quantity":3,"face":4}}；'
+        '质疑：{"move":{"action":"challenge"}}。'
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:

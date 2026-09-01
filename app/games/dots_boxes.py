@@ -26,7 +26,7 @@ class DotsBoxes(GamePlugin):
         "全部 16 格归属后，唯一最高分者获胜；最高分并列则和局，本局筹码原样退还。多人筹码局中，唯一赢家获得其他每名参与者各自承担的一份本局筹码。"
     )
     move_format = (
-        '画边参数：{"move":{"orientation":"h","row":0,"col":0},"revision":当前版本}；'
+        '画边参数：{"move":{"orientation":"h","row":0,"col":0}}；'
         "orientation 为 h（横边，row 0–4、col 0–3）或 v（竖边，row 0–3、col 0–4）。"
     )
 

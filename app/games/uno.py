@@ -110,10 +110,11 @@ class Uno(GamePlugin):
         "弃牌堆顶牌，把其余弃牌洗回摸牌堆；洗牌结果随局面持久化，刷新或重启不会重洗。"
     )
     move_format = (
-        '出牌：{"move":{"action":"play","card_id":"red-number-5-1"},'
-        '"revision":当前版本}；Wild 必须另传 color，剩 1 张时可传 uno:true。'
+        '出牌：{"move":{"action":"play","card_id":"red-number-5-1"}}；'
+        'Wild 必须另传 color，剩 1 张时可传 uno:true。'
         '摸牌：{"move":{"action":"draw"}}；摸到可出的牌后可 play 或 pass。'
-        'WDF 响应为 challenge_wild_draw_four 或 accept_draw_four；抓漏报为 catch_uno。'
+        'WDF 响应的 move.action 为 challenge_wild_draw_four/accept_draw_four；'
+        '抓漏报为 move.action=catch_uno。'
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:

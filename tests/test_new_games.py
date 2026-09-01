@@ -208,6 +208,40 @@ class RegistryErrorTests(unittest.TestCase):
                 self.assertGreaterEqual(plugin.min_players, 2)
                 self.assertIn(plugin.min_players, plugin.resolved_allowed_player_counts())
 
+    def test_all_move_formats_follow_shared_mcp_action_layering(self):
+        self.assertEqual(len(GAMES), 25)
+        for game_type, plugin in GAMES.items():
+            with self.subTest(game_type=game_type):
+                self.assertNotIn('"revision":当前版本', plugin.move_format)
+
+        for game_type in (
+            "doudizhu", "mahjong", "texas_holdem", "zhajinhua",
+        ):
+            with self.subTest(params_move=game_type):
+                self.assertIn("params.move", GAMES[game_type].move_format)
+
+        uno = GAMES["uno"].move_format
+        for action in (
+            "challenge_wild_draw_four", "accept_draw_four", "catch_uno",
+        ):
+            with self.subTest(uno_action=action):
+                self.assertRegex(uno, rf"move\.action[^\u3002；]*{action}|{action}[^\u3002；]*move\.action")
+
+        for game_type in (
+            "junqi", "go", "chinese_checkers", "chess",
+        ):
+            with self.subTest(wrapped_examples=game_type):
+                self.assertIn('{"move":', GAMES[game_type].move_format)
+
+    def test_rules_text_does_not_teach_mcp_submission_syntax(self):
+        for game_type, plugin in GAMES.items():
+            with self.subTest(game_type=game_type):
+                for submission_term in (
+                    "params.move", "duel action", '{"action"', '{"move"',
+                    "legal_action_spec",
+                ):
+                    self.assertNotIn(submission_term, plugin.rules_text)
+
 
     def test_player_rules_use_the_light_structure_without_move_schema_terms(self):
         heading_pattern = re.compile(r"^【[^【】]+】$", re.MULTILINE)

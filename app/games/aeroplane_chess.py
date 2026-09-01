@@ -63,10 +63,9 @@ class AeroplaneChess(GamePlugin):
         "首位让 4 架飞机全部到达中心的玩家获胜。本版不采用偶数起飞、叠机同行等可选规则；终点按上述规则反弹。骰子结果会随局面保存，刷新不会重掷。"
     )
     move_format = (
-        '掷骰：{"move":{"action":"roll"},"revision":当前版本}；掷骰后只能从'
-        '服务端 legal_actions/legal_moves 选择飞机，例如 '
-        '{"move":{"action":"move","plane_id":"red-0","plane_index":0},'
-        '"revision":当前版本}。'
+        '掷骰：{"move":{"action":"roll"}}；掷骰后只能从服务端 legal_actions '
+        '选择飞机，例如 {"move":{"action":"move","plane_id":"red-0",'
+        '"plane_index":0}}。'
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:
@@ -798,7 +797,21 @@ class AeroplaneChess(GamePlugin):
             "finish_route_step",
         ):
             snapshot.pop(key, None)
+        # legal_actions is the submit-ready form; legal_moves is UI detail.
+        snapshot.pop("legal_moves", None)
         return snapshot
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap.pop("legal_moves", None)
+        return bootstrap
 
     def npc_compact_rules(
         self,

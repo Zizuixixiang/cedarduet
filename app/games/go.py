@@ -52,10 +52,10 @@ class Go(GamePlugin):
         "扣除一份房间底注，认输也采用相同的双人标准结算；若面积分相同判和，则双方筹码变化均为 0。"
     )
     move_format = (
-        '行棋：{"move":{"action":"play","row":3,"col":3},"revision":当前版本}；'
-        '停一手：{"move":{"action":"pass"},"revision":当前版本}；'
-        '死子阶段：{"move":{"action":"toggle_dead","row":3,"col":3},"revision":当前版本} '
-        '或 {"move":{"action":"confirm_score"},"revision":当前版本}。row、col 为 0–18；'
+        '行棋：{"move":{"action":"play","row":3,"col":3}}；'
+        '停一手：{"move":{"action":"pass"}}；死子阶段：'
+        '{"move":{"action":"toggle_dead","row":3,"col":3}} 或 '
+        '{"move":{"action":"confirm_score"}}。row、col 为 0–18；'
         "只能原样选择服务端 authoritative legal_actions 中的动作。"
     )
 

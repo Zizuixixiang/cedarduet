@@ -98,8 +98,8 @@ class TexasHoldem(GamePlugin):
         "settlement_deltas 一次性变动。"
     )
     move_format = (
-        "只能依据 private_state.legal_actions 行动。check/fold 原样提交；call/all_in "
-        "使用服务端对象；bet/raise 的 amount 表示本街下注总额，必须位于服务端对象的 "
+        "只能依据 private_state.legal_actions 行动。check/fold/call/all_in 对象"
+        "原样作为 params.move；bet/raise 的 amount 表示本街下注总额，必须位于服务端对象的 "
         "min_amount..max_amount（含端点）内。"
     )
 

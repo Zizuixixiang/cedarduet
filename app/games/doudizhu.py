@@ -118,9 +118,9 @@ class Doudizhu(GamePlugin):
         "三人 forfeit：认输者赔两份底注，其余两席各得一份。"
     )
     move_format = (
-        '叫分：原样提交自己私有状态中发布的 {"action":"bid","action_id":"bid:1",'
-        '"score":1}；出牌：原样提交带 action_id、card_ids 和牌型信息的 play；过牌：'
-        '{"action":"pass","action_id":"pass"}。不得自行枚举牌型。'
+        '将 private_state.legal_actions 选中项原样作为 params.move，如'
+        '{"action":"bid","action_id":"bid:1","score":1} 或 '
+        '{"action":"pass","action_id":"pass"}；不得自行枚举牌型。'
     )
 
     def __init__(self, rng: random.Random | None = None) -> None:
