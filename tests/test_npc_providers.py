@@ -255,9 +255,14 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ProviderDecision("a_step", None),
         )
         self.assertEqual(captured["authorization"], "Bearer internal-test-token")
+        self.assertEqual(captured["body"]["task"], "decision")
         self.assertEqual(captured["body"]["max_tokens"], 128)
         self.assertEqual(captured["body"]["timeout"], 7)
         self.assertEqual(await provider.speak(speech_request()), "落地后的发言")
+        self.assertEqual(
+            [body["task"] for body in captured["bodies"]],
+            ["decision", "speech"],
+        )
         speech_payload = json.loads(
             captured["bodies"][1]["messages"][1]["content"]
         )

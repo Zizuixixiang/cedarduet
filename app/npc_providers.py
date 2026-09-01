@@ -359,6 +359,7 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
             self.bridge_url,
             headers={"Authorization": f"Bearer {self.bridge_token}"},
             payload={
+                "task": "decision",
                 "messages": self._bridge_messages(request),
                 "max_tokens": self.max_tokens,
                 "timeout": self.timeout,
@@ -374,6 +375,7 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
             self.bridge_url,
             headers={"Authorization": f"Bearer {self.bridge_token}"},
             payload={
+                "task": "speech",
                 "messages": self._bridge_messages(request),
                 "max_tokens": self.max_tokens,
                 "timeout": self.timeout,
