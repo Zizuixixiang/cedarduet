@@ -502,10 +502,15 @@ bootstrap 规则。带 stake 时每名输家按 `stake × 剩余手牌张数 × 
 
 ## 中国跳棋 `chinese_checkers`
 
-普通 move 的 `from/to/kind` 已足够确定性重建棋面；跳跃不吃子。bootstrap 提供 121
-孔的固定 node 坐标和营区，调用方应缓存。full_state 只重发当前 `pieces`、营区归属、
-进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，不重复 canonical
-path、固定 `nodes/camps` 或历史。
+普通 move 的 `from/to/kind` 已足够确定性重建棋面；跳跃不吃子。每一段跳跃都沿六方向
+直线取该方向遇到的第一颗任意玩家棋子为跳板；起点与跳板之间若有 k 个连续空孔，只有
+跳板另一侧也有 k 个连续空孔且对称落点为空时才能跳。k=0 即相邻跳；连续跳可混合相邻跳与
+等距跳，但不能重复落点或混入普通一步。
+
+bootstrap 提供 121 孔的固定 node 坐标和营区，调用方应缓存。full_state 只重发当前 `pieces`、
+营区归属、进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，不重复
+canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的 `legal_moves` 选择终点，
+无需也不得自行提交连跳 path。
 六人桌有人认输时不会进入非法五人状态：认输者 `-5×stake`，其余五席各
 `+stake`。
 

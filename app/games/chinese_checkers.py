@@ -96,7 +96,7 @@ class ChineseCheckers(GamePlugin):
         "【目标】\n"
         "把自己的 10 颗弹珠送入正对面的目标营。游戏使用标准 121 孔六角星棋盘，支持 2、3、4、6 人，不支持 5 人；2 人使用一对对角营，3 人隔一角入座，4 人使用两对对角营，6 人六角全开。\n\n"
         "【行动】\n"
-        "每回合只移动一颗弹珠。可以沿六个方向走到相邻空孔并立即结束；也可以跳过相邻的任意一颗弹珠，落到同一直线紧邻其后的空孔，并连续跳跃任意次。跳跃不吃子，同一跳跃链不能重复落点，也不能把普通一步与跳跃混用。\n\n"
+        "每回合只移动一颗弹珠。可以沿六个方向走到相邻空孔并立即结束；也可以沿六方向直线以遇到的第一颗任意玩家弹珠为跳板。若当前位置与跳板之间有 k 个连续空孔，跳板另一侧也必须有 k 个连续空孔，且与当前位置关于跳板对称的等距落点必须为空；相邻跳是 k=0 的特例。同一回合可连续跳跃任意次，相邻跳与等距跳可以混合。跳跃不吃子，同一跳跃链不能重复落点，也不能混入普通一步。\n\n"
         "【特殊规则】\n"
         "- 自己的起始营和目标营可以停留；其他四个角营不能作为回合终点，但连续跳的中间落点可以穿过。\n"
         "- 弹珠一旦进入自己的目标营便不能离开，只能在目标营内部移动或跳跃。\n"
@@ -292,11 +292,36 @@ class ChineseCheckers(GamePlugin):
             current, path = queue.popleft()
             q, r = _COORD_BY_NODE[current]
             for dq, dr in _DIRECTIONS:
-                jumped = _NODE_BY_COORD.get((q + dq, r + dr))
-                landing = _NODE_BY_COORD.get((q + 2 * dq, r + 2 * dr))
-                if jumped not in fixed_occupied or landing is None:
+                distance = 1
+                while True:
+                    jumped = _NODE_BY_COORD.get((
+                        q + distance * dq,
+                        r + distance * dr,
+                    ))
+                    if jumped is None or jumped in fixed_occupied:
+                        break
+                    distance += 1
+                if jumped is None:
                     continue
-                if landing in fixed_occupied or landing in visited:
+                landing = _NODE_BY_COORD.get((
+                    q + 2 * distance * dq,
+                    r + 2 * distance * dr,
+                ))
+                if (
+                    landing is None
+                    or landing in fixed_occupied
+                    or landing in visited
+                ):
+                    continue
+                if any(
+                    (
+                        mirrored := _NODE_BY_COORD.get((
+                            q + offset * dq,
+                            r + offset * dr,
+                        ))
+                    ) is None or mirrored in fixed_occupied
+                    for offset in range(distance + 1, 2 * distance)
+                ):
                     continue
                 if locked_in_target and landing not in _CAMPS[target_camp]:
                     continue

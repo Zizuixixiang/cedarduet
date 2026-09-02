@@ -146,35 +146,141 @@ class ChineseCheckersTopologyAndRulesTests(unittest.TestCase):
         self.assertFalse(result.retain_turn)
         self.assertEqual(result.next_player_id, "ai-1")
 
-    def test_single_and_multi_jump_use_stable_bfs_canonical_path_without_capture(self):
+    def test_adjacent_jump_remains_legal_regression(self):
         state = self.sparse_state({
             (0, 0): "P1",
             (1, 0): "P2",
-            (3, 0): "P2",
         })
         origin = self.node(0, 0)
-        single = self.node(2, 0)
-        final = self.node(4, 0)
-        jumps = {
-            move["to"]: move
-            for move in state["legal_moves"]
-            if move["from"] == origin and move["kind"] == "jump"
+        landing = self.node(2, 0)
+        jump = next(
+            move for move in state["legal_moves"]
+            if move["from"] == origin and move["to"] == landing
+        )
+        self.assertEqual(jump["kind"], "jump")
+        self.assertEqual(jump["path"], [origin, landing])
+        result = self.game.apply_move(
+            state, {"from": origin, "to": landing}, "P1"
+        )
+        self.assertEqual(result.state["last_move"]["kind"], "jump")
+        self.assertEqual(result.state["last_move"]["path"], [origin, landing])
+        self.assertEqual(result.state["last_move"]["jump_count"], 1)
+        self.assertEqual(result.state["pieces"][self.node(1, 0)], "P2")
+        self.assertEqual(result.state["pieces"][landing], "P1")
+        self.assertEqual(len(result.state["pieces"]), 2)
+
+    def test_single_equidistant_jump_uses_first_marble_of_either_player(self):
+        origin = self.node(0, 0)
+        for index, (dq, dr) in enumerate(_DIRECTIONS):
+            jumper = "P1" if index % 2 == 0 else "P2"
+            landing = self.node(4 * dq, 4 * dr)
+            with self.subTest(direction=(dq, dr), jumper=jumper):
+                state = self.sparse_state({
+                    (0, 0): "P1",
+                    (2 * dq, 2 * dr): jumper,
+                })
+                jump = next(
+                    move for move in state["legal_moves"]
+                    if move["from"] == origin and move["to"] == landing
+                )
+                self.assertEqual(jump["kind"], "jump")
+                self.assertEqual(jump["path"], [origin, landing])
+                result = self.game.apply_move(
+                    state, {"from": origin, "to": landing}, "P1"
+                )
+                self.assertEqual(
+                    result.state["pieces"][self.node(2 * dq, 2 * dr)],
+                    jumper,
+                )
+                self.assertEqual(result.state["pieces"][landing], "P1")
+                self.assertEqual(len(result.state["pieces"]), 2)
+
+    def test_adjacent_and_equidistant_jumps_mix_in_one_canonical_chain(self):
+        state = self.sparse_state({
+            (-4, 0): "P1",
+            (-3, 0): "P2",
+            (0, 0): "P1",
+        })
+        origin = self.node(-4, 0)
+        adjacent_landing = self.node(-2, 0)
+        final = self.node(2, 0)
+        jump = next(
+            move for move in state["legal_moves"]
+            if move["from"] == origin and move["to"] == final
+        )
+        self.assertEqual(jump["kind"], "jump")
+        self.assertEqual(jump["path"], [origin, adjacent_landing, final])
+        result = self.game.apply_move(state, {"from": origin, "to": final}, "P1")
+        self.assertEqual(result.state["last_move"]["jump_count"], 2)
+        self.assertEqual(result.state["pieces"][self.node(-3, 0)], "P2")
+        self.assertEqual(result.state["pieces"][self.node(0, 0)], "P1")
+        self.assertEqual(result.state["pieces"][final], "P1")
+        self.assertEqual(len(result.state["pieces"]), 3)
+
+    def test_equidistant_jump_is_blocked_by_an_intervening_marble(self):
+        origin = self.node(0, 0)
+        landing = self.node(4, 0)
+        cases = {
+            "before_jumper": {
+                (0, 0): "P1", (1, 0): "P2", (2, 0): "P1",
+            },
+            "after_jumper": {
+                (0, 0): "P1", (2, 0): "P2", (3, 0): "P1",
+            },
         }
-        self.assertEqual(jumps[single]["path"], [origin, single])
-        self.assertEqual(jumps[final]["path"], [origin, single, final])
+        for label, pieces in cases.items():
+            with self.subTest(label=label):
+                state = self.sparse_state(pieces)
+                self.assertNotIn(
+                    landing,
+                    {
+                        move["to"] for move in state["legal_moves"]
+                        if move["from"] == origin and move["kind"] == "jump"
+                    },
+                )
+
+    def test_equidistant_jump_requires_an_empty_landing(self):
+        state = self.sparse_state({
+            (0, 0): "P1",
+            (2, 0): "P2",
+            (4, 0): "P1",
+        })
+        origin = self.node(0, 0)
+        occupied_landing = self.node(4, 0)
+        self.assertNotIn(
+            occupied_landing,
+            {
+                move["to"] for move in state["legal_moves"]
+                if move["from"] == origin and move["kind"] == "jump"
+            },
+        )
+
+    def test_jump_chain_canonical_path_never_repeats_a_landing(self):
+        state = self.sparse_state({
+            (-4, 0): "P1",
+            (-3, 0): "P2",
+            (0, 0): "P2",
+        })
+        origin = self.node(-4, 0)
+        paths = self.game._jump_paths(state, origin, "human-1")
+        self.assertNotIn(origin, paths)
+        self.assertIn(self.node(-2, 0), paths)
+        self.assertIn(self.node(2, 0), paths)
+        self.assertTrue(all(
+            len(path) == len(set(path)) for path in paths.values()
+        ))
         self.assertEqual(
             self.game.legal_actions(state, "P1"),
             self.game.legal_actions(state, "P1"),
         )
-        result = self.game.apply_move(
-            state, {"from": origin, "to": final}, "P1"
-        )
-        self.assertEqual(result.state["last_move"]["kind"], "jump")
-        self.assertEqual(result.state["last_move"]["path"], [origin, single, final])
-        self.assertEqual(result.state["last_move"]["jump_count"], 2)
-        self.assertEqual(result.state["pieces"][self.node(1, 0)], "P2")
-        self.assertEqual(result.state["pieces"][self.node(3, 0)], "P2")
-        self.assertEqual(len(result.state["pieces"]), 3)
+
+    def test_rules_text_describes_equidistant_and_mixed_jumps(self):
+        self.assertIn("遇到的第一颗任意玩家弹珠为跳板", self.game.rules_text)
+        self.assertIn("k 个连续空孔", self.game.rules_text)
+        self.assertIn("相邻跳是 k=0 的特例", self.game.rules_text)
+        self.assertIn("相邻跳与等距跳可以混合", self.game.rules_text)
+        self.assertIn("不能重复落点", self.game.rules_text)
+        self.assertIn("不能混入普通一步", self.game.rules_text)
 
     def test_step_and_jump_cannot_be_mixed_or_mislabeled(self):
         state = self.sparse_state({(0, 0): "P1", (2, 0): "P2"})
