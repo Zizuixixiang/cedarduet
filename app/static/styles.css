@@ -4251,3 +4251,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .rules-drawer { padding-inline: 10px; }
   .rules-content { padding-inline: 10px; }
 }
+
+/* Prevent iOS WebKit focus zoom without changing Android or desktop controls. */
+@supports (-webkit-touch-callout: none) {
+  @media (hover: none) and (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
