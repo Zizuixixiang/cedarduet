@@ -76,6 +76,19 @@ class LocalSetupError(RuntimeError):
     pass
 
 
+def _print_console(message: object, *, file=None) -> None:
+    """Print without crashing when a redirected Windows stream uses an ANSI code page."""
+    stream = sys.stdout if file is None else file
+    text = str(message)
+    encoding = getattr(stream, "encoding", None)
+    if encoding:
+        try:
+            text.encode(encoding)
+        except UnicodeEncodeError:
+            text = text.encode("ascii", errors="backslashreplace").decode("ascii")
+    print(text, file=stream)
+
+
 def venv_python() -> Path:
     return VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
@@ -171,13 +184,13 @@ def ensure_venv() -> Path:
     if python.is_file():
         return python
 
-    print(f"正在创建虚拟环境：{VENV_DIR}")
+    _print_console(f"正在创建虚拟环境：{VENV_DIR}")
     created_for_attempt = not VENV_DIR.exists()
     try:
         _create_stdlib_venv()
     except (ModuleNotFoundError, ImportError, OSError, subprocess.SubprocessError) as exc:
         _remove_new_venv(created_for_attempt)
-        print(
+        _print_console(
             "当前 Python 的 stdlib venv 不可用；将用现有 pip 临时引导 virtualenv，"
             "只创建仓库内 .venv，不写入系统 Python。"
         )
@@ -260,7 +273,7 @@ def install_core_dependencies(python: Path) -> None:
         if not CORE_STAMP_PATH.exists():
             CORE_STAMP_PATH.write_text(fingerprint + "\n", encoding="ascii")
         return
-    print("正在安装本地 Web/MCP 普通依赖…")
+    _print_console("正在安装本地 Web/MCP 普通依赖…")
     command = [str(python), "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements-local.txt")]
     try:
         subprocess.run(command, cwd=PROJECT_ROOT, check=True)
@@ -431,19 +444,19 @@ def install_pymahjong_dependency(python: Path) -> None:
     wheel_failure = ""
     installed = False
     if wheel_filename:
-        print(f"正在安装官方预编译 PyMahjongGB wheel：{wheel_filename}")
+        _print_console(f"正在安装官方预编译 PyMahjongGB wheel：{wheel_filename}")
         installed, wheel_failure = install_windows_release_wheel(python, wheel_filename)
         if wheel_failure:
-            print(f"预编译 wheel 不可用：{wheel_failure}")
+            _print_console(f"预编译 wheel 不可用：{wheel_failure}")
     elif info.get("platform") == "win32":
         wheel_failure = (
             "官方 wheel 仅覆盖 Windows x64 CPython 3.10/3.11/3.12/3.13；"
             "当前解释器不匹配"
         )
-        print(f"预编译 wheel 不可用：{wheel_failure}")
+        _print_console(f"预编译 wheel 不可用：{wheel_failure}")
 
     if not installed:
-        print("正在从 vendored 原始源码构建 PyMahjongGB（构建目录使用系统临时目录）…")
+        _print_console("正在从 vendored 原始源码构建 PyMahjongGB（构建目录使用系统临时目录）…")
         try:
             install_pymahjong_from_source(python)
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -595,10 +608,10 @@ def run_web(
     python: Path, port: int, env: dict[str, str], open_browser: bool
 ) -> int:
     url = env["DUEL_LOCAL_BASE_URL"]
-    print(f"本地数据库：{LOCAL_DATABASE}")
-    print(f"浏览器地址：{url}/")
-    print("MCP 配置：")
-    print(json.dumps(mcp_config(python, env), ensure_ascii=False, indent=2))
+    _print_console(f"本地数据库：{LOCAL_DATABASE}")
+    _print_console(f"浏览器地址：{url}/")
+    _print_console("MCP 配置：")
+    _print_console(json.dumps(mcp_config(python, env), ensure_ascii=False, indent=2))
     process = subprocess.Popen(
         [
             str(python), "-m", "uvicorn", "app.local_gateway:app",
@@ -640,15 +653,15 @@ def main() -> int:
         if args.command == "web":
             return run_web(python, _port, env, not args.no_browser)
         if args.command == "mcp-config":
-            print(json.dumps(mcp_config(python, env), ensure_ascii=False, indent=2))
+            _print_console(json.dumps(mcp_config(python, env), ensure_ascii=False, indent=2))
         else:
-            print(f"Python：{python}")
-            print(f"Node：{node}")
-            print("PyMahjongGB：可导入")
-            print("四个 Node bridge：通过")
+            _print_console(f"Python：{python}")
+            _print_console(f"Node：{node}")
+            _print_console("PyMahjongGB：可导入")
+            _print_console("四个 Node bridge：通过")
         return 0
     except LocalSetupError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
+        _print_console(f"错误：{exc}", file=sys.stderr)
         return 1
 
 

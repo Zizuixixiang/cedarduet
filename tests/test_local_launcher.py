@@ -90,6 +90,21 @@ class LocalLauncherTests(unittest.TestCase):
         self.assertIn("错误：需要完整 Python/venv", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
 
+    def test_launcher_output_survives_a_legacy_windows_pipe_encoding(self):
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="cp1252")
+        try:
+            with patch.object(launcher.sys, "stdout", stream):
+                launcher._print_console("正在安装本地依赖…")
+            stream.flush()
+            output = buffer.getvalue()
+        finally:
+            stream.detach()
+
+        self.assertIn(b"\\u6b63\\u5728", output)
+        self.assertIn(b"\\u2026", output)
+        self.assertTrue(output.endswith(b"\n"))
+
     def test_mcp_config_uses_absolute_venv_python_and_loopback(self):
         python = launcher.venv_python()
         env = {
