@@ -697,6 +697,49 @@ class Uno(GamePlugin):
         winner = state.get("winner_player_id")
         return {"winner_player_id": winner, "draw": False} if winner else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        order = list(state.get("participant_order", []))
+        if resigned_player_id not in order:
+            raise ValueError("UNO 认输者不属于本桌")
+        direction = int(state.get("direction", 1))
+        start = order.index(resigned_player_id)
+        remaining = [item for item in order if item != resigned_player_id]
+
+        def next_remaining() -> str | None:
+            for offset in range(1, len(order) + 1):
+                candidate = str(order[(start + direction * offset) % len(order)])
+                if candidate in remaining:
+                    return candidate
+            return None
+
+        state["participant_order"] = remaining
+        drawn = state.get("drawn_card")
+        if isinstance(drawn, dict) and drawn.get("player_id") == resigned_player_id:
+            state["drawn_card"] = None
+            state["flow"]["phase"] = "playing"
+        pending = state.get("pending_wild_draw_four")
+        if isinstance(pending, dict) and resigned_player_id in {
+            pending.get("offender_player_id"), pending.get("challenger_player_id")
+        }:
+            state["pending_wild_draw_four"] = None
+            state["last_penalty"] = None
+            state["flow"]["phase"] = "playing"
+        window = state.get("uno_window")
+        if isinstance(window, dict) and resigned_player_id in {
+            window.get("offender_player_id"), window.get("catcher_player_id")
+        }:
+            state["uno_window"] = None
+        if state.get("winner_player_id") == resigned_player_id:
+            state["winner_player_id"] = None
+        if state.get("turn_player_id") == resigned_player_id:
+            state["turn_player_id"] = next_remaining()
+
     def check_winner(self, state: dict[str, Any]) -> str | None:
         del state
         return None

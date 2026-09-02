@@ -739,11 +739,40 @@ class AeroplaneChess(GamePlugin):
         participants: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
         del participants
-        winner = self._winner(state)
+        winner = state.get("winner_player_id") or self._winner(state)
         return (
             {"winner_player_id": winner, "draw": False}
             if winner is not None else None
         )
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        order = list(state.get("participant_order", []))
+        if resigned_player_id not in order:
+            raise ValueError("飞行棋认输者不属于本桌")
+        start = order.index(resigned_player_id)
+        remaining = [item for item in order if item != resigned_player_id]
+        next_player = next(
+            (
+                str(order[(start + offset) % len(order)])
+                for offset in range(1, len(order) + 1)
+                if order[(start + offset) % len(order)] in remaining
+            ),
+            None,
+        )
+        state["participant_order"] = remaining
+        state.get("planes", {}).pop(resigned_player_id, None)
+        color = state.get("color_by_player", {}).pop(resigned_player_id, None)
+        if color is not None:
+            state.get("player_by_color", {}).pop(color, None)
+        if state.get("turn_player_id") == resigned_player_id:
+            self._finish_turn(state)
+            state["turn_player_id"] = next_player
 
     def settlement_deltas(
         self,

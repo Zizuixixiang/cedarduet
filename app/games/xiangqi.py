@@ -23,9 +23,11 @@ class Xiangqi(GamePlugin):
         "- 士与将帅限于九宫；炮不吃子时走法同车，吃子时必须隔恰好一个炮架。\n"
         "- 兵卒过河前只能前进，过河后可以横走但不能后退。\n\n"
         "【特殊规则】\n"
-        "不能走出让己方将帅受攻或双方将帅照面的着法。本版不裁决竞赛级长将长捉责任。\n\n"
+        "不能走出让己方将帅受攻或双方将帅照面的着法。本版不裁决竞赛级长将长捉责任，"
+        "也不以简单的三次重复直接判和。\n\n"
         "【胜负】\n"
-        "将死或无合法着法（困毙）均判负。"
+        "将死或无合法着法（困毙）均判负。连续 120 手未发生吃子时自动和棋；盘面只剩"
+        "将帅与士、象且没有车、马、炮、兵卒时按本版引擎判子力不足和棋。"
     )
     move_format = (
         '移动使用零起始起终点：{"move":{"from_row":9,"from_col":0,'
@@ -199,8 +201,15 @@ class Xiangqi(GamePlugin):
             note = "对方无合法着法，困毙判负。"
         elif updated["in_draw"]:
             updated["winner_mark"] = "draw"
-            updated["terminal_reason"] = "draw"
-            note = "规则引擎判定和棋。"
+            reason = str(updated.get("draw_reason") or "draw")
+            updated["terminal_reason"] = reason
+            note = (
+                "连续 120 手未吃子，自动和棋。"
+                if reason == "sixty_move_no_capture"
+                else "子力不足，自动和棋。"
+                if reason == "insufficient_material"
+                else "规则引擎判定和棋。"
+            )
         elif updated["in_check"]:
             note = "将军。"
         return MoveResult(updated, note=note)

@@ -341,6 +341,7 @@ class MahjongRulesTests(unittest.TestCase):
     def test_concealed_gang_and_added_gang_robbing_window(self):
         concealed = self.state()
         concealed["hands"]["p0"] = self.tiles(["J2"] * 4 + FILLER[:10])
+        concealed["drawn_tile_id"] = concealed["hands"]["p0"][0]["id"]
         action = self.action(self.game, concealed, "p0", "concealed_gang")
         wall_before = len(concealed["wall"])
         konged = self.game.apply_action(concealed, self.submit(action), self.players[0])
@@ -376,6 +377,7 @@ class MahjongRulesTests(unittest.TestCase):
             "offer": 1, "source_player_id": "p3",
         }]
         rob["hands"]["p0"] = self.tiles(["W8", *FILLER[:9]])
+        rob["drawn_tile_id"] = rob["hands"]["p0"][0]["id"]
         rob["hands"]["p1"] = self.tiles(WAITING_HAND)
         add = self.action(self.game, rob, "p0", "added_gang")
         announced = self.game.apply_action(rob, self.submit(add), self.players[0])
@@ -400,6 +402,36 @@ class MahjongRulesTests(unittest.TestCase):
             won.result["winning_tile"]["id"],
             {tile["id"] for tile in terminal["terminal_hands"]["p1"]},
         )
+
+    def test_chi_or_peng_discard_phase_cannot_immediately_kong(self):
+        state = self.state()
+        state["hands"]["p0"] = self.tiles(["J2"] * 4 + FILLER[:10])
+        state["drawn_tile_id"] = None
+        kinds = {
+            action["kind"]
+            for action in self.game.legal_actions_for(state, "p0")
+        }
+        self.assertNotIn("concealed_gang", kinds)
+
+        state["melds"]["p0"] = [{
+            "kind": "peng",
+            "tiles": self.tiles(["W8", "W8", "W8"]),
+            "engine_tile": "W8",
+            "offer": 1,
+            "source_player_id": "p3",
+        }]
+        state["hands"]["p0"] = self.tiles(["W8", *FILLER[:9]])
+        kinds = {
+            action["kind"]
+            for action in self.game.legal_actions_for(state, "p0")
+        }
+        self.assertNotIn("added_gang", kinds)
+        state["drawn_tile_id"] = state["hands"]["p0"][0]["id"]
+        kinds = {
+            action["kind"]
+            for action in self.game.legal_actions_for(state, "p0")
+        }
+        self.assertIn("added_gang", kinds)
 
     def test_multiple_hu_responders_are_nearest_first_and_pass_advances(self):
         state = self.state()

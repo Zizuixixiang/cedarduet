@@ -134,6 +134,8 @@ class Yahtzee(GamePlugin):
             "dice_rolls": [],
             "action_history": [],
             "last_scoring": None,
+            "resigned_player_ids": [],
+            "game_result": None,
         }
         ensure_flow(state, phase="awaiting_roll")
         return state
@@ -446,10 +448,14 @@ class Yahtzee(GamePlugin):
         }
         state["last_scoring"] = scoring
         state["action_history"].append(deepcopy(scoring))
+        active = self._active_player_ids(state)
         finished = all(
-            len(card) == len(CATEGORIES) for card in state["scorecards"].values()
+            len(state["scorecards"][player_id]) == len(CATEGORIES)
+            for player_id in active
         )
-        minimum_completed = min(state["turns_completed_by_player"].values())
+        minimum_completed = min(
+            state["turns_completed_by_player"][player_id] for player_id in active
+        )
         state["flow"]["round_number"] = min(len(CATEGORIES), minimum_completed + 1)
         state["flow"]["turn_number"] = 0
         state["flow"]["phase"] = "finished" if finished else "awaiting_roll"
@@ -505,16 +511,17 @@ class Yahtzee(GamePlugin):
     @classmethod
     def _terminal_result(cls, state: dict[str, Any]) -> dict[str, Any]:
         totals = cls._totals_by_player(state)
+        active = cls._active_player_ids(state)
         order_index = {
             player_id: index for index, player_id in enumerate(state["participant_order"])
         }
         ranked_ids = sorted(
-            state["participant_order"],
+            active,
             key=lambda player_id: (-totals[player_id]["total"], order_index[player_id]),
         )
         best = totals[ranked_ids[0]]["total"]
         leaders = [
-            player_id for player_id in state["participant_order"]
+            player_id for player_id in active
             if totals[player_id]["total"] == best
         ]
         placements: list[dict[str, int | str]] = []
@@ -536,14 +543,54 @@ class Yahtzee(GamePlugin):
             result["winner_player_id"] = leaders[0]
         return result
 
+    @staticmethod
+    def _active_player_ids(state: dict[str, Any]) -> list[str]:
+        resigned = set(state.get("resigned_player_ids", []))
+        return [
+            player_id for player_id in state.get("participant_order", [])
+            if player_id not in resigned
+        ]
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("快艇骰子认输者不属于本桌")
+        resigned = state.setdefault("resigned_player_ids", [])
+        if resigned_player_id not in resigned:
+            resigned.append(resigned_player_id)
+        if state.get("turn_player_id") == resigned_player_id:
+            state["turn_player_id"] = None
+            state["dice"] = []
+            state["held_mask"] = [False] * 5
+            state["rolls_used"] = 0
+            state["flow"]["phase"] = "awaiting_roll"
+            state["flow"]["turn_number"] = 0
+        active = self._active_player_ids(state)
+        if len(active) == 1:
+            state["game_result"] = {
+                "winner_player_id": active[0],
+                "draw": False,
+                "reason": "resignation",
+            }
+            state["flow"]["phase"] = "finished"
+
     def result_for(
         self,
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
         del participants
-        if not state.get("scorecards") or not all(
-            len(card) == len(CATEGORIES) for card in state["scorecards"].values()
+        if isinstance(state.get("game_result"), dict):
+            return deepcopy(state["game_result"])
+        active = self._active_player_ids(state)
+        if not active or not all(
+            len(state["scorecards"][player_id]) == len(CATEGORIES)
+            for player_id in active
         ):
             return None
         return self._terminal_result(state)

@@ -92,6 +92,11 @@ class ChineseCheckers(GamePlugin):
     supports_npcs = True
     supports_stakes = True
     supports_multiplayer_stakes = True
+    uses_custom_stake_settlement = True
+    # If every wallet-backed participant has forfeited, system NPCs do not
+    # receive those chips. The negative wallet deltas intentionally leave the
+    # participant economy instead of being credited to an NPC wallet.
+    allows_non_zero_sum_settlement = True
     rules_text = (
         "【目标】\n"
         "把自己的 10 颗弹珠送入正对面的目标营。游戏使用标准 121 孔六角星棋盘，支持 2、3、4、6 人，不支持 5 人；2 人使用一对对角营，3 人隔一角入座，4 人使用两对对角营，6 人六角全开。\n\n"
@@ -99,10 +104,15 @@ class ChineseCheckers(GamePlugin):
         "每回合只移动一颗弹珠。可以沿六个方向走到相邻空孔并立即结束；也可以沿六方向直线以遇到的第一颗任意玩家弹珠为跳板。若当前位置与跳板之间有 k 个连续空孔，跳板另一侧也必须有 k 个连续空孔，且与当前位置关于跳板对称的等距落点必须为空；相邻跳是 k=0 的特例。同一回合可连续跳跃任意次，相邻跳与等距跳可以混合。跳跃不吃子，同一跳跃链不能重复落点，也不能混入普通一步。\n\n"
         "【特殊规则】\n"
         "- 自己的起始营和目标营可以停留；其他四个角营不能作为回合终点，但连续跳的中间落点可以穿过。\n"
-        "- 弹珠一旦进入自己的目标营便不能离开，只能在目标营内部移动或跳跃。\n"
+        "- 弹珠一旦进入自己的目标营便不能离开；连续跳跃中一旦某个落点进入目标营，"
+        "后续每个落点也必须留在目标营。\n"
         "- 本局采用 anti-spoiling 防拖延规则：目标营十孔全部被占、其中至少一颗是你的棋，且其余阻挡棋只属于该营的原始拥有者时，也立即判你获胜。开局不会因此误判，第三方棋也不能冒充有效阻挡。\n\n"
         "【胜负】\n"
-        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。多人筹码局中，唯一赢家获得其余每席各一份本局筹码。认输若使桌型非法则立即结算：认输者向其余每席各赔一份；六人桌扣 5 份底注，其余五席各得 1 份底注。"
+        "通常先把自己的 10 颗弹珠全部送入目标营者获胜；anti-spoiling 条件成立时同样立即获胜。"
+        "开局后认输或离开均按弃权：该席及其弹珠从行动顺序中移除，只要仍有至少两名有效参与者就继续，"
+        "不要求剩余人数仍是可开局桌型。终局赢家和正向筹码只从最终仍 active 的有效参与者产生；"
+        "此前 inactive 的真人或绑定小机统一记负。若只剩系统 NPC，房间立即结束且不再推进 NPC；"
+        "系统 NPC 的筹码变动恒为 0。"
     )
     move_format = (
         '提交稳定 node id：{"move":{"from":"n000","to":"n014"}}；'
@@ -284,12 +294,13 @@ class ChineseCheckers(GamePlugin):
         pieces = state["pieces"]
         fixed_occupied = set(pieces) - {from_node}
         target_camp = state["target_camps_by_player"][player_id]
-        locked_in_target = from_node in _CAMPS[target_camp]
         paths: dict[str, list[str]] = {}
         visited = {from_node}
-        queue: deque[tuple[str, list[str]]] = deque([(from_node, [from_node])])
+        queue: deque[tuple[str, list[str], bool]] = deque([
+            (from_node, [from_node], from_node in _CAMPS[target_camp])
+        ])
         while queue:
-            current, path = queue.popleft()
+            current, path, entered_target = queue.popleft()
             q, r = _COORD_BY_NODE[current]
             for dq, dr in _DIRECTIONS:
                 distance = 1
@@ -323,12 +334,16 @@ class ChineseCheckers(GamePlugin):
                     for offset in range(distance + 1, 2 * distance)
                 ):
                     continue
-                if locked_in_target and landing not in _CAMPS[target_camp]:
+                if entered_target and landing not in _CAMPS[target_camp]:
                     continue
                 visited.add(landing)
                 canonical = [*path, landing]
                 paths[landing] = canonical
-                queue.append((landing, canonical))
+                queue.append((
+                    landing,
+                    canonical,
+                    entered_target or landing in _CAMPS[target_camp],
+                ))
         return paths
 
     def legal_actions(
@@ -383,6 +398,119 @@ class ChineseCheckers(GamePlugin):
         state["turn_player_id"] = player_id
         state["turn_token"] = token
         state["legal_moves"] = self.legal_actions(state, token)
+
+    @staticmethod
+    def _active_participants(
+        participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return [
+            item for item in sorted(
+                participants, key=lambda participant: participant.get("seat_index", 0)
+            )
+            if item.get("join_status", "joined") == "joined"
+            and item.get("active", True)
+            and item.get("activity_state", "active") == "active"
+        ]
+
+    @staticmethod
+    def _is_wallet_participant(participant: dict[str, Any]) -> bool:
+        kind = participant.get("participant_kind")
+        return kind in {"human", "bound_machine"} or (
+            kind is None and participant.get("role") in {"human", "ai"}
+        )
+
+    def accepts_active_count_after_resignation(self, count: int) -> bool:
+        # Five players cannot start a fresh table, but a six-player game remains
+        # valid after one forfeit. A live game only needs two active seats.
+        return 2 <= count <= self.max_players
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        order = list(state.get("participant_order", []))
+        if resigned_player_id not in order:
+            raise ValueError("中国跳棋弃权者不属于当前有效行动顺序")
+        resigned_index = order.index(resigned_player_id)
+        active_ids = {
+            str(item["player_id"])
+            for item in self._active_participants(participants)
+        }
+        # Framework marks the current participant inactive before invoking the
+        # hook. Discard explicitly as a defensive contract for direct callers.
+        active_ids.discard(resigned_player_id)
+        remaining = [
+            player_id for player_id in order
+            if player_id in active_ids
+        ]
+        inactive_ids = [
+            player_id for player_id in order if player_id not in active_ids
+        ]
+        removed_tokens = {
+            token
+            for player_id in inactive_ids
+            if (token := state.get("tokens_by_player", {}).get(player_id))
+            is not None
+        }
+        opening_actions_present = "legal_moves_by_player" in state
+
+        state["participant_order"] = remaining
+        resigned = state.setdefault("resigned_player_ids", [])
+        for player_id in inactive_ids:
+            if player_id not in resigned:
+                resigned.append(player_id)
+        if removed_tokens:
+            state["pieces"] = {
+                node_id: owner
+                for node_id, owner in state.get("pieces", {}).items()
+                if owner not in removed_tokens
+            }
+        for player_id in inactive_ids:
+            start_camp = state.get("start_camps_by_player", {}).pop(
+                player_id, None
+            )
+            state.get("target_camps_by_player", {}).pop(player_id, None)
+            state.get("tokens_by_player", {}).pop(player_id, None)
+            state.get("marks_by_player", {}).pop(player_id, None)
+            state.get("target_progress_by_player", {}).pop(player_id, None)
+            if (
+                start_camp is not None
+                and state.get("camp_owner_player_ids", {}).get(str(start_camp))
+                == player_id
+            ):
+                state["camp_owner_player_ids"][str(start_camp)] = None
+        if removed_tokens and isinstance(state.get("marks"), dict):
+            state["marks"] = {
+                role: mark for role, mark in state["marks"].items()
+                if mark not in removed_tokens
+            }
+
+        if not remaining:
+            state["turn_player_id"] = None
+            state["turn_token"] = None
+            state["legal_moves"] = []
+            state.pop("legal_moves_by_player", None)
+            self._update_progress(state)
+            return
+
+        current = state.get("turn_player_id")
+        if current not in remaining:
+            current = next(
+                str(order[(resigned_index + offset) % len(order)])
+                for offset in range(1, len(order) + 1)
+                if order[(resigned_index + offset) % len(order)] in remaining
+            )
+        self._update_progress(state)
+        self._sync_turn(state, str(current))
+        if opening_actions_present:
+            state["legal_moves_by_player"] = {
+                player_id: self.legal_actions(
+                    state, state["tokens_by_player"][player_id]
+                )
+                for player_id in remaining
+            }
 
     def _legal_move(
         self, state: dict[str, Any], move: dict[str, Any], token: str
@@ -502,6 +630,8 @@ class ChineseCheckers(GamePlugin):
             state["winner_player_id"] = player_id
             state["winner_token"] = token
             state["terminal_reason"] = reason
+            state["turn_player_id"] = None
+            state["turn_token"] = None
             state["legal_moves"] = []
             note = (
                 "目标营十孔已由自己的弹珠填满，本方获胜。"
@@ -559,12 +689,16 @@ class ChineseCheckers(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        del participants
         winner = state.get("winner_player_id")
-        if not isinstance(winner, str):
+        eligible_ids = {
+            str(item["player_id"])
+            for item in self._active_participants(participants)
+        }
+        if not isinstance(winner, str) or winner not in eligible_ids:
             return None
         return {
             "winner_player_id": winner,
+            "winning_player_ids": [winner],
             "draw": False,
             "tied_player_ids": [],
             "terminal_reason": state.get("terminal_reason"),
@@ -578,24 +712,53 @@ class ChineseCheckers(GamePlugin):
         stake: int,
     ) -> dict[str, int]:
         del state
-        player_ids = [str(item["player_id"]) for item in participants]
-        winner = result.get("winner_player_id")
-        if result.get("reason") == "resignation_forfeit":
-            resigned = result.get("resigned_player_id")
-            if resigned not in player_ids:
-                raise ValueError("中国跳棋认输终局缺少有效认输者")
-            return {
-                player_id: -stake * (len(player_ids) - 1)
-                if player_id == resigned else stake
-                for player_id in player_ids
-            }
-        if winner not in player_ids or result.get("draw"):
-            raise ValueError("中国跳棋终局必须有唯一有效赢家")
-        return {
-            player_id: stake * (len(player_ids) - 1)
-            if player_id == winner else -stake
-            for player_id in player_ids
+        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        player_ids = [str(item["player_id"]) for item in ordered]
+        eligible_ids = {
+            str(item["player_id"])
+            for item in self._active_participants(ordered)
         }
+        raw_winners = result.get("winning_player_ids")
+        if raw_winners is None:
+            raw_winners = [result.get("winner_player_id")]
+        if not isinstance(raw_winners, list) or any(
+            not isinstance(player_id, str) for player_id in raw_winners
+        ):
+            raise ValueError("中国跳棋终局获胜者列表无效")
+        winner_ids = list(dict.fromkeys(raw_winners))
+        if not winner_ids or not set(winner_ids).issubset(eligible_ids):
+            if not (
+                result.get("reason") == "resignation_forfeit"
+                and not winner_ids
+                and not eligible_ids
+            ):
+                raise ValueError("中国跳棋终局获胜者必须仍为 active eligible")
+        if result.get("draw"):
+            raise ValueError("中国跳棋终局必须有唯一有效赢家")
+        wallet_ids = {
+            str(item["player_id"])
+            for item in ordered if self._is_wallet_participant(item)
+        }
+        wallet_winners = [
+            player_id for player_id in winner_ids if player_id in wallet_ids
+        ]
+        wallet_losers = [
+            player_id for player_id in player_ids
+            if player_id in wallet_ids and player_id not in winner_ids
+        ]
+        deltas = {player_id: 0 for player_id in player_ids}
+        if wallet_winners:
+            for player_id in wallet_losers:
+                deltas[player_id] = -stake * len(wallet_winners)
+            for player_id in wallet_winners:
+                deltas[player_id] = stake * len(wallet_losers)
+        else:
+            # All active winners are system NPCs (or nobody remains). They have
+            # no wallet and never receive chips; inactive wallet seats still
+            # record one forfeited stake as their loss.
+            for player_id in wallet_losers:
+                deltas[player_id] = -stake
+        return deltas
 
     def result_for_resignation(
         self,
@@ -603,22 +766,43 @@ class ChineseCheckers(GamePlugin):
         resigned_player_id: str,
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        del state
         ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
-        player_ids = [str(item["player_id"]) for item in ordered]
-        if resigned_player_id not in player_ids:
+        all_player_ids = [str(item["player_id"]) for item in ordered]
+        if resigned_player_id not in all_player_ids:
             raise ValueError("中国跳棋认输终局缺少有效参与者")
-        winners = [
-            player_id for player_id in player_ids
-            if player_id != resigned_player_id
-        ]
+        active = self._active_participants(ordered)
+        winners = [str(item["player_id"]) for item in active]
+        only_system_npcs = bool(active) and all(
+            item.get("participant_kind") == "system_npc" for item in active
+        )
+        terminal_reason = (
+            "only_system_npcs_remaining" if only_system_npcs
+            else "no_active_participants" if not winners
+            else "resignation_forfeit"
+        )
+        winner = winners[0] if winners else None
+        state["winner_player_id"] = winner
+        state["winner_token"] = (
+            state.get("tokens_by_player", {}).get(winner) if winner else None
+        )
+        state["winning_player_ids"] = list(winners)
+        state["terminal_reason"] = terminal_reason
+        state["turn_player_id"] = None
+        state["turn_token"] = None
+        state["legal_moves"] = []
+        state.pop("legal_moves_by_player", None)
         return {
             "draw": False,
             "reason": "resignation_forfeit",
+            "terminal_reason": terminal_reason,
             "resigned_player_id": resigned_player_id,
-            "winner_player_id": winners[0],
+            "winner_player_id": winner,
             "winning_player_ids": winners,
-            "result_text": "认输者向其余每席各赔一份底注",
+            "result_text": (
+                "所有真人参与者均已退出；房间立即结束，系统 NPC 不参与筹码。"
+                if only_system_npcs
+                else "弃权席统一记负，终局只认定仍 active 的有效参与者。"
+            ),
         }
 
     def mcp_snapshot_state(
@@ -687,7 +871,8 @@ class ChineseCheckers(GamePlugin):
         return (
             "每回合从权威动作中选一项，只动一颗。step 是六方向相邻一步；jump 是不吃子"
             "的完整连续跳，服务端已选 canonical path。其它角营不可作终点但跳链可穿过；"
-            "进入自己的目标营后不可离开。先完成对面十孔（含明确 anti-spoiling）者唯一获胜。"
+            "跳链一旦进入自己的目标营，后续落点都必须留在营内。inactive 席及其弹珠会"
+            "退出行动顺序；只从当前 active eligible 参与者产生合法动作与终局赢家。"
         )
 
     def npc_public_actions(

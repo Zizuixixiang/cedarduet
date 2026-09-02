@@ -584,10 +584,25 @@
     const reasons = Array.isArray(context.state.claimable_draw_reasons)
       ? context.state.claimable_draw_reasons
       : [];
-    const labels = reasons.map((reason) => (
+    const intended = Object.prototype.hasOwnProperty.call(claimAction, "from_row");
+    const intendedClaim = intended && Array.isArray(context.state.intended_draw_claims)
+      ? context.state.intended_draw_claims.find((item) => (
+        item.from_row === claimAction.from_row
+        && item.from_col === claimAction.from_col
+        && item.to_row === claimAction.to_row
+        && item.to_col === claimAction.to_col
+        && (item.promotion || null) === (claimAction.promotion || null)
+      ))
+      : null;
+    const effectiveReasons = reasons.length
+      ? reasons
+      : ((intendedClaim && intendedClaim.reasons) || []);
+    const labels = effectiveReasons.map((reason) => (
       reason === "threefold_repetition" ? "三次重复" : "50 回合规则"
     ));
-    copy.textContent = `${labels.join("、") || "当前局面"}已满足，可申和或继续走棋。`;
+    copy.textContent = intended
+      ? `声明下一手后将满足${labels.join("、") || "和棋条件"}，可申和或正常走棋。`
+      : `${labels.join("、") || "当前局面"}已满足，可申和或继续走棋。`;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "pixel-btn chess-claim-button";

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from .base import GamePlugin, MoveResult, move_coordinates
@@ -31,7 +32,9 @@ class Othello(GamePlugin):
         board = [[None for _ in range(8)] for _ in range(8)]
         board[3][3], board[4][4] = "O", "O"
         board[3][4], board[4][3] = "X", "X"
-        return {"size": 8, "rows": 8, "cols": 8, "board": board}
+        state = {"size": 8, "rows": 8, "cols": 8, "board": board}
+        self._sync_legal_moves(state)
+        return state
 
     @staticmethod
     def _opponent(mark: str) -> str:
@@ -62,6 +65,21 @@ class Othello(GamePlugin):
             for row in range(8)
             for col in range(8)
         )
+
+    def _legal_moves_for(
+        self, state: dict[str, Any], mark: str
+    ) -> list[dict[str, int]]:
+        return [
+            {"row": row, "col": col}
+            for row in range(8)
+            for col in range(8)
+            if self._flips(state, row, col, mark)
+        ]
+
+    def _sync_legal_moves(self, state: dict[str, Any]) -> None:
+        state["legal_moves_by_mark"] = {
+            mark: self._legal_moves_for(state, mark) for mark in ("X", "O")
+        }
 
     def validate_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
@@ -96,6 +114,7 @@ class Othello(GamePlugin):
             note = "对方当前无合法步，已自动跳过；本方继续行动。"
         elif not opponent_has_move and not current_has_move:
             note = "双方均无合法步，已数子结算。"
+        self._sync_legal_moves(state)
         return MoveResult(state, retain_turn=retain_turn, note=note)
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
@@ -111,3 +130,13 @@ class Othello(GamePlugin):
         if scores["X"] == scores["O"]:
             return "draw"
         return "X" if scores["X"] > scores["O"] else "O"
+
+    def public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del participants
+        projected = deepcopy(state)
+        self._sync_legal_moves(projected)
+        return projected

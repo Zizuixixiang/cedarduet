@@ -465,7 +465,10 @@ class Mahjong(GamePlugin):
                 hu = self._hu_action(state, player_id, drawn, "self_draw")
                 if hu:
                     actions.append(hu)
-        if state.get("wall"):
+        # Concealed and added kongs are legal only while discarding after a
+        # draw (normal or replacement). A chi/peng claim also enters discard
+        # phase, but drawn_tile_id is deliberately empty there.
+        if state.get("wall") and drawn_id:
             by_code: dict[str, list[dict[str, Any]]] = {}
             for tile in hand:
                 by_code.setdefault(str(tile["code"]), []).append(tile)

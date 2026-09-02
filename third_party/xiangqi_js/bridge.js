@@ -28,6 +28,14 @@ function legalMove(move) {
 }
 
 function snapshot(game) {
+  const halfmoveClock = Number(game.fen().split(/\s+/)[4]);
+  const insufficientMaterial = game.insufficient_material();
+  // Product rule: this casual edition does not adjudicate long-check/long-
+  // chase responsibility, so the upstream approximate threefold shortcut is
+  // intentionally not part of the terminal path.
+  const drawReason = insufficientMaterial
+    ? "insufficient_material"
+    : (halfmoveClock >= 120 ? "sixty_move_no_capture" : null);
   return {
     fen: game.fen(),
     turn_color: game.turn(),
@@ -38,7 +46,10 @@ function snapshot(game) {
     in_check: game.in_check(),
     in_checkmate: game.in_checkmate(),
     in_stalemate: game.in_stalemate(),
-    in_draw: game.in_draw(),
+    halfmove_clock: halfmoveClock,
+    insufficient_material: insufficientMaterial,
+    draw_reason: drawReason,
+    in_draw: drawReason !== null,
   };
 }
 

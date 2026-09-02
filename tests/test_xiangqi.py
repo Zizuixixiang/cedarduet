@@ -201,6 +201,28 @@ class XiangqiRuleTests(unittest.TestCase):
         self.assertEqual(self.game.check_winner(result.state), "X")
         self.assertIn("困毙", result.note)
 
+    def test_casual_draw_rules_exclude_approximate_threefold_path(self):
+        bridge = (
+            Path(__file__).resolve().parents[1]
+            / "third_party" / "xiangqi_js" / "bridge.js"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("game.in_draw()", bridge)
+        self.assertNotIn("game.in_threefold_repetition()", bridge)
+        self.assertIn("不以简单的三次重复直接判和", self.game.rules_text)
+
+    def test_sixty_move_no_capture_and_insufficient_material_are_named_draws(self):
+        no_capture = self.game.state_from_fen(
+            "4k4/9/9/9/4p4/9/9/9/9/3K5 r - - 120 61"
+        )
+        self.assertTrue(no_capture["in_draw"])
+        self.assertEqual(no_capture["draw_reason"], "sixty_move_no_capture")
+
+        insufficient = self.game.state_from_fen(
+            "3ak4/9/9/9/9/9/9/9/9/3K5 r - - 0 1"
+        )
+        self.assertTrue(insufficient["in_draw"])
+        self.assertEqual(insufficient["draw_reason"], "insufficient_material")
+
 
 class XiangqiFrameworkTests(unittest.TestCase):
     def setUp(self):

@@ -236,6 +236,27 @@ class JunqiPluginTests(unittest.TestCase):
         ]
         self.assertEqual(revealed, ["b12"])
 
+    def test_battle_view_never_reveals_the_surviving_piece_rank(self):
+        captured = self.game._battle_view({
+            "attacker": {"color": "b", "rank": 4},
+            "defender": {"color": "r", "rank": 8},
+            "result_type": "capture",
+        })
+        self.assertFalse(captured["attacker_revealed"])
+        self.assertNotIn("attacker_rank", captured)
+        self.assertEqual(captured["attacker_name"], "未知棋子")
+        self.assertEqual(captured["defender_rank"], 8)
+
+        attacker_dies = self.game._battle_view({
+            "attacker": {"color": "b", "rank": 8},
+            "defender": {"color": "r", "rank": 4},
+            "result_type": "dies",
+        })
+        self.assertEqual(attacker_dies["attacker_rank"], 8)
+        self.assertFalse(attacker_dies["defender_revealed"])
+        self.assertNotIn("defender_rank", attacker_dies)
+        self.assertEqual(attacker_dies["defender_name"], "未知棋子")
+
     def test_flag_capture_is_terminal_from_authoritative_collision(self):
         state = self.state()
         state["phase"] = "play"

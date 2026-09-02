@@ -281,6 +281,9 @@ class ChineseCheckersTopologyAndRulesTests(unittest.TestCase):
         self.assertIn("相邻跳与等距跳可以混合", self.game.rules_text)
         self.assertIn("不能重复落点", self.game.rules_text)
         self.assertIn("不能混入普通一步", self.game.rules_text)
+        self.assertIn("后续每个落点也必须留在目标营", self.game.rules_text)
+        self.assertIn("只要仍有至少两名有效参与者就继续", self.game.rules_text)
+        self.assertIn("系统 NPC 的筹码变动恒为 0", self.game.rules_text)
 
     def test_step_and_jump_cannot_be_mixed_or_mislabeled(self):
         state = self.sparse_state({(0, 0): "P1", (2, 0): "P2"})
@@ -355,6 +358,100 @@ class ChineseCheckersTopologyAndRulesTests(unittest.TestCase):
         self.assertTrue(all(
             all(node_id in target for node_id in move["path"])
             for move in actions
+        ))
+
+    def test_jump_chain_cannot_leave_target_after_entering_mid_path(self):
+        state = self.sparse_state({
+            (-4, 3): "P1",
+            (-4, 4): "P2",
+            (-3, 4): "P2",
+        })
+        origin = self.node(-4, 3)
+        first_target_landing = self.node(-4, 5)
+        forbidden_later_landing = self.node(-2, 3)
+        target = _CAMPS[state["target_camps_by_player"]["human-1"]]
+        self.assertIn(first_target_landing, target)
+        self.assertNotIn(origin, target)
+        self.assertNotIn(forbidden_later_landing, target)
+
+        paths = self.game._jump_paths(state, origin, "human-1")
+        self.assertEqual(paths[first_target_landing], [origin, first_target_landing])
+        self.assertNotIn(forbidden_later_landing, paths)
+        self.assertTrue(all(
+            all(node_id in target for node_id in path[index:])
+            for path in paths.values()
+            for index, node_id in enumerate(path)
+            if node_id in target
+        ))
+
+    def test_resignation_removes_inactive_state_for_three_four_and_six_players(self):
+        for count in (3, 4, 6):
+            with self.subTest(count=count):
+                room_participants = participants(count)
+                state = self.game.initialize(deepcopy(room_participants))
+                resigned = "human-1"
+                resigned_token = state["tokens_by_player"][resigned]
+                for item in room_participants:
+                    if item["player_id"] == resigned:
+                        item.update({"active": False, "activity_state": "inactive"})
+                self.game.apply_resignation(
+                    state, resigned, room_participants
+                )
+
+                self.assertNotIn(resigned, state["participant_order"])
+                self.assertNotIn(resigned, state["tokens_by_player"])
+                self.assertNotIn(resigned, state["start_camps_by_player"])
+                self.assertNotIn(resigned, state["target_camps_by_player"])
+                self.assertNotIn(resigned, state["legal_moves_by_player"])
+                self.assertNotIn(resigned_token, state["pieces"].values())
+                self.assertEqual(state["turn_player_id"], "ai-1")
+                self.assertEqual(state["turn_token"], "P2")
+                self.assertTrue(state["legal_moves"])
+                self.assertTrue(all(
+                    state["pieces"][move["from"]] == "P2"
+                    for move in state["legal_moves"]
+                ))
+
+    def test_resignation_reconciles_preexisting_inactive_participants(self):
+        room_participants = participants(4)
+        state = self.game.initialize(deepcopy(room_participants))
+        for item in room_participants:
+            if item["player_id"] in {"human-1", "ai-2"}:
+                item.update({"active": False, "activity_state": "inactive"})
+
+        self.game.apply_resignation(state, "human-1", room_participants)
+
+        self.assertEqual(state["participant_order"], ["ai-1", "ai-3"])
+        self.assertEqual(
+            set(state["resigned_player_ids"]), {"human-1", "ai-2"}
+        )
+        for player_id, token in (("human-1", "P1"), ("ai-2", "P3")):
+            self.assertNotIn(player_id, state["tokens_by_player"])
+            self.assertNotIn(player_id, state["legal_moves_by_player"])
+            self.assertNotIn(token, state["pieces"].values())
+        self.assertEqual(state["turn_player_id"], "ai-1")
+        self.assertTrue(all(
+            state["pieces"][move["from"]] == "P2"
+            for move in state["legal_moves"]
+        ))
+
+    def test_out_of_turn_inactive_removal_recomputes_current_legal_moves(self):
+        room_participants = participants(3)
+        state = self.game.initialize(deepcopy(room_participants))
+        room_participants[1].update({
+            "active": False,
+            "activity_state": "inactive",
+        })
+
+        self.game.apply_resignation(state, "ai-1", room_participants)
+
+        self.assertEqual(state["participant_order"], ["human-1", "ai-2"])
+        self.assertEqual(state["turn_player_id"], "human-1")
+        self.assertEqual(state["turn_token"], "P1")
+        self.assertNotIn("ai-1", state["legal_moves_by_player"])
+        self.assertTrue(all(
+            state["pieces"][move["from"]] == "P1"
+            for move in state["legal_moves"]
         ))
 
     def test_anti_spoiling_requires_one_own_marble_and_only_original_owner_blockers(self):
@@ -486,7 +583,7 @@ class ChineseCheckersFrameworkSettlementTests(unittest.TestCase):
             for move in room["board_state"]["legal_moves"]
         ))
 
-    def test_six_player_resignation_is_immediate_minus_five_forfeit(self):
+    def test_six_player_forfeits_continue_through_five_to_one_active(self):
         room = framework.create_room(
             "chinese_checkers",
             "human_first",
@@ -500,17 +597,100 @@ class ChineseCheckersFrameworkSettlementTests(unittest.TestCase):
             room = framework.respond_to_invitation(
                 room["room_id"], "ai", player_id, "accept"
             )
-        room = framework.resign(room["room_id"], "human", "human-1")
+        room = framework.leave_room(room["room_id"], "human", "human-1")
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual(room["current_player_id"], "ai-1")
+        self.assertEqual(len(room["active_player_ids"]), 5)
+        self.assertNotIn("human-1", room["board_state"]["participant_order"])
+        self.assertNotIn("human-1", room["board_state"]["legal_moves_by_player"])
+        self.assertTrue(all(
+            room["board_state"]["pieces"][move["from"]] == "P2"
+            for move in room["board_state"]["legal_moves"]
+        ))
+
+        for player_id in ("ai-1", "ai-2", "ai-3", "ai-4"):
+            room = framework.resign(room["room_id"], "ai", player_id)
+            expected_active = 5 - int(player_id.split("-")[1])
+            if player_id != "ai-4":
+                self.assertEqual(room["status"], "playing")
+                self.assertEqual(len(room["active_player_ids"]), expected_active)
         self.assertEqual(room["status"], "finished")
         self.assertFalse(room["result"]["draw"])
+        self.assertEqual(room["winner_player_id"], "ai-5")
+        self.assertEqual(room["result"]["winning_player_ids"], ["ai-5"])
         self.assertEqual(room["result"]["settlement_deltas"], {
-            "human-1": -20,
-            "ai-1": 4,
-            "ai-2": 4,
-            "ai-3": 4,
-            "ai-4": 4,
-            "ai-5": 4,
+            "human-1": -4,
+            "ai-1": -4,
+            "ai-2": -4,
+            "ai-3": -4,
+            "ai-4": -4,
+            "ai-5": 20,
         })
+
+    def test_only_active_npcs_end_immediately_without_chip_or_achievement_wins_for_inactive(self):
+        room_participants = participants(2) + [
+            {
+                "player_id": f"npc-{index}",
+                "display_name": f"NPC {index}",
+                "role": "ai",
+                "participant_kind": "system_npc",
+                "npc_persona_id": f"test-{index}",
+                "seat_index": index + 1,
+                "token": f"P{index + 2}",
+            }
+            for index in (1, 2)
+        ]
+        room = framework.create_room(
+            "chinese_checkers",
+            "human_first",
+            "human",
+            "human-1",
+            opponent_id="ai-1",
+            ordered_participants=room_participants,
+            stake=5,
+        )
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "ai-1", "accept"
+        )
+        room = framework.resign(room["room_id"], "human", "human-1")
+        self.assertEqual(room["status"], "playing")
+        room = framework.resign(room["room_id"], "ai", "ai-1")
+
+        self.assertEqual(room["status"], "finished")
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(room["board_state"]["legal_moves"], [])
+        self.assertIsNone(room["board_state"]["turn_player_id"])
+        self.assertEqual(
+            room["result"]["terminal_reason"], "only_system_npcs_remaining"
+        )
+        self.assertEqual(
+            room["result"]["winning_player_ids"], ["npc-1", "npc-2"]
+        )
+        self.assertNotIn("human-1", room["result"]["winning_player_ids"])
+        self.assertNotIn("ai-1", room["result"]["winning_player_ids"])
+        self.assertEqual(room["result"]["settlement_deltas"], {
+            "human-1": -5,
+            "ai-1": -5,
+            "npc-1": 0,
+            "npc-2": 0,
+        })
+
+        conn = database.connect()
+        try:
+            outcomes = {
+                row["player_id"]: row["outcome"]
+                for row in conn.execute(
+                    "SELECT player_id, outcome FROM achievement_match_participants "
+                    "WHERE room_id = ?",
+                    (room["room_id"],),
+                )
+            }
+        finally:
+            conn.close()
+        self.assertEqual(outcomes["human-1"], "loss")
+        self.assertEqual(outcomes["ai-1"], "loss")
+        self.assertEqual(outcomes["npc-1"], "win")
+        self.assertEqual(outcomes["npc-2"], "win")
 
     def test_four_player_revision_winner_tied_semantics_and_zero_sum_settlement(self):
         room = framework.create_room(

@@ -398,6 +398,41 @@ class LiarsDice(GamePlugin):
         winner = state.get("winner_player_id")
         return {"winner_player_id": winner, "draw": False} if winner else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("吹牛骰子认输者不属于本桌")
+        state["dice_counts"][resigned_player_id] = 0
+        eliminated = state.setdefault("eliminated_player_ids", [])
+        if resigned_player_id not in eliminated:
+            eliminated.append(resigned_player_id)
+        active = self._active_ids(state)
+        if len(active) == 1:
+            state["winner_player_id"] = active[0]
+            state["current_bid"] = None
+            state["pending_next_round"] = None
+            state["turn_player_id"] = None
+            state["flow"]["phase"] = "finished"
+            return
+        starter = self._next_survivor_after(state, resigned_player_id)
+        if state.get("flow", {}).get("phase") == "awaiting_round_acknowledgement":
+            pending = state.get("pending_next_round")
+            if isinstance(pending, dict) and pending.get("starter_player_id") == resigned_player_id:
+                pending["starter_player_id"] = starter
+        else:
+            # A departure changes the total dice and can invalidate any live bid;
+            # restart the bidding window with the persisted dice of survivors.
+            state["current_bid"] = None
+            state["round_actions"] = []
+            state["pending_next_round"] = None
+            state["flow"]["phase"] = "bidding"
+        state["turn_player_id"] = starter
+
     def check_winner(self, state: dict[str, Any]) -> str | None:
         del state
         return None

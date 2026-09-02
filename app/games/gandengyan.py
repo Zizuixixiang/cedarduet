@@ -674,6 +674,44 @@ class Gandengyan(GamePlugin):
         winner = state.get("winner_player_id")
         return {"winner_player_id": winner, "draw": False} if winner else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        order = list(state.get("participant_order", []))
+        if resigned_player_id not in order:
+            raise ValueError("干瞪眼认输者不属于本桌")
+        start = order.index(resigned_player_id)
+        remaining = [item for item in order if item != resigned_player_id]
+        next_player = next(
+            (
+                str(order[(start + offset) % len(order)])
+                for offset in range(1, len(order) + 1)
+                if order[(start + offset) % len(order)] in remaining
+            ),
+            None,
+        )
+        state["participant_order"] = remaining
+        trick = state.get("trick")
+        if isinstance(trick, dict):
+            trick["pass_player_ids"] = [
+                item for item in trick.get("pass_player_ids", [])
+                if item != resigned_player_id
+            ]
+            last_play = trick.get("last_play")
+            if isinstance(last_play, dict) and last_play.get("player_id") == resigned_player_id:
+                current = state.get("turn_player_id")
+                leader = current if current in remaining else next_player
+                state["trick"] = self._new_trick(
+                    int(trick.get("number", 1)) + 1, leader
+                )
+                state["turn_player_id"] = leader
+        if state.get("turn_player_id") == resigned_player_id:
+            state["turn_player_id"] = next_player
+
     def settlement_deltas(
         self,
         state: dict[str, Any],

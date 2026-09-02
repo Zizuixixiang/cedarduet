@@ -319,13 +319,27 @@ class Junqi(GamePlugin):
         attacker = move_result.get("attacker")
         if not isinstance(attacker, dict):
             raise ValueError("规则核心碰撞结果缺少进攻方")
-        return {
-            "attacker_rank": int(attacker["rank"]),
-            "attacker_name": self._piece_name(attacker),
-            "defender_rank": int(defender["rank"]),
-            "defender_name": self._piece_name(defender),
-            "result": str(move_result["result_type"]),
+        result = str(move_result["result_type"])
+        # A collision reveals pieces that were removed, not the identity of a
+        # piece that remains on the dark board. The outcome itself is public.
+        attacker_removed = result in {"dies", "equal"}
+        defender_removed = result in {"capture", "equal"}
+        battle: dict[str, Any] = {
+            "attacker_name": (
+                self._piece_name(attacker) if attacker_removed else "未知棋子"
+            ),
+            "attacker_revealed": attacker_removed,
+            "defender_name": (
+                self._piece_name(defender) if defender_removed else "未知棋子"
+            ),
+            "defender_revealed": defender_removed,
+            "result": result,
         }
+        if attacker_removed:
+            battle["attacker_rank"] = int(attacker["rank"])
+        if defender_removed:
+            battle["defender_rank"] = int(defender["rank"])
+        return battle
 
     def _play_result(
         self,

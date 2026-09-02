@@ -675,6 +675,115 @@ class TexasHoldem(GamePlugin):
         result = state.get("game_result")
         return deepcopy(result) if isinstance(result, dict) else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("德州扑克认输者不属于本桌")
+        engine = self._deserialize_engine(state)
+        if engine["street"] == Const.Street.FINISHED:
+            return
+        players = engine["table"].seats.players
+        resigned_pos = next(
+            (
+                index for index, player in enumerate(players)
+                if str(player.uuid) == resigned_player_id
+            ),
+            None,
+        )
+        if resigned_pos is None:
+            raise ValueError("德州扑克引擎缺少认输席位")
+        resigned_player = players[resigned_pos]
+        if resigned_player.pay_info.status == PayInfo.FOLDED:
+            return
+
+        old_street = int(engine["street"])
+        old_next = engine["next_player"]
+        old_board = list(state.get("visible_board", []))
+        active_before = [
+            player for player in players
+            if player.pay_info.status != PayInfo.FOLDED
+        ]
+        if len(active_before) == 2:
+            # The framework will terminate a heads-up room once one participant
+            # resigns.  PyPokerEngine's normal fold transition can instead run
+            # every remaining street and reach a showdown pot with no eligible
+            # player when the resigning seat was not the current actor.  Finish
+            # the equivalent last-player-standing result directly so the room,
+            # plugin state, and serialized engine all become terminal together.
+            resigned_player.add_action_history(Const.Action.FOLD)
+            resigned_player.pay_info.update_to_fold()
+            applied_engine = engine
+            survivor_pos = next(
+                index for index, player in enumerate(players)
+                if player.pay_info.status != PayInfo.FOLDED
+            )
+            survivor = players[survivor_pos]
+            total_pot = sum(int(player.pay_info.amount) for player in players)
+            survivor.append_chip(total_pot)
+            applied_engine["next_player"] = survivor_pos
+            applied_engine["street"] = Const.Street.FINISHED
+            applied_engine["round_result"] = {
+                "winner_uuids": [str(survivor.uuid)],
+                "hand_info": [],
+                "prize_map": {str(survivor.uuid): total_pot},
+                "pots": [{
+                    "amount": total_pot,
+                    "eligible_uuids": [str(survivor.uuid)],
+                    "winner_uuids": [str(survivor.uuid)],
+                }] if total_pot else [],
+            }
+        else:
+            engine["next_player"] = resigned_pos
+            applied_engine, _messages = RoundManager.apply_action(
+                engine, "fold", 0
+            )
+            if (
+                int(applied_engine["street"]) == old_street
+                and old_next != resigned_pos
+                and isinstance(old_next, int)
+                and applied_engine["table"].seats.players[
+                    old_next
+                ].is_waiting_ask()
+            ):
+                applied_engine["next_player"] = old_next
+
+        record = {
+            "sequence": len(state.get("action_history", [])) + 1,
+            "player_id": resigned_player_id,
+            "street": STREET_NAMES[old_street],
+            "action": "fold",
+            "paid": 0,
+            "to_amount": int(resigned_player.paid_sum()),
+            "all_in": False,
+            "resigned": True,
+        }
+        state.setdefault("action_history", []).append(record)
+        state["last_action"] = deepcopy(record)
+        for key in ("acted_at_bet_by_player", "acted_facing_wager_by_player"):
+            state.get("betting", {}).get(key, {}).pop(resigned_player_id, None)
+
+        active_players = [
+            player for player in applied_engine["table"].seats.players
+            if player.pay_info.status != PayInfo.FOLDED
+        ]
+        finished = applied_engine["street"] == Const.Street.FINISHED
+        state["engine_state"] = self._serialize_engine(applied_engine)
+        state["street"] = STREET_NAMES[int(applied_engine["street"])]
+        state["turn_player_id"] = self._engine_turn_player_id(applied_engine)
+        state["visible_board"] = (
+            old_board
+            if finished and len(active_players) == 1
+            else self._cards(applied_engine["table"].get_community_card())
+        )
+        if finished:
+            self._finish(state, applied_engine, active_players)
+        self._assert_chip_conservation(state)
+
     @staticmethod
     def _participant_ids_in_seat_order(
         participants: list[dict[str, Any]],

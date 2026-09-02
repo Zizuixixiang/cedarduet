@@ -1326,7 +1326,7 @@ def _generic_resignation_deltas(room: dict, stake: int) -> dict[str, int] | None
     ]
     losers = [
         item["player_id"] for item in room["participants"]
-        if item.get("join_status") == "joined" and not item.get("active", True)
+        if not item.get("active", True)
     ]
     if not winners or not losers:
         return None
@@ -2770,6 +2770,239 @@ def play_move(
     return _decorate(result)
 
 
+def _forfeit_active_participant(
+    conn,
+    room: dict,
+    role: Role,
+    player_id: str,
+    message: str | None,
+    *,
+    leave: bool,
+) -> dict:
+    """Apply one in-progress departure through the game forfeit lifecycle.
+
+    ``leave`` keeps its membership/event semantics, but once a game has started
+    it is deliberately not a no-fault cancellation. Both entry points run the
+    same plugin cleanup and settlement path so a caller cannot bypass a game's
+    resignation liability by choosing a different room action.
+    """
+    if room["status"] != "playing":
+        raise DuelError("只有已开始的对局可以认输或弃权离开", 409)
+    participant = _participant_by_id(room, player_id)
+    if (
+        participant is None
+        or participant.get("join_status") != "joined"
+        or not participant.get("active", True)
+    ):
+        raise DuelError("当前参与者已经退出或不可行动", 409)
+
+    if leave:
+        conn.execute(
+            """
+            UPDATE room_participants
+            SET join_status = 'left', activity_state = 'inactive', active = 0
+            WHERE room_id = ? AND player_id = ?
+            """,
+            (room["room_id"], player_id),
+        )
+        participant["join_status"] = "left"
+    else:
+        conn.execute(
+            """
+            UPDATE room_participants
+            SET active = 0, activity_state = 'inactive'
+            WHERE room_id = ? AND player_id = ?
+            """,
+            (room["room_id"], player_id),
+        )
+    participant["active"] = False
+    participant["activity_state"] = "inactive"
+
+    game = get_game(room["game_type"])
+    state = room["board_state"]
+    try:
+        game.apply_resignation(state, player_id, room["participants"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"游戏插件认输处理无效：{exc}") from exc
+
+    remaining = [
+        item for item in room["participants"]
+        if item.get("join_status") == "joined" and item.get("active", True)
+    ]
+    insufficient_players = not game.accepts_active_count_after_resignation(
+        len(remaining)
+    )
+    only_system_npcs_remaining = (
+        not game.continues_with_only_system_npcs_after_resignation
+        and len(room["participants"]) > 2
+        and bool(remaining)
+        and all(
+            item.get("participant_kind") == "system_npc" for item in remaining
+        )
+    )
+
+    try:
+        game_result = game.result_for(state, room["participants"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DuelError(f"游戏插件弃权后终局结果无效：{exc}") from exc
+    if game_result is not None and not isinstance(game_result, dict):
+        raise DuelError("游戏插件弃权后终局结果必须返回对象")
+    terminal = (
+        game_result is not None
+        or insufficient_players
+        or only_system_npcs_remaining
+    )
+
+    used_generic_terminal_result = False
+    if terminal and game_result is None:
+        try:
+            game_result = game.result_for_resignation(
+                state, player_id, room["participants"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DuelError(f"游戏插件认输终局无效：{exc}") from exc
+        if game_result is not None and not isinstance(game_result, dict):
+            raise DuelError("游戏插件认输终局必须返回对象")
+
+    if terminal and game_result is None:
+        used_generic_terminal_result = True
+        winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
+        game_result = (
+            {"winner_player_id": winner_player_id, "draw": False}
+            if winner_player_id else {
+                "draw": True,
+                "reason": (
+                    "only_system_npcs_remaining"
+                    if only_system_npcs_remaining and not insufficient_players
+                    else "insufficient_players"
+                ),
+                "remaining_player_ids": [item["player_id"] for item in remaining],
+            }
+        )
+
+    if terminal:
+        if (
+            used_generic_terminal_result
+            and game_result.get("draw")
+            and room.get("stake", 0) > 0
+        ):
+            fallback_deltas = _generic_resignation_deltas(room, room["stake"])
+            if fallback_deltas is not None:
+                game_result = {
+                    "draw": False,
+                    "reason": "resignation_forfeit",
+                    "resigned_player_id": player_id,
+                    "winning_player_ids": [item["player_id"] for item in remaining],
+                    "settlement_deltas": fallback_deltas,
+                }
+        game_result = _attach_multiplayer_settlement(game, room, state, game_result)
+        if isinstance(state.get("flow"), dict):
+            state["flow"]["phase"] = "finished"
+        if "turn_player_id" in state:
+            state["turn_player_id"] = None
+        if (
+            "winner_player_id" in state
+            and game_result.get("winner_player_id") is not None
+        ):
+            state["winner_player_id"] = game_result["winner_player_id"]
+
+    winner_player_id = game_result.get("winner_player_id") if game_result else None
+    winner_participant = _participant_by_id(room, winner_player_id)
+    winner = (
+        winner_participant["role"] if winner_participant is not None
+        else "draw" if game_result and game_result.get("draw")
+        else None
+    )
+
+    next_player_id = None
+    next_turn: Role = role
+    if not terminal:
+        eligible_ids = {item["player_id"] for item in remaining}
+        plugin_next = state.get("turn_player_id")
+        room_next = room.get("current_player_id")
+        if plugin_next in eligible_ids:
+            next_player_id = plugin_next
+        elif room_next in eligible_ids:
+            next_player_id = room_next
+        else:
+            next_player_id = advance_turn(room["participants"], player_id)
+        next_participant = _participant_by_id(room, next_player_id)
+        if next_participant is None:
+            raise DuelError("下一行动者不属于房间")
+        next_turn = next_participant["role"]
+        if "turn_player_id" in state:
+            state["turn_player_id"] = next_player_id
+
+    timestamp = _now()
+    terminal_reason = "participant_left" if leave else "resignation"
+    conn.execute(
+        """
+        UPDATE rooms
+        SET board_state = ?, status = ?, winner = ?, winner_player_id = ?, result_json = ?,
+            turn = ?, current_player_id = ?, revision = revision + 1,
+            updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
+            terminal_reason = CASE WHEN ? THEN ? ELSE terminal_reason END
+        WHERE room_id = ? AND status = 'playing'
+        """,
+        (
+            json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+            "finished" if terminal else "playing",
+            winner,
+            winner_player_id,
+            (
+                json.dumps(game_result, ensure_ascii=False, separators=(",", ":"))
+                if game_result is not None else None
+            ),
+            next_turn,
+            next_player_id,
+            timestamp,
+            int(terminal),
+            timestamp,
+            int(terminal),
+            terminal_reason,
+            room["room_id"],
+        ),
+    )
+    updated = conn.execute(
+        "SELECT * FROM rooms WHERE room_id = ?", (room["room_id"],)
+    ).fetchone()
+    event_type = "leave" if leave else "resign"
+    _record_event(
+        conn,
+        room["room_id"],
+        role,
+        player_id,
+        updated["revision"],
+        event_type=event_type,
+        text=message,
+    )
+    result = decode_room(updated, conn)
+    if terminal:
+        _record_result_event(conn, result, resigned_player_id=player_id)
+        _settle_terminal_room(conn, result)
+        from .achievements import record_terminal_room
+
+        result["achievement_unlocks"] = record_terminal_room(
+            conn,
+            result,
+            terminal_reason,
+            normal=(not leave and result.get("winner_player_id") is not None),
+        )
+    _notify_game_participants(
+        conn,
+        result,
+        event_type="left" if leave else "resigned",
+        summary=(
+            f"对方弃权离开了{game.display_name}对局"
+            if leave else f"对方在{game.display_name}中认输"
+        ),
+        event_key=f"game:{event_type}:{room['room_id']}:{player_id}",
+        exclude_player_ids={player_id},
+        created_at=timestamp,
+    )
+    return _decorate(result)
+
+
 def leave_room(
     room_id: str,
     role: Role,
@@ -2892,106 +3125,9 @@ def leave_room(
             )
             return _decorate(result)
 
-        conn.execute(
-            """
-            UPDATE room_participants
-            SET join_status = 'left', activity_state = 'inactive', active = 0
-            WHERE room_id = ? AND player_id = ? AND join_status <> 'left'
-            """,
-            (room_id, player_id),
+        return _forfeit_active_participant(
+            conn, room, role, player_id, message, leave=True
         )
-        for item in room["participants"]:
-            if item["player_id"] == player_id:
-                item["join_status"] = "left"
-                item["activity_state"] = "inactive"
-                item["active"] = False
-        remaining = [
-            item for item in room["participants"]
-            if item.get("join_status") == "joined" and item.get("active", True)
-        ]
-        terminal = not game.accepts_player_count(len(remaining))
-        winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
-        winner = remaining[0]["role"] if winner_player_id else (
-            "draw" if terminal else None
-        )
-        game_result = (
-            {"winner_player_id": winner_player_id, "draw": False,
-             "reason": "participant_left"}
-            if winner_player_id else {
-                "draw": True,
-                "reason": "insufficient_players",
-                "remaining_player_ids": [item["player_id"] for item in remaining],
-            }
-            if terminal else None
-        )
-        if terminal:
-            game_result = _attach_multiplayer_settlement(
-                game, room, room["board_state"], game_result
-            )
-        next_player_id = None
-        next_turn: Role = role
-        if not terminal:
-            next_player_id = (
-                advance_turn(room["participants"], player_id)
-                if room.get("current_player_id") == player_id
-                else room.get("current_player_id")
-            )
-            next_participant = _participant_by_id(room, next_player_id)
-            if next_participant is None:
-                raise DuelError("下一行动者不属于房间")
-            next_turn = next_participant["role"]
-        conn.execute(
-            """
-            UPDATE rooms
-            SET status = ?, winner = ?, winner_player_id = ?, result_json = ?,
-                turn = ?, current_player_id = ?, revision = revision + 1,
-                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
-                terminal_reason = CASE WHEN ? THEN 'participant_left' ELSE terminal_reason END
-            WHERE room_id = ? AND status = 'playing'
-            """,
-            (
-                "finished" if terminal else "playing",
-                winner,
-                winner_player_id,
-                (
-                    json.dumps(game_result, ensure_ascii=False, separators=(",", ":"))
-                    if game_result is not None else None
-                ),
-                next_turn,
-                next_player_id,
-                timestamp,
-                int(terminal),
-                timestamp,
-                int(terminal),
-                room_id,
-            ),
-        )
-        updated = conn.execute(
-            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
-        ).fetchone()
-        _record_event(
-            conn, room_id, role, player_id, updated["revision"],
-            event_type="leave", text=message,
-        )
-        result = decode_room(updated, conn)
-        if terminal:
-            _record_result_event(conn, result)
-            _settle_terminal_room(conn, result)
-            from .achievements import record_terminal_room
-
-            result["achievement_unlocks"] = record_terminal_room(
-                conn, result, "participant_left", normal=False
-            )
-        _notify_game_participants(
-            conn,
-            result,
-            event_type="left",
-            summary=f"对方离开了{game.display_name}房间",
-            event_key=f"game:left:{room_id}:{player_id}",
-            exclude_player_ids={player_id},
-            created_at=timestamp,
-        )
-    return _decorate(result)
 
 
 def resign(
@@ -3014,183 +3150,6 @@ def resign(
         room = decode_room(row, conn)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
-        if room["status"] != "playing":
-            raise DuelError("只有已开始的对局可以认输", 409)
-        participant = _participant_by_id(room, player_id)
-        if (
-            participant is None
-            or participant.get("join_status") != "joined"
-            or not participant.get("active", True)
-        ):
-            raise DuelError("当前参与者已经退出或不可行动", 409)
-        conn.execute(
-            """
-            UPDATE room_participants
-            SET active = 0, activity_state = 'inactive'
-            WHERE room_id = ? AND player_id = ?
-            """,
-            (room_id, player_id),
+        return _forfeit_active_participant(
+            conn, room, role, player_id, message, leave=False
         )
-        for participant in room["participants"]:
-            if participant["player_id"] == player_id:
-                participant["active"] = False
-                participant["activity_state"] = "inactive"
-        game = get_game(room["game_type"])
-        try:
-            game.apply_resignation(
-                room["board_state"], player_id, room["participants"]
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DuelError(f"游戏插件认输处理无效：{exc}") from exc
-        remaining = [
-            participant for participant in room["participants"]
-            if participant.get("join_status") == "joined"
-            and participant.get("active", True)
-        ]
-        insufficient_players = not game.accepts_active_count_after_resignation(
-            len(remaining)
-        )
-        only_system_npcs_remaining = (
-            not game.continues_with_only_system_npcs_after_resignation
-            and len(room["participants"]) > 2
-            and bool(remaining)
-            and all(
-                participant.get("participant_kind") == "system_npc"
-                for participant in remaining
-            )
-        )
-        terminal = insufficient_players or only_system_npcs_remaining
-        winner_player_id = remaining[0]["player_id"] if len(remaining) == 1 else None
-        game_result = (
-            {"winner_player_id": winner_player_id, "draw": False}
-            if winner_player_id else {
-                "draw": True,
-                "reason": (
-                    "only_system_npcs_remaining"
-                    if only_system_npcs_remaining and not insufficient_players
-                    else "insufficient_players"
-                ),
-                "remaining_player_ids": [
-                    participant["player_id"] for participant in remaining
-                ],
-            }
-            if terminal else None
-        )
-        if terminal:
-            try:
-                resignation_result = game.result_for_resignation(
-                    room["board_state"], player_id, room["participants"]
-                )
-            except (KeyError, TypeError, ValueError) as exc:
-                raise DuelError(f"游戏插件认输终局无效：{exc}") from exc
-            if resignation_result is not None:
-                if not isinstance(resignation_result, dict):
-                    raise DuelError("游戏插件认输终局必须返回对象")
-                game_result = resignation_result
-            elif game_result.get("draw") and room.get("stake", 0) > 0:
-                fallback_deltas = _generic_resignation_deltas(
-                    room, room["stake"]
-                )
-                if fallback_deltas is not None:
-                    game_result = {
-                        "draw": False,
-                        "reason": "resignation_forfeit",
-                        "winning_player_ids": [
-                            item["player_id"] for item in remaining
-                        ],
-                        "settlement_deltas": fallback_deltas,
-                    }
-            game_result = _attach_multiplayer_settlement(
-                game, room, room["board_state"], game_result
-            )
-        winner_player_id = (
-            game_result.get("winner_player_id") if game_result else None
-        )
-        winner_participant = _participant_by_id(room, winner_player_id)
-        winner = (
-            winner_participant["role"] if winner_participant is not None
-            else "draw" if game_result and game_result.get("draw")
-            else None
-        )
-        next_player_id = None
-        next_turn: Role = role
-        if not terminal:
-            next_player_id = (
-                advance_turn(room["participants"], player_id)
-                if room.get("current_player_id") == player_id
-                else room.get("current_player_id")
-            )
-            next_participant = _participant_by_id(room, next_player_id)
-            if next_participant is None:
-                raise DuelError("下一行动者不属于房间")
-            next_turn = next_participant["role"]
-            if "turn_player_id" in room["board_state"]:
-                room["board_state"]["turn_player_id"] = next_player_id
-        timestamp = _now()
-        conn.execute(
-            """
-            UPDATE rooms
-            SET board_state = ?, status = ?, winner = ?, winner_player_id = ?, result_json = ?,
-                turn = ?, current_player_id = ?, revision = revision + 1,
-                updated_at = ?, terminal_at = CASE WHEN ? THEN ? ELSE terminal_at END,
-                terminal_reason = CASE WHEN ? THEN 'resignation' ELSE terminal_reason END
-            WHERE room_id = ?
-            """,
-            (
-                json.dumps(
-                    room["board_state"],
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ),
-                "finished" if terminal else "playing",
-                winner,
-                winner_player_id,
-                (
-                    json.dumps(game_result, ensure_ascii=False, separators=(",", ":"))
-                    if game_result is not None else None
-                ),
-                next_turn,
-                next_player_id,
-                timestamp,
-                int(terminal),
-                timestamp,
-                int(terminal),
-                room_id,
-            ),
-        )
-        updated = conn.execute(
-            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
-        ).fetchone()
-        _record_event(
-            conn,
-            room_id,
-            role,
-            player_id,
-            updated["revision"],
-            event_type="resign",
-            text=message,
-        )
-        result = decode_room(updated, conn)
-        if terminal:
-            _record_result_event(
-                conn, result, resigned_player_id=player_id
-            )
-            _settle_terminal_room(conn, result)
-            from .achievements import record_terminal_room
-
-            result["achievement_unlocks"] = record_terminal_room(
-                conn,
-                result,
-                "resignation",
-                normal=result.get("winner_player_id") is not None,
-            )
-        _notify_game_participants(
-            conn,
-            result,
-            event_type="resigned",
-            summary=f"对方在{get_game(result['game_type']).display_name}中认输",
-            event_key=f"game:resigned:{room_id}:{player_id}",
-            exclude_player_ids={player_id},
-            created_at=timestamp,
-        )
-    return _decorate(result)

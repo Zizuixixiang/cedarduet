@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from .base import GamePlugin, MoveResult
@@ -54,13 +55,15 @@ class Jungle(GamePlugin):
             board[row][col] = f"O:{beast}"
         for (row, col), beast in bottom.items():
             board[row][col] = f"X:{beast}"
-        return {
+        state = {
             "size": 9,
             "rows": 9,
             "cols": 7,
             "board_kind": "jungle",
             "board": board,
         }
+        self._sync_legal_moves(state)
+        return state
 
     @staticmethod
     def _coords(move: dict[str, Any]) -> tuple[int, int, int, int]:
@@ -155,6 +158,12 @@ class Jungle(GamePlugin):
         return from_row, from_col, to_row, to_col
 
     def _has_legal_move(self, state: dict[str, Any], mark: str) -> bool:
+        return bool(self._legal_moves_for(state, mark))
+
+    def _legal_moves_for(
+        self, state: dict[str, Any], mark: str
+    ) -> list[dict[str, int]]:
+        legal: list[dict[str, int]] = []
         for row in range(9):
             for col in range(7):
                 value = state["board"][row][col]
@@ -178,10 +187,20 @@ class Jungle(GamePlugin):
                                 },
                                 mark,
                             )
-                            return True
+                            legal.append({
+                                "from_row": row,
+                                "from_col": col,
+                                "to_row": to_row,
+                                "to_col": to_col,
+                            })
                         except ValueError:
                             pass
-        return False
+        return legal
+
+    def _sync_legal_moves(self, state: dict[str, Any]) -> None:
+        state["legal_moves_by_mark"] = {
+            mark: self._legal_moves_for(state, mark) for mark in ("X", "O")
+        }
 
     def validate_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
@@ -214,10 +233,21 @@ class Jungle(GamePlugin):
             if not opponent_has_piece or not self._has_legal_move(state, opponent):
                 state["forced_winner"] = mark
                 note = "对方已无棋子或无合法着法，本方获胜。"
+        self._sync_legal_moves(state)
         return MoveResult(state, note=note)
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         return state.get("forced_winner")
+
+    def public_state(
+        self,
+        state: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del participants
+        projected = deepcopy(state)
+        self._sync_legal_moves(projected)
+        return projected
 
     def format_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str

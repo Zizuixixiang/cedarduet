@@ -482,6 +482,28 @@ class TrainCards(GamePlugin):
         draw_reason = state.get("draw_reason")
         return {"draw": True, "reason": draw_reason} if draw_reason else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        active = state.get("active_player_ids", [])
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("开火车认输者不属于本桌")
+        if resigned_player_id in active:
+            active.remove(resigned_player_id)
+        eliminated = state.setdefault("eliminated_player_ids", [])
+        if resigned_player_id not in eliminated:
+            eliminated.append(resigned_player_id)
+        if len(active) == 1:
+            self._finish(state, winner_player_id=str(active[0]))
+        elif state.get("turn_player_id") == resigned_player_id and active:
+            state["turn_player_id"] = self._next_active_player(
+                state, resigned_player_id
+            )
+
     def settlement_deltas(
         self,
         state: dict[str, Any],

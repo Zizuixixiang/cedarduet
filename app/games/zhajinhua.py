@@ -586,6 +586,28 @@ class Zhajinhua(GamePlugin):
         result = state.get("game_result")
         return deepcopy(result) if isinstance(result, dict) else None
 
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("炸金花认输者不属于本桌")
+        self._player_state(state, resigned_player_id)["status"] = "folded"
+        state["acted_player_ids_this_round"] = [
+            item for item in state.get("acted_player_ids_this_round", [])
+            if item != resigned_player_id
+        ]
+        active = self._active_player_ids(state)
+        if len(active) == 1:
+            self._finish_single_winner(state, active[0], "resignation")
+        elif state.get("turn_player_id") == resigned_player_id:
+            state["turn_player_id"] = self._next_active_after(
+                state, resigned_player_id
+            )
+
     def settlement_deltas(
         self,
         state: dict[str, Any],

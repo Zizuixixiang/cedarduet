@@ -185,6 +185,22 @@ class GoTenukiRulesTests(unittest.TestCase):
         self.assertIsNotNone(settled.result)
         self.assertEqual(settled.result["dead_stones"], [{"row": 0, "col": 0}])
 
+    def test_dead_group_does_not_connect_same_color_stones_through_empty_points(self):
+        state = self.initialized()
+        for action in (
+            {"action": "play", "row": 0, "col": 0},
+            {"action": "play", "row": 10, "col": 10},
+            {"action": "play", "row": 0, "col": 2},
+            {"action": "pass"},
+            {"action": "pass"},
+        ):
+            state = self.apply(state, action).state
+        changed = self.apply(
+            state, {"action": "toggle_dead", "row": 0, "col": 0}
+        )
+        self.assertEqual(changed.state["dead_stones"], [{"row": 0, "col": 0}])
+        self.assertNotIn({"row": 0, "col": 2}, changed.state["dead_stones"])
+
     def test_area_scoring_adds_seven_point_five_komi(self):
         state = self.initialized()
         state = self.apply(state, {"action": "pass"}).state

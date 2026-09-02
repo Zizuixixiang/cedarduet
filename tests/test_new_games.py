@@ -17,10 +17,21 @@ class OthelloTests(unittest.TestCase):
     def test_standard_move_flips_piece(self):
         game = Othello()
         state = game.initial_state()
+        self.assertEqual(
+            state["legal_moves_by_mark"]["X"],
+            [
+                {"row": 2, "col": 3}, {"row": 3, "col": 2},
+                {"row": 4, "col": 5}, {"row": 5, "col": 4},
+            ],
+        )
         game.validate_move(state, {"row": 2, "col": 3}, "X")
         result = game.apply_move(state, {"row": 2, "col": 3}, "X")
         self.assertEqual(result.state["board"][3][3], "X")
         self.assertEqual(result.state["last_move"]["flipped"], 1)
+        self.assertNotIn(
+            {"row": 2, "col": 3},
+            result.state["legal_moves_by_mark"]["O"],
+        )
 
     def test_no_legal_move_is_automatically_skipped(self):
         game = Othello()
@@ -116,6 +127,17 @@ class JungleTests(unittest.TestCase):
         state = self.game.initial_state()
         state["board"] = [[None for _ in range(7)] for _ in range(9)]
         return state
+
+    def test_public_legal_moves_are_generated_by_the_same_validator(self):
+        state = self.game.initial_state()
+        public = self.game.public_state(state, [])
+        self.assertTrue(public["legal_moves_by_mark"]["X"])
+        for action in public["legal_moves_by_mark"]["X"]:
+            self.game.validate_move(state, action, "X")
+        self.assertNotIn(
+            {"from_row": 6, "from_col": 0, "to_row": 5, "to_col": 1},
+            public["legal_moves_by_mark"]["X"],
+        )
 
     def test_rat_enters_water_and_elephant_cannot_capture_rat(self):
         state = self.empty_state()

@@ -93,8 +93,8 @@ class Blackjack(GamePlugin):
     rules_text = (
         "【牌局】\n"
         "2–6 名参与者共同对抗虚拟庄家；庄家不是参与者，也没有钱包。本房间只进行一局。"
-        "使用固定 4 副标准 52 张牌的 shoe，服务端洗牌、抽牌并持久化，刷新或重启不会重洗；"
-        "若开始下一局前余牌不足完成所有席位与庄家的两张初始发牌，则把余牌与弃牌合并重洗。\n\n"
+        "使用固定 4 副标准 52 张牌的 shoe，服务端开局洗牌一次，抽牌过程持久化，刷新或"
+        "重启不会重洗。\n\n"
         "【行动】\n"
         "每位参与者发 2 张，庄家发 2 张且第二张为暗牌。参与者按座位依次选择要牌（hit）"
         "或停牌（stand）；爆牌立即结束该手。A 自动按 1 或 11 计为不爆牌的最优点数。\n\n"
@@ -460,6 +460,14 @@ class Blackjack(GamePlugin):
             "bust": bool(value["bust"]),
             "resigned": True,
         }
+        next_player_id = self._next_playing_after(state, resigned_player_id)
+        if not any(
+            status == "playing"
+            for status in state["player_status_by_player"].values()
+        ):
+            self._settle(state)
+        elif state.get("turn_player_id") == resigned_player_id:
+            state["turn_player_id"] = next_player_id
 
     def result_for_resignation(
         self,

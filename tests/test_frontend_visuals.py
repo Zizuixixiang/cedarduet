@@ -564,6 +564,9 @@ class FrontendBoardVisualTests(unittest.TestCase):
         self.assertIn(".board.othello .cell.mark-x .piece", STYLES)
         self.assertIn(".board.othello .cell.mark-o .piece", STYLES)
         self.assertIn(".board.connect4 .cell.human-piece .piece", STYLES)
+        othello = function_source("renderGridBoard")
+        self.assertIn("state.legal_moves_by_mark", othello)
+        self.assertIn("cell.disabled = !canHumanMove() || !legal", othello)
         connect4 = function_source("renderConnect4Board")
         self.assertIn("rowIndex === landingRow", connect4)
         self.assertNotIn("textContent", connect4)
@@ -735,6 +738,8 @@ assert.ok(fullColumn.every((cell) => cell.disabled));
         self.assertIn('humanMark === "O"', renderer)
         self.assertIn('cell.dataset.moveRow = String(rowIndex)', renderer)
         self.assertIn('cell.dataset.displayRow = String(displayRow)', renderer)
+        self.assertIn("state.legal_moves_by_mark", renderer)
+        self.assertIn("if (!legalTarget) return", renderer)
 
         jungle_styles = STYLES[
             STYLES.index(".board.jungle {"):
@@ -1711,6 +1716,10 @@ const childWithClass = (cell, className) => cell.children.find(
 const xState = {{
   marks: {{human: "X", ai: "O"}},
   board: emptyBoard(),
+  legal_moves_by_mark: {{X: [
+    {{from_row: 6, from_col: 0, to_row: 5, to_col: 0}},
+    {{from_row: 3, from_col: 1, to_row: 3, to_col: 0}},
+  ], O: []}},
 }};
 xState.board[6][0] = "X:E";
 xState.board[3][1] = "X:R";
@@ -1781,6 +1790,9 @@ pendingMove = null;
 const oState = {{
   marks: {{human: "O", ai: "X"}},
   board: emptyBoard(),
+  legal_moves_by_mark: {{O: [
+    {{from_row: 0, from_col: 0, to_row: 1, to_col: 0}},
+  ], X: []}},
 }};
 oState.board[0][0] = "O:L";
 oState.board[8][6] = "X:L";

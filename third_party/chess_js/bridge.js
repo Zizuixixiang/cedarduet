@@ -122,13 +122,39 @@ function snapshot(game, positionHistory) {
       claimableDrawReasons.push("fifty_move_rule");
     }
   }
+  const verboseMoves = game.moves({verbose: true});
+  const intendedDrawClaims = [];
+  if (!game.isCheckmate() && drawReason === null) {
+    verboseMoves.forEach((move) => {
+      const applied = game.move({
+        from: move.from,
+        to: move.to,
+        ...(move.promotion ? {promotion: move.promotion} : {}),
+      });
+      if (!applied) throw new Error("无法静态推演合法走法");
+      const identity = positionIdentity(game);
+      const intendedRepetitionCount = positionHistory.reduce(
+        (count, prior) => count + Number(prior === identity),
+        1
+      );
+      const intendedHalfmoveClock = Number(game.fen().split(/\s+/)[4]);
+      const reasons = [];
+      if (intendedRepetitionCount >= 3) reasons.push("threefold_repetition");
+      if (intendedHalfmoveClock >= 100) reasons.push("fifty_move_rule");
+      game.undo();
+      if (reasons.length) {
+        intendedDrawClaims.push({...legalMove(move), reasons});
+      }
+    });
+  }
   return {
     fen,
     turn_color: game.turn(),
     board: game.board().map((row) => row.map(
       (piece) => piece ? `${piece.color}:${piece.type}` : null
     )),
-    legal_moves: game.moves({verbose: true}).map(legalMove),
+    legal_moves: verboseMoves.map(legalMove),
+    intended_draw_claims: intendedDrawClaims,
     in_check: game.isCheck(),
     in_checkmate: game.isCheckmate(),
     in_stalemate: game.isStalemate(),

@@ -1932,10 +1932,23 @@ function updateMoveConfirmation() {
 }
 
 function renderGridBoard(board, state) {
+  const othelloLegal = room.game_type === "othello"
+    ? new Set(
+      ((state.legal_moves_by_mark || {})[
+        (room.viewer || {}).token || (state.marks || {}).human
+      ] || [])
+        .map((move) => `${move.row},${move.col}`)
+    )
+    : null;
   state.board.forEach((rowData, rowIndex) => {
     rowData.forEach((mark, colIndex) => {
       const payload = {row: rowIndex, col: colIndex};
       const cell = boardCell(mark, rowIndex, colIndex, () => selectMove(payload));
+      if (othelloLegal) {
+        const legal = othelloLegal.has(`${rowIndex},${colIndex}`);
+        cell.disabled = !canHumanMove() || !legal;
+        cell.classList.toggle("legal-target", legal && canHumanMove());
+      }
       selectCell(cell, payload, state);
       board.appendChild(cell);
     });
@@ -2101,7 +2114,11 @@ function renderJungleBoard(board, state) {
     && room
     && ["finished", "archived"].includes(room.status)
   );
-  const humanMark = state.marks.human;
+  const humanMark = (room.viewer || {}).token || state.marks.human;
+  const legalMoves = ((state.legal_moves_by_mark || {})[humanMark] || []);
+  const legalOrigins = new Set(
+    legalMoves.map((move) => `${move.from_row},${move.from_col}`)
+  );
   const rotated = humanMark === "O";
   const rowOrder = Array.from(
     {length: 9}, (_, index) => rotated ? 8 - index : index
@@ -2162,28 +2179,40 @@ function renderJungleBoard(board, state) {
         + `${terrain ? `，${terrain.name}` : "，陆地"}`
         + `${piece ? `，${ownerDescription(owner)}的${JUNGLE_SYMBOLS[piece.split(":")[1]]}` : "，空位"}`
       );
-      cell.disabled = terminal || !canHumanMove();
+      const selectedTargets = selectedJungleCell
+        ? legalMoves.filter((move) => (
+          move.from_row === selectedJungleCell.row
+          && move.from_col === selectedJungleCell.col
+        ))
+        : [];
+      const legalTarget = selectedTargets.some((move) => (
+        move.to_row === rowIndex && move.to_col === colIndex
+      ));
+      const legalOrigin = legalOrigins.has(key);
+      cell.classList.toggle("legal-target", legalTarget);
+      cell.disabled = (
+        terminal || !canHumanMove()
+        || (!legalOrigin && !legalTarget)
+      );
       cell.addEventListener("click", () => {
         if (terminal || !canHumanMove()) return;
         if (!selectedJungleCell) {
-          if (!piece || !piece.startsWith(`${humanMark}:`)) return;
+          if (!legalOrigin) return;
           selectedJungleCell = {row: rowIndex, col: colIndex};
           pendingMove = null;
           renderBoard();
           return;
         }
-        if (piece && piece.startsWith(`${humanMark}:`)) {
+        if (piece && piece.startsWith(`${humanMark}:`) && legalOrigin) {
           selectedJungleCell = {row: rowIndex, col: colIndex};
           pendingMove = null;
           renderBoard();
           return;
         }
-        pendingMove = {
-          from_row: selectedJungleCell.row,
-          from_col: selectedJungleCell.col,
-          to_row: rowIndex,
-          to_col: colIndex,
-        };
+        if (!legalTarget) return;
+        pendingMove = selectedTargets.find((move) => (
+          move.to_row === rowIndex && move.to_col === colIndex
+        ));
         renderBoard();
       });
       board.appendChild(cell);

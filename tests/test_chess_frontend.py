@@ -294,6 +294,29 @@ renderer.renderControls({
 });
 assert.equal(unavailable.classList.contains("hidden"), true);
 assert.equal(unavailable.children.length, 0);
+
+const intendedControls = new Element("div");
+submitted = null;
+const intendedAction = {
+  action: "claim_draw",
+  from_row: 0, from_col: 6, to_row: 2, to_col: 5,
+};
+renderer.renderControls({
+  controls: intendedControls,
+  state: {
+    claimable_draw_reasons: [],
+    intended_draw_claims: [{...intendedAction, reasons: ["threefold_repetition"]}],
+  },
+  legalActions: [intendedAction],
+  canMove: true,
+  helpers: {
+    canMove() { return true; },
+    submitMove(payload) { submitted = payload; return Promise.resolve(true); },
+  },
+});
+assert.match(intendedControls.children[0].children[0].textContent, /声明下一手.*三次重复/);
+intendedControls.querySelectorAll("button")[0].listeners.click();
+assert.equal(JSON.stringify(submitted), JSON.stringify(intendedAction));
 ''')
         self.assertIn(".chess-claim-button { width: 100%; min-height: 44px; }", SCRIPT)
 

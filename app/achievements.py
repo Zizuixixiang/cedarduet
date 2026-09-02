@@ -464,6 +464,12 @@ def record_terminal_room(
     wallet_subjects: list[tuple[SubjectType, str]] = []
     humans: list[str] = []
     ais: list[str] = []
+    result = room.get("result") or {}
+    raw_winning_ids = result.get("winning_player_ids")
+    winning_ids = {
+        player_id for player_id in raw_winning_ids
+        if isinstance(player_id, str)
+    } if isinstance(raw_winning_ids, list) else set()
     for participant in room.get("participants", []):
         subject = _wallet_subject(participant)
         subject_type = subject_id = None
@@ -494,8 +500,13 @@ def record_terminal_room(
             (humans if subject_type == "human" else ais).append(subject_id)
         if room.get("winner") == "draw":
             outcome = "draw"
-        elif room.get("winner_player_id"):
-            outcome = "win" if participant["player_id"] == room["winner_player_id"] else "loss"
+        elif room.get("winner_player_id") or isinstance(raw_winning_ids, list):
+            outcome = (
+                "win"
+                if participant["player_id"] == room.get("winner_player_id")
+                or participant["player_id"] in winning_ids
+                else "loss"
+            )
         else:
             outcome = "none"
         opening = opening_rows.get(participant["player_id"])

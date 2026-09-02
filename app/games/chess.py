@@ -29,7 +29,9 @@ class Chess(GamePlugin):
         "完整支持王车易位、吃过路兵，以及兵到达底线后升变为后、车、象或马。\n\n"
         "【胜负】\n"
         "将死判攻击方获胜；逼和、子力不足等死局自动判和。轮到自己行棋时，若当前同一局面已第三次出现，"
-        "或双方已各走满 50 步且期间没有兵移动与吃子，可以选择申和；不申和仍可继续走棋。"
+        "或双方已各走满 50 步且期间没有兵移动与吃子，可以选择申和；也可在落子前声明一手合法"
+        "着法，并在该着法将形成第三次重复或完成第 50 回合时申和（申和成立则该着法不实际落盘）。"
+        "不申和仍可继续走棋。"
         "同一局面第五次出现，或双方各走满 75 步且期间没有兵移动与吃子时自动和棋；"
         "若第 75 步的最后一手同时将死，将死优先。"
     )
@@ -37,8 +39,9 @@ class Chess(GamePlugin):
         '移动使用零起始坐标：{"move":{"from_row":6,"from_col":4,'
         '"to_row":4,"to_col":4}}；row 0 是黑方底线，'
         'col 0 是 a 线。兵升变必须另加 "promotion":"q|r|b|n"。'
-        '当前局面满足三次重复或 50 回合条件时，可提交 '
-        '{"move":{"action":"claim_draw"}} 申和。'
+        '当前局面满足条件时提交 {"move":{"action":"claim_draw"}}；若由下一手达成，'
+        '提交 legal_actions 中带 from_row/from_col/to_row/to_col（及可能 promotion）的 '
+        'claim_draw 动作。'
     )
     piece_names = {
         "p": "兵",
@@ -129,6 +132,10 @@ class Chess(GamePlugin):
         ]
         if state.get("can_claim_draw"):
             state["legal_actions"].append(deepcopy(Chess.claim_draw_action))
+        state["legal_actions"].extend({
+            "action": "claim_draw",
+            **Chess._payload(item),
+        } for item in state.get("intended_draw_claims", []))
         if state.get("game_over"):
             state["legal_actions"] = []
         return state
@@ -209,8 +216,6 @@ class Chess(GamePlugin):
         if mark != expected_mark:
             raise ValueError("当前行动者与规则引擎行棋方不一致")
         if move.get("action") == "claim_draw":
-            if move != self.claim_draw_action:
-                raise ValueError("申和动作只能包含 action=claim_draw")
             if move not in state.get("legal_actions", []):
                 raise ValueError("当前局面不满足可申和条件")
             return
@@ -233,7 +238,21 @@ class Chess(GamePlugin):
         self.validate_move(state, move, mark)
         if move.get("action") == "claim_draw":
             updated = deepcopy(state)
-            reasons = list(updated.get("claimable_draw_reasons", []))
+            intended = None
+            if move != self.claim_draw_action:
+                wanted = self._uci(move)
+                intended = next(
+                    (
+                        item for item in updated.get("intended_draw_claims", [])
+                        if item.get("uci") == wanted
+                    ),
+                    None,
+                )
+            reasons = list(
+                intended.get("reasons", [])
+                if isinstance(intended, dict)
+                else updated.get("claimable_draw_reasons", [])
+            )
             if not reasons:
                 raise ValueError("当前局面不满足可申和条件")
             labels = [self.claim_notes[reason] for reason in reasons]
@@ -241,6 +260,7 @@ class Chess(GamePlugin):
                 "action": "claim_draw",
                 "mark": mark,
                 "reasons": reasons,
+                **({"intended_move": self._payload(intended)} if intended else {}),
             }
             updated["action_history"] = [
                 *updated.get("action_history", []), claim,
@@ -255,6 +275,7 @@ class Chess(GamePlugin):
             updated["game_over"] = True
             updated["can_claim_draw"] = False
             updated["claimable_draw_reasons"] = []
+            updated["intended_draw_claims"] = []
             updated["legal_moves"] = []
             updated["legal_actions"] = []
             return MoveResult(
@@ -325,7 +346,8 @@ class Chess(GamePlugin):
         del state, actor, participants
         return (
             "标准国际象棋。只能从权威 legal_actions 选择走法；优先将死、避免被将死，"
-            "升变动作必须保留 promotion 字段；若列表含 claim_draw，优先选择申和。"
+            "升变动作必须保留 promotion 字段；claim_draw 可能是当前局面申和，也可能"
+            "携带声明的下一手坐标，必须原样选择。"
         )
 
     def npc_public_actions(
@@ -356,7 +378,17 @@ class Chess(GamePlugin):
     ) -> str:
         del mark
         if move.get("action") == "claim_draw":
-            reasons = state.get("claimable_draw_reasons", [])
+            intended = None
+            if move != self.claim_draw_action:
+                wanted = self._uci(move)
+                intended = next((
+                    item for item in state.get("intended_draw_claims", [])
+                    if item.get("uci") == wanted
+                ), None)
+            reasons = (
+                intended.get("reasons", []) if isinstance(intended, dict)
+                else state.get("claimable_draw_reasons", [])
+            )
             labels = [self.claim_notes.get(reason, reason) for reason in reasons]
             return f"申和（{'；'.join(labels) or '和棋条件'}）"
         from_row, from_col, to_row, to_col, promotion = self._coords(move)

@@ -146,13 +146,10 @@ export class HostGame {
     const chosenDead = [];
     const [candidates] = this.currentState().partitionTraverse(
       selectedIntersection,
-      (intersection) => (
-        intersection.isEmpty()
-        || intersection.sameColorAs(selectedIntersection)
-      )
+      (intersection) => intersection.sameColorAs(selectedIntersection)
     );
-    candidates.forEach((sameColorOrEmpty) => {
-      if (!sameColorOrEmpty.isEmpty()) chosenDead.push(sameColorOrEmpty);
+    candidates.forEach((sameColor) => {
+      chosenDead.push(sameColor);
     });
     chosenDead.forEach((intersection) => {
       if (markingDead) {

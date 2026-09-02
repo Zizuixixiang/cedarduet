@@ -42,6 +42,7 @@ class DotsBoxes(GamePlugin):
             "boxes": [[None for _ in range(4)] for _ in range(4)],
             "scores": dict(scores),
             "action_history": [],
+            "forfeit_winner_player_id": None,
         }
 
     def initial_state(self) -> dict[str, Any]:
@@ -59,6 +60,7 @@ class DotsBoxes(GamePlugin):
             "participant_order": player_ids,
             "tokens_by_player": token_by_player,
             "scores_by_player": {player_id: 0 for player_id in player_ids},
+            "resigned_player_ids": [],
         })
         return state
 
@@ -200,11 +202,23 @@ class DotsBoxes(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
+        forfeit_winner = state.get("forfeit_winner_player_id")
+        if forfeit_winner is not None:
+            return {
+                "winner_player_id": str(forfeit_winner),
+                "draw": False,
+                "reason": "resignation",
+            }
         if "scores_by_player" not in state:
             return super().result_for(state, participants)
         if not self._board_full(state):
             return None
-        scores = state["scores_by_player"]
+        resigned = set(state.get("resigned_player_ids", []))
+        scores = {
+            player_id: score
+            for player_id, score in state["scores_by_player"].items()
+            if player_id not in resigned
+        }
         best = max(scores.values())
         leaders = [player_id for player_id, score in scores.items() if score == best]
         result: dict[str, Any] = {
@@ -216,6 +230,25 @@ class DotsBoxes(GamePlugin):
         else:
             result["tied_player_ids"] = leaders
         return result
+
+    def apply_resignation(
+        self,
+        state: dict[str, Any],
+        resigned_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> None:
+        del participants
+        if resigned_player_id not in state.get("participant_order", []):
+            raise ValueError("点格棋认输者不属于本桌")
+        resigned = state.setdefault("resigned_player_ids", [])
+        if resigned_player_id not in resigned:
+            resigned.append(resigned_player_id)
+        remaining = [
+            player_id for player_id in state.get("participant_order", [])
+            if player_id not in resigned
+        ]
+        if len(remaining) == 1:
+            state["forfeit_winner_player_id"] = remaining[0]
 
     def settlement_deltas(
         self,

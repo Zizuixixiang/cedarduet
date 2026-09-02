@@ -365,12 +365,39 @@ class ChessRuleTests(unittest.TestCase):
         self.assertIn({"action": "claim_draw"}, actions)
         for action in actions:
             self.game.validate_move(state, action, "X")
-        with self.assertRaisesRegex(ValueError, "只能包含"):
+        with self.assertRaisesRegex(ValueError, "不满足可申和条件"):
             self.game.validate_move(
                 state,
                 {"action": "claim_draw", "reason": "threefold_repetition"},
                 "X",
             )
+
+    def test_intended_move_can_claim_fifty_move_draw_without_moving(self):
+        state = self.game.state_from_fen(
+            "r6k/8/8/8/8/8/8/R6K w - - 99 50"
+        )
+        self.assertFalse(state["can_claim_draw"])
+        claim = next(
+            action for action in state["legal_actions"]
+            if action.get("action") == "claim_draw"
+        )
+        before = deepcopy(state["board"])
+        result = self.game.apply_move(state, claim, "X")
+        self.assertEqual(result.state["board"], before)
+        self.assertEqual(result.state["draw_claim_reasons"], ["fifty_move_rule"])
+        self.assertIn("intended_move", result.state["last_action"])
+
+    def test_intended_move_can_claim_third_repetition(self):
+        state = self.game.initial_state()
+        for uci in ("g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"):
+            state = self.apply(state, uci).state
+        intended = {"action": "claim_draw", **move("f6g8")}
+        self.assertIn(intended, state["legal_actions"])
+        result = self.game.apply_move(state, intended, "O")
+        self.assertEqual(
+            result.state["draw_claim_reasons"], ["threefold_repetition"]
+        )
+        self.assertEqual(len(result.state["move_history"]), 7)
 
 
 class ChessFrameworkTests(unittest.TestCase):
