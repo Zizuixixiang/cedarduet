@@ -1,5 +1,6 @@
 import json
-import os
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -7,13 +8,113 @@ from unittest.mock import patch
 
 import httpx
 import mcp.types as types
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
 from app.local_mcp import TOOL_NAME, _call_tool, _list_tools, forward_play, play_input_schema
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+STDIO_CLIENT_HARNESS = r"""
+const {spawn} = require("node:child_process");
+
+const child = spawn(process.argv[1], ["-m", "app.local_mcp"], {
+  cwd: process.argv[2],
+  stdio: ["pipe", "pipe", "pipe"],
+  windowsHide: true,
+});
+let pending = "";
+let stderr = "";
+let result = null;
+let failure = "";
+let initialized = false;
+let shutdownTimer = null;
+let forcedShutdown = false;
+
+function send(message) {
+  if (!child.stdin.destroyed) {
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+}
+
+function fail(message) {
+  if (!failure) failure = message;
+  child.kill();
+}
+
+child.stderr.setEncoding("utf8");
+child.stderr.on("data", (chunk) => { stderr += chunk; });
+child.stdin.on("error", (error) => {
+  if (!result) fail(`stdin write failed: ${error.message}`);
+});
+child.stdout.setEncoding("utf8");
+child.stdout.on("data", (chunk) => {
+  pending += chunk;
+  const lines = pending.split(/\r?\n/);
+  pending = lines.pop();
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      fail(`invalid JSON-RPC output: ${error.message}: ${line}`);
+      return;
+    }
+    if (message.id === 1 && !initialized) {
+      if (message.error) {
+        fail(`initialize failed: ${JSON.stringify(message.error)}`);
+        return;
+      }
+      initialized = true;
+      send({jsonrpc: "2.0", method: "notifications/initialized", params: {}});
+      send({jsonrpc: "2.0", id: 2, method: "tools/list", params: {}});
+    } else if (message.id === 2) {
+      if (message.error) {
+        fail(`tools/list failed: ${JSON.stringify(message.error)}`);
+        return;
+      }
+      if (!message.result || !Array.isArray(message.result.tools)) {
+        fail(`tools/list returned an invalid result: ${JSON.stringify(message.result)}`);
+        return;
+      }
+      result = message.result;
+      child.stdin.end();
+      shutdownTimer = setTimeout(() => {
+        forcedShutdown = true;
+        child.kill();
+      }, 1000);
+    }
+  }
+});
+child.on("error", (error) => fail(`spawn failed: ${error.message}`));
+
+const timer = setTimeout(() => fail("stdio MCP probe timed out"), 12000);
+child.on("close", (code, signal) => {
+  clearTimeout(timer);
+  if (shutdownTimer) clearTimeout(shutdownTimer);
+  if (!failure && (!result || (code !== 0 && !forcedShutdown))) {
+    failure = `server exited before a complete tools/list response (code=${code}, signal=${signal})`;
+  }
+  if (failure) {
+    process.stderr.write(`${failure}${stderr ? `\n${stderr}` : ""}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(JSON.stringify(result));
+});
+
+send({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: {name: "cedarduet-stdio-test", version: "1.0.0"},
+  },
+});
+"""
 
 
 class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
@@ -172,22 +273,26 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 503)
         self.assertEqual(payload["message"], "provider missing")
 
-    async def test_adapter_is_a_real_stdio_mcp_server(self):
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(PROJECT_ROOT)
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "app.local_mcp"],
-            env=env,
+
+class LocalMcpStdioTests(unittest.TestCase):
+    def test_adapter_is_a_real_stdio_mcp_server(self):
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "Node.js is required by the standalone runtime")
+        completed = subprocess.run(
+            [node, "-e", STDIO_CLIENT_HARNESS, sys.executable, str(PROJECT_ROOT)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
         )
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                listed = await session.list_tools()
-        self.assertEqual([tool.name for tool in listed.tools], [TOOL_NAME])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        listed = json.loads(completed.stdout)
+        self.assertEqual([tool["name"] for tool in listed["tools"]], [TOOL_NAME])
         self.assertFalse(
             {"player_id", "opponent_id", "participant_ids"}
-            & set(listed.tools[0].input_schema["properties"])
+            & set(listed["tools"][0]["inputSchema"]["properties"])
         )
 
 

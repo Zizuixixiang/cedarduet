@@ -6,9 +6,14 @@
 
 - Python 3.10 或更高版本；
 - Node.js（规则桥直接运行仓库内 JS，不需要 npm install）；
-- C++ 编译工具链，用于从 vendored 源码构建 PyMahjongGB。
+- macOS/Linux 需要 C++ 编译工具链，用于从 vendored 源码构建 PyMahjongGB。
 
-Windows 需安装 Visual Studio Build Tools，并勾选“使用 C++ 的桌面开发”和 Windows SDK。macOS 缺编译器时运行 `xcode-select --install`。Debian/Ubuntu 通常需要 `build-essential`、`python3-dev`、`python3-venv`。
+Windows x64 的 CPython 3.10–3.13 会优先下载项目 Release 中经过 SHA256 校验的
+PyMahjongGB 预编译 wheel，正常情况下无需 Visual Studio Build Tools。当前 Python/
+架构没有匹配 wheel、wheel 无法取得或校验失败时，才会回退源码构建；此时需安装
+Visual Studio Build Tools，并勾选“使用 C++ 的桌面开发”和 Windows SDK。macOS 缺
+编译器时运行 `xcode-select --install`。Debian/Ubuntu 通常需要 `build-essential`、
+`python3-dev`、`python3-venv`。
 
 ## 2. clone 并启动浏览器版
 
@@ -35,7 +40,10 @@ Windows cmd 或双击：
 scripts\start-local.cmd
 ```
 
-launcher 会创建 `.venv`、安装 `requirements-local.txt`、编译并导入检查 PyMahjongGB、依次探测象棋/国际象棋/军棋/围棋四个 Node bridge，然后以单 worker 启动 `app.local_gateway:app`。浏览器入口默认为 `http://127.0.0.1:8772/`；可用 `DUEL_LOCAL_PORT` 改端口。
+launcher 会创建 `.venv`、安装 `requirements-local.txt`、安装或编译并导入检查
+PyMahjongGB、依次探测象棋/国际象棋/军棋/围棋四个 Node bridge，然后以单 worker
+启动 `app.local_gateway:app`。浏览器入口默认为 `http://127.0.0.1:8772/`；可用
+`DUEL_LOCAL_PORT` 改端口。
 
 本地 gateway 只接受 loopback client 与 localhost/127.0.0.1/::1 Host。它会剥离浏览器伪造的 `X-Duel-*`、`player_id`、`opponent_id`、`ai_player(s)`，再注入：
 
@@ -104,7 +112,9 @@ python3 scripts/local.py doctor
 DUEL_NODE_BINARY=/absolute/path/to/node ./scripts/start-local.sh
 ```
 
-launcher 不会为缺失的 Node 或 PyMahjongGB 编译器提供规则降级。Windows 编译失败时先确认 Build Tools 的 C++ workload 与 Windows SDK 已安装；macOS/Linux 按错误提示补齐本机编译工具后重试。
+launcher 不会为缺失的 Node 或 PyMahjongGB 提供规则降级。Windows 会先校验并安装
+匹配的预编译 wheel；只有回退源码构建后失败，才需确认 Build Tools 的 C++ workload
+与 Windows SDK 已安装。macOS/Linux 按错误提示补齐本机编译工具后重试。
 
 ## 6. 与生产的隔离边界
 

@@ -855,10 +855,21 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
             - set(play["card_ids"])
             - public_bottom_ids
         )
-        encoded_response = json.dumps(played.json(), ensure_ascii=False)
-        self.assertTrue(
-            all(card_id not in encoded_response for card_id in unplayed_private)
-        )
+        def string_values(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if isinstance(key, str):
+                        yield key
+                    yield from string_values(item)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from string_values(item)
+            elif isinstance(value, str):
+                yield value
+
+        response_strings = set(string_values(played.json()))
+        leaked_private_ids = unplayed_private & response_strings
+        self.assertFalse(leaked_private_ids, leaked_private_ids)
 
     async def test_mcp_all_pass_redeal_returns_only_actors_new_private_hand(self):
         participants = seats()

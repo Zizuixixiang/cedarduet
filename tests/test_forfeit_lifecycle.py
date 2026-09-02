@@ -179,3 +179,47 @@ class ForfeitFrameworkTests(unittest.TestCase):
                     expected_loss,
                 )
                 self.assertEqual(sum(room["result"]["settlement_deltas"].values()), 0)
+
+    def test_blackjack_cannot_continue_when_only_system_npc_remains(self):
+        participants = seats(2)
+        participants[1].update({
+            "player_id": "npc-1",
+            "display_name": "系统 NPC",
+            "participant_kind": "system_npc",
+            "npc_persona_id": "test-blackjack",
+        })
+
+        # Even a game-level opt-out must not be able to bypass this framework
+        # invariant. Keeping the synthetic flag here guards against its return.
+        with patch.object(
+            Blackjack,
+            "continues_with_only_system_npcs_after_resignation",
+            True,
+            create=True,
+        ):
+            room = framework.create_room(
+                "blackjack",
+                "human_first",
+                "human",
+                "human-1",
+                "npc-1",
+                ordered_participants=participants,
+                first_player_id="human-1",
+            )
+            self.assertEqual(room["status"], "playing")
+            room = framework.leave_room(
+                room["room_id"], "human", "human-1"
+            )
+
+        self.assertEqual(room["status"], "finished")
+        self.assertIsNone(room["current_player_id"])
+        self.assertEqual(room["board_state"]["flow"]["phase"], "finished")
+        self.assertIsNone(room["board_state"]["turn_player_id"])
+        self.assertEqual(
+            room["board_state"]["player_status_by_player"]["human-1"],
+            "resigned",
+        )
+        self.assertEqual(
+            room["result"]["outcomes_by_player"]["human-1"]["outcome"],
+            "loss",
+        )

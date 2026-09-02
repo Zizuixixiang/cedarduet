@@ -49,7 +49,15 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         self.assertNotIn("\n  .battle-stage {", wide)
         self.assertNotIn(".game-chat-area,", wide)
         self.assertNotIn("\n  .game-chat-area {", wide)
-        self.assertNotIn("#battleStage", mobile)
+        mobile_chat_selectors = [
+            selector.strip()
+            for selector_group in re.findall(r"([^{}]+)\{", mobile)
+            for selector in selector_group.split(",")
+            if ".game-chat-area" in selector
+        ]
+        self.assertTrue(mobile_chat_selectors)
+        for selector in mobile_chat_selectors:
+            self.assertIn(".multiplayer-presentation", selector)
 
         render_recent = APP_SCRIPT[
             APP_SCRIPT.index("function renderRecentChat") :

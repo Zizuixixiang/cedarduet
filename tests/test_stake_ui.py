@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -9,6 +10,71 @@ HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
 NODE = shutil.which("node")
+
+
+class HtmlElement:
+    def __init__(self, tag, attrs, parent=None):
+        self.tag = tag
+        self.attrs = dict(attrs)
+        self.parent = parent
+        self.children = []
+        self.text = []
+
+    def has_class(self, name):
+        return name in self.attrs.get("class", "").split()
+
+    def ancestor_with_class(self, name):
+        current = self.parent
+        while current is not None:
+            if current.has_class(name):
+                return current
+            current = current.parent
+        return None
+
+    def text_content(self):
+        parts = list(self.text)
+        for child in self.children:
+            parts.append(child.text_content())
+        return " ".join(" ".join(parts).split())
+
+
+class HtmlDocument(HTMLParser):
+    VOID_TAGS = frozenset({
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    })
+
+    def __init__(self, source):
+        super().__init__(convert_charrefs=True)
+        self.root = HtmlElement("document", [])
+        self.stack = [self.root]
+        self.by_id = {}
+        self.feed(source)
+
+    def handle_starttag(self, tag, attrs):
+        element = HtmlElement(tag, attrs, self.stack[-1])
+        self.stack[-1].children.append(element)
+        if element.attrs.get("id"):
+            self.by_id[element.attrs["id"]] = element
+        if tag not in self.VOID_TAGS:
+            self.stack.append(element)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID_TAGS:
+            self.stack.pop()
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, 0, -1):
+            if self.stack[index].tag == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data):
+        self.stack[-1].text.append(data)
+
+
+DOCUMENT = HtmlDocument(HTML)
 
 
 def function_source(name: str) -> str:
@@ -88,20 +154,25 @@ class StakeLobbyUiTests(unittest.TestCase):
         self.assertNotIn(".brand > span:last-child { display: none; }", mobile)
 
     def test_multiplayer_picker_is_collapsed_accessible_and_not_native_multiple(self):
-        picker = HTML[
-            HTML.index('<div class="participant-picker"'):
-            HTML.index('<div class="pixel-field">\n                <span>棋种</span>')
-        ]
-        self.assertIn('id="aiPlayer"', picker)
-        self.assertNotIn(" multiple", picker)
-        self.assertIn('id="aiMultiTrigger"', picker)
-        self.assertIn('aria-haspopup="listbox"', picker)
-        self.assertIn('aria-expanded="false"', picker)
-        self.assertIn('aria-controls="aiMultiMenu"', picker)
-        self.assertIn('id="aiMultiMenu" class="ai-multi-menu hidden"', picker)
-        self.assertIn('role="listbox"', picker)
-        self.assertIn('aria-multiselectable="true"', picker)
-        self.assertIn('id="aiMultiSummary">请选择对手', picker)
+        select = DOCUMENT.by_id["aiPlayer"]
+        trigger = DOCUMENT.by_id["aiMultiTrigger"]
+        menu = DOCUMENT.by_id["aiMultiMenu"]
+        summary = DOCUMENT.by_id["aiMultiSummary"]
+        picker = select.ancestor_with_class("participant-picker")
+
+        self.assertIsNotNone(picker)
+        self.assertEqual(select.tag, "select")
+        self.assertNotIn("multiple", select.attrs)
+        for element in (trigger, menu, summary):
+            self.assertIs(element.ancestor_with_class("participant-picker"), picker)
+        self.assertEqual(trigger.attrs.get("aria-haspopup"), "listbox")
+        self.assertEqual(trigger.attrs.get("aria-expanded"), "false")
+        self.assertEqual(trigger.attrs.get("aria-controls"), "aiMultiMenu")
+        self.assertTrue(menu.has_class("ai-multi-menu"))
+        self.assertTrue(menu.has_class("hidden"))
+        self.assertEqual(menu.attrs.get("role"), "listbox")
+        self.assertEqual(menu.attrs.get("aria-multiselectable"), "true")
+        self.assertEqual(summary.text_content(), "请选择对手")
         self.assertIn('option.setAttribute("role", "option")', SCRIPT)
         self.assertIn('option.setAttribute("aria-selected"', SCRIPT)
         self.assertIn('event.key === "ArrowDown"', SCRIPT)

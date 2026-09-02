@@ -54,7 +54,6 @@ class GamePlugin(ABC):
     # A virtual house/dealer can make the participant delta total non-zero.
     # This remains a narrow per-game opt-in; every other game is zero-sum.
     allows_non_zero_sum_settlement: bool = False
-    continues_with_only_system_npcs_after_resignation: bool = False
     # Games whose accepted action has an unpredictable or automatic public
     # consequence need that system delta in the moving MCP caller's immediate
     # response even when the action ends its turn.

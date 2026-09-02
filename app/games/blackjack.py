@@ -88,7 +88,6 @@ class Blackjack(GamePlugin):
     supports_multiplayer_stakes = True
     uses_custom_stake_settlement = True
     allows_non_zero_sum_settlement = True
-    continues_with_only_system_npcs_after_resignation = True
     mcp_immediate_public_events = True
     rules_text = (
         "【牌局】\n"

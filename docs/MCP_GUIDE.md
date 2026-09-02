@@ -411,7 +411,8 @@ hit 的裁判 delta 只补随机 `new_card`；stand 不发重复 delta，最后�
 `private_state` 至少包含查看者自己的权威 `hand`、`value`、`status` 和
 `legal_actions`。NPC 只能选择同一份服务端合法行动，不接收或推导 shoe 内容。
 正常结算和房间级终局都会翻开庄家暗牌，但仍不公开 shoe 或 `card_id`。认输席记为
-`loss/-stake`；只要仍有参与者可对庄家完成该手，房间继续而不提前结算其他席。
+`loss/-stake`；只要仍有真人或绑定小机可对庄家完成该手，房间继续而不提前结算其他席。
+若 active 席只剩 system NPC，公共框架立即终局，21点不允许例外继续。
 
 由于每名玩家分别与庄家比较，通用单赢家字段以 terminal `draw=true` 收口；真实结果
 在 `room.result` 与公共 `board_state.game_result` 中完整返回：

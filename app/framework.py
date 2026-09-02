@@ -2833,9 +2833,7 @@ def _forfeit_active_participant(
         len(remaining)
     )
     only_system_npcs_remaining = (
-        not game.continues_with_only_system_npcs_after_resignation
-        and len(room["participants"]) > 2
-        and bool(remaining)
+        bool(remaining)
         and all(
             item.get("participant_kind") == "system_npc" for item in remaining
         )
