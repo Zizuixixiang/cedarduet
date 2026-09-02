@@ -27,18 +27,33 @@ jobs:
         run: python -m pip install ./third_party/pymahjonggb
       - name: Verify bundled timezone data
         run: python -c "from zoneinfo import ZoneInfo; import app.chips; ZoneInfo('Asia/Shanghai')"
-      - name: Verify local entry points and production contracts
-        run: >-
-          python -m unittest -v
-          tests.test_local_gateway
-          tests.test_local_mcp
-          tests.test_local_npc_admission
-          tests.test_local_launcher
-          tests.test_identity
-          tests.test_mcp_compact
-          tests.test_compatibility
-          tests.test_notifications
-          tests.test_hidden_information_audit
+      - name: Test standalone module - local gateway
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_local_gateway
+      - name: Test standalone module - local MCP
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_local_mcp
+      - name: Test standalone module - local NPC admission
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_local_npc_admission
+      - name: Test standalone module - local launcher
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_local_launcher
+      - name: Test standalone module - identity
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_identity
+      - name: Test standalone module - MCP compact
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_mcp_compact
+      - name: Test standalone module - compatibility
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_compatibility
+      - name: Test standalone module - notifications
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_notifications
+      - name: Test standalone module - hidden information audit
+        if: ${{ !cancelled() }}
+        run: python -m unittest -v tests.test_hidden_information_audit
 
   full-suite:
     name: Full suite (Linux)

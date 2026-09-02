@@ -18,8 +18,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STDIO_CLIENT_HARNESS = r"""
 const {spawn} = require("node:child_process");
 
-const child = spawn(process.argv[1], ["-m", "app.local_mcp"], {
-  cwd: process.argv[2],
+// With `node -e`, argv[1] is the first argument after the script.  Keep the
+// executable and cwd as separate spawn arguments so Windows paths never pass
+// through cmd.exe quoting.
+const [pythonExecutable, projectRoot] = process.argv.slice(1);
+const child = spawn(pythonExecutable, ["-m", "app.local_mcp"], {
+  cwd: projectRoot,
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
 });
@@ -28,13 +32,21 @@ let stderr = "";
 let result = null;
 let failure = "";
 let initialized = false;
+let phase = "initialize";
 let shutdownTimer = null;
+let shutdownRequested = false;
 let forcedShutdown = false;
 
 function send(message) {
-  if (!child.stdin.destroyed) {
-    child.stdin.write(`${JSON.stringify(message)}\n`);
+  if (!child.stdin.destroyed && child.stdin.writable) {
+    child.stdin.write(`${JSON.stringify(message)}\n`, "utf8", (error) => {
+      if (error && !shutdownRequested) {
+        fail(`stdin write failed: ${error.message}`);
+      }
+    });
+    return;
   }
+  if (!shutdownRequested) fail("stdin closed before the request could be written");
 }
 
 function fail(message) {
@@ -67,6 +79,7 @@ child.stdout.on("data", (chunk) => {
         return;
       }
       initialized = true;
+      phase = "tools/list";
       send({jsonrpc: "2.0", method: "notifications/initialized", params: {}});
       send({jsonrpc: "2.0", id: 2, method: "tools/list", params: {}});
     } else if (message.id === 2) {
@@ -79,8 +92,13 @@ child.stdout.on("data", (chunk) => {
         return;
       }
       result = message.result;
+      phase = "shutdown";
+      shutdownRequested = true;
       child.stdin.end();
       shutdownTimer = setTimeout(() => {
+        // Windows forcefully terminates the process and commonly reports a
+        // non-zero exit code with no signal.  This is test cleanup after a
+        // complete response, not a server/protocol failure.
         forcedShutdown = true;
         child.kill();
       }, 1000);
@@ -93,11 +111,27 @@ const timer = setTimeout(() => fail("stdio MCP probe timed out"), 12000);
 child.on("close", (code, signal) => {
   clearTimeout(timer);
   if (shutdownTimer) clearTimeout(shutdownTimer);
-  if (!failure && (!result || (code !== 0 && !forcedShutdown))) {
+  // Once tools/list is complete, either EOF or the fallback kill is deliberate
+  // client cleanup.  In particular, Windows may report that cleanup as code 1.
+  if (!failure && !result) {
     failure = `server exited before a complete tools/list response (code=${code}, signal=${signal})`;
   }
   if (failure) {
-    process.stderr.write(`${failure}${stderr ? `\n${stderr}` : ""}\n`);
+    const diagnostics = [
+      `phase=${phase}`,
+      `platform=${process.platform}`,
+      `python=${JSON.stringify(pythonExecutable)}`,
+      `cwd=${JSON.stringify(projectRoot)}`,
+      `code=${code}`,
+      `signal=${signal}`,
+      `shutdownRequested=${shutdownRequested}`,
+      `forcedShutdown=${forcedShutdown}`,
+    ].join(", ");
+    process.stderr.write(
+      `${failure}\n${diagnostics}`
+      + `${pending ? `\nunterminated stdout: ${JSON.stringify(pending)}` : ""}`
+      + `${stderr ? `\nserver stderr:\n${stderr}` : ""}\n`
+    );
     process.exitCode = 1;
     return;
   }
