@@ -13,6 +13,7 @@ from app.games.gandengyan import (
     Gandengyan,
     build_deck,
     can_beat,
+    classify_card_patterns,
     classify_cards,
 )
 
@@ -85,8 +86,11 @@ class GandengyanRuleTests(unittest.TestCase):
             "3<4<5<6<7<8<9<10<J<Q<K<A<2",
             "恰好高一级",
             "大小王不能单出",
-            "不是万能赖子",
-            "不采用广告牌或癞子变体",
+            "百搭牌",
+            "双王单独一起仍是最高王炸",
+            "自动跳到下一位可引牌玩家",
+            "所有人都无法引牌则本局和局",
+            "和局时所有玩家筹码变化均为 0",
             "最高 8 倍",
             "不采用春天、天胡",
         ):
@@ -143,6 +147,7 @@ class GandengyanRuleTests(unittest.TestCase):
             ("S3", "H3", "C3"): "three_bomb",
             ("S3", "H3", "C3", "D3"): "four_bomb",
             ("JOKER-S", "JOKER-B"): "joker_bomb",
+            ("JOKER-S", "JOKER-B", "S3"): "three_bomb",
             ("S3", "H4", "C5"): "straight",
             ("S3", "H3", "S4", "H4"): "consecutive_pairs",
         }
@@ -151,13 +156,52 @@ class GandengyanRuleTests(unittest.TestCase):
                 self.assertEqual(classify_cards(cards(*card_ids))["type"], expected)
         for card_ids in (
             ("JOKER-S",),
-            ("JOKER-S", "JOKER-B", "S3"),
             ("S3", "H4", "C6"),
             ("S3", "H4", "C2"),
             ("S3", "H3", "S4", "H4", "S2", "H2"),
         ):
             with self.subTest(invalid=card_ids):
                 self.assertIsNone(classify_cards(cards(*card_ids)))
+
+    def test_jokers_are_wild_for_every_supported_group_but_never_single(self):
+        expectations = {
+            ("S3", "JOKER-S"): ("pair", "3"),
+            ("S2", "JOKER-S"): ("pair", "2"),
+            ("S3", "H4", "JOKER-B"): ("straight", "5"),
+            ("S3", "H3", "S4", "JOKER-S"): (
+                "consecutive_pairs", "4"
+            ),
+            ("S6", "JOKER-S", "JOKER-B"): ("three_bomb", "6"),
+            ("S7", "H7", "JOKER-S", "JOKER-B"): ("four_bomb", "7"),
+            ("JOKER-S", "JOKER-B"): ("joker_bomb", "big_joker"),
+        }
+        for card_ids, (pattern_type, top_or_rank) in expectations.items():
+            with self.subTest(card_ids=card_ids):
+                pattern = classify_cards(cards(*card_ids))
+                self.assertEqual(pattern["type"], pattern_type)
+                self.assertEqual(
+                    pattern.get("top_rank", pattern.get("rank")), top_or_rank
+                )
+                table, state = self.custom_state([card_ids, ("D2",)])
+                action = next(
+                    item for item in self.game.legal_actions_for(state, "human-1")
+                    if set(item.get("card_ids", [])) == set(card_ids)
+                    and item.get("pattern_type") == pattern_type
+                )
+                self.game.validate_action(deepcopy(state), action, table[0])
+
+        for joker_id in ("JOKER-S", "JOKER-B"):
+            self.assertIsNone(classify_cards(cards(joker_id)))
+            table, state = self.custom_state([(joker_id,), ("D2",)])
+            self.assertEqual(self.game.legal_actions_for(state, "human-1"), [])
+            with self.assertRaisesRegex(ValueError, "不是服务端当前发布的合法出牌"):
+                self.game.validate_action(
+                    state,
+                    {"action": "play", "card_ids": [joker_id]},
+                    table[0],
+                )
+        self.assertIsNone(classify_cards(cards("SA", "JOKER-S", "S2")))
+        self.assertIsNone(classify_cards(cards("SK", "HK", "S2", "JOKER-S")))
 
     def test_ordinary_follow_is_exactly_one_step_and_two_is_special(self):
         three = ordinary("single", "3", 1)
@@ -217,9 +261,65 @@ class GandengyanRuleTests(unittest.TestCase):
             action.get("card_ids") in (["JOKER-S"], ["JOKER-B"])
             for action in legal
         ))
-        self.assertEqual(sum(action.get("pattern_type") == "three_bomb" for action in legal), 4)
+        natural_triples = [
+            action for action in legal
+            if action.get("pattern_type") == "three_bomb"
+            and not set(action["card_ids"]) & {"JOKER-S", "JOKER-B"}
+        ]
+        self.assertEqual(len(natural_triples), 4)
+        self.assertTrue(any(
+            action.get("pattern_type") == "pair"
+            and set(action["card_ids"]) == {"S7", "JOKER-S"}
+            for action in legal
+        ))
         for action in legal:
             self.game.validate_action(deepcopy(state), action, table[0])
+
+    def test_following_checks_every_wildcard_interpretation(self):
+        table, state = self.custom_state([
+            ("S4", "H5", "JOKER-S", "S9"),
+            ("S3",),
+        ])
+        ambiguous = classify_card_patterns(cards("S4", "H5", "JOKER-S"))
+        self.assertEqual(
+            [pattern["top_rank"] for pattern in ambiguous], ["5", "6"]
+        )
+        state["trick"]["last_play"] = {
+            "player_id": "ai-1",
+            "cards": cards("S3", "H4", "C5"),
+            "pattern": classify_cards(cards("S3", "H4", "C5")),
+        }
+        state["flow"]["phase"] = "following"
+        legal = self.game.legal_actions_for(state, "human-1")
+        action = next(
+            item for item in legal
+            if set(item.get("card_ids", [])) == {"S4", "H5", "JOKER-S"}
+        )
+        self.assertEqual(action["pattern_type"], "straight")
+        self.game.validate_action(deepcopy(state), action, table[0])
+        applied = self.game.apply_action(state, action, table[0])
+        self.assertEqual(applied.state["trick"]["last_play"]["pattern"]["top_rank"], "6")
+
+        table, state = self.custom_state([
+            ("C4", "D4", "JOKER-S", "JOKER-B", "S9"),
+            ("S3",),
+        ])
+        state["trick"]["last_play"] = {
+            "player_id": "ai-1",
+            "cards": cards("S3", "H3", "S4", "H4"),
+            "pattern": classify_cards(cards("S3", "H3", "S4", "H4")),
+        }
+        state["flow"]["phase"] = "following"
+        legal = self.game.legal_actions_for(state, "human-1")
+        action = next(
+            item for item in legal
+            if set(item.get("card_ids", []))
+            == {"C4", "D4", "JOKER-S", "JOKER-B"}
+        )
+        self.assertEqual(action["pattern_type"], "consecutive_pairs")
+        applied = self.game.apply_action(state, action, table[0])
+        self.assertEqual(applied.state["trick"]["last_play"]["pattern"]["top_rank"], "5")
+        self.assertEqual(applied.state["multiplier"], 1)
 
     def test_follow_actions_include_exact_step_two_and_bombs_but_not_skipped_rank(self):
         table, state = self.custom_state([
@@ -303,6 +403,71 @@ class GandengyanRuleTests(unittest.TestCase):
         self.assertEqual(state["last_action"]["draw_counts"], {
             "human-1": 1, "ai-1": 0, "ai-2": 0,
         })
+
+    def test_empty_deck_automatically_skips_a_lone_joker_leader(self):
+        table, state = self.custom_state([
+            ("S3", "JOKER-S"),
+            ("S4",),
+        ])
+        self.game.apply_action(
+            state, {"action": "play", "card_ids": ["S3"]}, table[0]
+        )
+        applied = self.game.apply_action(state, {"action": "pass"}, table[1])
+
+        self.assertEqual(applied.next_player_id, "ai-1")
+        self.assertEqual(applied.skipped_player_ids, ["human-1"])
+        self.assertEqual(state["turn_player_id"], "ai-1")
+        self.assertEqual(state["trick"]["leader_player_id"], "ai-1")
+        self.assertEqual(
+            state["last_action"]["skipped_leader_player_ids"], ["human-1"]
+        )
+        self.assertEqual(self.game.legal_actions_for(state, "human-1"), [])
+        with self.assertRaisesRegex(ValueError, "引牌者不能过牌"):
+            self.game.validate_action(state, {"action": "pass"}, table[1])
+
+    def test_lone_joker_does_not_block_other_players_from_winning(self):
+        table, state = self.custom_state([
+            ("S3", "JOKER-S"),
+            ("S8",),
+            ("S6",),
+        ])
+        self.game.apply_action(
+            state, {"action": "play", "card_ids": ["S3"]}, table[0]
+        )
+        self.game.apply_action(state, {"action": "pass"}, table[1])
+        applied = self.game.apply_action(state, {"action": "pass"}, table[2])
+        self.assertEqual(applied.next_player_id, "ai-1")
+        self.assertEqual(state["turn_player_id"], "ai-1")
+
+        won = self.game.apply_action(
+            state, {"action": "play", "card_ids": ["S8"]}, table[1]
+        )
+        self.assertEqual(won.result, {"winner_player_id": "ai-1", "draw": False})
+        self.assertEqual(state["winner_player_id"], "ai-1")
+
+    def test_all_players_without_a_legal_lead_end_in_a_draw(self):
+        table, state = self.custom_state([
+            ("S3", "JOKER-S"),
+            ("JOKER-B",),
+        ])
+        self.game.apply_action(
+            state, {"action": "play", "card_ids": ["S3"]}, table[0]
+        )
+        applied = self.game.apply_action(state, {"action": "pass"}, table[1])
+
+        self.assertEqual(state["flow"]["phase"], "finished")
+        self.assertIsNone(state["turn_player_id"])
+        self.assertIsNone(state["winner_player_id"])
+        self.assertTrue(state["draw"])
+        self.assertEqual(applied.skipped_player_ids, ["human-1", "ai-1"])
+        self.assertIsNone(applied.result["winner_player_id"])
+        self.assertTrue(applied.result["draw"])
+        self.assertEqual(self.game.result_for(state, table), applied.result)
+        self.assertEqual(
+            self.game.settlement_deltas(state, applied.result, table, 5),
+            {"human-1": 0, "ai-1": 0},
+        )
+        self.assertIn("terminal_hands", self.game.public_state(state, table))
 
     def test_player_wins_immediately_after_play_record_is_consistent(self):
         table, state = self.custom_state([("S3",), ("S4", "S5")])
@@ -596,6 +761,52 @@ class GandengyanFrameworkSettlementTests(unittest.TestCase):
             "ai-3": -24,
         })
         self.assertEqual(sum(room["result"]["settlement_deltas"].values()), 0)
+
+    def test_framework_draw_settlement_is_all_zero_without_a_winner(self):
+        room = framework.create_room(
+            "gandengyan",
+            "human_first",
+            "human",
+            "human-1",
+            opponent_id="ai-1",
+            ordered_participants=self.room_participants(2),
+            stake=5,
+        )
+        room = framework.respond_to_invitation(
+            room["room_id"], "ai", "ai-1", "accept"
+        )
+        state = deepcopy(room["board_state"])
+        state["cards"] = {
+            "deck": [],
+            "discard": [],
+            "hands": {
+                "human-1": cards("S3", "JOKER-S"),
+                "ai-1": cards("JOKER-B"),
+            },
+        }
+        state["turn_player_id"] = "human-1"
+        state["trick"] = self.game._new_trick(1, "human-1")
+        state["flow"].update({
+            "phase": "leading", "round_number": 1, "turn_number": 0,
+        })
+        room = self.replace_state(room, state)
+
+        room = framework.play_move(
+            room["room_id"], "human", "human-1",
+            {"action": "play", "card_ids": ["S3"]},
+        )
+        room = framework.play_move(
+            room["room_id"], "ai", "ai-1", {"action": "pass"}
+        )
+
+        self.assertEqual(room["status"], "finished")
+        self.assertEqual(room["winner"], "draw")
+        self.assertIsNone(room["winner_player_id"])
+        self.assertTrue(room["result"]["draw"])
+        self.assertEqual(room["result"]["settlement_deltas"], {
+            "human-1": 0, "ai-1": 0,
+        })
+        self.assertTrue(room["result"]["settlement_zero_sum"])
 
 
 if __name__ == "__main__":

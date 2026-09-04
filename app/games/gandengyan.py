@@ -120,52 +120,93 @@ def _pattern(
     return result
 
 
-def classify_cards(cards: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
-    """Recognize exactly the fixed-version legal card patterns."""
+def classify_card_patterns(
+    cards: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return every legal interpretation of one physical card combination."""
     selected = list(cards)
     if not selected or len(selected) != len({card.get("id") for card in selected}):
-        return None
+        return []
     ranks = [card.get("rank") for card in selected]
     if len(selected) == 2 and set(ranks) == set(JOKER_RANKS):
-        return _pattern("joker_bomb", selected, rank="big_joker")
-    if any(rank in JOKER_RANKS or rank not in RANK_VALUE for rank in ranks):
-        return None
+        return [_pattern("joker_bomb", selected, rank="big_joker")]
+    if any(rank not in RANK_VALUE and rank not in JOKER_RANKS for rank in ranks):
+        return []
 
-    counts = {rank: ranks.count(rank) for rank in set(ranks)}
-    if len(counts) == 1:
-        rank = str(ranks[0])
+    joker_count = sum(rank in JOKER_RANKS for rank in ranks)
+    ordinary_ranks = [str(rank) for rank in ranks if rank not in JOKER_RANKS]
+    if not ordinary_ranks:
+        return []
+    counts = {rank: ordinary_ranks.count(rank) for rank in set(ordinary_ranks)}
+    patterns: list[dict[str, Any]] = []
+
+    # A joker can complete a same-rank group, but can never become a single.
+    if len(counts) == 1 and len(selected) <= 4:
+        rank = ordinary_ranks[0]
         pattern_type = {
             1: "single",
             2: "pair",
             3: "three_bomb",
             4: "four_bomb",
         }.get(len(selected))
-        return _pattern(pattern_type, selected, rank=rank) if pattern_type else None
+        if pattern_type is not None and (joker_count == 0 or len(selected) > 1):
+            patterns.append(_pattern(pattern_type, selected, rank=rank))
 
-    if "2" in counts:
-        return None
-    ordered_values = sorted(RANK_VALUE[str(rank)] for rank in counts)
-    consecutive = ordered_values == list(
-        range(ordered_values[0], ordered_values[-1] + 1)
-    )
-    if not consecutive:
-        return None
-    ordered_ranks = [RANKS[value] for value in ordered_values]
-    if len(selected) >= 3 and all(count == 1 for count in counts.values()):
-        return _pattern(
-            "straight",
-            selected,
-            start_rank=ordered_ranks[0],
-            top_rank=ordered_ranks[-1],
+    # Enumerate every containing run: 4,5,王 can mean either 3-5 or 4-6.
+    if (
+        len(selected) >= 3
+        and "2" not in counts
+        and all(count == 1 for count in counts.values())
+    ):
+        length = len(selected)
+        ordinary_values = {RANK_VALUE[rank] for rank in ordinary_ranks}
+        for start in range(0, len(SEQUENCE_RANKS) - length + 1):
+            stop = start + length
+            if ordinary_values <= set(range(start, stop)):
+                patterns.append(_pattern(
+                    "straight",
+                    selected,
+                    start_rank=RANKS[start],
+                    top_rank=RANKS[stop - 1],
+                ))
+
+    # Jokers may fill either half of a pair or an entire missing pair.
+    if (
+        len(selected) >= 4
+        and len(selected) % 2 == 0
+        and "2" not in counts
+        and all(count <= 2 for count in counts.values())
+    ):
+        pair_count = len(selected) // 2
+        ordinary_values = {RANK_VALUE[rank] for rank in ordinary_ranks}
+        for start in range(0, len(SEQUENCE_RANKS) - pair_count + 1):
+            stop = start + pair_count
+            if ordinary_values <= set(range(start, stop)) and sum(
+                2 - counts.get(RANKS[value], 0) for value in range(start, stop)
+            ) == joker_count:
+                patterns.append(_pattern(
+                    "consecutive_pairs",
+                    selected,
+                    start_rank=RANKS[start],
+                    top_rank=RANKS[stop - 1],
+                ))
+
+    unique: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for pattern in patterns:
+        identity = (
+            pattern["type"],
+            pattern.get("rank"),
+            pattern.get("start_rank"),
+            pattern.get("top_rank"),
         )
-    if len(counts) >= 2 and all(count == 2 for count in counts.values()):
-        return _pattern(
-            "consecutive_pairs",
-            selected,
-            start_rank=ordered_ranks[0],
-            top_rank=ordered_ranks[-1],
-        )
-    return None
+        unique.setdefault(identity, pattern)
+    return list(unique.values())
+
+
+def classify_cards(cards: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return a stable canonical interpretation for compatibility callers."""
+    patterns = classify_card_patterns(cards)
+    return patterns[0] if patterns else None
 
 
 def can_beat(candidate: dict[str, Any], target: dict[str, Any]) -> bool:
@@ -204,43 +245,80 @@ def _all_combinations(hand: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         )
         for rank in RANKS
     }
-    combinations: list[list[dict[str, Any]]] = []
+    jokers = sorted(
+        [card for card in hand if card.get("rank") in JOKER_RANKS],
+        key=_card_sort_key,
+    )
+    combinations: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+
+    def add(cards: Iterable[dict[str, Any]]) -> None:
+        ordered = sorted(cards, key=_card_sort_key)
+        key = tuple(sorted(str(card["id"]) for card in ordered))
+        combinations.setdefault(key, ordered)
+
     for rank in RANKS:
-        cards = by_rank[rank]
-        combinations.extend([[card] for card in cards])
-        for count in (2, 3, 4):
-            combinations.extend(
-                list(group) for group in itertools.combinations(cards, count)
-            )
+        rank_cards = by_rank[rank]
+        for total_count in (1, 2, 3, 4):
+            for joker_count in range(0, min(len(jokers), total_count - 1) + 1):
+                ordinary_count = total_count - joker_count
+                if ordinary_count > len(rank_cards):
+                    continue
+                for ordinary_group in itertools.combinations(
+                    rank_cards, ordinary_count
+                ):
+                    for joker_group in itertools.combinations(jokers, joker_count):
+                        add((*ordinary_group, *joker_group))
 
-    jokers = [card for card in hand if card.get("rank") in JOKER_RANKS]
     if {card.get("rank") for card in jokers} == set(JOKER_RANKS):
-        combinations.append(sorted(jokers, key=_card_sort_key))
+        add(jokers)
 
-    available = [rank for rank in SEQUENCE_RANKS if by_rank[rank]]
-    available_set = set(available)
     for start in range(len(SEQUENCE_RANKS)):
         for stop in range(start + 3, len(SEQUENCE_RANKS) + 1):
             run = SEQUENCE_RANKS[start:stop]
-            if set(run) <= available_set:
-                combinations.extend(
-                    list(group)
-                    for group in itertools.product(
-                        *(by_rank[rank] for rank in run)
-                    )
-                )
+            for joker_count in range(0, min(len(jokers), len(run)) + 1):
+                for gaps in itertools.combinations(run, joker_count):
+                    ordinary_run = [rank for rank in run if rank not in gaps]
+                    if any(not by_rank[rank] for rank in ordinary_run):
+                        continue
+                    for ordinary_group in itertools.product(
+                        *(by_rank[rank] for rank in ordinary_run)
+                    ):
+                        for joker_group in itertools.combinations(jokers, joker_count):
+                            add((*ordinary_group, *joker_group))
 
-    pair_choices = {
-        rank: list(itertools.combinations(by_rank[rank], 2))
-        for rank in SEQUENCE_RANKS
-    }
     for start in range(len(SEQUENCE_RANKS)):
         for stop in range(start + 2, len(SEQUENCE_RANKS) + 1):
             run = SEQUENCE_RANKS[start:stop]
-            if all(pair_choices[rank] for rank in run):
-                for groups in itertools.product(*(pair_choices[rank] for rank in run)):
-                    combinations.append([card for group in groups for card in group])
-    return combinations
+            deficit_options: list[tuple[int, ...]] = [(0,) * len(run)]
+            if jokers:
+                deficit_options.extend(
+                    tuple(1 if index == missing else 0 for index in range(len(run)))
+                    for missing in range(len(run))
+                )
+            if len(jokers) >= 2:
+                deficit_options.extend(
+                    tuple(2 if index == missing else 0 for index in range(len(run)))
+                    for missing in range(len(run))
+                )
+                deficit_options.extend(
+                    tuple(1 if index in missing else 0 for index in range(len(run)))
+                    for missing in itertools.combinations(range(len(run)), 2)
+                )
+            for deficits in deficit_options:
+                joker_count = sum(deficits)
+                choices = [
+                    list(itertools.combinations(by_rank[rank], 2 - deficit))
+                    for rank, deficit in zip(run, deficits)
+                ]
+                if any(not rank_choices for rank_choices in choices):
+                    continue
+                for ordinary_groups in itertools.product(*choices):
+                    ordinary_cards = [
+                        card for group in ordinary_groups for card in group
+                    ]
+                    for joker_group in itertools.combinations(jokers, joker_count):
+                        add((*ordinary_cards, *joker_group))
+    return list(combinations.values())
 
 
 def _public_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
@@ -273,17 +351,20 @@ class Gandengyan(GamePlugin):
         "【跟牌】\n"
         "普通跟牌"
         "必须同牌型、同张数并且恰好高一级；单 2 可以压任意普通单张，对 2 可以压任意"
-        "普通对子，2 不得进入顺子或连对。大小王不能单出；为消除地区差异，第一版"
-        "明确锁定大小王不是万能赖子，只能由双王组成王炸，不采用广告牌或癞子变体。\n\n"
+        "普通对子，2 不得进入顺子或连对。大小王不能单出（绝对禁止单出），但可作"
+        "百搭牌，与普通牌组成对子、顺子、连对、三炸或深水炸弹；同一组牌有多种解释"
+        "时，服务端按当前牌面采用可合法跟牌的解释。双王单独一起仍是最高王炸。\n\n"
         "【回合】\n"
         "每墩由引牌者出任意合法牌，之后按座位依次跟牌或过；一次成功出牌会重新开始"
         "统计其他人的过牌。当最后出牌者之外的所有仍在局玩家都过牌，该墩结束，由"
         "最后成功出牌者成为下墩引牌者，并从该玩家开始按座位顺序每人摸 1 张；牌堆"
-        "耗尽后，后续席位不再摸牌。\n\n"
+        "耗尽后，后续席位不再摸牌。牌堆已空时，若新引牌者只剩孤王等、没有任何合法"
+        "引牌组合，服务端自动跳到下一位可引牌玩家；所有人都无法引牌则本局和局。\n\n"
         "【胜负与结算】\n"
         "任一玩家出完手牌立即获胜。筹码按底注、剩余手牌"
         "和倍率进行多人零和结算：每名输家承担 底注×剩余手牌张数×最终倍率 的负值，"
-        "赢家获得所有负值的绝对值之和。每出现一次三炸、深水炸弹或王炸，最终倍率"
+        "赢家获得所有负值的绝对值之和；和局时所有玩家筹码变化均为 0。每出现一次"
+        "三炸、深水炸弹或王炸，最终倍率"
         "乘 2，最高 8 倍。不采用春天、天胡或其他地区附加翻倍。"
     )
     move_format = (
@@ -310,6 +391,8 @@ class Gandengyan(GamePlugin):
             "action_history": [],
             "last_action": None,
             "winner_player_id": None,
+            "draw": False,
+            "draw_reason": None,
         }
         ensure_flow(state, phase="leading")
         return state
@@ -388,10 +471,8 @@ class Gandengyan(GamePlugin):
         target_pattern = target.get("pattern") if isinstance(target, dict) else None
         actions: list[dict[str, Any]] = []
         for cards in _all_combinations(hand):
-            pattern = classify_cards(cards)
+            pattern = cls._resolve_pattern(cards, target_pattern)
             if pattern is None:
-                continue
-            if target_pattern is not None and not can_beat(pattern, target_pattern):
                 continue
             ordered_cards = sorted(cards, key=_card_sort_key)
             actions.append({
@@ -406,6 +487,24 @@ class Gandengyan(GamePlugin):
             tuple(action["card_ids"]),
         ))
         return actions
+
+    @staticmethod
+    def _resolve_pattern(
+        cards: Iterable[dict[str, Any]],
+        target_pattern: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Choose a legal interpretation without discarding alternate meanings."""
+        patterns = classify_card_patterns(cards)
+        if target_pattern is not None:
+            patterns = [item for item in patterns if can_beat(item, target_pattern)]
+            same_type = [
+                item for item in patterns
+                if item["type"] == target_pattern.get("type")
+                and item["count"] == target_pattern.get("count")
+            ]
+            if same_type:
+                return same_type[0]
+        return patterns[0] if patterns else None
 
     @classmethod
     def legal_actions_for(
@@ -463,12 +562,10 @@ class Gandengyan(GamePlugin):
             raise ValueError("play 只接受 action、card_ids 和服务端牌型提示")
         card_ids = self._parse_card_ids(move)
         selected = self._cards_for_ids(state, player_id, card_ids)
-        pattern = classify_cards(selected)
         target = (state.get("trick") or {}).get("last_play")
         target_pattern = target.get("pattern") if isinstance(target, dict) else None
-        if pattern is None or (
-            target_pattern is not None and not can_beat(pattern, target_pattern)
-        ):
+        pattern = self._resolve_pattern(selected, target_pattern)
+        if pattern is None:
             raise ValueError("所选组合不是服务端当前发布的合法出牌")
         for key in ("pattern_type", "pattern_label"):
             expected = pattern["type" if key == "pattern_type" else "label"]
@@ -497,7 +594,9 @@ class Gandengyan(GamePlugin):
         card_ids = self._parse_card_ids(move)
         cards = self._cards_for_ids(state, player_id, card_ids)
         cards = sorted(cards, key=_card_sort_key)
-        pattern = classify_cards(cards)
+        target = (state.get("trick") or {}).get("last_play")
+        target_pattern = target.get("pattern") if isinstance(target, dict) else None
+        pattern = self._resolve_pattern(cards, target_pattern)
         if pattern is None:
             raise ValueError("服务端无法识别所选牌型")
         discard_cards(state, player_id, cards)
@@ -584,6 +683,33 @@ class Gandengyan(GamePlugin):
                     break
                 draw_counts[candidate] = len(draw_cards(state, candidate, 1))
             completed_number = int(trick["number"])
+            state["flow"].update({
+                "phase": "leading",
+                "round_number": completed_number + 1,
+                "turn_number": 0,
+            })
+            state["trick"] = self._new_trick(completed_number + 1, last_player)
+            state["turn_player_id"] = last_player
+            skipped_leaders: list[str] = []
+            next_leader: str | None = last_player
+            if not state["cards"]["deck"]:
+                candidate = last_player
+                next_leader = None
+                for _index in state["participant_order"]:
+                    if self._play_actions_for(state, candidate):
+                        next_leader = candidate
+                        break
+                    skipped_leaders.append(candidate)
+                    candidate = self._next_player(state, candidate)
+                if next_leader is None:
+                    state["draw"] = True
+                    state["draw_reason"] = "no_legal_leading_combination"
+                    state["turn_player_id"] = None
+                    state["flow"]["phase"] = "finished"
+                else:
+                    state["trick"]["leader_player_id"] = next_leader
+                    state["turn_player_id"] = next_leader
+
             summary = {
                 "trick": completed_number,
                 "action": "trick_end",
@@ -593,20 +719,40 @@ class Gandengyan(GamePlugin):
                 "draw_counts": draw_counts,
                 "deck_count": len(state["cards"]["deck"]),
             }
+            if skipped_leaders:
+                summary["skipped_leader_player_ids"] = skipped_leaders
+            if state.get("draw"):
+                summary["draw"] = True
             state["action_history"].append(summary)
             state["last_action"] = deepcopy(summary)
-            state["flow"].update({
-                "phase": "leading",
-                "round_number": completed_number + 1,
-                "turn_number": 0,
-            })
-            state["trick"] = self._new_trick(completed_number + 1, last_player)
-            state["turn_player_id"] = last_player
             drawn_total = sum(draw_counts.values())
+            if state.get("draw"):
+                return MoveResult(
+                    state=state,
+                    skipped_player_ids=skipped_leaders,
+                    note=(
+                        f"其余玩家均过牌，第 {completed_number} 墩结束；牌堆已空且"
+                        "所有玩家均无合法引牌组合，本局和局。"
+                    ),
+                    result={
+                        "winner_player_id": None,
+                        "draw": True,
+                        "draw_reason": state["draw_reason"],
+                        "result_text": "牌堆已空且所有玩家均无法引牌，本局和局。",
+                    },
+                )
+            skip_note = (
+                f"；自动跳过 {len(skipped_leaders)} 名无法引牌的玩家"
+                if skipped_leaders else ""
+            )
             return MoveResult(
                 state=state,
-                next_player_id=last_player,
-                note=f"其余玩家均过牌，第 {completed_number} 墩结束；按顺序摸 {drawn_total} 张。",
+                next_player_id=next_leader,
+                skipped_player_ids=skipped_leaders,
+                note=(
+                    f"其余玩家均过牌，第 {completed_number} 墩结束；按顺序摸 "
+                    f"{drawn_total} 张{skip_note}。"
+                ),
             )
         next_player = self._next_player(state, player_id)
         state["turn_player_id"] = next_player
@@ -671,6 +817,13 @@ class Gandengyan(GamePlugin):
         participants: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
         del participants
+        if state.get("draw"):
+            return {
+                "winner_player_id": None,
+                "draw": True,
+                "draw_reason": state.get("draw_reason"),
+                "result_text": "牌堆已空且所有玩家均无法引牌，本局和局。",
+            }
         winner = state.get("winner_player_id")
         return {"winner_player_id": winner, "draw": False} if winner else None
 
@@ -720,11 +873,13 @@ class Gandengyan(GamePlugin):
         stake: int,
     ) -> dict[str, int]:
         player_ids = [str(item["player_id"]) for item in participants]
-        winner = result.get("winner_player_id")
-        if winner not in player_ids or result.get("draw"):
-            raise ValueError("干瞪眼终局必须有一名有效赢家")
         if isinstance(stake, bool) or not isinstance(stake, int) or stake <= 0:
             raise ValueError("干瞪眼筹码底注必须是正整数")
+        if result.get("draw"):
+            return {player_id: 0 for player_id in player_ids}
+        winner = result.get("winner_player_id")
+        if winner not in player_ids:
+            raise ValueError("干瞪眼终局必须有一名有效赢家")
         multiplier = min(int(state.get("multiplier", 1)), MAX_MULTIPLIER)
         hands = state.get("cards", {}).get("hands", {})
         deltas = {
@@ -740,10 +895,7 @@ class Gandengyan(GamePlugin):
         state: dict[str, Any],
         participants: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        terminal = (
-            state.get("flow", {}).get("phase") == "finished"
-            and state.get("winner_player_id") is not None
-        )
+        terminal = state.get("flow", {}).get("phase") == "finished"
         return self._project_public_state(state, participants, terminal=terminal)
 
     def terminal_public_state(
@@ -825,7 +977,8 @@ class Gandengyan(GamePlugin):
         return (
             "固定四川 54 张干瞪眼：普通跟牌同型同数且恰高一级，单/对 2 可越级；"
             "顺子和连对不含 2。三炸、四炸、双王炸可按强度或点数越级压制。"
-            "大小王不能单出且不作赖子。不要自行推导组合，只能原样选择服务端的"
+            "大小王不能单出，但可百搭组成对子、顺子、连对、三炸或四炸；双王仍为"
+            "最高王炸。不要自行推导组合，只能原样选择服务端的"
             " authoritative legal_actions。"
         )
 
@@ -857,7 +1010,9 @@ class Gandengyan(GamePlugin):
             return "过"
         card_ids = self._parse_card_ids(move)
         cards = self._cards_for_ids(state, str(actor["player_id"]), card_ids)
-        pattern = classify_cards(cards)
+        target = (state.get("trick") or {}).get("last_play")
+        target_pattern = target.get("pattern") if isinstance(target, dict) else None
+        pattern = self._resolve_pattern(cards, target_pattern)
         if pattern is None:
             raise ValueError("无法识别出牌牌型")
         labels = "、".join(
