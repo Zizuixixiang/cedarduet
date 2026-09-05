@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-liars-dice-review-styles";
-  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.0";
+  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.1";
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -34,6 +34,15 @@
       || playerId || "玩家";
   }
 
+  function createDie(documentRef, value) {
+    const face = Number(value);
+    const die = element(documentRef, "i", "liars-die");
+    die.setAttribute("data-face", String(face));
+    die.setAttribute("role", "img");
+    die.setAttribute("aria-label", `${face} 点骰子`);
+    return die;
+  }
+
   function appendTerminalReview(context) {
     const diceByPlayer = context.state && context.state.terminal_dice;
     if (!diceByPlayer || typeof diceByPlayer !== "object") return;
@@ -47,9 +56,21 @@
     ));
     const rows = element(documentRef, "div", "liars-terminal-dice");
     Object.entries(diceByPlayer).forEach(([playerId, dice]) => {
-      const row = element(documentRef, "span", "liars-terminal-row");
+      const row = element(documentRef, "div", "liars-terminal-row");
       row.dataset.playerId = playerId;
-      row.textContent = `${participantName(context, playerId)}：${Array.isArray(dice) && dice.length ? dice.join(" · ") : "无骰"}`;
+      const owner = element(
+        documentRef,
+        "span",
+        "liars-terminal-owner",
+        `${participantName(context, playerId)}：`
+      );
+      const tray = element(documentRef, "span", "liars-dice-row liars-terminal-dice-row");
+      if (Array.isArray(dice) && dice.length) {
+        dice.forEach((value) => tray.appendChild(createDie(documentRef, value)));
+      } else {
+        tray.textContent = "无骰";
+      }
+      row.append(owner, tray);
       rows.appendChild(row);
     });
     review.appendChild(rows);

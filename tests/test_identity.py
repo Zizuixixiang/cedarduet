@@ -382,11 +382,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
-        self.assertIn("/static/app.js?v=0.9.4", html)
-        self.assertIn("/static/styles.css?v=0.9.7", html)
+        self.assertIn("/static/app.js?v=0.9.5", html)
+        self.assertIn("/static/styles.css?v=0.9.8", html)
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
-            html.index("/static/app.js?v=0.9.4"),
+            html.index("/static/app.js?v=0.9.5"),
         )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)

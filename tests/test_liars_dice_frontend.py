@@ -9,6 +9,9 @@ SCRIPT_PATH = ROOT / "app" / "static" / "games" / "liars_dice.js"
 STYLE_PATH = ROOT / "app" / "static" / "games" / "liars_dice.css"
 SCRIPT = SCRIPT_PATH.read_text(encoding="utf-8")
 STYLES = STYLE_PATH.read_text(encoding="utf-8")
+PUBLIC_STYLES = (ROOT / "app" / "static" / "styles.css").read_text(
+    encoding="utf-8"
+)
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 NODE = shutil.which("node")
 
@@ -19,7 +22,12 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.0', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.1', HTML)
+        self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
+        self.assertNotIn('dice.join(" · ")', SCRIPT)
+        for face in range(1, 7):
+            self.assertIn(f'.liars-die[data-face="{face}"]', PUBLIC_STYLES)
+        self.assertIn("radial-gradient(circle at 50% 50%", PUBLIC_STYLES)
         self.assertIn("@media (max-width: 375px)", STYLES)
         self.assertIn("grid-template-columns: 1fr", STYLES)
 
@@ -30,8 +38,8 @@ class LiarsDiceFrontendRuntimeTests(unittest.TestCase):
         harness = r'''
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
 class ClassList{constructor(){this.names=new Set();}set(v){this.names=new Set(String(v||"").split(/\s+/).filter(Boolean));}}
-class Element{constructor(tag,doc){this.tag=tag;this.ownerDocument=doc;this.children=[];this.dataset={};this.classList=new ClassList();this.textContent="";}
- set className(v){this.classList.set(v);}get className(){return [...this.classList.names].join(" ");}appendChild(n){this.children.push(n);return n;}}
+class Element{constructor(tag,doc){this.tag=tag;this.ownerDocument=doc;this.children=[];this.dataset={};this.attributes={};this.classList=new ClassList();this.textContent="";}
+ set className(v){this.classList.set(v);}get className(){return [...this.classList.names].join(" ");}appendChild(n){this.children.push(n);return n;}append(...nodes){nodes.forEach((node)=>this.appendChild(node));}setAttribute(name,value){this.attributes[name]=String(value);}}
 const styles=new Map();const document={head:{appendChild(n){styles.set(n.id,n);}},createElement(t){return new Element(t,document);},getElementById(id){return styles.get(id)||null;}};
 let renderer=null,legacyCalls=0;
 const window={document,renderLiarsDice(board){legacyCalls+=1;const legacy=new Element("section",document);legacy.className="legacy-liars-table";board.appendChild(legacy);},DuelGameUI:{register(type,value){assert.equal(type,"liars_dice");renderer=value;}}};
@@ -43,9 +51,13 @@ board=render({flow:{phase:"finished"},terminal_dice:{human:[1,2,3],ai:[6,6]}});
 assert.equal(legacyCalls,2);assert.equal(board.children.length,2);
 const review=board.children[1];assert.equal(review.className,"liars-terminal-review");
 assert.equal(review.children[0].textContent,"终局骰子复盘 · 2 家");
-assert.equal(review.children[1].children[0].textContent,"南山：1 · 2 · 3");
-assert.equal(review.children[1].children[1].textContent,"小机：6 · 6");
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.0");
+const rows=review.children[1].children;
+assert.equal(rows[0].children[0].textContent,"南山：");
+assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-face"]),["1","2","3"]);
+assert.equal(rows[1].children[0].textContent,"小机：");
+assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
+assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.1");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,

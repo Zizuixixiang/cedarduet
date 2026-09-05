@@ -26,13 +26,27 @@
 
 .liars-terminal-row {
   min-width: 0;
-  overflow: hidden;
   padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   border-radius: 7px;
   background: #eee4c9;
   font-size: 11px;
+}
+
+.liars-terminal-owner {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.liars-terminal-dice-row {
+  flex: none;
+  gap: 3px;
 }
 
 @media (max-width: 375px) {

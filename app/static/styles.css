@@ -1000,19 +1000,42 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 12px;
 }
 .private-state-row span { overflow-wrap: anywhere; }
-.my-dice { display: flex; flex-wrap: wrap; gap: 7px; }
-.my-dice i {
+.liars-dice-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.liars-die {
+  --liars-pip-radius: 2.5px;
+  --liars-pip-tl: transparent;
+  --liars-pip-tr: transparent;
+  --liars-pip-ml: transparent;
+  --liars-pip-c: transparent;
+  --liars-pip-mr: transparent;
+  --liars-pip-bl: transparent;
+  --liars-pip-br: transparent;
   width: 34px;
   height: 34px;
-  display: grid;
-  place-items: center;
+  display: block;
+  flex: 0 0 auto;
   color: #fff;
-  background: var(--purple-dark);
+  background-color: var(--purple-dark);
+  background-image:
+    radial-gradient(circle at 24% 24%, var(--liars-pip-tl) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 76% 24%, var(--liars-pip-tr) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 24% 50%, var(--liars-pip-ml) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 50% 50%, var(--liars-pip-c) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 76% 50%, var(--liars-pip-mr) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 24% 76%, var(--liars-pip-bl) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px)),
+    radial-gradient(circle at 76% 76%, var(--liars-pip-br) 0 var(--liars-pip-radius), transparent calc(var(--liars-pip-radius) + .5px));
+  background-repeat: no-repeat;
   border: 3px solid var(--purple-darker);
   box-shadow: 2px 2px 0 rgba(92, 84, 99, .22);
   font-style: normal;
-  font-size: 15px;
+  font-size: 0;
 }
+.liars-die[data-face="1"] { --liars-pip-c: currentColor; }
+.liars-die[data-face="2"] { --liars-pip-tl: currentColor; --liars-pip-br: currentColor; }
+.liars-die[data-face="3"] { --liars-pip-tl: currentColor; --liars-pip-c: currentColor; --liars-pip-br: currentColor; }
+.liars-die[data-face="4"] { --liars-pip-tl: currentColor; --liars-pip-tr: currentColor; --liars-pip-bl: currentColor; --liars-pip-br: currentColor; }
+.liars-die[data-face="5"] { --liars-pip-tl: currentColor; --liars-pip-tr: currentColor; --liars-pip-c: currentColor; --liars-pip-bl: currentColor; --liars-pip-br: currentColor; }
+.liars-die[data-face="6"] { --liars-pip-tl: currentColor; --liars-pip-tr: currentColor; --liars-pip-ml: currentColor; --liars-pip-mr: currentColor; --liars-pip-bl: currentColor; --liars-pip-br: currentColor; }
 .private-state-panel.compact-dice-private {
   padding: 5px 7px;
   border-width: 2px;
@@ -1027,12 +1050,12 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 11px;
 }
 .private-state-panel.compact-dice-private .my-dice { gap: 4px; }
-.private-state-panel.compact-dice-private .my-dice i {
+.private-state-panel.compact-dice-private .my-dice .liars-die {
+  --liars-pip-radius: 2px;
   width: 27px;
   height: 27px;
   border-width: 2px;
   box-shadow: 1px 1px 0 rgba(92, 84, 99, .18);
-  font-size: 12px;
 }
 .create-submit {
   min-width: 150px;
@@ -2554,10 +2577,30 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .liars-revealed-dice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
 .liars-reveal-details[open] .liars-revealed-dice { margin-top: 5px; }
-.liars-revealed-dice span {
+.liars-revealed-player {
+  min-width: 0;
   padding: 3px 5px;
-  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   background: rgba(230, 223, 240, .45);
+}
+.liars-dice-owner {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.liars-revealed-player .liars-dice-row { flex: none; gap: 3px; }
+.liars-revealed-player .liars-die,
+.liars-terminal-dice-row .liars-die {
+  --liars-pip-radius: 1.75px;
+  width: 24px;
+  height: 24px;
+  border-width: 2px;
+  box-shadow: 1px 1px 0 rgba(92, 84, 99, .18);
 }
 .liars-controls {
   display: grid;

@@ -26,10 +26,10 @@ def function_source(name: str) -> str:
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
         registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.4"></script>'
+        app_tag = '<script src="/static/app.js?v=0.9.5"></script>'
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.0"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.1"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
@@ -1078,6 +1078,7 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn('document.createElement("details")', renderer)
         self.assertIn('"查看上一轮揭骰"', renderer)
         self.assertIn("revealed_dice_by_player", renderer)
+        self.assertIn("createLiarsDie(document, value)", renderer)
         self.assertIn('flow.phase === "awaiting_round_acknowledgement"', renderer)
         self.assertIn('"本轮已结算。确认后才会重新掷骰并开始下一轮。"', renderer)
         self.assertIn('`知道了，开始第 ${nextRound} 轮`', renderer)
@@ -1117,6 +1118,12 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         private_renderer = function_source("renderPrivateState")
         self.assertIn('key === "dice"', private_renderer)
         self.assertIn("my-dice", private_renderer)
+        self.assertIn("createLiarsDie(document, die)", private_renderer)
+        die_renderer = function_source("createLiarsDie")
+        self.assertIn('die.className = "liars-die"', die_renderer)
+        self.assertIn('die.setAttribute("data-face", String(face))', die_renderer)
+        for face in range(1, 7):
+            self.assertIn(f'.liars-die[data-face="{face}"]', STYLES)
         self.assertIn("await submitMove({", renderer)
         self.assertNotIn("selectMove(", renderer)
         submit = SCRIPT[
@@ -2413,6 +2420,7 @@ assert.equal(pendingState.children[1].textContent, "进入 →");
             function_source("defaultLiarsBidSelection"),
             function_source("liarsBidSelectionFor"),
             function_source("rememberLiarsBidSelection"),
+            function_source("createLiarsDie"),
             function_source("renderLiarsDice"),
         ))
         submit_start = SCRIPT.index("async function submitMove(")
@@ -2435,6 +2443,7 @@ class Element {{
       contains: (name) => this.className.split(/\\s+/).includes(name),
     }};
     this.textContent = "";
+    this.attributes = {{}};
     this.open = false;
     this.value = "";
     this.disabled = false;
@@ -2448,6 +2457,7 @@ class Element {{
     return child;
   }}
   append(...children) {{ this.children.push(...children); }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
   addEventListener(name, callback) {{ this.listeners[name] = callback; }}
   click() {{
     if (!this.disabled && this.listeners.click) return this.listeners.click();
@@ -2602,7 +2612,18 @@ assert.doesNotMatch(compactText, /上一轮|质疑|由 .* 开叫/);
 const details = previousRound.children.find((child) => child.tagName === "DETAILS");assert.equal(details.tagName, "DETAILS");
 assert.equal(details.open, false);
 assert.equal(details.children[0].textContent, "查看上一轮揭骰");
-assert.match(allText(details), /人类一号：1 · 1 · 2/);
+const revealedRows = details.children[1].children;
+assert.equal(revealedRows[0].children[0].textContent, "人类一号：");
+assert.deepEqual(
+  revealedRows[0].children[1].children.map((die) => die.attributes["data-face"]),
+  ["1", "1", "2"]
+);
+assert.equal(revealedRows[1].children[0].textContent, "小机一号：");
+assert.deepEqual(
+  revealedRows[1].children[1].children.map((die) => die.attributes["data-face"]),
+  ["3", "4", "5", "6", "6"]
+);
+assert.doesNotMatch(allText(details), /1 · 1 · 2|3 · 4 · 5/);
 
 const eliminatedBoard = new Element("div");
 renderLiarsDice(eliminatedBoard, {{
@@ -3299,6 +3320,7 @@ for (const count of [3, 4, 5, 6]) {{
         functions = "\n".join((
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
+            function_source("createLiarsDie"),
             function_source("renderPrivateState"),
         ))
         harness = f"""
@@ -3338,6 +3360,11 @@ assert.ok(panel.classList.contains("compact-dice-private"));
 assert.equal(content.children.length, 1);
 assert.ok(content.children[0].children[1].classList.contains("my-dice"));
 assert.equal(content.children[0].children[1].children.length, 5);
+assert.deepEqual(
+  content.children[0].children[1].children.map((die) => die.attributes["data-face"]),
+  ["1", "2", "3", "4", "5"]
+);
+assert.ok(content.children[0].children[1].children.every((die) => die.textContent === ""));
 
 renderPrivateState({{
   game_type: "liars_dice", participants: participants.slice(0, 2),
@@ -3361,6 +3388,7 @@ assert.equal(content.children.length, 0);
         self.assertIn("width: 27px;", compact)
         self.assertIn("height: 27px;", compact)
         self.assertIn("gap: 4px;", compact)
+        self.assertIn("--liars-pip-radius: 2px;", compact)
 
     def test_recent_chat_feed_keeps_latest_public_player_speech(self):
         functions = "\n".join((
@@ -3751,6 +3779,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
             function_source("defaultLiarsBidSelection"),
             function_source("liarsBidSelectionFor"),
             function_source("rememberLiarsBidSelection"),
+            function_source("createLiarsDie"),
             function_source("renderLiarsDice"),
         ))
         harness = f"""
@@ -3770,6 +3799,7 @@ class Element {{
       contains: (name) => this.className.split(/\s+/).includes(name),
     }};
     this.textContent = "";
+    this.attributes = {{}};
     this.value = "";
     this.disabled = false;
     this.listeners = {{}};
@@ -3781,6 +3811,7 @@ class Element {{
     return child;
   }}
   addEventListener(name, listener) {{ this.listeners[name] = listener; }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
   dispatch(name) {{ this.listeners[name](); }}
 }}
 const document = {{createElement: (tag) => new Element(tag)}};

@@ -2468,6 +2468,16 @@ function renderXiangqiBoard(board, state) {
 
 }
 
+function createLiarsDie(documentRef, value) {
+  const face = Number(value);
+  const die = documentRef.createElement("i");
+  die.className = "liars-die";
+  die.setAttribute("data-face", String(face));
+  die.setAttribute("role", "img");
+  die.setAttribute("aria-label", `${face} 点骰子`);
+  return die;
+}
+
 function renderLiarsDice(board, state) {
   const flow = state.flow || {};
   const terminal = Boolean(
@@ -2547,9 +2557,20 @@ function renderLiarsDice(board, state) {
     const diceList = document.createElement("div");
     diceList.className = "liars-revealed-dice";
     Object.entries(outcome.revealed_dice_by_player || {}).forEach(([playerId, dice]) => {
-      const row = document.createElement("span");
+      const row = document.createElement("div");
+      row.className = "liars-revealed-player";
       const participant = participantByPlayerId(playerId);
-      row.textContent = `${(participant && participant.display_name) || playerId}：${dice.join(" · ") || "无骰"}`;
+      const owner = document.createElement("span");
+      owner.className = "liars-dice-owner";
+      owner.textContent = `${(participant && participant.display_name) || playerId}：`;
+      const tray = document.createElement("span");
+      tray.className = "liars-dice-row";
+      if (Array.isArray(dice) && dice.length) {
+        dice.forEach((value) => tray.appendChild(createLiarsDie(document, value)));
+      } else {
+        tray.textContent = "无骰";
+      }
+      row.append(owner, tray);
       diceList.appendChild(row);
     });
     reveal.appendChild(diceList);
@@ -3428,12 +3449,9 @@ function renderPrivateState(targetRoom) {
     label.textContent = labels[key] || key;
     const body = document.createElement("span");
     if (key === "dice" && Array.isArray(value)) {
-      body.className = "my-dice";
+      body.className = "my-dice liars-dice-row";
       value.forEach((die) => {
-        const item = document.createElement("i");
-        item.textContent = String(die);
-        item.setAttribute("aria-label", `${die} 点`);
-        body.appendChild(item);
+        body.appendChild(createLiarsDie(document, die));
       });
       if (!value.length) body.textContent = "已淘汰";
     } else {
