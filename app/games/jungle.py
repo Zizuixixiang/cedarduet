@@ -6,6 +6,7 @@ from .base import GamePlugin, MoveResult
 
 class Jungle(GamePlugin):
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "jungle"
     display_name = "斗兽棋"
     category = "board"
@@ -40,6 +41,36 @@ class Jungle(GamePlugin):
         "O": {(0, 2), (0, 4), (1, 3)},
         "X": {(8, 2), (8, 4), (7, 3)},
     }
+
+    @classmethod
+    def _mcp_terrain(cls) -> dict[str, Any]:
+        """Return immutable terrain once, in compact canonical coordinates."""
+        return {
+            "coordinates": (
+                "[row,col] zero-based; row 0=O home edge, "
+                "row 8=X home edge, col 0=left"
+            ),
+            "dens_by_owner": {
+                owner: list(position) for owner, position in cls.dens.items()
+            },
+            "traps_by_owner": {
+                owner: [list(position) for position in sorted(positions)]
+                for owner, positions in cls.traps.items()
+            },
+            "water": {
+                "rows": [3, 4, 5],
+                "cols": [1, 2, 4, 5],
+                "semantics": "all row/col combinations",
+            },
+            "semantics": {
+                "dens_by_owner": (
+                    "owner cannot enter own den; entering opponent den wins"
+                ),
+                "traps_by_owner": (
+                    "enemy piece in owner's trap can be captured by any owner piece"
+                ),
+            },
+        }
 
     def initial_state(self) -> dict[str, Any]:
         board = [[None for _ in range(7)] for _ in range(9)]
@@ -234,7 +265,14 @@ class Jungle(GamePlugin):
                 state["forced_winner"] = mark
                 note = "对方已无棋子或无合法着法，本方获胜。"
         self._sync_legal_moves(state)
-        return MoveResult(state, note=note)
+        return MoveResult(
+            state,
+            note=note,
+            public_event=(
+                {"jungle_delta": {"captured": captured}}
+                if captured is not None else None
+            ),
+        )
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         return state.get("forced_winner")
@@ -248,6 +286,30 @@ class Jungle(GamePlugin):
         projected = deepcopy(state)
         self._sync_legal_moves(projected)
         return projected
+
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        snapshot = super().mcp_snapshot_state(
+            public_state, viewer, participants
+        )
+        snapshot["terrain"] = self._mcp_terrain()
+        return snapshot
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap["terrain"] = self._mcp_terrain()
+        return bootstrap
 
     def format_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str

@@ -11,6 +11,7 @@ class Xiangqi(GamePlugin):
     recommended_players = 2
     supports_npcs = False
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "xiangqi"
     display_name = "象棋"
     category = "board"
@@ -212,7 +213,14 @@ class Xiangqi(GamePlugin):
             )
         elif updated["in_check"]:
             note = "将军。"
-        return MoveResult(updated, note=note)
+        return MoveResult(
+            updated,
+            note=note,
+            public_event=(
+                {"xiangqi_delta": {"captured": captured}}
+                if captured is not None else None
+            ),
+        )
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         winner = state.get("winner_mark")

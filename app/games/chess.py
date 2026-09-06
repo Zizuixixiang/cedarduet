@@ -17,6 +17,7 @@ class Chess(GamePlugin):
     recommended_players = 2
     supports_npcs = True
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "chess"
     display_name = "国际象棋"
     category = "board"
@@ -173,6 +174,7 @@ class Chess(GamePlugin):
         bootstrap = super().mcp_bootstrap_state(
             public_state, viewer, participants
         )
+        bootstrap.pop("starting_fen", None)
         bootstrap.pop("legal_moves", None)
         return bootstrap
 
@@ -331,7 +333,32 @@ class Chess(GamePlugin):
             note = self.draw_notes.get(reason, "规则引擎判定和棋。")
         elif updated["in_check"]:
             note = "将军。"
-        return MoveResult(updated, note=note)
+        delta: dict[str, Any] = {}
+        flags = str(applied.get("flags", ""))
+        if captured is not None:
+            capture_at = (
+                [from_row, to_col]
+                if "e" in flags else [to_row, to_col]
+            )
+            delta["captured"] = {"piece": captured, "at": capture_at}
+        if "k" in flags:
+            delta["rook_move"] = {
+                "from": [to_row, to_col + 1],
+                "to": [to_row, to_col - 1],
+            }
+        elif "q" in flags:
+            delta["rook_move"] = {
+                "from": [to_row, to_col - 2],
+                "to": [to_row, to_col + 1],
+            }
+        if promotion is not None:
+            color = str(origin).split(":", 1)[0]
+            delta["promoted_to"] = f"{color}:{promotion}"
+        return MoveResult(
+            updated,
+            note=note,
+            public_event={"chess_delta": delta} if delta else None,
+        )
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         winner = state.get("winner_mark")

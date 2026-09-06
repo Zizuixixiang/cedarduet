@@ -6,6 +6,7 @@ from .base import GamePlugin, MoveResult, move_coordinates
 
 class Othello(GamePlugin):
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "othello"
     display_name = "黑白棋"
     category = "board"
@@ -115,7 +116,16 @@ class Othello(GamePlugin):
         elif not opponent_has_move and not current_has_move:
             note = "双方均无合法步，已数子结算。"
         self._sync_legal_moves(state)
-        return MoveResult(state, retain_turn=retain_turn, note=note)
+        return MoveResult(
+            state,
+            retain_turn=retain_turn,
+            note=note,
+            public_event={
+                "othello_delta": {
+                    "flipped": [[flip_row, flip_col] for flip_row, flip_col in flips]
+                }
+            },
+        )
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         board_full = all(cell is not None for row in state["board"] for cell in row)

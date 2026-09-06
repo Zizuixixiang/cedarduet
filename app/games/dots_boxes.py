@@ -8,6 +8,7 @@ class DotsBoxes(GamePlugin):
     supports_stakes = True
     supports_multiplayer_stakes = True
     supports_npcs = True
+    mcp_immediate_public_events = True
     game_type = "dots_boxes"
     display_name = "点格棋"
     category = "board"
@@ -154,7 +155,19 @@ class DotsBoxes(GamePlugin):
         note = ""
         if completed:
             note = f"本手完成 {len(completed)} 个格子并得分，行动权保留。"
-        return MoveResult(state, retain_turn=bool(completed), note=note)
+        return MoveResult(
+            state,
+            retain_turn=bool(completed),
+            note=note,
+            public_event=(
+                {
+                    "dots_boxes_delta": {
+                        "completed": [list(position) for position in completed]
+                    }
+                }
+                if completed else None
+            ),
+        )
 
     def apply_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str

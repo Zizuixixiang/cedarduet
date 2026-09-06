@@ -20,10 +20,12 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 之后 `state` / `move` / `wait` 只返回最小控制状态与该 viewer 尚未读取的可见 `events`。
 事件形状为 `{"name": "显示名", "message"?: "...", "move"?: {...}}`；同一次落子
 的发言和行动不会拆开，也不会暴露 sequence、事件 revision、player ID、座位或 kind。
-确定性棋盘只需把服务端已接受的 `move` 应用到本地盘面；随机或自动公开后果会紧随该
-move 追加一个 `{"name":"双弈裁判","<game>_delta":{...}}`。这类结果在行动者失去
-回合时也会直接进入本次 move 响应。插件 delta 中按参与者映射的公共计数可以使用
-bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
+没有额外效果的确定性落子只需把服务端已接受的 `move` 应用到本地盘面。随机结果、
+服务端选择的落点或一次行动额外改变的公开格，会紧随该 move 追加一个
+`{"name":"双弈裁判","<game>_delta":{...}}`；delta 只补 move 本身不能推出的字段，
+不重复整张棋盘或 move 已带的坐标。这类结果在行动者失去回合时也会直接进入本次 move
+响应。插件 delta 中按参与者映射的公共计数可以使用 bootstrap 已知的稳定 player ID，
+但不会加入新的身份资料。
 普通 message、其他参与者的 move 和未声明“立即公开”的 round_result 只进入
 房间增量事件游标（不是下文
 四类持久化未读通知），不会唤醒尚未
@@ -45,11 +47,29 @@ bootstrap 已知的稳定 player ID，但不会加入新的身份资料。
 
 响应的 `snapshot` 只含 `room_id/game/revision/status/current_actor/participants`、完整
 当前公共 `board_state` 和该 viewer 自己的 `private_state`。它不重复 `rules_text`、
-`move_format`、筹码、静态拓扑或 action/move/dice history；少数游戏把重复的 verbose
-legal move 压成可直接提交的字段。`full_state` 可重复调用且立即返回，即使同时传
+`move_format`、筹码、action/move/dice history，通常也不重复静态拓扑；恢复局面确实
+需要且很紧凑的静态语义例外，例如斗兽棋 `terrain`。少数游戏把重复的 verbose legal
+move 压成可直接提交的字段。一次性 bootstrap 同样不携带可无限增长的
+action/move/dice history。`full_state` 可重复调用且立即返回，即使同时传
 `wait=true` 也不挂等；它既不 claim/补发一次性 bootstrap，也不读取或推进事件游标。
 因此第一次先调用 full_state 后，下一次普通 `state` 仍会正常得到唯一 bootstrap；
 已经 bootstrap 后调用它也不会让 bootstrap 重来。旧请求不传该字段时行为不变。
+
+棋盘裁判增量中的坐标对统一为零起始 `[row,col]`。以下字段只在对应效果发生时返回；
+普通移动仍只有原始 move：
+
+| 游戏 | 裁判增量 | 只补充的权威信息 |
+|---|---|---|
+| 黑白棋 | `othello_delta.flipped` | 实际翻色格列表；不重复新落子格 |
+| 四子连珠 | `connect4_delta.row` | 服务端实际落下的行；列沿用 move |
+| 点格棋 | `dots_boxes_delta.completed` | 本手新完成的格子左上坐标列表 |
+| 斗兽棋 | `jungle_delta.captured` | 吃子时被吃棋编码；目标格沿用 move |
+| 国际象棋 | `chess_delta` | `captured={piece,at}`、易位 `rook_move={from,to}`、`promoted_to`；吃过路兵的 `at` 是实际移除格 |
+| 西洋跳棋 | `checkers_delta` | `captured={piece,at}`、吃后 `continue_jump`、升王 `promoted_to` |
+| 中国象棋 | `xiangqi_delta.captured` | 吃子时被吃棋编码；目标格沿用 move |
+
+这些公开增量同时写入房间事件流：行动方立即取得，其他参与者在下一次可消费状态时按序
+取得。暗信息游戏仍只在 viewer 自己的 `private_state` 返回其可见内容，不借裁判增量公开。
 
 `DUEL_MCP_WAIT_SECONDS` 控制短心跳，默认 30 秒、允许 1–45 秒，不影响 NPC provider
 timeout。`still_waiting` 只含房间号与 revision，它表示本次心跳结束，不表示退出挂等；
@@ -244,7 +264,9 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 ```
 
 横边范围为 `row=0..4,col=0..3`；竖边范围为 `row=0..3,col=0..4`。NPC 收到精简
-规则、完整公开棋盘、公开画边历史和规则引擎枚举的全部未占边。
+规则、完整公开棋盘、公开画边历史和规则引擎枚举的全部未占边。MCP 普通 move 只更新
+所提交的边；若同时完成格子，`dots_boxes_delta.completed` 给出这些格子的左上
+`[row,col]`，据此计分并保留行动权，不重发边或全盘。
 
 ## 吹牛骰子 `liars_dice`
 
@@ -515,6 +537,16 @@ canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的
 六人桌有人认输时不会进入非法五人状态：认输者 `-5×stake`，其余五席各
 `+stake`。
 
+## 斗兽棋 `jungle`
+
+bootstrap 与按需 full_state 的 `board_state.terrain` 使用零起始 `[row,col]`：row 0 是
+O 方本阵边、row 8 是 X 方本阵边、col 0 是左边。`dens_by_owner` 和
+`traps_by_owner` 的 key 是该兽穴/陷阱的所有方；己棋不能进入自己的兽穴，进入对方兽穴
+获胜，敌棋落在己方陷阱时可被己方任意兽吃。水域以
+`water.rows=[3,4,5]`、`water.cols=[1,2,4,5]` 表示两集合的所有组合，共 12 格。
+这些静态坐标不会随逐步增量重复。普通移动由 move 更新起终点；吃子时额外返回
+`jungle_delta.captured`，明确目标格原来的棋子编码。
+
 ## 国际象棋 `chess`
 
 移动用零起始 `from_row/from_col/to_row/to_col`，升变必须保留 `promotion=q|r|b|n`。
@@ -522,6 +554,9 @@ canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的
 重复局面与半回合计数；不重复 verbose `legal_moves` 或棋谱。若列表出现
 `{"action":"claim_draw"}`，表示当前已满足三次重复或 50 回合规则，可提交该动作申和；
 五次重复、75 回合及其他死局仍由服务端自动裁决。
+普通走子直接应用 move；吃子、王车易位和升变才有 `chess_delta`。其中
+`captured.at` 是实际移除棋子的 `[row,col]`，所以吃过路兵不会误删 move 的目标格；
+`rook_move` 给出易位时车的真实起终点，`promoted_to` 给出落地后的颜色与棋种编码。
 
 ## 象棋 `xiangqi`
 
@@ -547,9 +582,10 @@ canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的
 }
 ```
 
-`state` 的 `board_state` 包含 10×9 `board`、`marks`、`fen`、`turn_color`、
+Web `state` 的 `board_state` 包含 10×9 `board`、`marks`、`fen`、`turn_color`、
 `in_check`、`in_checkmate`、`in_stalemate`、`legal_moves`，走棋后还会包含
-`move_history` 和 `last_move`。
+`move_history` 和 `last_move`；MCP bootstrap/full_state 会去掉历史。MCP 普通走子直接
+应用 move，吃子时才补 `xiangqi_delta.captured`，不重发目标格。
 棋子编码为颜色与棋种，例如红车 `r:r`、黑将 `b:k`。`legal_moves` 已过滤马腿、
 象眼、炮架、九宫、过河、将帅照面和送将等非法着法，是调用方选择行动的唯一合法
 目标真源；不要在客户端或提示词里重写一套规则。落子事件另带服务端生成的
@@ -585,3 +621,8 @@ canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的
 棋子编码为 `X:m`、`O:m`、`X:k`、`O:k`。`m` 是普通棋，`k` 是王棋；X 先行并
 向 row 减小方向前进。调用方必须从 `legal_moves` 原样选择动作，不能在 NPC 提示词
 或客户端重写强制吃子、连跳、升王与胜负规则。
+跳吃时 `checkers_delta.captured` 给出实际移除棋子的编码和坐标，
+`continue_jump` 明确同一枚棋是否必须继续跳；到王线时 `promoted_to` 给出新编码。
+bootstrap/full_state 不发送可能无限增长的完整重复局面表，只保留紧凑 `draw_status`：
+双方未推进计数，以及整手结束时当前局面的出现次数。规则裁决仍完全由服务端持久化状态
+执行，不依赖调用方重算。

@@ -1,10 +1,11 @@
 from typing import Any
 
-from .base import GamePlugin
+from .base import GamePlugin, MoveResult
 
 
 class Connect4(GamePlugin):
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "connect4"
     display_name = "四子连珠"
     category = "board"
@@ -48,12 +49,15 @@ class Connect4(GamePlugin):
 
     def apply_move(
         self, state: dict[str, Any], move: dict[str, Any], mark: str
-    ) -> dict[str, Any]:
+    ) -> MoveResult:
         col = self._column(move)
         row = next(row for row in range(5, -1, -1) if state["board"][row][col] is None)
         state["board"][row][col] = mark
         state["last_move"] = {"row": row, "col": col, "mark": mark}
-        return state
+        return MoveResult(
+            state,
+            public_event={"connect4_delta": {"row": row}},
+        )
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         board = state["board"]

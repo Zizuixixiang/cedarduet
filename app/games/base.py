@@ -189,12 +189,19 @@ class GamePlugin(ABC):
         """Return the public board included in the one-time MCP bootstrap.
 
         Web projections keep using :meth:`public_state`.  Games whose public
-        Web board contains a renderer-oriented duplicate of private legal
-        actions can remove only that duplicate here without weakening the
-        canonical browser contract.
+        Web board contains renderer-oriented duplicates may compact them here
+        without weakening the canonical browser contract.  The default keeps
+        the current layout but omits conventional unbounded histories.
         """
         del viewer, participants
-        return deepcopy(public_state)
+        bootstrap = deepcopy(public_state)
+        # A participant can first claim its bootstrap after several moves have
+        # already been played.  The current board plus unread event cursor is
+        # sufficient; replaying an unbounded history defeats the one-time
+        # compact-context contract.
+        for key in ("action_history", "move_history", "dice_rolls"):
+            bootstrap.pop(key, None)
+        return bootstrap
 
     def mcp_private_state(
         self,

@@ -554,6 +554,18 @@ class Junqi(GamePlugin):
         snapshot.pop("public_actions", None)
         return snapshot
 
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        bootstrap = super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        )
+        bootstrap.pop("public_actions", None)
+        return bootstrap
+
     def mcp_private_state(
         self,
         private_state: dict[str, Any],

@@ -14,6 +14,7 @@ class Checkers(GamePlugin):
     recommended_players = 2
     supports_npcs = True
     supports_stakes = True
+    mcp_immediate_public_events = True
     game_type = "checkers"
     display_name = "西洋跳棋"
     category = "board"
@@ -542,7 +543,57 @@ class Checkers(GamePlugin):
         state["last_move"] = deepcopy(record)
         state.setdefault("action_history", []).append(deepcopy(record))
         self._update_counts(state)
-        return MoveResult(state, retain_turn=retain_turn, note=note)
+        delta: dict[str, Any] = {}
+        if captured is not None:
+            delta["captured"] = {
+                "piece": captured["piece"],
+                "at": [captured["row"], captured["col"]],
+            }
+            delta["continue_jump"] = chain_continues
+        if promoted:
+            delta["promoted_to"] = f"{mark}:{self._KING}"
+        return MoveResult(
+            state,
+            retain_turn=retain_turn,
+            note=note,
+            public_event={"checkers_delta": delta} if delta else None,
+        )
+
+    def _compact_mcp_state(self, state: dict[str, Any]) -> dict[str, Any]:
+        tracking = state.pop("draw_tracking", None)
+        if isinstance(tracking, dict):
+            no_progress = tracking.get("no_progress_moves")
+            counts = tracking.get("position_counts")
+            compact: dict[str, Any] = {}
+            if isinstance(no_progress, dict):
+                compact["no_progress_moves"] = deepcopy(no_progress)
+            if isinstance(counts, dict) and state.get("forced_piece") is None:
+                compact["current_position_count"] = int(
+                    counts.get(self._position_key(state), 0)
+                )
+            if compact:
+                state["draw_status"] = compact
+        return state
+
+    def mcp_snapshot_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._compact_mcp_state(super().mcp_snapshot_state(
+            public_state, viewer, participants
+        ))
+
+    def mcp_bootstrap_state(
+        self,
+        public_state: dict[str, Any],
+        viewer: dict[str, Any],
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._compact_mcp_state(super().mcp_bootstrap_state(
+            public_state, viewer, participants
+        ))
 
     def check_winner(self, state: dict[str, Any]) -> str | None:
         winner = state.get("winner_mark")

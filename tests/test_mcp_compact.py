@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -73,6 +74,26 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    async def new_room_with_state(
+        self, game_type, state, *, ai, human
+    ):
+        game = GAMES[game_type]
+        with patch.object(
+            game,
+            "initialize_for_first_player",
+            return_value=deepcopy(state),
+        ):
+            return await self.new_room(game_type, ai=ai, human=human)
+
+    @staticmethod
+    def referee_delta(payload, key):
+        matches = [
+            event[key] for event in payload.get("events", []) if key in event
+        ]
+        if len(matches) != 1:
+            raise AssertionError(f"expected one {key}, got {matches!r}")
+        return matches[0]
 
     async def test_catalog_exposes_game_capabilities(self):
         response = await self.client.post(
@@ -477,6 +498,27 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assert_compact_delta(compact.json())
         self.assertNotIn("bootstrap", compact.json())
 
+    async def test_late_bootstrap_omits_histories_and_compacts_draw_tracking(self):
+        room = framework.create_room(
+            "checkers", "human_first", "human", "human-late", "ai-late"
+        )
+        move = {"from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1}
+        framework.play_move(room["room_id"], "human", "human-late", move)
+
+        response = await self.client.post("/mcp/play", json={
+            "action": "state",
+            "player_id": "ai-late",
+            "room_id": room["room_id"],
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertTrue(payload["bootstrap"])
+        board = payload["room"]["board_state"]
+        for key in ("action_history", "move_history", "dice_rolls", "draw_tracking"):
+            self.assertNotIn(key, board)
+        self.assertEqual(board["draw_status"]["no_progress_moves"], {"X": 0, "O": 0})
+        self.assertEqual(payload["events"], [{"name": "human-late", "move": move}])
+
     async def test_still_waiting_is_minimal(self):
         started = await self.new_room()
         room_id = started["room"]["room_id"]
@@ -555,7 +597,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             (root / "docs" / "MCP_GUIDE.md").read_text(encoding="utf-8"),
         )
 
-    async def test_all_deterministic_board_games_return_generic_minimal_move_ack(self):
+    async def test_board_game_move_ack_never_repeats_full_room(self):
         cases = {
             "tictactoe": {"row": 0, "col": 0},
             "gomoku": {"row": 7, "col": 7},
@@ -591,7 +633,10 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 self.assertEqual(response.status_code, 200, response.text)
-                self.assert_compact_delta(response.json())
+                payload = response.json()
+                self.assert_compact_delta(payload)
+                if game_type not in {"othello", "connect4"}:
+                    self.assertNotIn("events", payload)
 
     async def test_random_and_automatic_results_are_immediate_public_deltas(self):
         banqi = await self.new_room(
@@ -761,6 +806,260 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 set(terminal_delta["outcomes_by_player"]),
                 {"ai-bj-delta", "human-bj-delta"},
             )
+
+    async def test_named_board_games_return_authoritative_extra_cell_deltas(self):
+        othello_game = GAMES["othello"]
+        othello_state = othello_game.initial_state()
+        othello_state["board"] = [[None for _ in range(8)] for _ in range(8)]
+        for dr, dc in othello_game.directions:
+            othello_state["board"][3 + dr][3 + dc] = "O"
+            othello_state["board"][3 + 2 * dr][3 + 2 * dc] = "X"
+        othello_game._sync_legal_moves(othello_state)
+        othello = await self.new_room_with_state(
+            "othello", othello_state,
+            ai="ai-othello-delta", human="human-othello-delta",
+        )
+        flipped = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-othello-delta",
+            "room_id": othello["room"]["room_id"],
+            "move": {"row": 3, "col": 3},
+        })
+        self.assertEqual(flipped.status_code, 200, flipped.text)
+        self.assertEqual(
+            self.referee_delta(flipped.json(), "othello_delta"),
+            {
+                "flipped": [
+                    [2, 2], [2, 3], [2, 4], [3, 2],
+                    [3, 4], [4, 2], [4, 3], [4, 4],
+                ]
+            },
+        )
+
+        connect4 = await self.new_room(
+            "connect4", ai="ai-connect-delta", human="human-connect-delta"
+        )
+        dropped = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-connect-delta",
+            "room_id": connect4["room"]["room_id"],
+            "move": {"col": 3},
+        })
+        self.assertEqual(
+            self.referee_delta(dropped.json(), "connect4_delta"),
+            {"row": 5},
+        )
+
+        dots_game = GAMES["dots_boxes"]
+        dots_state = dots_game.initial_state()
+        dots_state["horizontal_edges"][0][0] = "O"
+        dots_state["horizontal_edges"][1][0] = "X"
+        dots_state["vertical_edges"][0][0] = "O"
+        dots = await self.new_room_with_state(
+            "dots_boxes", dots_state,
+            ai="ai-dots-delta", human="human-dots-delta",
+        )
+        completed = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-dots-delta",
+            "room_id": dots["room"]["room_id"],
+            "move": {"orientation": "v", "row": 0, "col": 1},
+        })
+        self.assertEqual(
+            self.referee_delta(completed.json(), "dots_boxes_delta"),
+            {"completed": [[0, 0]]},
+        )
+
+        jungle_game = GAMES["jungle"]
+        jungle_state = jungle_game.initial_state()
+        jungle_state["board"] = [[None for _ in range(7)] for _ in range(9)]
+        jungle_state["board"][7][2] = "X:R"
+        jungle_state["board"][7][3] = "O:E"
+        jungle_state["board"][0][1] = "O:C"
+        jungle_game._sync_legal_moves(jungle_state)
+        jungle = await self.new_room_with_state(
+            "jungle", jungle_state,
+            ai="ai-jungle-delta", human="human-jungle-delta",
+        )
+        captured = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-jungle-delta",
+            "room_id": jungle["room"]["room_id"],
+            "move": {
+                "from_row": 7, "from_col": 2, "to_row": 7, "to_col": 3,
+            },
+        })
+        self.assertEqual(
+            self.referee_delta(captured.json(), "jungle_delta"),
+            {"captured": "O:E"},
+        )
+
+        xiangqi_game = GAMES["xiangqi"]
+        xiangqi_state = xiangqi_game.state_from_fen(
+            "4k4/9/9/9/4p4/4R4/9/9/9/3K5 r - - 0 1"
+        )
+        xiangqi = await self.new_room_with_state(
+            "xiangqi", xiangqi_state,
+            ai="ai-xiangqi-delta", human="human-xiangqi-delta",
+        )
+        xiangqi_capture = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-xiangqi-delta",
+            "room_id": xiangqi["room"]["room_id"],
+            "move": {
+                "from_row": 5, "from_col": 4, "to_row": 4, "to_col": 4,
+            },
+        })
+        self.assertEqual(
+            self.referee_delta(xiangqi_capture.json(), "xiangqi_delta"),
+            {"captured": "b:p"},
+        )
+
+    async def test_jungle_static_terrain_is_only_in_full_contexts(self):
+        started = await self.new_room(
+            "jungle", ai="ai-jungle-map", human="human-jungle-map"
+        )
+        terrain = started["room"]["board_state"]["terrain"]
+        self.assertEqual(terrain["dens_by_owner"], {"O": [0, 3], "X": [8, 3]})
+        self.assertEqual(terrain["traps_by_owner"]["O"], [[0, 2], [0, 4], [1, 3]])
+        self.assertEqual(terrain["water"]["rows"], [3, 4, 5])
+        self.assertEqual(terrain["water"]["cols"], [1, 2, 4, 5])
+
+        full = await self.client.post("/mcp/play", json={
+            "action": "state",
+            "player_id": "ai-jungle-map",
+            "room_id": started["room"]["room_id"],
+            "full_state": True,
+        })
+        self.assertEqual(full.json()["snapshot"]["board_state"]["terrain"], terrain)
+        moved = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-jungle-map",
+            "room_id": started["room"]["room_id"],
+            "move": {
+                "from_row": 6, "from_col": 0, "to_row": 5, "to_col": 0,
+            },
+        })
+        self.assertNotIn("terrain", json.dumps(moved.json(), ensure_ascii=False))
+
+    async def test_checkers_delta_covers_capture_continuation_and_promotion(self):
+        game = GAMES["checkers"]
+
+        def position(pieces):
+            state = game.initial_state()
+            state["board"] = [[None for _ in range(8)] for _ in range(8)]
+            for (row, col), piece in pieces.items():
+                state["board"][row][col] = piece
+            state["forced_piece"] = None
+            state["captured_during_turn"] = []
+            game._sync_turn(state, "X")
+            game._update_counts(state)
+            game._reset_draw_tracking(state)
+            return state
+
+        chain = await self.new_room_with_state(
+            "checkers",
+            position({
+                (6, 1): "X:m", (5, 2): "O:m", (3, 4): "O:m", (0, 1): "O:m",
+            }),
+            ai="ai-checkers-chain", human="human-checkers-chain",
+        )
+        first = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-checkers-chain",
+            "room_id": chain["room"]["room_id"],
+            "move": {
+                "from_row": 6, "from_col": 1, "to_row": 4, "to_col": 3,
+            },
+        })
+        self.assertEqual(
+            self.referee_delta(first.json(), "checkers_delta"),
+            {
+                "captured": {"piece": "O:m", "at": [5, 2]},
+                "continue_jump": True,
+            },
+        )
+        self.assertTrue(first.json()["your_turn"])
+
+        crowned = await self.new_room_with_state(
+            "checkers",
+            position({
+                (2, 1): "X:m", (1, 2): "O:m", (1, 4): "O:m", (6, 1): "O:m",
+            }),
+            ai="ai-checkers-crown", human="human-checkers-crown",
+        )
+        promotion = await self.client.post("/mcp/play", json={
+            "action": "move",
+            "player_id": "ai-checkers-crown",
+            "room_id": crowned["room"]["room_id"],
+            "move": {
+                "from_row": 2, "from_col": 1, "to_row": 0, "to_col": 3,
+            },
+        })
+        self.assertEqual(
+            self.referee_delta(promotion.json(), "checkers_delta"),
+            {
+                "captured": {"piece": "O:m", "at": [1, 2]},
+                "continue_jump": False,
+                "promoted_to": "X:k",
+            },
+        )
+
+    async def test_chess_delta_covers_capture_castling_en_passant_and_promotion(self):
+        game = GAMES["chess"]
+        cases = (
+            (
+                "capture",
+                "4k3/8/8/8/4p3/4R3/8/3K4 w - - 0 1",
+                {"from_row": 5, "from_col": 4, "to_row": 4, "to_col": 4},
+                {"captured": {"piece": "b:p", "at": [4, 4]}},
+            ),
+            (
+                "castle-kingside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                {"from_row": 7, "from_col": 4, "to_row": 7, "to_col": 6},
+                {"rook_move": {"from": [7, 7], "to": [7, 5]}},
+            ),
+            (
+                "castle-queenside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                {"from_row": 7, "from_col": 4, "to_row": 7, "to_col": 2},
+                {"rook_move": {"from": [7, 0], "to": [7, 3]}},
+            ),
+            (
+                "en-passant",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2",
+                {"from_row": 3, "from_col": 4, "to_row": 2, "to_col": 3},
+                {"captured": {"piece": "b:p", "at": [3, 3]}},
+            ),
+            (
+                "promotion",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                {
+                    "from_row": 1, "from_col": 0,
+                    "to_row": 0, "to_col": 0, "promotion": "n",
+                },
+                {"promoted_to": "w:n"},
+            ),
+        )
+        for index, (name, fen, move, expected) in enumerate(cases):
+            with self.subTest(name=name):
+                started = await self.new_room_with_state(
+                    "chess", game.state_from_fen(fen),
+                    ai=f"ai-chess-delta-{index}",
+                    human=f"human-chess-delta-{index}",
+                )
+                response = await self.client.post("/mcp/play", json={
+                    "action": "move",
+                    "player_id": f"ai-chess-delta-{index}",
+                    "room_id": started["room"]["room_id"],
+                    "move": move,
+                })
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(
+                    self.referee_delta(response.json(), "chess_delta"),
+                    expected,
+                )
 
     async def test_terminal_move_and_resign_include_settlement_and_balances(self):
         invited = framework.create_room(
