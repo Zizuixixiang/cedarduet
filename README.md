@@ -834,3 +834,7 @@ CedarDuet 自身使用仓库根目录的 PolyForm Noncommercial License；`third
 [PolyForm Noncommercial License 1.0.0](LICENSE)。允许非商业用途；商业使用不在本许可授权范围内。
 
 严格来说该许可属于 source-available / 非商业源码开放许可，而不是 OSI 定义的开源许可证。如果未来希望改为 AGPL、MIT 或 Apache-2.0，可以再单独调整许可。
+
+## 友情链接
+
+[LINUX DO 社区](https://linux.do/)
