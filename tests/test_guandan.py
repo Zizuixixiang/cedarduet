@@ -340,6 +340,84 @@ class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room["stake"], 3)
         self.assertEqual(room["status"], "pending")
 
+    async def test_finished_player_wind_follow_is_automatic_and_partner_leads(self):
+        state = deepcopy(self.room["board_state"])
+        upstream = GuandanEngine._load_game(state)
+        for player in upstream.players:
+            player.set_current_hand([player.current_hand[0]])
+            player.real_out = False
+            player.played_action = None
+        upstream.round.current_player = 0
+        upstream.round.result = [-1, -1, -1, -1]
+        upstream.round.win_count = 0
+        upstream.round.out_flag = [False] * 4
+        upstream.round.greater_player = None
+        upstream.round.trace = []
+        upstream.round._build_public(upstream.players)
+        upstream.judger.reset(upstream.players, upstream.cur_rank)
+        GuandanEngine._store_game(state, upstream)
+        state["turn_player_id"] = "human-1"
+        state["trick"] = {
+            "number": 1,
+            "leader_player_id": "human-1",
+            "last_play": None,
+            "pass_player_ids": [],
+            "wind_follow": False,
+        }
+        with database.write_transaction() as conn:
+            conn.execute(
+                """
+                UPDATE rooms
+                SET board_state = ?, current_player_id = 'human-1', turn = 'human'
+                WHERE room_id = ?
+                """,
+                (
+                    json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+                    self.room["room_id"],
+                ),
+            )
+
+        def submit(player_id, role, kind):
+            room = framework.get_room(self.room["room_id"])
+            action = next(
+                item
+                for item in GuandanEngine.legal_actions(
+                    room["board_state"], player_id
+                )
+                if item["kind"] == kind
+            )
+            return framework.play_move(
+                room["room_id"], role, player_id,
+                {"action": "act", "action_id": action["action_id"]},
+            )
+
+        room = submit("human-1", "human", "play")
+        self.assertEqual(room["board_state"]["finish_order"], ["human-1"])
+        for player_id in ("ai-1", "npc:one", "npc:two"):
+            room = submit(player_id, "ai", "pass")
+
+        self.assertEqual(room["current_player_id"], "npc:one")
+        self.assertEqual(room["board_state"]["turn_player_id"], "npc:one")
+        self.assertEqual(
+            [item["kind"] for item in room["board_state"]["action_history"][-2:]],
+            ["pass", "wind_follow"],
+        )
+        self.assertEqual(room["board_state"]["hands"]["human-1"], [])
+        self.assertEqual(
+            room["board_state"]["last_public_delta"]["kind"], "wind_follow"
+        )
+        partner_view = framework.project_room_for_viewer(room, "npc:one")
+        self.assertTrue(partner_view["private_state"]["legal_actions"])
+        self.assertTrue(all(
+            item["kind"] == "play"
+            for item in partner_view["private_state"]["legal_actions"]
+        ))
+        human_view = framework.project_room_for_viewer(room, "human-1")
+        mcp_view = framework.project_mcp_room_for_viewer(room, "ai-1")
+        for view in (human_view, mcp_view):
+            self.assertEqual(view["current_player_id"], "npc:one")
+            self.assertEqual(view["board_state"]["current_trick"]["leader_player_id"], "npc:one")
+
 
 if __name__ == "__main__":
     unittest.main()

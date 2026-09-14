@@ -60,7 +60,8 @@ class Mahjong(GamePlugin):
     rules_text = (
         "【固定规则版本】\n"
         "第一版为四人、136 张无花牌、东一局单手国标麻将。牌只有万、筒、条与东南西北"
-        "中发白；座位 0–3 固定对应东、南、西、北，东家为庄家并先摸打。摸牌从牌墙头部，"
+        "中发白；所选先手为东家/庄家，其他玩家按房间座次顺时针对应南、西、北，东家先摸打。"
+        "摸牌从牌墙头部，"
         "杠后补牌从牌墙尾部。一手自摸、点炮、抢杠和或荒牌后房间立即结束，不换庄、不进入"
         "下一局。\n\n"
         "【和牌与番数】\n"
@@ -135,11 +136,7 @@ class Mahjong(GamePlugin):
     def first_player_id(
         self, participants: list[dict[str, Any]], mode: str
     ) -> str:
-        del mode
-        ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
-        if not ordered:
-            raise ValueError("麻将房间至少需要一个席位")
-        return str(ordered[0]["player_id"])
+        return super().first_player_id(participants, mode)
 
     def initialize(self, participants: list[dict[str, Any]]) -> dict[str, Any]:
         return self.initialize_for_first_player(
@@ -151,10 +148,16 @@ class Mahjong(GamePlugin):
         participants: list[dict[str, Any]],
         first_player_id: str,
     ) -> dict[str, Any]:
-        del first_player_id
         if not 1 <= len(participants) <= 4:
             raise ValueError("麻将固定四人，等待房允许先创建一至三个席位")
         ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
+        opener_index = next((
+            index for index, item in enumerate(ordered)
+            if str(item["player_id"]) == first_player_id
+        ), None)
+        if opener_index is None:
+            raise ValueError("麻将先手必须是本桌参与者")
+        ordered = ordered[opener_index:] + ordered[:opener_index]
         order = [str(item["player_id"]) for item in ordered]
         state = self._empty_state(order)
         if len(order) < 4:

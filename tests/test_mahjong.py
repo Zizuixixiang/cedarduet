@@ -108,6 +108,20 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertEqual(self.zone_count(advanced.state), 136)
         self.assertEqual(len(advanced.state["wall"]), 82)
 
+    def test_selected_machine_opener_is_dealer_turn_and_only_legal_actor(self):
+        state = self.game.initialize_for_first_player(self.players, "p2")
+        self.assertEqual(state["participant_order"], ["p2", "p3", "p0", "p1"])
+        self.assertEqual(
+            state["seat_winds"],
+            {"p2": "东", "p3": "南", "p0": "西", "p1": "北"},
+        )
+        self.assertEqual(state["dealer_player_id"], "p2")
+        self.assertEqual(state["turn_player_id"], "p2")
+        self.assertEqual(len(state["hands"]["p2"]), 14)
+        self.assertTrue(self.game.legal_actions_for(state, "p2"))
+        for player_id in ("p0", "p1", "p3"):
+            self.assertEqual(self.game.legal_actions_for(state, player_id), [])
+
     def test_cedarduet_stake_policy_covers_all_terminal_win_types_and_draw(self):
         self.assertTrue(self.game.supports_stakes)
         self.assertTrue(self.game.supports_multiplayer_stakes)
@@ -604,10 +618,13 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         bootstrap = created.json()
         self.assertTrue(bootstrap["bootstrap"])
         room = bootstrap["room"]
-        self.assertEqual(room["current_player_id"], "human-m")
+        self.assertEqual(room["current_player_id"], "ai-m")
+        self.assertEqual(room["board_state"]["turn_player_id"], "ai-m")
+        self.assertEqual(room["board_state"]["dealer_player_id"], "ai-m")
         self.assertEqual(room["board_state"]["wall_remaining"], 83)
         self.assertNotIn("hands", room["board_state"])
-        self.assertEqual(len(room["private_state"]["hand"]), 13)
+        self.assertEqual(len(room["private_state"]["hand"]), 14)
+        self.assertTrue(room["private_state"]["legal_actions"])
         script = await self.client.get("/static/games/mahjong.js")
         stylesheet = await self.client.get("/static/games/mahjong.css")
         self.assertEqual(script.status_code, 200, script.text)
@@ -648,19 +665,23 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(staked["status"], "pending")
 
         responder_bootstrap = await self.client.post("/mcp/play", json={
-            "action": "state", "player_id": "ai-2", "room_id": room["room_id"],
+            "action": "state", "player_id": "ai-3", "room_id": room["room_id"],
         })
         self.assertTrue(responder_bootstrap.json()["bootstrap"])
 
         human_view = framework.project_room_for_viewer(
             framework.get_room(room["room_id"]), "human-m"
         )
+        self.assertEqual(human_view["private_state"]["legal_actions"], [])
+        machine_view = framework.project_room_for_viewer(
+            framework.get_room(room["room_id"]), "ai-m"
+        )
         discard = next(
-            item for item in human_view["private_state"]["legal_actions"]
+            item for item in machine_view["private_state"]["legal_actions"]
             if item["kind"] == "discard" and item["label"] == "打 8万"
         )
         moved = framework.play_move(
-            room["room_id"], "human", "human-m",
+            room["room_id"], "ai", "ai-m",
             {"action": "act", "action_id": discard["action_id"]},
         )
         self.assertEqual(moved["revision"], 1)
@@ -670,16 +691,19 @@ class MahjongFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(persisted_a, persisted_b)
         self.assertTrue(persisted_a["queue"])
         delta = await self.client.post("/mcp/play", json={
-            "action": "state", "player_id": "ai-2", "room_id": room["room_id"],
+            "action": "state", "player_id": "ai-3", "room_id": room["room_id"],
         })
         self.assertEqual(delta.status_code, 200, delta.text)
         payload = delta.json()
         payload_json = json.dumps(payload, ensure_ascii=False)
         self.assertNotIn("room", payload)
-        self.assertTrue(any("mahjong_delta" in item for item in payload.get("events", [])))
+        self.assertTrue(
+            any("mahjong_delta" in item for item in payload.get("events", [])),
+            payload,
+        )
         self.assertNotIn("hands", payload_json)
         self.assertNotIn(discard["action_id"], payload_json)
-        for hidden_tile in moved["board_state"]["hands"]["human-m"]:
+        for hidden_tile in moved["board_state"]["hands"]["ai-m"]:
             self.assertNotIn(hidden_tile["id"], payload_json)
 
 

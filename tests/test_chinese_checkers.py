@@ -532,6 +532,12 @@ class ChineseCheckersTopologyAndRulesTests(unittest.TestCase):
                     item for item in room["participants"]
                     if item["player_id"] == "npc:test"
                 )
+                self.assertEqual(
+                    room["board_state"]["turn_player_id"], "npc:test"
+                )
+                self.assertEqual(
+                    room["board_state"]["turn_token"], actor["token"]
+                )
                 actions = self.game.npc_legal_actions(
                     room["board_state"], actor, room["participants"]
                 )

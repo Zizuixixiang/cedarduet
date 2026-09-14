@@ -238,6 +238,19 @@ class ChineseCheckers(GamePlugin):
         }
         return state
 
+    def prepare_opening_state(
+        self,
+        state: dict[str, Any],
+        first_player_id: str,
+        participants: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        del participants
+        # Explicit openers bypass first_player_id(), so initialize() cannot
+        # see its transient opener hint. Bind the authoritative state turn in
+        # the framework's opener-aware preparation hook as well.
+        self._sync_turn(state, first_player_id)
+        return state
+
     @staticmethod
     def _node_id(value: Any, field: str) -> str:
         if not isinstance(value, str) or value not in _COORD_BY_NODE:

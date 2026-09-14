@@ -234,6 +234,32 @@ class Guandan(GamePlugin):
     ) -> dict[str, Any] | MoveResult:
         del state, move, actor, participants
         if isinstance(applied, MoveResult):
+            # The upstream core represents wind-follow as an empty action by
+            # the player who has already gone out. It is a rule-mandated state
+            # transition, not a human choice, so execute it before returning
+            # control to the room framework. This keeps the persisted room
+            # actor aligned with the core's real actor for Web and MCP clients.
+            forced_player_id = applied.state.get("turn_player_id")
+            if (
+                isinstance(forced_player_id, str)
+                and applied.state.get("hands", {}).get(forced_player_id) == []
+            ):
+                legal = GuandanEngine.legal_actions(
+                    applied.state, forced_player_id
+                )
+                if (
+                    len(legal) == 1
+                    and legal[0].get("kind") == "wind_follow"
+                    and not legal[0].get("card_ids")
+                ):
+                    transition = GuandanEngine.apply_action(
+                        applied.state,
+                        forced_player_id,
+                        str(legal[0]["action_id"]),
+                    )
+                    applied.next_player_id = applied.state.get("turn_player_id")
+                    applied.note = str(transition["note"])
+                    applied.result = self.result_for(applied.state, [])
             raw = self._public_delta(applied.state)
             kind = str(raw.get("kind"))
             delta: dict[str, Any] = {"kind": kind}
