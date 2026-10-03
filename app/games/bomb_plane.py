@@ -102,7 +102,7 @@ def inferred_attack(shots, rng):
 class BombPlane(GamePlugin):
     game_type = 'bomb_plane'
     display_name = '炸飞机'
-    category = 'board'
+    category = 'tabletop'
     allowed_player_counts = (2,)
     supports_npcs = True
     uses_local_npc_strategy = True
