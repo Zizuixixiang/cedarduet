@@ -93,6 +93,16 @@ class Mahjong(GamePlugin):
         '只能把 private_state.legal_actions 中的一项原样作为 params.move，如 '
         '{"action":"act","action_id":"discard:W1-1"}；不得自行构造牌面、番数或响应。'
     )
+    mcp_move_format = move_format + (
+        '普通 turn 的 mahjong_tiles_v1 中，hand 和 own_melds[].tiles 每项为 [id, 中文牌名]；'
+        '真实牌 ID 为 code-副本号（1..4），W1..W9=万、B1..B9=筒、T1..T9=条，'
+        'F1..F4=东南西北，J1..J3=中发白。own_melds 保留 kind 和 source_player_id，'
+        'tiles 长度即张数，自己的暗杠显示真实牌面；drawn_tile_id 是本次摸牌。'
+        'shanten_basis=current 表示当前手牌，after_best_discard 表示最佳弃牌后的向听数，'
+        'unavailable 表示无法计算。legal_actions 是当前窗口的完整动作，原样复制其中一项，'
+        '不要从牌 ID 猜测可吃碰杠胡。state + full_state=true 可随时恢复完整牌对象、'
+        '副露、向听、合法动作、当前响应窗口及规则。'
+    )
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self._rng = rng or random.SystemRandom()
@@ -1169,6 +1179,17 @@ class Mahjong(GamePlugin):
             }
             for action in projected.get("legal_actions", [])
         ]
+        return projected
+
+    def mcp_turn_private_state(self, private, public):
+        """Readable physical IDs plus labels; keep the response window's actions."""
+        del public
+        projected = deepcopy(private)
+        projected["format"] = "mahjong_tiles_v1"
+        projected["hand"] = [[tile["id"], tile["label"]] for tile in private["hand"]]
+        for meld in projected["own_melds"]:
+            meld["tiles"] = [[tile["id"], tile["label"]] for tile in meld["tiles"]]
+            meld.pop("tile_count", None)
         return projected
 
     def participant_summary(

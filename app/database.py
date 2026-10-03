@@ -9,6 +9,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.getenv("DUEL_DB_PATH", PROJECT_ROOT / "data" / "duel.db"))
 
 
+MCP_MINIMAL_SCHEMA = '''CREATE TABLE IF NOT EXISTS mcp_minimal_contexts (
+    room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL, context TEXT NOT NULL,
+    PRIMARY KEY(room_id, player_id))'''
+MCP_NOTIFICATION_DELIVERY_SCHEMA = '''CREATE TABLE IF NOT EXISTS mcp_notification_delivery (
+    player_id TEXT PRIMARY KEY, last_id INTEGER NOT NULL DEFAULT 0)'''
+
+
 ROOMS_SCHEMA = """
 CREATE TABLE rooms (
     room_id TEXT PRIMARY KEY,
@@ -205,6 +213,32 @@ def init_db() -> None:
                 _migrate_to_participants(conn)
             else:
                 conn.execute(ROOM_PARTICIPANTS_SCHEMA)
+        # Additive invitation metadata; old rooms keep their original lifecycle.
+        conn.execute("""CREATE TABLE IF NOT EXISTS room_invites (
+            room_id TEXT PRIMARY KEY REFERENCES rooms(room_id) ON DELETE CASCADE,
+            invite_code TEXT UNIQUE, target_player_count INTEGER NOT NULL,
+            timeout_takeover INTEGER NOT NULL DEFAULT 0,
+            timeout_takeover_seconds INTEGER NOT NULL DEFAULT 0
+                CHECK (timeout_takeover_seconds IN (0, 90, 180)),
+            turn_revision INTEGER, turn_started_at TEXT,
+            reclaim_revision INTEGER, takeover_revision INTEGER
+        )""")
+        invite_columns = {row["name"] for row in conn.execute("PRAGMA table_info(room_invites)")}
+        if "household_count" not in invite_columns:
+            # Earlier invitations always started with the owner alone. Waiting
+            # seats only grow through join_invite; any departure closes the room.
+            conn.execute("""ALTER TABLE room_invites ADD COLUMN household_count
+                INTEGER NOT NULL DEFAULT 1 CHECK (household_count >= 1 AND household_count < target_player_count)""")
+        if "timeout_takeover_seconds" not in invite_columns:
+            conn.execute("""ALTER TABLE room_invites ADD COLUMN timeout_takeover_seconds
+                INTEGER NOT NULL DEFAULT 0 CHECK (timeout_takeover_seconds IN (0, 90, 180))""")
+            # Legacy invitation rooms used a boolean flag with one fixed 90s timeout.
+            conn.execute("""UPDATE room_invites SET timeout_takeover_seconds = 90
+                WHERE timeout_takeover = 1""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS room_mentions (
+            event_id INTEGER NOT NULL REFERENCES room_messages(id) ON DELETE CASCADE,
+            player_id TEXT NOT NULL, PRIMARY KEY(event_id, player_id)
+        )""")
         room_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(rooms)")
         }
@@ -374,6 +408,8 @@ def init_db() -> None:
         if "visible_to_json" not in message_columns:
             conn.execute("ALTER TABLE room_messages ADD COLUMN visible_to_json TEXT")
         conn.execute(ROOM_EVENT_CURSORS_SCHEMA)
+        conn.execute(MCP_MINIMAL_SCHEMA)
+        conn.execute(MCP_NOTIFICATION_DELIVERY_SCHEMA)
         conn.execute(ROOM_CONFIRMATIONS_SCHEMA)
         conn.execute(NPC_DECISIONS_SCHEMA)
         conn.execute(NPC_SPEECH_STATES_SCHEMA)
@@ -972,6 +1008,19 @@ def decode_room(
     if conn is None:
         conn = connect()
     try:
+        invitation = conn.execute(
+            "SELECT * FROM room_invites WHERE room_id = ?", (room["room_id"],)
+        ).fetchone()
+        if invitation:
+            room.update(dict(invitation))
+            timeout_seconds = int(room.get("timeout_takeover_seconds") or 0)
+            if timeout_seconds == 0 and room.get("timeout_takeover"):
+                timeout_seconds = 90
+            room["timeout_takeover_seconds"] = timeout_seconds
+            room["timeout_takeover"] = timeout_seconds > 0
+            room["room_kind"] = "invite"
+            if room["status"] != "waiting":
+                room["invite_code"] = None
         participant_rows = conn.execute(
             """
             SELECT player_id, display_name, role, participant_kind,

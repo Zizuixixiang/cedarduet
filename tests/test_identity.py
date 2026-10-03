@@ -135,11 +135,16 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 25)
+        self.assertEqual(len(payload["games"]), 29)
+        self.assertIn("monopoly", {game["game_type"] for game in payload["games"]})
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
             {
+                "monopoly": "tabletop",
+                "rummikub": "tabletop",
+                "bomb_plane": "board",
+                "carcassonne": "tabletop",
                 "tictactoe": "board",
                 "gomoku": "board",
                 "go": "board",
@@ -180,6 +185,10 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             {game_type: game["display_name"] for game_type, game in games.items()},
             {
+                "monopoly": "大富翁",
+                "rummikub": "拉密",
+                "bomb_plane": "炸飞机",
+                "carcassonne": "卡卡颂",
                 "tictactoe": "井字棋",
                 "gomoku": "五子棋",
                 "go": "围棋",
@@ -382,11 +391,11 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
-        self.assertIn("/static/app.js?v=0.9.5", html)
-        self.assertIn("/static/styles.css?v=0.9.8", html)
+        self.assertIn("/static/app.js?v=0.9.20", html)
+        self.assertIn("/static/styles.css?v=0.9.17", html)
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
-            html.index("/static/app.js?v=0.9.5"),
+            html.index("/static/app.js?v=0.9.20"),
         )
         self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
@@ -445,7 +454,8 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         for button_id in ("refreshButton", "rulesButton", "resignButton"):
             self.assertIn(f'id="{button_id}"', toolbar)
         chat_start = battle_stage.index('<div class="chat-compose game-compose"')
-        chat = battle_stage[chat_start:battle_stage.index("</div>", chat_start)]
+        # The compose includes a nested mention-options div.
+        chat = battle_stage[chat_start:battle_stage.index("</section>", chat_start)]
         self.assertIn('id="chatInput"', chat)
         self.assertIn('id="sendMessageButton"', chat)
         self.assertNotIn("刷新局面", chat)
@@ -533,11 +543,12 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('$("waitModeModal").addEventListener', script.text)
         self.assertIn(
             '$("sendMessageButton").disabled = '
-            '!["waiting", "playing"].includes(room.status)',
+            'false',
             script.text,
         )
         self.assertIn('const message = $("chatInput").value.trim()', script.text)
         self.assertIn('JSON.stringify({message})', script.text)
+        self.assertNotIn('chatReplyTo', script.text)
         self.assertIn('$("chatInput").value = ""', script.text)
         self.assertIn('$("chatInput").addEventListener("keydown"', script.text)
         self.assertIn('if (event.key === "Enter")', script.text)

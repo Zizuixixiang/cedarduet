@@ -118,7 +118,7 @@ renderer、`app.js`：
 <script src="/static/app.js?v=0.9.0"></script>
 ```
 
-只有服务端 game catalog 正式返回游戏时，它才会进入“棋/牌/骰”选择器；仅增加
+只有服务端 game catalog 正式返回游戏时，它才会进入“棋/牌/骰/桌游”选择器；仅增加
 renderer 文件不会把未完成游戏写进生产目录。
 
 ## 规则文案格式

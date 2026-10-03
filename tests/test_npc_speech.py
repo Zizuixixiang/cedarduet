@@ -9,7 +9,6 @@ from app import database, framework
 from app.games import GAMES
 from app.games.base import MoveResult
 from app.npc_controller import (
-    NPC_CONTEXT_MESSAGE_LIMIT,
     _authoritative_legal_actions,
     _decision_request,
     _speech_request,
@@ -243,10 +242,6 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(result.speech_task)
         await wait_for_npc_speech_tasks()
         self.assertEqual(len(provider.speech_requests), 1)
-        self.assertLessEqual(
-            len(provider.speech_requests[0].messages()[1]["content"]),
-            NPC_CONTEXT_MESSAGE_LIMIT,
-        )
         self.assertIn(
             "强制发言长增量 24",
             provider.speech_requests[0].messages()[1]["content"],
@@ -361,9 +356,28 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(hidden, serialized)
         self.assertIn("权威合法行动", request.game_rules)
         self.assertEqual(request.public_state["actions"][-1], "npc:quiet")
-        self.assertLessEqual(
-            len(request.messages()[1]["content"]), NPC_CONTEXT_MESSAGE_LIMIT
-        )
+
+    async def test_large_required_context_does_not_fail(self):
+        room = self.room_at_quiet_npc()
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        # Required rules alone exceed the target even after optional context
+        # is removed; both decision and speech must preserve them intact.
+        rules = "完整棋牌规则" * 1000
+        provider = SpeechTrackingProvider()
+        with patch.object(plugin, "npc_compact_rules", return_value=rules):
+            actor = next(p for p in room["participants"] if p["player_id"] == "npc:quiet")
+            legal = _authoritative_legal_actions(room, actor)
+            decision, action_map = _decision_request(room, "npc:quiet", legal)
+            speech = _speech_request(room, "npc:quiet")
+            for request in (decision, speech):
+                self.assertGreater(len(request.messages()[1]["content"]), 4000)
+                self.assertEqual(request.game_rules, rules)
+            self.assertCountEqual(list(action_map.values()), legal)
+            self.assertTrue(decision.legal_actions)
+            result = await self.complete_quiet_turn(room["room_id"], provider)
+        self.assertEqual(result.source, provider.name)
+        self.assertEqual(len(provider.decision_requests), 1)
+        self.assertEqual(provider.decision_requests[0].game_rules, rules)
 
     async def test_long_production_multiplayer_contexts_are_bounded_and_private(self):
         def participants(count):
@@ -418,7 +432,6 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
                 loaded = framework.get_room(room["room_id"])
                 speech = _speech_request(loaded, "npc:quiet")
                 content = speech.messages()[1]["content"]
-                self.assertLessEqual(len(content), NPC_CONTEXT_MESSAGE_LIMIT)
                 self.assertLessEqual(len(speech.visible_timeline), 12)
                 self.assertNotIn("action_history", speech.public_state)
                 self.assertNotIn("长局增量 00", content)
@@ -435,10 +448,6 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
                         loaded, "npc:quiet", legal
                     )
                     self.assertGreater(len(decision.legal_actions), 1)
-                    self.assertLessEqual(
-                        len(decision.messages()[1]["content"]),
-                        NPC_CONTEXT_MESSAGE_LIMIT,
-                    )
                     raw_hands = loaded["board_state"]["cards"]["hands"]
                     opponent_card_id = raw_hands["human-long"][0]["id"]
                     own_card_id = raw_hands["npc:quiet"][0]["id"]
@@ -452,10 +461,6 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
                     )
                     self.assertEqual(result.source, provider.name)
                     self.assertEqual(len(provider.decision_requests), 1)
-                    self.assertLessEqual(
-                        len(provider.decision_requests[0].messages()[1]["content"]),
-                        NPC_CONTEXT_MESSAGE_LIMIT,
-                    )
 
     async def test_speech_failure_does_not_block_and_retries_next_full_turn(self):
         room = self.room_at_quiet_npc()
@@ -494,7 +499,7 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(
             local_games,
-            {"go", "junqi", "train_cards", "texas_holdem", "mahjong"},
+            {"go", "junqi", "train_cards", "texas_holdem", "mahjong", "monopoly", "rummikub", "bomb_plane", "carcassonne"},
         )
         provider_games = {
             game_type for game_type, plugin in GAMES.items()

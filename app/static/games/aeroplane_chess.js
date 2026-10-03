@@ -178,10 +178,8 @@
       return;
     }
     const human = participants.find((participant) => (
-      participant.role === "human" || participant.participant_kind === "human"
-    )) || participants.find((participant) => (
       participant.player_id === (context.viewer && context.viewer.player_id)
-    ));
+    )) || participants[0];
     const opponent = participants.find((participant) => participant !== human);
     [
       ["humanName", human],

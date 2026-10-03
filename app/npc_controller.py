@@ -19,7 +19,7 @@ from .framework import (
     project_room_for_viewer,
 )
 from .games import get_game
-from .npc_personas import PersonaConfigError, get_persona
+from .npc_personas import NpcPersona, PersonaConfigError, get_persona
 from .npc_providers import (
     NpcDecisionRequest,
     NpcProvider,
@@ -41,7 +41,6 @@ from .npc_runtime import (
 
 
 _speech_tasks: set[asyncio.Task[bool]] = set()
-NPC_CONTEXT_MESSAGE_LIMIT = 3800
 NPC_DECISION_EVENT_LIMIT = 8
 NPC_SPEECH_EVENT_LIMIT = 12
 NPC_PUBLIC_ACTION_LIMIT = 8
@@ -166,6 +165,9 @@ def _npc_projected_states(
         public_state.pop(key, None)
         if for_speech:
             private_state.pop(key, None)
+    if for_speech and game.game_type == "bomb_plane":
+        # Plane placement is unnecessary for speech and must never enter it.
+        private_state = {}
     return (
         _compact_context_value(public_state),
         _compact_context_value(private_state),
@@ -221,13 +223,6 @@ def _compact_visible_events(
     return compact
 
 
-def _request_content_length(request: NpcDecisionRequest | NpcSpeechRequest) -> int:
-    return len(json.dumps(
-        request.payload(), ensure_ascii=False, sort_keys=True,
-        separators=(",", ":"),
-    ))
-
-
 def _shortlist_indices(total: int, limit: int) -> list[int]:
     if total <= limit:
         return list(range(total))
@@ -281,6 +276,8 @@ def _authoritative_legal_actions(
     room: dict[str, Any], actor: dict[str, Any]
 ) -> list[dict[str, Any]]:
     game = get_game(room["game_type"])
+    if room.get("room_kind") == "invite" and room["game_type"] == "liars_dice" and room["board_state"].get("pending_next_round"):
+        return [{"action": "acknowledge_round"}]
     try:
         actions = game.npc_legal_actions(
             deepcopy(room["board_state"]),
@@ -313,6 +310,7 @@ def _action_map(
 def _decision_request(
     room: dict[str, Any], npc_player_id: str,
     legal_actions: list[dict[str, Any]],
+    *, temporary: bool = False,
 ) -> tuple[NpcDecisionRequest, dict[str, dict[str, Any]]]:
     game = get_game(room["game_type"])
     actor = next(
@@ -322,10 +320,16 @@ def _decision_request(
         ),
         None,
     )
-    if actor is None or actor.get("participant_kind") != "system_npc":
+    if actor is None or (not temporary and actor.get("participant_kind") != "system_npc"):
         raise DuelError("当前行动者不是系统 NPC", 409)
     try:
-        persona = get_persona(actor["npc_persona_id"])
+        if temporary:
+            persona = NpcPersona(
+                "temporary", actor["display_name"],
+                "临时代当前真实座位选择一次合法动作；身份和私密信息仍属于原玩家。",
+            )
+        else:
+            persona = get_persona(actor["npc_persona_id"])
         participants = deepcopy(room["participants"])
         state = deepcopy(room["board_state"])
         projected_room = project_room_for_viewer(room, npc_player_id)
@@ -364,75 +368,30 @@ def _decision_request(
     ):
         raise DuelError("NPC 插件必须提供规则、状态和至少一个合法行动")
     action_map = _action_map(legal_actions)
-    low = 2
-    high = min(len(legal_actions), NPC_LEGAL_ACTION_SHORTLIST_LIMIT)
-    fitted_request: NpcDecisionRequest | None = None
-    while low <= high:
-        shortlist_limit = (low + high) // 2
-        selected_actions = [
-            legal_actions[index]
-            for index in _shortlist_indices(len(legal_actions), shortlist_limit)
-        ]
-        exposed_actions = [
-            {"action_id": _action_id(action), "action": deepcopy(action)}
-            for action in selected_actions
-        ]
-        request = NpcDecisionRequest(
-            persona=persona_context,
-            game_rules=game_rules.strip(),
-            participants=participant_directory,
-            public_state=public_state,
-            private_state=_private_state_for_actions(
-                private_state, legal_actions, selected_actions
-            ),
-            recent_public_events=recent_public_events,
-            public_actions=public_actions,
-            legal_actions=exposed_actions,
-        )
-        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
-            fitted_request = request
-            low = shortlist_limit + 1
-        else:
-            high = shortlist_limit - 1
-    if fitted_request is not None:
-        return fitted_request, action_map
-
-    # Extremely verbose recent deltas must never crowd out the two choices a
-    # decision request needs. Remove oldest optional context first.
     selected_actions = [
         legal_actions[index]
-        for index in _shortlist_indices(len(legal_actions), 2)
+        for index in _shortlist_indices(
+            len(legal_actions),
+            min(len(legal_actions), NPC_LEGAL_ACTION_SHORTLIST_LIMIT),
+        )
     ]
     exposed_actions = [
         {"action_id": _action_id(action), "action": deepcopy(action)}
         for action in selected_actions
     ]
-    private_for_actions = _private_state_for_actions(
-        private_state, legal_actions, selected_actions
+    request = NpcDecisionRequest(
+        persona=persona_context,
+        game_rules=game_rules.strip(),
+        participants=participant_directory,
+        public_state=public_state,
+        private_state=_private_state_for_actions(
+            private_state, legal_actions, selected_actions
+        ),
+        recent_public_events=recent_public_events,
+        public_actions=public_actions,
+        legal_actions=exposed_actions,
     )
-    while True:
-        request = NpcDecisionRequest(
-            persona=persona_context,
-            game_rules=game_rules.strip(),
-            participants=participant_directory,
-            public_state=public_state,
-            private_state=private_for_actions,
-            recent_public_events=recent_public_events,
-            public_actions=public_actions,
-            legal_actions=exposed_actions,
-        )
-        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
-            return request, action_map
-        if recent_public_events:
-            recent_public_events.pop(0)
-            continue
-        if public_actions:
-            public_actions.pop(0)
-            continue
-        if len(persona_context.get("persona", "")) > 80:
-            persona_context = _compact_persona(persona_context, 80)
-            continue
-        raise DuelError("NPC 压缩决策上下文仍超过安全上限")
+    return request, action_map
 
 
 def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechRequest:
@@ -453,7 +412,7 @@ def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechReques
         visible_timeline = _compact_visible_events(
             list_timeline(
                 room["room_id"], NPC_SPEECH_EVENT_LIMIT,
-                npc_player_id, public_only=False,
+                npc_player_id, public_only=game.game_type == "bomb_plane",
             ),
             participants,
         )
@@ -468,24 +427,14 @@ def _speech_request(room: dict[str, Any], npc_player_id: str) -> NpcSpeechReques
         raise DuelError(str(exc), 503) from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"NPC 发言上下文无效：{exc}") from exc
-    while True:
-        request = NpcSpeechRequest(
-            persona=persona_context,
-            game_rules=game_rules.strip(),
-            participants=participants,
-            public_state=public_state,
-            private_state=private_state,
-            visible_timeline=visible_timeline,
-        )
-        if _request_content_length(request) <= NPC_CONTEXT_MESSAGE_LIMIT:
-            return request
-        if visible_timeline:
-            visible_timeline.pop(0)
-            continue
-        if len(persona_context.get("persona", "")) > 80:
-            persona_context = _compact_persona(persona_context, 80)
-            continue
-        raise DuelError("NPC 压缩发言上下文仍超过安全上限")
+    return NpcSpeechRequest(
+        persona=persona_context,
+        game_rules=game_rules.strip(),
+        participants=participants,
+        public_state=public_state,
+        private_state=private_state,
+        visible_timeline=visible_timeline,
+    )
 
 
 async def _attempt_npc_speech(

@@ -14,6 +14,8 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 绑定人类 `local-human`；adapter 仍通过本页同一个 `POST /mcp/play`，不直接调用内部
 实现。启动和宿主配置见 [LOCAL.md](LOCAL.md)。以下生产协议正文不因本地 adapter 改变。
 
+catalog 的 `category` 为 `board`（棋）、`card`（牌）、`dice`（骰）、`tabletop`（桌游）；`monopoly`、`rummikub` 和 `carcassonne` 属于桌游。分类只用于发现游戏，开房和旧房动作仍按原 `game_type`。
+
 ## 增量上下文
 
 每个房间、每名小机只有第一次进入 `playing` 会收到 `bootstrap=true` 和完整 `room`。
@@ -45,15 +47,28 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 {"action":"state","player_id":"ai-42","room_id":"ABCDEFGH","full_state":true}
 ```
 
-响应的 `snapshot` 只含 `room_id/game/revision/status/current_actor/participants`、完整
+响应的 `snapshot` 包含 `room_id/game/revision/status/current_actor/participants`、完整
 当前公共 `board_state` 和该 viewer 自己的 `private_state`。它不重复 `rules_text`、
-`move_format`、筹码、action/move/dice history，通常也不重复静态拓扑；恢复局面确实
-需要且很紧凑的静态语义例外，例如斗兽棋 `terrain`。少数游戏把重复的 verbose legal
-move 压成可直接提交的字段。一次性 bootstrap 同样不携带可无限增长的
-action/move/dice history。`full_state` 可重复调用且立即返回，即使同时传
-`wait=true` 也不挂等；它既不 claim/补发一次性 bootstrap，也不读取或推进事件游标。
-因此第一次先调用 full_state 后，下一次普通 `state` 仍会正常得到唯一 bootstrap；
-已经 bootstrap 后调用它也不会让 bootstrap 重来。旧请求不传该字段时行为不变。
+`move_format`；保留当前公开筹码/资源、全部本人私有信息和合法响应。
+老 25 款的 full_state 保留地图、计分类别、规则参数和参与者身份字段，支持丢失开局
+上下文后的中途重查；bootstrap 不受影响。静态字段不能仅因“开局给过”而省略。
+斗地主/干瞪眼/UNO 补齐当前公开 `discard`，掼蛋补齐 `played_cards`，军棋以 `battles`
+保留公开战斗结果，终局补齐房间 `winner/winner_player_id/result/terminal_reason`。
+完整私有手牌、合法动作和行动编码保持原样。当前清单与验证见
+[完整性修补报告](FULL_STATE_COMPLETENESS_FIX.md)；[原验收报告](LEGACY_FULL_STATE.md) 保留为修补前记录。
+`full_state` 可重复调用且立即返回，即使同时传 `wait=true` 也不挂等。
+老 25 款将快照覆盖的旧棋局事件确认为已读，并在本次响应的 `events` 中恰好一次交付
+未读聊天、行动附言和文字通知；重复调用或随后普通 state 不再重放旧动作或这些文字。
+快照 revision 之后的新事件保留未读。老25款 full_state 不 claim/补发一次性
+bootstrap；第一次先调用 full_state 后，下一次普通 state 仍会得到唯一 bootstrap。
+四款 `monopoly/rummikub/bomb_plane/carcassonne` 使用 MCP v2：未知上下文先返回
+protocol=2 bootstrap，已知上下文返回 `r/full_state/snapshot`，快照内含完整安全状态、
+地图/编码、紧凑 rules/action_formats/protocol_guide。原子替换该查看者增量基线，
+快照已覆盖的旧动作不重放；未读聊天/附言保留到后续普通响应恰好一次交付。
+普通响应使用 r/events/private/wait；请求仍使用 revision。卡卡颂落点用既有
+state(move={query:placements,x,y,rotation?,meeple?}) 或 all:true 查询；查询不消费
+事件或私有游标，返回 revision 供过期检查。完整契约见
+[四款 MCP v2](FOUR_GAME_MCP_INCREMENTAL.md)。老25款不传 full_state 的行为不变。
 
 棋盘裁判增量中的坐标对统一为零起始 `[row,col]`。以下字段只在对应效果发生时返回；
 普通移动仍只有原始 move：
@@ -516,12 +531,34 @@ bootstrap 规则。带 stake 时每名输家按 `stake × 剩余手牌张数 × 
 不会泄露暗子真实身份。full_state 的 8×4 `board` 用 `hidden` 表示所有仍未翻开的棋。
 仅真实终局会返回全部棋子身份，用于终局棋盘复盘。
 
+## 拉密 `rummikub`
+
+2～4 人、推荐4人，仅 0 筹码娱乐局。bootstrap/full_state 查看自己的 `private_state.hand` 实体 ID 和公共 `board_state.melds/meld_kinds/opened`；full_state 的 rules/action_formats 提供完整编码、规则与提交参数，普通 v2 用 private.+/- 更新手牌；别人的手牌和牌堆顺序在终局也不公开。服务端负责洗牌、摸牌、校验与保存。
+
+空桌且己方确有三张指定牌时，最小 33 分开局示例：
+
+```json
+{"action":"move","room_id":"ABCDEFGH","revision":0,"move":{"action":"meld","melds":[["red-10-1","red-11-1","red-12-1"]],"kinds":["run"]}}
+```
+
+首次仅用原手牌合法组合合计至少30分；以后可拆分重组，`melds` 必须包含最终整桌，保留所有旧实体牌且加入至少一张原手牌。顺子按升序；可选 `kinds` 逐组指定 `group/run`，旧组沿用 `meld_info.kind`。释放的万能牌须当回合用于含原手牌的新组合。所有动作都须外层 `revision`。
+
+`move={"action":"draw"}` 摸一张立即结束回合；空堆继续出牌或用 `{"action":"pass"}` 声明无法继续，全员连续声明才结算。这是声明制，`suggested_move` 和 NPC 为有限搜索，不表示穷举无解。局分不扣钱包。完整约定见 [拉密说明](../../../docs/DUEL_RUMMIKUB.md)。
+
+## 大富翁 `monopoly`
+
+2～6人，推荐4人，固定娱乐局；局内现金1500不进入平台筹码结算。支持购买/收租、成套均衡建房、拍卖、双方确认交易、抵押赎回、机会/公益、监狱和破产，最后存活者获胜，无固定时限。完整细则见开局 `rules_text` 与 [接入说明](MONOPOLY.md)。
+
+bootstrap 的本人 `private_state.legal_actions` 或 full_state 的 `snapshot.legal_actions` 提供当前动作，每条带 `action_seq`，外层带房间 `revision`。普通 v2 用 r/events/private/wait，按当前阶段及账本行动；不会每轮重发合法动作全集。自定义 `bid.amount` 必须为高于现价且不超过现金的整数。`propose_trade` 使用 `trade_options` 提供的对象/产权与余额，参数为 `to/give_cash/take_cash/give_tiles/take_tiles/action_seq`；发起即本人确认；挂起报价不打断提案方或其他玩家，接收方在之后正常回合先用 `respond_trade.accept` 决定；同一时间仅一个报价，条件失效自动取消。临时接管只可拒绝交易，不能代人确认。
+
+`current_player_id` 是正常回合归属；`turn_player_id` 是当前真正行动者，拍卖/多人事件欠款时会切换；历史 phase=trade 存档仍兼容即时响应。普通 events 为 `[actor,action,delta?]`，资金/产权只发变化行；full_state 保留完整公开账本、拍卖/债务/交易窗口、在押尝试次数、双骰与建筑库存，附必要规则和动作格式。未抽牌序始终隐藏；出狱卡数量仅本人投影。筹足债务自动结算，不需另发付款动作。普通房使用既有 rematch；邀请房按现有方式另开邀请。
+
 ## 飞行棋 `aeroplane_chess`
 
 `roll` 后看 `aeroplane_delta` 的骰点、连续 6、`movable_plane_ids`、auto-pass、第三个
 6 惩罚与退回机场列表，再从权威行动中选机。`move` delta 给出 from/to、沿途落点、
 跳跃/跨盘、碰撞击落和到家结果。full_state 保留全部飞机的当前 `route_step/zone` 与
-当前 legal actions，不重复 bootstrap 的四色固定路径表。
+当前 legal actions，并保留固定路径表及环线/终点参数，不要求恢复方记得 bootstrap。
 
 ## 中国跳棋 `chinese_checkers`
 
@@ -530,16 +567,16 @@ bootstrap 规则。带 stake 时每名输家按 `stake × 剩余手牌张数 × 
 跳板另一侧也有 k 个连续空孔且对称落点为空时才能跳。k=0 即相邻跳；连续跳可混合相邻跳与
 等距跳，但不能重复落点或混入普通一步。
 
-bootstrap 提供 121 孔的固定 node 坐标和营区，调用方应缓存。full_state 只重发当前 `pieces`、
-营区归属、进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，不重复
-canonical path、固定 `nodes/camps` 或历史。调用方必须从服务端的 `legal_moves` 选择终点，
+bootstrap 和 full_state 都提供 121 孔的固定 node 坐标和营区。full_state 同时保留当前
+`pieces`、营区归属、进度和可走终点；其中 `legal_moves` 压成可直接提交的 `from/to/kind`，
+不重复 canonical path 或历史。调用方必须从服务端的 `legal_moves` 选择终点，
 无需也不得自行提交连跳 path。
 六人桌有人认输时不会进入非法五人状态：认输者 `-5×stake`，其余五席各
 `+stake`。
 
 ## 斗兽棋 `jungle`
 
-bootstrap 与按需 full_state 的 `board_state.terrain` 使用零起始 `[row,col]`：row 0 是
+bootstrap 与 full_state 的 `board_state.terrain` 都使用零起始 `[row,col]`：row 0 是
 O 方本阵边、row 8 是 X 方本阵边、col 0 是左边。`dens_by_owner` 和
 `traps_by_owner` 的 key 是该兽穴/陷阱的所有方；己棋不能进入自己的兽穴，进入对方兽穴
 获胜，敌棋落在己方陷阱时可被己方任意兽吃。水域以
@@ -626,3 +663,49 @@ Web `state` 的 `board_state` 包含 10×9 `board`、`marks`、`fen`、`turn_col
 bootstrap/full_state 不发送可能无限增长的完整重复局面表，只保留紧凑 `draw_status`：
 双方未推进计数，以及整手结束时当前局面的出现次数。规则裁决仍完全由服务端持久化状态
 执行，不依赖调用方重算。
+
+### 显式停止挂等
+
+想停就先调用 `cancel_wait(room_id)`，不要只在自然语言里说停。它只取消本人在该房间的旧挂等，不离席、不认输、不改变在线/托管状态。新显式挂等替代旧链，心跳沿用同一代际；收到 `wait_cancelled` 后停止旧调用链，不行动、不自动续等。需要恢复时显式 `state(wait=true)` 或 `move(wait=true)`。
+
+同房间非 wait 操作也会使本人旧链失效。`wait_generation` / `wait_resume` 是 loopback
+adapter 的内部字段，不属于公共工具 schema：只允许同代际串行续等，不能重放首个动作。
+后端重启后，未知续等及启动前的迟到挂等返回 `wait_cancelled`，调用方应显式新建请求。
+控制状态要求单 worker；平台网关与本地 adapter 在断线、等待上限后按代际清理，旧链清理不会取消新链。
+
+## 卡卡颂 `carcassonne`
+
+2～5 人，推荐4人，经典 72 块、每人7名随从，包含农夫。平台筹码支持唯一赢家收每位败者一份 stake；并列第一全桌结算0，此约定不改变局分。普通房／邀请房、NPC／接管均沿用双弈。
+
+本人回合通过既有 `state(move={query:placements,all:true})` 取得落点；或传 x/y/rotation?/meeple? 检查候选与至多8个附近落点。查询不消费事件/私有游标并返回 revision，普通响应与 full_state 不主动附落点全集。查询 placements 每项为 `[x,y,rotation,[合法随从区域ID]]`；选择一项，用 `move={"action":"place","x":x,"y":y,"rotation":rotation,"meeple":null}` 不放随从，或将 `meeple` 换成该项的区域 ID。一次提交整个回合，外层 `revision` 必填；不提交抽牌名称或牌序。
+
+`x`向东、`y`向南，可负；`rotation=0..3` 顺时针四分之一圈。`board_state.topology[current_tile]` 是零旋转拓扑，区域 ID 旋转后不变。城市／道路边口 `0,1,2,3=北,东,南,西`；田地边口 `0..7=北左,北右,东上,东下,南右,南左,西下,西上`，跨边的左右半口反向对应。每个区域内部连通；同类型的不同区域不能直接连通。田地 `cities` 指向同块相邻城市区域。
+
+`full_state.snapshot.board_state.board` 保留全部已铺块和随从；topology 给出公开 A–X 全部24种牌型定义。普通 v2 events 为 `[actor,tile,x,y,rotation,meeple,nextTile,effects?]`，保留计分、随从回收和弃牌，不返回未来牌序。full_state 可在丢弃 bootstrap 后完整恢复地图语义。
+
+所有权检验针对整个相连区域。完成城市每块与盾徽各2分，道路每块1分，修道院中心与八周边共9分；多数与并列最多都得全分，已计分随从回收。终局未完城市每块与盾徽各1分，道路每块1分，修道院按已有格数；农夫按各田地相邻的不同已完成城市每城3分，同城去重。无合法落点的牌公开弃掉，同一玩家重抽。规则版本、24种库存、图例复核限制与验收入口见 [接入说明](CARCASSONNE.md)。
+
+## 炸飞机 · 寻机头
+
+`bomb_plane` 为 `board`、固定2人。沿用普通绑定人机和邀请房身份；两名真实参与者
+可按既有邀请规则开启90/180秒本地NPC接管。每个动作必须带外层 `revision`。
+
+双方独立秘密布阵，无需等待对方，只能调整本人布局。列A–J、行1–10；N/E/S/W分别朝上右下左。
+飞机可互相重叠，但三个机头不能重合；机头可落在另一架机体上，单架须完整在棋盘内。
+以下三架可作为最小合法示例，确认后锁定，双方确认才开始攻击：
+
+```json
+{"action":"move","room_id":"当前房间","revision":0,"move":{"action":"set_layout","planes":[{"head":"C1","direction":"N"},{"head":"H1","direction":"N"},{"head":"C6","direction":"N"}]}}
+```
+
+随后使用最新 revision 提交 `move={"action":"ready"}`。也可用 `auto_setup` 一步随机
+部署并确认。手动 `place` 使用 `head` / `direction`；`undo` 撤销末架，`clear` 清空，
+`shuffle` 重新随机但不确认。开始攻击后提交 `move={"action":"attack","cell":"E5"}`。
+
+bootstrap/full_state 的 `private_state.planes` 仅包含己方机头/方向，普通仅变化时给 private.planes；
+full_state 的 `board_state.shots` 按攻击者及 miss/hit/head 分组保存全部格子。普通 events 为 `[actor,cell,result]`（miss空 / hit伤 / head机头）。重叠格优先判定机头，否则命中任一机体为伤。
+所有结果都换手，先中三个不同机头胜。
+命中头不展开机体，已击落机体仍反馈伤；终局才向参与者提供 `revealed_planes`。
+首次 bootstrap 后使用增量；需要恢复局面时请求 `state(full_state=true)`。
+
+规则与图形为自行实现；仅参考 [PlaneBlock README 的纸笔规则](https://github.com/Nirvazure/PlaneBlock/blob/main/README.md)，未复制其代码、UI、云服务或品牌资源。

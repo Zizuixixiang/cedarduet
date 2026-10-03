@@ -1,0 +1,149 @@
+/* Scoped to this plugin: existing Duel player/chat/layout components stay intact. */
+.board.rummikub {
+  display: block;
+  width: min(100%, 880px);
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+}
+#battleStage[data-game-type="rummikub"] .board-zone,
+#battleStage[data-game-type="rummikub"] .board-frame,
+#battleStage[data-game-type="rummikub"] .game-controls {
+  width: min(100%, 880px);
+  max-width: 100%;
+  min-width: 0;
+}
+.rk-game, .rk-controls {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  font: 13px/1.5 system-ui, sans-serif;
+  text-align: left;
+}
+.rk-game { --rk-tile-width: 44px; --rk-tile-height: 60px; --rk-tile-gap: 6px; display: grid; gap: 10px; }
+.rk-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rk-header strong { font-size: 14px; }
+.rk-meta, .rk-help { color: #6a6075; font-size: 11px; }
+.rk-table {
+  min-height: 132px;
+  max-height: 350px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 2px solid var(--purple);
+  background: #f3eef7;
+  scrollbar-gutter: stable;
+}
+.rk-empty { margin: auto; color: #6a6075; font-size: 12px; text-align: center; }
+.rk-table:has(.rk-empty) { align-content: center; }
+.rk-meld {
+  position: relative;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: min(100%, calc(3 * var(--rk-tile-width) + 2 * var(--rk-tile-gap) + 12px));
+  max-width: 100%;
+  min-height: 24px;
+  padding: 4px;
+  border: 2px solid var(--purple-light);
+  border-radius: 5px;
+  background: #fff;
+}
+.rk-meld.is-target { border-color: #8678a0; background: #fffcf3; }
+.rk-meld.is-incomplete { border-style: dashed; border-color: #a56230; }
+.rk-target { position: absolute; inset: -2px; z-index: 1; width: calc(100% + 4px); height: calc(100% + 4px); padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.rk-meld .rk-tiles { position: relative; z-index: 2; pointer-events: none; }
+.rk-meld .rk-tile { pointer-events: auto; }
+.rk-meld.is-hand-target .rk-tile { pointer-events: none; }
+.rk-meld-label { position: absolute; top: -6px; left: 4px; z-index: 2; padding: 0 3px; color: #6a6075; background: #fff; font: 10px/12px system-ui, sans-serif; pointer-events: none; }
+.rk-meld.is-incomplete .rk-meld-label { color: #a56230; }
+.rk-meld-meta { position: relative; z-index: 2; display: flex; align-items: center; gap: 4px; margin-top: 4px; color: #6a6075; font-size: 11px; pointer-events: none; }
+.rk-kind { min-width: 0; width: 72px; min-height: 32px; color: #665776; background: #fff; border: 1px solid var(--purple); font: 11px/1.3 system-ui, sans-serif; pointer-events: auto; }
+.rk-tiles { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rk-tile-gap); }
+.rk-tile {
+  position: relative;
+  flex: 0 0 var(--rk-tile-width);
+  width: var(--rk-tile-width);
+  height: var(--rk-tile-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #b6a99a;
+  border-bottom: 3px solid #b6a99a;
+  border-radius: 5px;
+  background: #fffdf4;
+  box-shadow: 0 2px 2px #4a3c291a;
+  padding: 2px;
+  touch-action: manipulation;
+  color: #252b31;
+  font-family: system-ui, sans-serif;
+}
+.rk-number { font-size: 24px; line-height: 1.15; }
+.rk-color { font-size: 10px; line-height: 1.4; font-weight: 600; }
+.rk-red { color: #a82633; }
+.rk-blue { color: #205fa2; }
+.rk-orange { color: #975018; }
+.rk-joker { color: #70458a; }
+.rk-tile:disabled { opacity: 1; cursor: default; }
+.rk-tile.is-selected { outline: 2px solid #8678a0; outline-offset: 0; background: #eee5f9; }
+.rk-tile.is-selected::after { content: "✓"; position: absolute; right: 0; top: -6px; background: #5c5463; color: #fff; font-size: 10px; padding: 0 2px; }
+.rk-game :focus-visible, .rk-controls :focus-visible { outline: 3px solid #584776; outline-offset: 3px; }
+.rk-tile:focus-visible { outline-offset: -3px; }
+.rk-target:focus-visible { outline-offset: -2px; }
+.rk-rack { display: grid; gap: 8px; padding: 10px; border: 2px solid var(--purple); background: #fffaf8; box-shadow: 3px 3px 0 #beb1d133; }
+.rk-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rk-rack-tools, .rk-history { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rk-sort { display: inline-flex; border: 2px solid var(--purple); }
+.rk-sort .rk-button { min-height: 30px; padding: 3px 8px; border: 0; box-shadow: none; background: transparent; }
+.rk-sort .rk-button + .rk-button { border-left: 1px solid var(--purple); }
+.rk-sort .rk-button:active { transform: none; }
+.rk-sort [aria-pressed="true"] { background: var(--purple-light); box-shadow: inset 0 -2px #8678a0; }
+.rk-hand { max-height: 230px; overflow: auto; padding: 4px; }
+.rk-controls { display: grid; gap: 4px; padding-bottom: 2px; }
+.rk-draft-status { margin: 0; font-size: 12px; font-weight: 600; }
+.rk-draft-status.is-ready { color: #31694b; }
+.rk-selection { display: grid; gap: 4px; }
+.rk-selection .rk-header { flex-wrap: nowrap; gap: 4px; }
+.rk-selection .rk-meta { white-space: nowrap; }
+.rk-selection-actions, .rk-commit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.rk-selection-actions > .rk-quiet { grid-column: 1 / -1; justify-self: start; }
+.rk-controls .rk-button, .rk-game .rk-button { font: 600 11px/1.3 system-ui, sans-serif; white-space: normal; }
+.rk-button.secondary { color: #665776; }
+.rk-controls .rk-button { min-height: 36px; padding: 4px 8px; }
+.rk-button.rk-primary { color: #fff; background: #77628f; border-color: #514063; }
+.rk-button.rk-quiet { min-width: 36px; min-height: 28px; padding: 2px 6px; border: 0; box-shadow: none; background: transparent; text-decoration: underline; text-underline-offset: 3px; font-weight: 400; }
+.rk-button.rk-quiet:active { transform: none; }
+.rk-commit { border-top: 1px solid var(--purple-light); padding-top: 6px; }
+.rk-commit .rk-button { min-height: 38px; }
+.rk-controls .rk-help { margin: 0; }
+.rk-error { color: #a12638; font-size: 12px; }
+.rk-result { font-size: 14px; font-weight: 700; color: #66517f; }
+.rk-scores { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+/* Keep the roomy tile table independently of its catalog category. */
+@media (min-width: 1024px) {
+  .battle-stage[data-game-type="rummikub"] .board-frame > .board {
+    width: min(100%, var(--desktop-table-max));
+  }
+  .battle-stage[data-game-type="rummikub"] .game-controls {
+    max-width: var(--desktop-table-max);
+  }
+}
+@media (max-width: 480px) {
+  .rk-game { --rk-tile-width: 36px; --rk-tile-height: 46px; --rk-tile-gap: 4px; }
+  .rk-table { min-height: 72px; max-height: 286px; padding: 6px; }
+  .rk-rack { padding: 8px; }
+  .rk-tile { padding: 1px; }
+  .rk-number { font-size: 20px; }
+  .rk-actions { gap: 6px; }
+}

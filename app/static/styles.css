@@ -514,6 +514,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-color: var(--pink);
   box-shadow: 6px 6px 0 rgba(230, 168, 177, .42);
 }
+.room-card.invite-active:not(.ended)::after { border-color: var(--pink); }
 .room-card.ended {
   color: #7c7580;
   background:
@@ -584,6 +585,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-status-badge.pale {
   color: var(--pink-dark);
   background: rgba(230, 168, 177, .22);
+}
+.room-status-badge.room-invite-badge {
+  min-height: 18px;
+  margin-right: 6px;
+  padding: 2px 4px;
+  vertical-align: middle;
+  color: var(--text);
+  background: var(--pink);
+  border: 1px solid var(--pink-dark);
+  box-shadow: none;
+  font-size: 10px;
 }
 .room-enter { color: var(--pink); font-size: 10px; }
 .room-record-controls {
@@ -2494,7 +2506,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .liars-round-heading .liars-turn-line span {
   color: inherit;
   font-family: inherit;
-  font-size: inherit;
+  font-size: 13px;
   font-weight: inherit;
 }
 .liars-turn-prefix { flex: none; }
@@ -3050,8 +3062,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-weight: 900;
 }
 
-.game-chat-area { display: contents; }
-.multiplayer-presentation .game-chat-area {
+.game-chat-area {
   width: min(700px, 100%);
   min-width: 0;
   margin: 0 auto;
@@ -3083,6 +3094,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   align-content: start;
   gap: 3px;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   list-style: none;
@@ -3093,7 +3105,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   display: flex;
   align-items: start;
   justify-content: flex-start;
-  gap: 7px;
+  gap: 4px;
   color: var(--seat-ink, var(--purple-darker));
   background: var(--seat-soft, rgba(230, 223, 240, .35));
   border-left: 3px solid var(--seat-color, var(--purple));
@@ -3116,8 +3128,26 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   text-align: left;
   white-space: pre-wrap;
 }
+.recent-chat-reply {
+  flex: none;
+  width: 28px;
+  height: 19px;
+  margin: -1px 0;
+  padding: 0 2px;
+  border: 1px solid var(--purple-dark);
+  color: var(--text);
+  background: var(--purple-light);
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.recent-chat-reply:hover { border-color: var(--purple-darker); }
+.recent-chat-reply:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: -2px; }
+.recent-chat-reply:active { background: var(--pink); }
 .multiplayer-presentation .game-compose { width: 100%; margin-top: 0; }
 .chat-compose {
+  position: relative;
   width: min(700px, 100%);
   margin: 2px auto 0;
   display: grid;
@@ -3138,6 +3168,56 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .chat-compose input:focus { border-color: var(--pink); }
 .chat-compose .pixel-btn { min-width: 92px; }
+.chat-hint {
+  margin: 4px 0;
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mention-options {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  grid-column: 1 / 2;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: min(164px, 35dvh);
+  padding: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  color: var(--text);
+  background: #fff;
+  border: 2px solid var(--purple-dark);
+  box-shadow: 3px 3px 0 rgba(92, 84, 99, .18);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.mention-options button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-options button:hover,
+.mention-options button[aria-selected="true"] { background: var(--purple-light); }
+.mention-options button:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: -2px; }
+.mention-options button:active { background: #f9e1e7; }
+.mention-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mention-id { flex: none; white-space: pre; }
 .game-controls {
   width: min(610px, 100%);
   margin: 10px auto 0;
@@ -3892,7 +3972,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     margin: 0;
     grid-column: 2;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    /* Let the board size the rail; long chat must only size its scrollbar. */
+    contain: size;
     align-self: stretch;
     gap: 8px;
   }
@@ -4177,10 +4259,12 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .recent-chat-messages { gap: 2px; }
   .recent-chat-message {
     padding: 3px 4px;
-    gap: 5px;
+    gap: 3px;
     font-size: 11px;
   }
   .chat-compose input { min-height: 38px; padding: 6px 9px; }
+  .mention-options,
+  .mention-options button { font-size: 11px; }
   .chat-compose .pixel-btn {
     min-width: 64px;
     min-height: 40px;
@@ -4304,4 +4388,215 @@ h2 { color: var(--purple-darker); font-size: 15px; }
       font-size: 16px !important;
     }
   }
+}
+
+.invite-entry {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+  flex-wrap: wrap;
+}
+.invite-entry .pixel-btn {
+  min-height: 36px;
+  padding: 6px 11px;
+  font-size: inherit;
+}
+.invite-dialog {
+  width: min(92vw, 460px);
+  max-height: 88vh;
+  margin: auto;
+  padding: 16px;
+  overflow: auto;
+  box-sizing: border-box;
+  color: var(--text);
+}
+.invite-dialog::backdrop { background: rgba(87, 70, 105, .42); }
+.invite-dialog-head {
+  margin-bottom: 14px;
+  display: grid;
+  gap: 8px;
+}
+.invite-dialog-head h2 {
+  margin: 0;
+  color: var(--purple-darker);
+  font-size: 18px;
+  line-height: 1.2;
+}
+.invite-dialog-head .tag { justify-self: start; }
+.invite-dialog-fields {
+  display: grid;
+  gap: 10px;
+}
+.invite-dialog .pixel-field { gap: 5px; }
+.invite-dialog .pixel-field > span { color: var(--purple-dark); }
+.invite-dialog .pixel-field select,
+.invite-dialog .pixel-field input {
+  min-height: 46px;
+  background: #fff;
+}
+.invite-note,
+.invite-preview,
+.invite-error {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.invite-note { color: var(--muted); }
+.invite-preview {
+  padding: 8px 9px;
+  color: var(--purple-darker);
+  background: var(--purple-light);
+  border: 2px dashed var(--purple);
+}
+.invite-preview:empty,
+.invite-error:empty,
+.invite-note:empty { display: none; }
+.invite-error {
+  margin-top: 10px;
+  color: #a84058;
+  font-weight: 700;
+}
+.invite-timeout-toggle {
+  min-height: 46px;
+  margin-top: 2px;
+}
+.invite-timeout-toggle input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--pink);
+  flex: none;
+}
+.invite-dialog-actions {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.invite-dialog-actions .pixel-btn {
+  width: 100%;
+  min-height: 46px;
+}
+
+
+@media (max-width: 599px) {
+  .invite-entry { margin-bottom: 10px; gap: 6px; }
+  .invite-entry .pixel-btn { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+  .invite-dialog {
+    width: calc(100vw - 28px);
+    max-height: calc(100dvh - 32px);
+    padding: 14px;
+  }
+  .invite-dialog-head { margin-bottom: 12px; gap: 6px; }
+  .invite-dialog-head h2 { font-size: 17px; }
+  .invite-dialog-fields { gap: 9px; }
+  .invite-dialog-actions { margin-top: 12px; gap: 8px; }
+}
+
+/* Invitation waiting is a standalone card outside the battle stage. */
+.game-view.invite-waiting-view {
+  width: 100%;
+  padding: 18px 14px;
+  justify-items: center;
+  align-content: start;
+}
+.game-view.invite-waiting-view > :not(#inviteRoomPanel) {
+  display: none !important;
+}
+#inviteRoomPanel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.invite-waiting-view > #inviteRoomPanel {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+#inviteRoomPanel .invite-room-title {
+  flex: 1 0 100%;
+  margin: 0;
+  padding-right: 38px;
+  color: var(--purple-darker);
+  font-size: 20px;
+  line-height: 1.4;
+}
+#inviteRoomPanel .invite-room-meta {
+  flex: 1 0 100%;
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.6;
+}
+#inviteRoomPanel .invite-room-members,
+#inviteRoomPanel .invite-code-section {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding: 10px;
+  background: rgba(230,223,240,.32);
+  border: 2px solid var(--purple-light);
+}
+#inviteRoomPanel h3 {
+  margin: 0 0 8px;
+  color: var(--purple-dark);
+  font-size: 12px;
+}
+.invite-member-tag {
+  display: inline-block;
+  margin: 0 6px 4px 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.invite-code-line {
+  display: block;
+  color: var(--purple-darker);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(17px, 4.5vw, 24px);
+  letter-spacing: .08em;
+}
+.invite-copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.invite-start-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+#inviteRoomPanel .invite-room-action {
+  width: auto;
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+#inviteRoomPanel .invite-room-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 22px;
+  line-height: 1;
+}
+#inviteRoomNotice { flex: 1 0 100%; margin: 0; }
+#inviteRoomNotice:empty { display: none; }
+.participant-handle {
+  margin-top: 2px;
+  color: rgba(255,255,255,.78);
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  display: block;
+  overflow-wrap: anywhere;
 }

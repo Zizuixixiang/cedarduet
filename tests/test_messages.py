@@ -430,6 +430,22 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 422)
 
+    async def test_message_models_reject_removed_reply_field(self):
+        schemas = main_module.app.openapi()["components"]["schemas"]
+        for name in ("MessageBody", "McpPlayBody"):
+            self.assertNotIn("reply_to", schemas[name]["properties"])
+        room_id = await self.new_room()
+        for path, body in (
+            (f"/api/rooms/{room_id}/messages", {"player_id": "human-one"}),
+            ("/mcp/play", {"action": "chat", "player_id": "Clio", "room_id": room_id}),
+        ):
+            with self.subTest(path=path):
+                response = await self.client.post(path, json={
+                    **body, "message": "旧客户端消息", "reply_to": 1,
+                })
+                self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(framework.list_timeline(room_id, viewer_player_id="Clio"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

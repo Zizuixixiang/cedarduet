@@ -82,6 +82,22 @@ class Guandan(GamePlugin):
         "MCP 紧凑表中的 action_id 由 action_id_prefix 与行内 suffix 直接拼接；"
         "不得自行枚举或改写牌索引。"
     )
+    mcp_move_format = (
+        '提交 params.move={"action":"act","action_id":"..."}，并携带当前 revision。'
+        'guandan_parametric_v1：legal_actions.options 各行按 fields 解释；'
+        'suffix 是选项的 base36 编号，kind 是 play/pass/tribute/return_tribute/wind_follow；'
+        'pattern 对照 pattern_labels；main_rank 是核心牌型点数（顺序牌型为起点，'
+        '三带二为三张的点数，B/R 为小/大王）；size 是张数，wild_count 是逢人配张数，'
+        'suit 是同花顺花色，其余为 null。'
+        'example_hand_indexes 是一个可直接提交的完整选牌方案，索引从 0 开始对应本次 hand，'
+        '相同牌名的不同位置也是不同实体牌；每次刷新后使用新的 hand、prefix、options。'
+        "action_id = action_id_prefix + suffix；有牌时再拼 '.' 和升序手牌索引的 base36 字符串，"
+        "以 ',' 连接（10→a，26→q）；无牌动作不加点。"
+        '每个选项代表核心发布的同语义动作，示例不是数量上限；更换选牌仍须属于核心合法动作，'
+        '不能仅凭相同牌名随意交换实体索引。legal_action_count 为核心动作总数，'
+        'option_count 为语义选项数。普通 turn 保留全部动态选项；'
+        '缺少格式上下文时用现有 state + full_state=true 恢复 fields、submit、coverage、规则和本次手牌。'
+    )
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self._rng = rng or random.SystemRandom()
@@ -563,6 +579,16 @@ class Guandan(GamePlugin):
             "option_count": len(items),
         }
 
+    def mcp_turn_private_state(self, private, public):
+        """Only drop repeatable instructions, never dynamic choices or hand indexes."""
+        del public
+        projected = deepcopy(private)
+        spec = projected.get("legal_actions")
+        if isinstance(spec, dict) and spec.get("format") == "guandan_parametric_v1":
+            for key in ("fields", "pattern_labels", "submit", "coverage"):
+                spec.pop(key, None)
+        return projected
+
     @staticmethod
     def _base36(value: int) -> str:
         alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -631,7 +657,11 @@ class Guandan(GamePlugin):
             key=lambda card: card_sort_key(card, level_rank),
         )
         compact = [cls._compact_legal(action) for action in core]
-        prefix, options = cls._mcp_options(hand, compact)
+        # Projection groups by wild_count. Raw engine cards do not carry `wild`;
+        # use the identical presentation cards or wildcard options shift on submit.
+        prefix, options = cls._mcp_options(
+            [cls._public_card(card, level_rank) for card in hand], compact
+        )
         if action_id.startswith(prefix):
             encoded = action_id[len(prefix):]
             option_suffix, separator, encoded_indexes = encoded.partition(".")

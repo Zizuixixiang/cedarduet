@@ -1,5 +1,7 @@
 from .aeroplane_chess import AeroplaneChess
 from .banqi import Banqi
+from .bomb_plane import BombPlane
+from .carcassonne import Carcassonne
 from .blackjack import Blackjack
 from .connect4 import Connect4
 from .checkers import Checkers
@@ -15,7 +17,9 @@ from .jungle import Jungle
 from .junqi import Junqi
 from .liars_dice import LiarsDice
 from .mahjong import Mahjong
+from .monopoly import Monopoly
 from .othello import Othello
+from .rummikub import Rummikub
 from .tictactoe import TicTacToe
 from .texas_holdem import TexasHoldem
 from .train_cards import TrainCards
@@ -24,11 +28,12 @@ from .xiangqi import Xiangqi
 from .yahtzee import Yahtzee
 from .zhajinhua import Zhajinhua
 
-GAME_CATEGORIES = frozenset({"board", "card", "dice"})
+GAME_CATEGORIES = frozenset({"board", "card", "dice", "tabletop"})
 
 # Short, centralized lobby/invitation copy. ``X`` is replaced with the room's
 # concrete integer stake; the browser uses the same metadata for a live preview.
 STAKE_PRESENTATIONS = {
+    "carcassonne": ("🪙X/人", "败者各付X；并列第一全退"),
     "texas_holdem": ("买入 🪙X/人", "最大亏 X"),
     "zhajinhua": ("计价 🪙X/单位", "最大亏 32×X"),
     "gandengyan": ("底注 🪙X", "按剩牌×倍率，倍率最高8倍"),
@@ -39,6 +44,9 @@ STAKE_PRESENTATIONS = {
 DEFAULT_STAKE_PRESENTATION = ("🪙X/人", "")
 
 GAMES = {
+    Carcassonne.game_type: Carcassonne(),
+    BombPlane.game_type: BombPlane(),
+    Rummikub.game_type: Rummikub(),
     AeroplaneChess.game_type: AeroplaneChess(),
     Banqi.game_type: Banqi(),
     Blackjack.game_type: Blackjack(),
@@ -58,6 +66,7 @@ GAMES = {
     Doudizhu.game_type: Doudizhu(),
     LiarsDice.game_type: LiarsDice(),
     Mahjong.game_type: Mahjong(),
+    Monopoly.game_type: Monopoly(),
     Yahtzee.game_type: Yahtzee(),
     Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),
@@ -97,7 +106,7 @@ def game_catalog() -> list[dict]:
         counts = plugin.resolved_allowed_player_counts()
         if plugin.category not in GAME_CATEGORIES:
             raise ValueError(
-                f"{plugin.game_type} 的 category 必须是 board/card/dice"
+                f"{plugin.game_type} 的 category 必须是 board/card/dice/tabletop"
             )
         catalog.append({
             "game_type": plugin.game_type,

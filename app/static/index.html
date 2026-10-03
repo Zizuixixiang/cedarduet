@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.8">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.17">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -49,7 +49,7 @@
         <div>
           <p class="eyebrow">IDENTITY REQUIRED</p>
           <h1>请从 toy.cedarstar.org 首页登录进入</h1>
-          <p>双弈只服务于已经绑定的人类与小机，不提供游客房间或陌生人匹配。</p>
+          <p>登录后可以与绑定小机对局，也可以通过邀请码与熟人联机。</p>
         </div>
         <a class="pixel-btn" href="https://toy.cedarstar.org/">返回首页登录 →</a>
       </section>
@@ -72,6 +72,66 @@
 
         <p id="notice" class="notice" role="status"></p>
 
+        <div class="invite-entry">
+          <button id="inviteCreateEntry" class="pixel-btn" type="button">邀请联机</button>
+          <button id="inviteJoinEntry" class="pixel-btn secondary" type="button">加入联机房间</button>
+        </div>
+        <dialog id="inviteDialog" class="pixel-card invite-dialog">
+          <div class="invite-dialog-head">
+            <span class="tag pink">INVITE</span>
+            <h2 id="inviteDialogTitle">邀请联机</h2>
+          </div>
+          <div id="inviteCreateFields" class="invite-dialog-fields">
+            <div class="pixel-field">
+              <span>游戏</span>
+              <div class="game-type-selects">
+                <select id="inviteCategory" aria-label="邀请联机游戏分类">
+                  <option value="board">棋</option>
+                  <option value="card">牌</option>
+                  <option value="dice">骰</option>
+                  <option value="tabletop">桌游</option>
+                </select>
+                <select id="inviteGame" aria-label="邀请联机具体游戏"></select>
+              </div>
+            </div>
+            <label class="pixel-field"><span>目标人数</span><select id="inviteCount"></select></label>
+            <div id="inviteAiField" class="pixel-field ai-multi-field">
+              <span id="inviteAiLabel">带上自家小机</span>
+              <button id="inviteAiTrigger" class="ai-multi-trigger" type="button"
+                      aria-haspopup="listbox" aria-expanded="false" aria-controls="inviteAiMenu"
+                      aria-labelledby="inviteAiLabel inviteAiSummary" aria-describedby="inviteAiHint">
+                <span id="inviteAiSummary" class="ai-multi-name">可选，不带小机</span>
+                <span class="ai-multi-caret" aria-hidden="true">▾</span>
+              </button>
+              <div id="inviteAiMenu" class="ai-multi-menu hidden" role="listbox"
+                   aria-multiselectable="true" aria-labelledby="inviteAiLabel"></div>
+            </div>
+            <p id="inviteAiHint" class="invite-note" role="status"></p>
+            <label class="pixel-field">
+              <span>本局筹码</span>
+              <input id="inviteStake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="inviteStakeHint">
+            </label>
+            <p id="inviteStakeHint" class="invite-note">0 为娱乐局。</p>
+            <label class="pixel-field">
+              <span>超时接管</span>
+              <select id="inviteTimeout" aria-describedby="inviteTimeoutHint">
+                <option value="0" selected>关闭</option>
+                <option value="90">90 秒</option>
+                <option value="180">180 秒</option>
+              </select>
+            </label>
+            <p id="inviteTimeoutHint" class="invite-note">超时由 NPC 临时代操作，可随时接回。</p>
+          </div>
+          <div id="inviteJoinFields" class="invite-dialog-fields hidden">
+            <label class="pixel-field"><span>邀请码</span><input id="inviteCodeInput" maxlength="12" autocomplete="off"></label>
+            <p id="invitePreview" class="invite-preview"></p>
+          </div>
+          <p id="inviteError" class="invite-error" role="status"></p>
+          <div class="invite-dialog-actions">
+            <button id="inviteSubmit" class="pixel-btn" type="button">创建邀请房</button>
+            <button id="inviteDismiss" class="pixel-btn secondary" type="button">取消</button>
+          </div>
+        </dialog>
         <div class="lobby-stack">
           <section class="section-panel pixel-card create-panel">
             <div class="section-head">
@@ -106,6 +166,7 @@
                     <option value="board">棋</option>
                     <option value="card">牌</option>
                     <option value="dice">骰</option>
+                    <option value="tabletop">桌游</option>
                   </select>
                   <select id="gameType" aria-label="具体游戏">
                     <option value="banqi">翻翻棋 / 2人</option>
@@ -182,6 +243,7 @@
       </section>
 
       <section id="gameView" class="game-view hidden">
+        <section id="inviteRoomPanel" class="pixel-card hidden" aria-live="polite"></section>
         <header class="game-header pixel-card">
           <div class="game-toolbar">
             <button id="backButton" class="pixel-btn secondary game-nav-btn" type="button">← 房间列表</button>
@@ -194,6 +256,7 @@
               <button id="rulesButton" class="pixel-btn secondary compact" type="button"
                       aria-expanded="false" aria-controls="rulesDrawer">规则</button>
               <button id="resignButton" class="pixel-btn danger compact" type="button">认输</button>
+              <button id="reclaimControl" class="pixel-btn secondary compact hidden" type="button">接回操作</button>
             </div>
           </div>
 
@@ -308,8 +371,11 @@
               <div class="recent-chat-heading" aria-hidden="true">最近发言</div>
               <ol id="recentChatMessages" class="recent-chat-messages" aria-live="polite"></ol>
             </div>
+            <p class="chat-hint">输入 @ 可选择房间成员；@小机会提醒它。</p>
             <div class="chat-compose game-compose">
-              <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容">
+              <div id="mentionOptions" class="mention-options hidden" role="listbox" aria-label="房间成员"></div>
+              <input id="chatInput" maxlength="500" type="text" placeholder="说点什么…" aria-label="消息内容"
+                     role="combobox" aria-autocomplete="list" aria-controls="mentionOptions" aria-expanded="false" autocomplete="off">
               <button id="sendMessageButton" class="pixel-btn secondary" type="button">发送</button>
             </div>
           </section>
@@ -414,6 +480,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.1"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.5"></script>
+  <script src="/static/app.js?v=0.9.20"></script>
 </body>
 </html>

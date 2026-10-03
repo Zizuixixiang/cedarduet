@@ -2,6 +2,7 @@ import json
 import re
 import secrets
 from copy import deepcopy
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -159,6 +160,9 @@ def _decorate(room: dict) -> dict:
     for participant in result["participants"]:
         is_npc = participant.get("participant_kind") == "system_npc"
         participant["controller"] = participant.get("participant_kind")
+        if not is_npc:
+            participant["handle"] = participant_handle(participant)
+
         participant["wallet_label"] = "???" if is_npc else None
         participant["avatar_url"] = (
             avatar_urls.get(participant.get("npc_persona_id")) if is_npc else None
@@ -166,8 +170,27 @@ def _decorate(room: dict) -> dict:
         participant["settlement_delta"] = settlement_deltas.get(
             participant["player_id"]
         )
+    if result.get("room_kind") == "invite":
+        result["room_ready"] = (result["status"] == "waiting" and
+                                len(result["participants"]) == result["target_player_count"])
+        result["invite_link"] = (
+            "/duel/?invite=" + result["invite_code"] if result.get("invite_code") else None
+        )
     _add_retention_metadata(result)
     return result
+
+
+def participant_handle(participant: dict) -> str:
+    # Mentions use the stable public account ID. Human ids are namespaced internally.
+    key = account_key(participant["player_id"])
+    return key.removeprefix("human:")
+
+def account_key(player_id: str) -> str:
+    # Human numeric account IDs are not AI save-slot suffixes.
+    if player_id.startswith("human:"):
+        return player_id
+    # Platform AI save slots are not separate accounts.
+    return re.sub(r":[2-5]$", "", player_id)
 
 
 def _participant_by_id(room: dict, player_id: str | None) -> dict | None:
@@ -261,6 +284,13 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         raise DuelError("当前参与者已经离开房间", 403)
     game = get_game(room["game_type"])
     participants = deepcopy(room.get("participants", []))
+    if room.get("room_kind") == "invite" and not room["board_state"]:
+        projected = deepcopy(room)
+        projected["board_state"] = {}
+        projected["private_state"] = {}
+        projected["viewer"] = {"player_id": viewer_player_id, "role": viewer["role"],
+                               "seat": viewer["seat_index"], "token": viewer.get("token")}
+        return projected
     try:
         state = deepcopy(room["board_state"])
         public_projector = (
@@ -298,13 +328,22 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         participant["game_metadata"] = summary
     projected["participants"] = projected_participants
     projected["board_state"] = public_state
+    if (room.get("room_kind") == "invite" and room["game_type"] == "liars_dice"
+            and room["board_state"].get("pending_next_round")
+            and room.get("current_player_id") == viewer_player_id):
+        private_state["legal_actions"] = [{"action": "acknowledge_round"}]
     projected["private_state"] = private_state
     projected["viewer"] = {
         "player_id": viewer["player_id"],
         "role": viewer["role"],
         "participant_kind": viewer.get("participant_kind"),
         "seat": viewer["seat_index"],
+        "token": viewer.get("token"),
     }
+    if room.get("room_kind") == "invite":
+        from .takeover import temporary_takeover_active
+
+        projected["viewer"]["temporary_takeover_active"] = temporary_takeover_active(room, viewer_player_id)
     projected["action_note"] = public_state.get("last_action_note", "")
     return projected
 
@@ -319,6 +358,8 @@ def project_mcp_snapshot_for_viewer(
     used by Web/bootstrap responses.
     """
     projected = project_room_for_viewer(room, viewer_player_id)
+    if room.get("room_kind") == "invite" and not room["board_state"]:
+        return projected
     game = get_game(room["game_type"])
     viewer = _participant_by_id(projected, viewer_player_id)
     if viewer is None:
@@ -350,6 +391,7 @@ def project_mcp_snapshot_for_viewer(
             "kind": item.get("participant_kind"),
             "seat": item["seat_index"],
             "token": item.get("token"),
+            "handle": item.get("handle"),
             "status": (
                 join_status if join_status != "joined" else activity_state
             ),
@@ -385,7 +427,11 @@ def project_mcp_room_for_viewer(
 ) -> dict:
     """Return the one-time/turn MCP projection without changing Web state."""
     projected = project_room_for_viewer(room, viewer_player_id)
+    if room.get("room_kind") == "invite" and not room["board_state"]:
+        return projected
     game = get_game(room["game_type"])
+    if getattr(game, 'mcp_move_format', None):
+        projected['move_format'] = game.mcp_move_format
     viewer = _participant_by_id(projected, viewer_player_id)
     if viewer is None:
         raise DuelError("viewer 不是该房间参与者", 403)
@@ -727,6 +773,19 @@ def list_timeline(
         conn.close()
 
 
+def _invite_list_metadata(items):
+    with closing(connect()) as conn:
+        for item in items:
+            meta = conn.execute("SELECT * FROM room_invites WHERE room_id = ?",
+                                (item["room_id"],)).fetchone()
+            if meta:
+                count = item.get("participant_count", len(item.get("participants", [])))
+                item.update(room_kind="invite", target_player_count=meta["target_player_count"],
+                            participant_count=count,
+                            room_ready=item["status"] == "waiting" and count == meta["target_player_count"])
+    return items
+
+
 def list_human_rooms(
     human_player_id: str, ai_names: dict[str, str] | None = None
 ) -> list[dict]:
@@ -834,7 +893,7 @@ def list_human_rooms(
         item["pending_for"] = pending_csv.split(",") if pending_csv else []
         item.update(stake_presentation(item["game_type"], item["stake"]))
         _add_retention_metadata(item)
-    return result
+    return _invite_list_metadata(result)
 
 
 def list_ai_rooms(
@@ -930,7 +989,7 @@ def list_ai_rooms(
             )
             item.update(stake_presentation(row["game_type"], row["stake"]))
         result.append(item)
-    return result
+    return _invite_list_metadata(result)
 
 
 def list_human_pending_invitations(human_player_id: str) -> list[dict]:
@@ -993,7 +1052,7 @@ def post_message(
         room = decode_room(row, conn)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
-        if room["status"] not in {"waiting", "playing"}:
+        if room["status"] not in {"pending", "waiting", "playing", "finished", "archived"}:
             raise DuelError("对局已经结束，不能继续留言", 409)
         participant = _participant_by_id(room, player_id)
         if participant is None or participant.get("join_status") != "joined":
@@ -1004,15 +1063,69 @@ def post_message(
             }
             if unknown:
                 raise DuelError("消息可见参与者不属于该房间")
+        targets = set()
+        # Targeted reminders belong to invite rooms; ordinary speech remains
+        # a normal room event, including text containing a literal @handle.
+        for member in (room["participants"] if room.get("room_kind") == "invite" else []):
+            if member["participant_kind"] != "bound_machine" or member["player_id"] == player_id:
+                continue
+            handle = participant_handle(member)
+            if re.search(r"(?<![\w@])@" + re.escape(handle) + r"(?![\w~\-])", text):
+                targets.add(member["player_id"])
         _record_event(
             conn, room_id, role, player_id, room["revision"],
             event_type="message", text=text,
             visible_to_player_ids=visible_to_player_ids,
         )
+        _touch_room_presence(conn, room_id, player_id)
+        event_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.executemany("INSERT OR IGNORE INTO room_mentions VALUES (?, ?)",
+                         [(event_id, target) for target in targets
+                          if visible_to_player_ids is None or target in visible_to_player_ids])
     return _decorate(room)
 
 
-def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
+def _touch_room_presence(conn, room_id: str, player_id: str) -> None:
+    """Call only for a real client action, never projection/background work."""
+    conn.execute("""UPDATE room_event_cursors SET updated_at=?
+        WHERE room_id=? AND player_id=? AND EXISTS (
+            SELECT 1 FROM room_participants p
+            WHERE p.room_id=room_event_cursors.room_id
+              AND p.player_id=room_event_cursors.player_id
+              AND p.participant_kind != 'system_npc' AND p.join_status='joined'
+              AND p.active=1 AND p.activity_state='active')""",
+        (_now(), room_id, player_id))
+
+
+def touch_room_presence(room_id: str, player_id: str) -> None:
+    """Authenticated state/wait entry point; does not consume events."""
+    with write_transaction() as conn:
+        _touch_room_presence(conn, _room_id(room_id), _player_id(player_id))
+
+
+def has_live_room_participant(room: dict, conn=None) -> bool:
+    """Persistent liveness, also checked in the takeover's write transaction.
+
+    A lease lasts one turn timeout (90/180s), comfortably beyond 30s polls.
+    Web also polls on its own turn. Keeping the lease no longer than a turn
+    ensures that after clients stop syncing at most one timeout can commit.
+    NPC moves and internal reads never renew it.
+    """
+    if conn is None:
+        with closing(connect()) as connection:
+            return has_live_room_participant(room, connection)
+    seconds = int(room.get("timeout_takeover_seconds") or
+                  (90 if room.get("timeout_takeover") else 0))
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    rows = conn.execute("""SELECT c.updated_at FROM room_event_cursors c
+        JOIN room_participants p USING(room_id, player_id)
+        WHERE c.room_id=? AND p.participant_kind != 'system_npc'
+          AND p.join_status='joined' AND p.active=1 AND p.activity_state='active'""",
+        (room["room_id"],))
+    return seconds > 0 and any(datetime.fromisoformat(r[0]) > cutoff for r in rows)
+
+
+def read_new_room_events(room_id: str, player_id: str, *, mcp: bool = False) -> list[dict]:
     """Atomically consume other participants' events using one cursor per reader."""
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
@@ -1065,17 +1178,34 @@ def read_new_room_events(room_id: str, player_id: str) -> list[dict]:
                 room_id, player_id, last_event_id, updated_at
             ) VALUES (?, ?, ?, ?)
             ON CONFLICT(room_id, player_id) DO UPDATE SET
-                last_event_id = excluded.last_event_id,
-                updated_at = excluded.updated_at
+                last_event_id = excluded.last_event_id
             """,
-            (room_id, player_id, newest_event_id, _now()),
+            (room_id, player_id, newest_event_id, "1970-01-01T00:00:00+00:00"),
         )
-        projected = [
-            _project_event_for_viewer(
-                room, _timeline_entry(row, room), player_id
-            )
-            for row in rows
-        ]
+        game = get_game(room['game_type'])
+        event_key = getattr(game, 'mcp_event_key', None) if mcp else None
+        previous = {}
+        if event_key and rows:
+            # Read the immediately preceding PUBLIC result, including one's own
+            # actions. Never use another viewer's private event as a diff base.
+            prior = conn.execute('''SELECT move_payload FROM room_messages
+                WHERE room_id=? AND id<? AND event_type='result'
+                  AND visible_to_json IS NULL
+                  AND json_type(move_payload, ?) IS NOT NULL
+                ORDER BY id DESC LIMIT 1''',
+                (room_id, rows[0]['id'], '$.' + event_key)).fetchone()
+            if prior:
+                previous = json.loads(prior['move_payload'])
+        projected = []
+        for row in rows:
+            event = _project_event_for_viewer(room, _timeline_entry(row, room), player_id)
+            if event is not None and event_key:
+                event = game.mcp_event(event, previous)
+            projected.append(event)
+            if event_key and row['event_type'] == 'result' and row['visible_to_json'] is None:
+                value = json.loads(row['move_payload'] or '{}')
+                if event_key in value:
+                    previous = value
         return [event for event in projected if event is not None]
 
 
@@ -1094,10 +1224,10 @@ def claim_mcp_bootstrap(room_id: str, player_id: str) -> bool:
         changed = conn.execute(
             """
             UPDATE room_event_cursors
-            SET mcp_bootstrapped = 1, updated_at = ?
+            SET mcp_bootstrapped = 1
             WHERE room_id = ? AND player_id = ? AND mcp_bootstrapped = 0
             """,
-            (_now(), room_id, player_id),
+            (room_id, player_id),
         )
         return changed.rowcount == 1
 
@@ -2127,6 +2257,8 @@ def join_room(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if room.get("room_kind") == "invite":
+            raise DuelError("邀请房请使用 invite_code 加入，由房主 start 开局", 409)
         _assert_opponent(room, role, opponent_id)
         existing = _participant_by_id(room, player_id)
         if existing is not None:
@@ -2362,7 +2494,7 @@ def _assert_participant(room: dict, player_id: str) -> None:
 
 
 def _assert_opponent(room: dict, role: Role, opponent_id: str | None) -> None:
-    if opponent_id is None:
+    if opponent_id is None or room.get("room_kind") == "invite":
         return
     opponent_id = _player_id(opponent_id)
     other: Role = "ai" if role == "human" else "human"
@@ -2511,6 +2643,27 @@ def acknowledge_liars_dice_round(
     return _decorate(result)
 
 
+def is_bomb_plane_setup(room: dict) -> bool:
+    """Only plane deployment permits independent actions at both seats."""
+    return (room.get("game_type") == "bomb_plane"
+            and room.get("board_state", {}).get("phase") == "setup")
+
+
+def participant_can_act(room: dict, player_id: str) -> bool:
+    """Action availability for responses/waits, separate from the NPC cursor."""
+    if is_bomb_plane_setup(room):
+        actor = _participant_by_id(room, player_id)
+        return bool(
+            room.get("status") == "playing"
+            and actor and actor.get("join_status") == "joined"
+            and actor.get("active", True)
+            and actor.get("activity_state", "active") == "active"
+            and player_id in room["board_state"].get("participant_order", [])
+            and not room["board_state"].get("ready", {}).get(player_id, True)
+        )
+    return room.get("current_player_id") == player_id
+
+
 def play_move(
     room_id: str,
     role: Role,
@@ -2519,6 +2672,7 @@ def play_move(
     opponent_id: str | None = None,
     message: str | None = None,
     expected_revision: int | None = None,
+    takeover: bool = False,
 ) -> dict:
     room_id = _room_id(room_id)
     player_id = _player_id(player_id)
@@ -2531,24 +2685,45 @@ def play_move(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if room.get("room_kind") == "invite" and expected_revision is None:
+            raise DuelError("邀请联机行动必须携带 revision", 409)
+        if room["game_type"] == "rummikub" and expected_revision is None:
+            raise DuelError("拉密整回合行动必须携带 revision", 409)
+        if room["game_type"] == "bomb_plane" and expected_revision is None:
+            raise DuelError("炸飞机行动必须携带 revision", 409)
+        if room["game_type"] == "carcassonne" and expected_revision is None:
+            raise DuelError("卡卡颂整回合行动必须携带 revision", 409)
         _assert_expected_revision(room, expected_revision)
+        if takeover and (not room.get("timeout_takeover") or
+                         not has_live_room_participant(room, conn) or
+                         room.get("reclaim_revision") == room["revision"]):
+            raise DuelError("房间暂无活跃参与者或玩家已接回当前回合", 409)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] != "playing":
             raise DuelError("当前房间不在对局中", 409)
-        if room.get("current_player_id") != player_id:
+        if not is_bomb_plane_setup(room) and room.get("current_player_id") != player_id:
             raise DuelError("还没轮到你落子", 409)
         game = get_game(room["game_type"])
         actor = _participant_by_id(room, player_id)
         if actor is None or not actor.get("active", True):
             raise DuelError("当前参与者已不可行动", 409)
+        if (takeover and room["game_type"] == "monopoly" and isinstance(move, dict) and
+                (move.get("action") == "propose_trade" or
+                 (move.get("action") == "respond_trade" and move.get("accept") is True))):
+            raise DuelError("临时接管不能代玩家确认资产交易；可由本人确认或拒绝", 409)
         try:
-            move_label = game.format_action(room["board_state"], move, actor)
-            game.validate_action(room["board_state"], move, actor)
-            applied = game.apply_action(room["board_state"], move, actor)
-            applied = game.progress_after_action(
-                room["board_state"], move, actor, room["participants"], applied
-            )
+            if (room.get("room_kind") == "invite" and room["game_type"] == "liars_dice"
+                    and move == {"action": "acknowledge_round"}):
+                move_label = "确认下一轮"
+                applied = game.acknowledge_round(room["board_state"])
+            else:
+                move_label = game.format_action(room["board_state"], move, actor)
+                game.validate_action(room["board_state"], move, actor)
+                applied = game.apply_action(room["board_state"], move, actor)
+                applied = game.progress_after_action(
+                    room["board_state"], move, actor, room["participants"], applied
+                )
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"无效落子：{exc}") from exc
         if not isinstance(applied, (dict, MoveResult)):
@@ -2667,6 +2842,11 @@ def play_move(
             winner = "draw"
         else:
             winner = None
+        if pause_turn and room.get("room_kind") == "invite" and room["game_type"] == "liars_dice":
+            pause_turn = False
+            # In invitations the next real seat confirms; AI-only rooms must
+            # never wait for a nonexistent human. NPC turns use the same ack.
+            explicit_next_player_id = state["pending_next_round"]["starter_player_id"]
         next_player_id = None
         next_turn: Role = role
         if status == "playing":
@@ -2741,6 +2921,13 @@ def play_move(
                 text=action_note,
                 move_payload=public_event,
             )
+        # Informational marker only; presence, not prior assistance, gates work.
+        takeover_revision = room["revision"] if takeover else None
+        if not takeover:
+            _touch_room_presence(conn, room_id, player_id)
+        conn.execute("""UPDATE room_invites SET turn_revision = ?, turn_started_at = ?,
+                     reclaim_revision = NULL, takeover_revision = ? WHERE room_id = ?""",
+                     (updated["revision"], timestamp, takeover_revision, room_id))
         result = decode_room(updated, conn)
         achievement_unlocks: list[dict] = []
         if result["status"] == "finished":
@@ -2750,11 +2937,13 @@ def play_move(
 
             achievement_unlocks.extend(
                 record_terminal_room(conn, result, "game_result", normal=True)
+                if room.get("room_kind") != "invite" else []
             )
         from .achievements import record_special_move
 
         achievement_unlocks.extend(
             record_special_move(conn, result, actor, move)
+            if room.get("room_kind") != "invite" else []
         )
         result["achievement_unlocks"] = achievement_unlocks
         if result["status"] == "finished":
@@ -3026,6 +3215,11 @@ def leave_room(
         _assert_opponent(room, role, opponent_id)
         if participant.get("join_status") == "left":
             return _decorate(room)
+        if room.get("room_kind") == "invite" and room["status"] == "waiting":
+            # Closing or leaving a pregame invitation closes the code. No
+            # partial plugin state is initialized and no ownership is transferred.
+            conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
+            return {"room_id": room_id, "status": "cancelled", "stake": 0}
         if room["status"] == "pending":
             cancelled = {
                 "room_id": room_id,

@@ -122,6 +122,28 @@ class Doudizhu(GamePlugin):
         '{"action":"bid","action_id":"bid:1","score":1} 或 '
         '{"action":"pass","action_id":"pass"}；不得自行枚举牌型。'
     )
+    mcp_move_format = (
+        'bootstrap/full_state 的 private_state.hand 是完整牌对象，legal_actions 是完整权威动作；'
+        '可原样选一项作为 params.move。普通 turn 的 hand 是全部物理牌 ID，'
+        'legal_action_ids 是按牌型中文名称分组的完整 action_id 列表（bid 为叫分，pass 为过牌）；'
+        '分组仅便于阅读，不省略任何合法动作。只能从当前列表选一个 ID，不要自行枚举牌型。'
+        'ID 前缀决定 action，提交 params.move：'
+        '{"action":"bid","action_id":"bid:1"}、'
+        '{"action":"pass","action_id":"pass"} 或 '
+        '{"action":"play","action_id":"play:solo:0:S3"}；'
+        '例中 action_id 必须替换为当前列表中选中的完整原文，不需要另传 score/card_ids。'
+        'bid:N 表示叫 N 分（0 不叫）；play:牌型代码:主体点数索引:物理牌ID串。'
+        '点数索引从 0 开始，顺序为 3,4,5,6,7,8,9,10,J,Q,K,A,2,small_joker,big_joker；'
+        '连牌主体点数为最大点数。物理牌 ID 由花色 S黑桃/H红桃/C梅花/D方块加点数组成，'
+        '如 H3、S10；JOKER-S 是小王，JOKER-B 是大王。牌串用连字符连接，'
+        '但 JOKER-S/JOKER-B 各自是不可拆的一个 ID。'
+        '牌型代码 solo/pair/trio 为单/对/三张，trio_solo/trio_pair 为三带一/三带对，'
+        'solo_chain_N/pair_chain_N/trio_chain_N 为 N 连顺子/连对/飞机，'
+        'trio_chain_solo_N/trio_chain_pair_N 为 N 连飞机带单/带对，'
+        'four_two_solo/four_two_pair 为四带二/四带两对，bomb/rocket 为炸弹/王炸。'
+        '分组名保留权威牌型标签；ID 中的牌型与主体索引区分同一组牌的不同解释。'
+        '空 legal_action_ids 表示当前无可提交动作。所有提交仍由服务端校验。'
+    )
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self._rng = rng or random.SystemRandom()
@@ -911,6 +933,22 @@ class Doudizhu(GamePlugin):
             "hand": sorted(private_hand(state, player_id), key=_card_sort_key),
             "legal_actions": self.legal_actions_for(state, player_id),
         }
+
+    def mcp_turn_private_state(
+        self,
+        private_state: dict[str, Any],
+        public_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keep every canonical ID, without repeating its cards and metadata."""
+        del public_state
+        projected = deepcopy(private_state)
+        projected["hand"] = [card["id"] for card in projected["hand"]]
+        groups: dict[str, list[str]] = {}
+        for action in projected.pop("legal_actions"):
+            label = action.get("pattern_label", action["action"])
+            groups.setdefault(label, []).append(action["action_id"])
+        projected["legal_action_ids"] = groups
+        return projected
 
     def participant_summary(
         self,

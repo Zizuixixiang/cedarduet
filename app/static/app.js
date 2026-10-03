@@ -47,10 +47,10 @@ const LEGACY_GAME_UI_TYPES = new Set([
 const PARTICIPANT_PRESENTATIONS = new Set([
   "generic", "embedded", "board-edge",
 ]);
-const RECENT_CHAT_LIMIT = 5;
 const ROOM_POLL_RETRY_MS = 3000;
 
 const GAME_GLYPHS = {
+  carcassonne: "城",
   tictactoe: "井",
   gomoku: "五",
   go: "围",
@@ -401,7 +401,7 @@ function showView(id) {
 }
 
 function showNotice(text, error = false, emphasize = false) {
-  const target = room ? $("gameMessage") : $("notice");
+  const target = isInviteWaiting(room) ? $("inviteRoomNotice") : room ? $("gameMessage") : $("notice");
   target.textContent = text || "";
   target.classList.toggle("error", error);
   target.classList.toggle("my-turn", Boolean(emphasize) && !error);
@@ -422,6 +422,7 @@ function localDateString(date = new Date()) {
 }
 
 function waitHintHumanId(targetRoom) {
+  if (targetRoom?.viewer?.player_id) return targetRoom.viewer.player_id;
   if (targetRoom && targetRoom.human_player_id) {
     return targetRoom.human_player_id;
   }
@@ -535,7 +536,7 @@ function isMultiplayerRoom(targetRoom) {
 }
 
 function participantPresentationFor(targetRoom) {
-  if (!isMultiplayerRoom(targetRoom)) return "duel";
+  if (!isMultiplayerRoom(targetRoom) && !["monopoly", "carcassonne"].includes(targetRoom.game_type)) return "duel";
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   const presentation = renderer && renderer.participantPresentation;
   return PARTICIPANT_PRESENTATIONS.has(presentation)
@@ -557,6 +558,10 @@ function aiNameFor(playerId = room && room.ai_player_id) {
 
 function participantFor(role) {
   if (!room || !Array.isArray(room.participants)) return null;
+  if (room.viewer?.player_id) {
+    if (role === "human") return room.participants.find((item) => item.player_id === room.viewer.player_id) || null;
+    if (role === "ai") return room.participants.find((item) => item.player_id !== room.viewer.player_id) || null;
+  }
   return room.participants.find((item) => item.role === role) || null;
 }
 
@@ -597,7 +602,7 @@ function accountAvatarForParticipant(participant) {
     return null;
   }
   if (participant.participant_kind === "human" || participant.role === "human") {
-    return accountIdentity.human_avatar || null;
+    return participant.player_id === (accountIdentity.human_player_id || viewerPlayerIdFor(room)) ? accountIdentity.human_avatar || null : null;
   }
   const machines = Array.isArray(accountIdentity.machines)
     ? accountIdentity.machines
@@ -652,7 +657,9 @@ function renderParticipantAvatar(target, participant, targetRoom = null) {
 function turnLabel(turn, aiPlayerId, currentActor = null) {
   if (!identity) return turn;
   if (currentActor) {
-    const humanId = (room && room.human_player_id)
+    const humanId = (room && room.viewer && room.viewer.player_id)
+      || (identity && identity.human_player_id)
+      || (room && room.human_player_id)
       || (currentActor.role === "human" ? currentActor.player_id : null);
     return currentActor.player_id === humanId
       ? "轮到你"
@@ -665,6 +672,7 @@ function roomTurnText(targetRoom) {
   if (isTerminal(targetRoom)) {
     return targetRoom.status === "archived" ? "对局已归档" : "对局已结束";
   }
+  if (targetRoom.room_kind === "invite" && targetRoom.status === "waiting") return "等待开局";
   if (targetRoom.status === "pending") return "等待对方确认";
   if (
     targetRoom.game_type === "liars_dice"
@@ -813,8 +821,9 @@ function renderRooms(rooms) {
   }
   rooms.forEach((summary) => {
     const terminal = isTerminal(summary);
+    const activeInvite = summary.room_kind === "invite" && !terminal;
     const card = document.createElement("article");
-    card.className = `room-card${terminal ? " ended" : ""}`;
+    card.className = `room-card${terminal ? " ended" : ""}${activeInvite ? " invite-active" : ""}`;
 
     const open = document.createElement("button");
     open.className = "room-open";
@@ -832,12 +841,20 @@ function renderRooms(rooms) {
     copy.className = "room-copy";
     const title = document.createElement("span");
     title.className = "room-title";
-    title.textContent = summary.participant_names && summary.participant_names.length > 2
+    title.textContent = summary.participant_names && (summary.participant_names.length > 2 || summary.room_kind === "invite")
       ? `${summary.game_name} × ${summary.participant_names.join(" / ")}`
       : `${summary.game_name} × ${summary.ai_name}`;
     const meta = document.createElement("span");
     meta.className = "room-meta";
-    meta.textContent = `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
+    meta.textContent = summary.room_kind === "invite"
+      ? `${activeInvite ? "" : "邀请房 · "}${summary.participant_count}/${summary.target_player_count} · ${summary.status === "waiting" ? "等待开局" : statusLabel(summary.status)}`
+      : `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
+    if (activeInvite) {
+      const inviteBadge = document.createElement("span");
+      inviteBadge.className = "room-status-badge room-invite-badge";
+      inviteBadge.textContent = "邀请房";
+      meta.prepend(inviteBadge);
+    }
     const stake = document.createElement("span");
     stake.className = "room-stake";
     const stakeLabel = summary.stake_label
@@ -1261,12 +1278,12 @@ function gamePlayerCountLabel(declared) {
 }
 
 function gameCategoryLabel(category) {
-  return {board: "棋", card: "牌", dice: "骰"}[category] || "游戏";
+  return {board: "棋", card: "牌", dice: "骰", tabletop: "桌游"}[category] || "游戏";
 }
 
 function gameCategoryFor(declared) {
   const category = declared && declared.category;
-  return ["board", "card", "dice"].includes(category) ? category : "";
+  return ["board", "card", "dice", "tabletop"].includes(category) ? category : "";
 }
 
 function roomGameCategory(targetRoom) {
@@ -1306,6 +1323,14 @@ function compareGameDisplayNames(left, right) {
 
 function gameTokenEstimateLabel(gameType) {
   return ({
+    // Final MCP v2 normal-round samples; cl100k_base, minified JSON responses.
+    // Normal turn_state delta + move_reply only; bootstrap/full_state are measured separately.
+    // Observed normal-round min/max: monopoly 41–1960, rummikub 33–459,
+    // bomb_plane 27–150, carcassonne 44–1394. Not billing caps.
+    carcassonne: "约100–260 token/轮",
+    monopoly: "约50–600 token/轮",
+    rummikub: "约80–300 token/轮",
+    bomb_plane: "约30–50 token/轮",
     aeroplane_chess: "约40–150 token/轮",
     banqi: "约50–150 token/轮",
     blackjack: "约100–220 token/轮",
@@ -1315,7 +1340,7 @@ function gameTokenEstimateLabel(gameType) {
     gomoku: "约30–100 token/轮",
     go: "约100–250 token/轮",
     gandengyan: "约220–450 token/轮",
-    guandan: "约700–1500 token/轮",
+    guandan: "约500–900 token/轮",
     othello: "约30–120 token/轮",
     connect4: "约20–70 token/轮",
     checkers: "约40–150 token/轮",
@@ -1324,11 +1349,11 @@ function gameTokenEstimateLabel(gameType) {
     dots_boxes: "约30–120 token/轮",
     doudizhu: "约300–600 token/轮",
     liars_dice: "约50–150 token/轮",
-    mahjong: "约600–1200 token/轮",
+    mahjong: "约600–900 token/轮",
     yahtzee: "约80–200 token/轮",
     uno: "约250–500 token/轮",
     jungle: "约30–120 token/轮",
-    junqi: "约100–500 token/轮",
+    junqi: "约300–450 token/轮",
     xiangqi: "约30–150 token/轮",
     zhajinhua: "约120–250 token/轮",
   })[gameType] || "";
@@ -1339,6 +1364,9 @@ function updateGameTokenEstimate() {
   if (!label) return;
   const estimate = gameTokenEstimateLabel($("gameType").value);
   label.textContent = estimate ? `（${estimate}）` : "";
+  label.title = ["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes($("gameType").value)
+    ? "正常轮次MCP增量估算，首次进入/手动完整同步另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复；多人连续行动、合法选择与终局结算会影响长度，不是计费上限。"
+    : "";
 }
 
 function sortedGamesForCategory(games, category) {
@@ -1820,12 +1848,14 @@ async function backToLobby({fromHistory = false} = {}) {
 
 function canHumanMove() {
   const human = participantFor("human");
-  return Boolean(
-    room
-    && human
-    && room.status === "playing"
-    && room.current_player_id === human.player_id
-  );
+  if (!room || !human || room.status !== "playing") return false;
+  if (room.game_type === "bomb_plane" && room.board_state?.phase === "setup") {
+    return Boolean(
+      Array.isArray(room.private_state?.legal_actions)
+      && room.private_state.legal_actions.length
+    );
+  }
+  return room.current_player_id === human.player_id;
 }
 
 function pieceClass(mark) {
@@ -1886,7 +1916,7 @@ function selectCell(cell, payload, state) {
   cell.classList.toggle("selected", selected);
   cell.setAttribute("aria-pressed", String(selected));
   if (selected && !cell.classList.contains("occupied")) {
-    cell.classList.add(`preview-${state.marks.human.toLowerCase()}`);
+    cell.classList.add(`preview-${String(room.viewer?.token || (state.marks || {}).human || "X").toLowerCase()}`);
   }
 }
 
@@ -2009,7 +2039,7 @@ function renderConnect4Board(board, state) {
         && rowIndex === landingRow;
       cell.classList.toggle("selected", selected);
       cell.setAttribute("aria-pressed", String(selected));
-      if (selected) cell.classList.add(`preview-${state.marks.human.toLowerCase()}`);
+      if (selected) cell.classList.add(`preview-${String(room.viewer?.token || (state.marks || {}).human || "X").toLowerCase()}`);
       board.appendChild(cell);
     });
   });
@@ -2114,7 +2144,7 @@ function renderJungleBoard(board, state) {
     && room
     && ["finished", "archived"].includes(room.status)
   );
-  const humanMark = (room.viewer || {}).token || state.marks.human;
+  const humanMark = (room.viewer || {}).token || (state.marks || {}).human;
   const legalMoves = ((state.legal_moves_by_mark || {})[humanMark] || []);
   const legalOrigins = new Set(
     legalMoves.map((move) => `${move.from_row},${move.from_col}`)
@@ -2333,7 +2363,7 @@ function renderXiangqiBoard(board, state) {
     || state.in_draw
     || state.winner_mark
   );
-  const humanColor = state.marks && state.marks.human === "O" ? "b" : "r";
+  const humanColor = ((room.viewer || {}).token || (state.marks || {}).human) === "O" ? "b" : "r";
   const rotated = humanColor === "b";
   const rowOrder = Array.from(
     {length: 10}, (_, index) => rotated ? 9 - index : index
@@ -2539,6 +2569,7 @@ function renderLiarsDice(board, state) {
       acknowledgeButton.type = "button";
       acknowledgeButton.className = "pixel-btn";
       acknowledgeButton.textContent = `知道了，开始第 ${nextRound} 轮`;
+      acknowledgeButton.disabled = room.room_kind === "invite" && !canHumanMove();
       acknowledgeButton.addEventListener("click", async () => {
         acknowledgeButton.disabled = true;
         await acknowledgeLiarsRound(acknowledgeButton);
@@ -2942,9 +2973,7 @@ function createGameUIContext(board, controls, timeline = currentTimeline) {
     privateState,
     timeline,
     identity,
-    participants: Array.isArray(targetRoom.participants)
-      ? targetRoom.participants
-      : [],
+    participants: relativeParticipantsFor(targetRoom),
     viewer: targetRoom.viewer || viewerParticipantFor(targetRoom),
     canMove: canHumanMove(),
     isTerminal: isTerminal(targetRoom),
@@ -3108,7 +3137,7 @@ function renderTimeline(timeline = []) {
   list.scrollTop = list.scrollHeight;
 }
 
-function recentSpeechEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
+function recentSpeechEvents(timeline = []) {
   return timeline.filter((event) => (
     event
     && typeof event.text === "string"
@@ -3116,7 +3145,7 @@ function recentSpeechEvents(timeline = [], limit = RECENT_CHAT_LIMIT) {
     && event.is_public !== false
     && speechSenderRole(event) !== "system"
     && speechSenderPlayerId(event) !== "system"
-  )).slice(-limit);
+  ));
 }
 
 function timelineSpeakerName(event) {
@@ -3133,11 +3162,21 @@ function timelineSpeakerName(event) {
 function renderRecentChat(timeline = []) {
   const feed = $("recentChatFeed");
   const list = $("recentChatMessages");
-  const multiplayer = isMultiplayerRoom(room);
-  const messages = multiplayer ? recentSpeechEvents(timeline) : [];
+  const messages = recentSpeechEvents(timeline);
+  const oldScrollHeight = list.scrollHeight;
+  const oldScrollTop = list.scrollTop;
+  const followBottom = list.dataset.roomId !== room.room_id
+    || oldScrollHeight - oldScrollTop - list.clientHeight <= 24;
+  // Preserve the first visible message, including when the server's 200-event
+  // window drops older entries. Appending below it must not shift reading.
+  const listTop = list.getBoundingClientRect().top;
+  const anchor = !followBottom && [...list.children].find(
+    (item) => item.getBoundingClientRect().bottom > listTop
+  );
+  const anchorOffset = anchor ? anchor.getBoundingClientRect().top - listTop : 0;
+  list.dataset.roomId = room.room_id;
   list.replaceChildren();
-  feed.classList.toggle("hidden", !multiplayer);
-  if (!multiplayer || !messages.length) return;
+  feed.classList.remove("hidden");
 
   messages.forEach((event) => {
     const sender = typeof event.sender === "object" && event.sender
@@ -3149,6 +3188,7 @@ function renderRecentChat(timeline = []) {
       : sender.seat;
     const item = document.createElement("li");
     item.className = "recent-chat-message";
+    item.dataset.sequence = String(event.sequence);
     if (Number.isInteger(seatIndex)) item.classList.add(`seat-${seatIndex}`);
     const speaker = document.createElement("strong");
     speaker.className = "recent-chat-speaker";
@@ -3157,13 +3197,41 @@ function renderRecentChat(timeline = []) {
     copy.className = "recent-chat-copy";
     copy.textContent = event.text;
     item.append(speaker, copy);
+    if (room.room_kind === "invite" && participant?.handle && ["human", "bound_machine"].includes(participant.participant_kind)
+        && participant.player_id !== viewerPlayerIdFor(room) && speechSenderRole(event) !== "system") {
+      const reply = document.createElement("button");
+      reply.type = "button";
+      reply.className = "recent-chat-reply";
+      reply.textContent = "回复";
+      reply.setAttribute("aria-label", `回复 ${timelineSpeakerName(event)}`);
+      // As with mention completion, preserve input focus and the mobile keyboard.
+      reply.addEventListener("pointerdown", (event) => event.preventDefault());
+      reply.addEventListener("click", () => {
+        const input = $("chatInput");
+        const start = input.selectionStart ?? input.value.length;
+        const separator = start && !/\s/u.test(input.value[start - 1]) ? " " : "";
+        input.setRangeText(`${separator}@${participant.handle} `, start, start, "end");
+        closeMentionOptions();
+        input.focus({preventScroll: true});
+      });
+      item.appendChild(reply);
+    }
     list.appendChild(item);
   });
-  list.scrollTop = list.scrollHeight;
+  if (followBottom) {
+    list.scrollTop = list.scrollHeight;
+  } else {
+    const nextAnchor = anchor && [...list.children].find(
+      (item) => item.dataset.sequence === anchor.dataset.sequence
+    );
+    list.scrollTop = nextAnchor
+      ? nextAnchor.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop - anchorOffset
+      : oldScrollTop + list.scrollHeight - oldScrollHeight;
+  }
 }
 
 function renderPlayers(timeline = []) {
-  const multiplayer = isMultiplayerRoom(room);
+  const multiplayer = isMultiplayerRoom(room) || ["monopoly", "carcassonne"].includes(room.game_type);
   const viewerPlayerId = viewerPlayerIdFor(room);
   const viewerParticipant = viewerParticipantFor(room);
   const viewerSpeechEvent = viewerPlayerId
@@ -3177,12 +3245,18 @@ function renderPlayers(timeline = []) {
     || participantName("human");
   $("aiName").textContent = aiName;
   $("humanName").textContent = humanName;
+  for (const [id, p] of [["aiName", participantFor("ai")], ["humanName", viewerParticipant]]) {
+    if (p?.handle && participantAccountId(p)) {
+      const handle = document.createElement("small"); handle.className = "participant-handle";
+      handle.textContent = ` ID ${participantAccountId(p)}`; $(id).appendChild(handle);
+    }
+  }
   renderParticipantAvatar($("aiAvatar"), participantFor("ai"), room);
   renderParticipantAvatar($("humanAvatar"), viewerParticipant, room);
 
   renderSpeechBubble({
     bubble: $("aiSpeech"),
-    event: multiplayer ? null : latestSpeechEvent(timeline, "ai"),
+    event: multiplayer ? null : latestSpeechEvent(timeline, {playerId: participantFor("ai")?.player_id}),
   });
   renderSpeechBubble({
     bubble: $("humanSpeech"),
@@ -3319,13 +3393,21 @@ function viewerParticipantFor(targetRoom) {
   return participants.find((item) => item.role === "human") || null;
 }
 
+function relativeParticipantsFor(targetRoom) {
+  const participants = [...(targetRoom.participants || [])].sort((a, b) => a.seat_index - b.seat_index);
+  const index = participants.findIndex((p) => p.player_id === viewerPlayerIdFor(targetRoom));
+  return index < 0 ? participants : [...participants.slice(index), ...participants.slice(0, index)];
+}
+
 function tableParticipantsFor(targetRoom) {
   const participants = Array.isArray(targetRoom.participants)
     ? targetRoom.participants
     : [];
   const viewer = viewerParticipantFor(targetRoom);
-  if (!viewer || participants.length <= 2) return participants;
-  return participants.filter(
+  if (!viewer || (participants.length <= 2 && targetRoom.game_type !== "carcassonne")) return participants;
+  const ordered = [...participants].sort((a, b) => a.seat_index - b.seat_index);
+  const start = ordered.findIndex((p) => p.player_id === viewer.player_id);
+  return [...ordered.slice(start + 1), ...ordered.slice(0, start)].filter(
     (item) => item.player_id !== viewer.player_id
   );
 }
@@ -3365,7 +3447,7 @@ function createParticipantBadge(participant, targetRoom) {
   const name = document.createElement("strong");
   name.textContent = `${participant.display_name || participant.player_id}${isViewer ? "（你）" : ""}`;
   const seat = document.createElement("small");
-  seat.textContent = `座位 ${participant.seat_index + 1} · ${kind}`;
+  seat.textContent = participantAccountId(participant) ? `ID ${participantAccountId(participant)} · 座位 ${participant.seat_index + 1} · ${kind}` : `座位 ${participant.seat_index + 1} · ${kind}`;
   copy.append(name, seat);
   const detail = document.createElement("span");
   detail.className = "room-participant-detail";
@@ -3400,7 +3482,7 @@ function renderParticipantRoster(targetRoom) {
     ? targetRoom.participants
     : [];
   const presentation = participantPresentationFor(targetRoom);
-  const showGenericRoster = participants.length > 2 && presentation === "generic";
+  const showGenericRoster = (participants.length > 2 || targetRoom.game_type === "carcassonne") && presentation === "generic";
   const viewer = viewerParticipantFor(targetRoom);
   const tableParticipants = tableParticipantsFor(targetRoom);
   roster.replaceChildren();
@@ -3562,12 +3644,12 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   if (renderer && renderer.usesEmbeddedActionFeedback === true) return "";
   if (isTerminal(targetRoom)) return roomTurnText(targetRoom);
-  const humanTurnNotice = targetRoom.game_type === "zhajinhua"
+  const humanTurnNotice = ["zhajinhua", "monopoly"].includes(targetRoom.game_type)
     ? "现在轮到你行动"
     : "现在轮到你落子";
   if (
     humanCanMove
-    && targetRoom.game_type === "zhajinhua"
+    && ["zhajinhua", "monopoly"].includes(targetRoom.game_type)
     && message === "现在轮到你落子"
   ) {
     return humanTurnNotice;
@@ -3576,6 +3658,12 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
 }
 
 function renderGame(nextRoom, message = "", timeline = []) {
+  if (!room || room.room_id !== nextRoom.room_id) {
+    delete $("recentChatMessages").dataset.roomId;
+    $("chatInput").value = "";
+    $("mentionOptions").replaceChildren();
+    closeMentionOptions();
+  }
   const renderer = registeredGameUIRenderer(nextRoom.game_type);
   const becameTerminal = Boolean(
     room
@@ -3587,6 +3675,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     !room
     || room.room_id !== nextRoom.room_id
     || room.revision !== nextRoom.revision
+    || room.status !== nextRoom.status
   );
   if (boardStateChanged) {
     selectedJungleCell = null;
@@ -3594,9 +3683,25 @@ function renderGame(nextRoom, message = "", timeline = []) {
     pendingMove = null;
   }
   room = nextRoom;
+  syncChatRoomMode();
   currentTimeline = timeline;
   const humanCanMove = canHumanMove();
   showView("gameView");
+  $("gameView").classList.toggle("invite-waiting-view", isInviteWaiting(room));
+  renderInviteRoomPanel();
+  $("reclaimControl").classList.toggle("hidden", !(room.room_kind === "invite"
+    && room.status === "playing" && room.viewer?.temporary_takeover_active === true
+    && room.current_player_id === viewerPlayerIdFor(room)));
+  if (isInviteWaiting(room)) {
+    closeHistory();
+    closeRules();
+    closeResultModal();
+    hideWaitModeModal();
+    closeMentionOptions();
+    $("board").replaceChildren();
+    if (message) showNotice(message);
+    return;
+  }
   syncMoveConfirmationVisibility();
   $("gameBadge").textContent = room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
@@ -3624,7 +3729,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("rulesTitle").textContent = `${room.game_name}规则`;
   renderRulesText(room.rules_text);
   $("resignButton").disabled = room.status !== "playing";
-  $("sendMessageButton").disabled = !["waiting", "playing"].includes(room.status);
+  $("sendMessageButton").disabled = false;
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
   const settlementEntries = isTerminal(room) && Array.isArray(room.participants)
     ? room.participants.filter(
@@ -3641,7 +3746,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     ? `${resultText} · ${settlementText}`
     : resultText;
   renderRetention(room);
-  showWaitModeModalOnce(room);
+  if (room.room_kind !== "invite") showWaitModeModalOnce(room);
   $("gameMessage").classList.toggle(
     "embedded-action-feedback",
     Boolean(renderer && renderer.usesEmbeddedActionFeedback === true)
@@ -3782,6 +3887,7 @@ async function acknowledgeLiarsRound(button) {
     || !room.board_state
     || !room.board_state.flow
     || room.board_state.flow.phase !== "awaiting_round_acknowledgement"
+    || (room.room_kind === "invite" && !canHumanMove())
   ) return false;
   try {
     const data = await request(`/api/rooms/${room.room_id}/move`, {
@@ -3824,6 +3930,7 @@ async function sendMessage() {
     });
     if (!roomSyncIsCurrent(generation, targetRoomId)) return;
     $("chatInput").value = "";
+    closeMentionOptions();
     renderGame(data.room, data.message, data.timeline);
   } catch (error) {
     if (roomSyncIsCurrent(generation, targetRoomId)) {
@@ -3888,7 +3995,7 @@ function openResultModal(resultText) {
   $("resultModalMessage").textContent = "";
   renderRetention(room);
   $("resultModal").classList.remove("hidden");
-  $("rematchButton").disabled = false;
+  $("rematchButton").disabled = room?.room_kind === "invite";
   $("resultPreserveCheckbox").focus();
 }
 
@@ -3990,6 +4097,397 @@ function stopPolling() {
   roomRequestController = null;
 }
 
+let inviteMode = "create";
+let inviteMachineIds = new Set();
+function setInviteMachinePickerOpen(open) {
+  open = open && !$("inviteAiTrigger").disabled;
+  $("inviteAiTrigger").setAttribute("aria-expanded", String(open));
+  $("inviteAiMenu").classList.toggle("hidden", !open);
+  $("inviteAiField").classList.toggle("open", open);
+}
+function renderInviteMachinePicker(focusPlayerId = null) {
+  const machines = identity?.machines || [];
+  const maximum = Math.max(0, Number($("inviteCount").value || 2) - 2);
+  // Keep this selection separate from the ordinary create-room picker.
+  inviteMachineIds = new Set([...inviteMachineIds]
+    .filter((id) => machines.some((machine) => machine.id === id)).slice(0, maximum));
+  const selected = machines.filter((machine) => inviteMachineIds.has(machine.id));
+  const summary = selected.length ? machinePickerSummary(selected) : "可选，不带小机";
+  $("inviteAiSummary").textContent = summary;
+  $("inviteAiTrigger").title = summary;
+  $("inviteAiTrigger").disabled = maximum === 0 || machines.length === 0;
+  $("inviteAiHint").textContent = "至少留 1 个邀请席位。";
+  if ($("inviteAiTrigger").disabled) setInviteMachinePickerOpen(false);
+  const menu = $("inviteAiMenu");
+  menu.replaceChildren();
+  for (const machine of machines) {
+    const checked = inviteMachineIds.has(machine.id);
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "ai-multi-option";
+    option.dataset.playerId = machine.id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(checked));
+    option.disabled = !checked && selected.length >= maximum;
+    const check = document.createElement("span");
+    check.className = "ai-multi-check";
+    check.textContent = checked ? "✓" : "";
+    check.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span");
+    name.className = "ai-multi-name";
+    name.textContent = machine.name;
+    option.append(check, name);
+    option.addEventListener("click", () => {
+      if (inviteMachineIds.has(machine.id)) inviteMachineIds.delete(machine.id);
+      else if (inviteMachineIds.size < maximum) inviteMachineIds.add(machine.id);
+      renderInviteMachinePicker(machine.id);
+    });
+    menu.appendChild(option);
+    if (focusPlayerId === machine.id) option.focus();
+  }
+}
+function updateInviteStakeAvailability() {
+  const game = (identity?.games || []).find((g) => g.game_type === $("inviteGame").value);
+  const target = Number($("inviteCount").value || 2);
+  const supportsStake = Boolean(game?.supports_stakes);
+  const supportsTable = target === 2 || Boolean(game?.supports_multiplayer_stakes);
+  const enabled = supportsStake && supportsTable;
+  $("inviteStake").disabled = !enabled;
+  if (!enabled) $("inviteStake").value = "0";
+  $("inviteStakeHint").textContent = enabled
+    ? "0=娱乐局；非 0 按游戏规则结算。"
+    : "当前桌型仅支持 0 筹码娱乐局。";
+}
+function inviteCounts() {
+  const game = (identity?.games || []).find((g) => g.game_type === $("inviteGame").value);
+  $("inviteCount").replaceChildren(...allowedPlayerCountsForGame(game).map((n) => new Option(String(n), String(n))));
+  $("inviteTimeout").disabled = false;
+  $("inviteTimeoutHint").textContent = "超时由 NPC 临时代操作，可随时接回。";
+  updateInviteStakeAvailability();
+  renderInviteMachinePicker();
+}
+function syncInviteGameOptions({preserveSelection = true} = {}) {
+  const games = identity && Array.isArray(identity.games) ? identity.games : [];
+  const select = $("inviteGame");
+  const previousValue = select.value;
+  const category = $("inviteCategory").value;
+  const categorizedGames = sortedGamesForCategory(games, category);
+  select.replaceChildren();
+  categorizedGames.forEach((game) => {
+    const option = document.createElement("option");
+    option.value = game.game_type;
+    option.textContent = `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    select.appendChild(option);
+  });
+  if (!categorizedGames.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = `${gameCategoryLabel(category)}类暂无游戏`;
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
+    select.disabled = true;
+  } else {
+    select.disabled = false;
+    const values = [...select.options].map((option) => option.value);
+    select.value = preserveSelection && values.includes(previousValue) ? previousValue : values[0];
+  }
+  inviteCounts();
+}
+function inviteCategoryChanged() {
+  syncInviteGameOptions();
+}
+async function showInviteDialog(mode, code = "") {
+  inviteMode = mode;
+  inviteMachineIds.clear();
+  setInviteMachinePickerOpen(false);
+  $("inviteError").textContent = "";
+  $("inviteDialogTitle").textContent = mode === "create" ? "邀请联机" : "加入联机房间";
+  if (mode === "create") $("inviteTimeout").value = "0";
+  $("inviteSubmit").textContent = mode === "create" ? "创建邀请房" : "确认加入";
+  $("inviteCreateFields").classList.toggle("hidden", mode !== "create");
+  $("inviteJoinFields").classList.toggle("hidden", mode !== "join");
+  syncInviteGameOptions({preserveSelection: false});
+  $("inviteCodeInput").value = code;
+  $("invitePreview").textContent = "";
+  $("inviteDialog").showModal();
+  if (code) {
+    try {
+      const data = await request(`/api/invites/${encodeURIComponent(code)}`);
+      const i = data.invitation;
+      const timeoutSeconds = Number(i.timeout_takeover_seconds || (i.timeout_takeover ? 90 : 0));
+      $("invitePreview").textContent = `${i.game_name} · ${i.participant_count}/${i.target_player_count} · ${i.stake} 筹码${timeoutSeconds ? ` · ${timeoutSeconds} 秒超时接管` : ""}`;
+    } catch (error) { $("inviteError").textContent = error.message; }
+  }
+}
+function isInviteWaiting(targetRoom) {
+  return targetRoom?.room_kind === "invite" && targetRoom.status === "waiting";
+}
+
+function participantAccountId(participant) {
+  if (!participant || participant.participant_kind === "system_npc") return "";
+  // Display account IDs independently of the canonical mention handle.
+  const id = String(participant.player_id || "");
+  return id.startsWith("human:") ? id.slice(6) : id.replace(/:[2-5]$/, "");
+}
+
+function renderInviteRoomPanel() {
+  const panel = $("inviteRoomPanel");
+  panel.replaceChildren();
+  const waiting = isInviteWaiting(room);
+  panel.classList.toggle("hidden", !waiting);
+  if (!waiting) return;
+  $("gameView").prepend(panel);
+
+  const label = document.createElement("h2");
+  label.className = "invite-room-title";
+  label.textContent = "邀请房";
+  panel.appendChild(label);
+  if (waiting) {
+    const meta = document.createElement("p");
+    meta.className = "invite-room-meta";
+    const timeoutSeconds = Number(room.timeout_takeover_seconds || (room.timeout_takeover ? 90 : 0));
+    meta.textContent = `${room.game_name} · ${room.participants.length}/${room.target_player_count} 人 · ${room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局"} · ${timeoutSeconds ? `${timeoutSeconds} 秒超时接管` : "不自动接管"}`;
+    panel.appendChild(meta);
+  }
+  const members = document.createElement("section");
+  members.className = "invite-room-members";
+  const memberLabel = document.createElement("h3");
+  memberLabel.textContent = "已加入";
+  members.appendChild(memberLabel);
+  for (const p of room.participants) {
+    const tag = document.createElement("span");
+    tag.className = "invite-member-tag";
+    const id = participantAccountId(p);
+    tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
+    members.appendChild(tag);
+  }
+  panel.appendChild(members);
+  const addButton = (text, action, parent = panel, primary = false) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `pixel-btn ${primary ? "" : "secondary"} compact invite-room-action`.trim();
+    b.textContent = text;
+    b.dataset.action = text;
+    b.title = text;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await action(); } catch (e) { showNotice(e.message, true); }
+      finally { b.disabled = false; }
+    });
+    parent.appendChild(b);
+    return b;
+  };
+  if (waiting) {
+    const invitation = document.createElement("section");
+    invitation.className = "invite-code-section";
+    const codeLabel = document.createElement("h3");
+    codeLabel.textContent = "邀请码";
+    const code = document.createElement("strong");
+    code.className = "invite-code-line";
+    code.textContent = room.invite_code;
+    const copies = document.createElement("div");
+    copies.className = "invite-copy-actions";
+    invitation.append(codeLabel, code, copies);
+    panel.appendChild(invitation);
+    addButton("复制邀请码", async () => {
+      await navigator.clipboard.writeText(room.invite_code);
+      showNotice("邀请码已复制");
+    }, copies);
+    addButton("复制邀请链接", async () => {
+      await navigator.clipboard.writeText(new URL(room.invite_link, location.origin).href);
+      showNotice("邀请链接已复制");
+    }, copies);
+    const owner = viewerPlayerIdFor(room) === room.initiator_player_id;
+    const hasInvitee = room.participants.filter((p) => p.participant_kind !== "system_npc" && (!p.join_status || p.join_status === "joined")).length > (room.household_count ?? 1);
+    const actions = document.createElement("div");
+    actions.className = "invite-start-actions";
+    panel.appendChild(actions);
+    const start = async (fillWithNpcs) => {
+      const data = await request(`/api/rooms/${room.room_id}/start`, {method: "POST", body: JSON.stringify({fill_with_npcs: fillWithNpcs})});
+      renderGame(data.room, data.message, data.timeline);
+      startRoomPolling();
+    };
+    const ready = owner && hasInvitee && room.room_ready;
+    const startButton = addButton("开始游戏", () => start(false), actions, true);
+    startButton.disabled = !ready;
+    if (!ready) startButton.title = owner ? "等待玩家坐满后开始" : "等待房主开始";
+    if (!owner) {
+      const hint = document.createElement("span");
+      hint.id = "inviteStartHint";
+      hint.className = "invite-note";
+      hint.textContent = "等待房主开始游戏";
+      startButton.setAttribute("aria-describedby", hint.id);
+      actions.appendChild(hint);
+    }
+    if (owner) {
+      const game = identity?.games?.find((g) => g.game_type === room.game_type);
+      const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
+      if (hasInvitee && room.participants.length < room.target_player_count && canFill) {
+        addButton("NPC 补满并开始", () => start(true), actions);
+      }
+      const close = addButton("关闭邀请房", async () => {
+        await request(`/api/rooms/${room.room_id}/leave`, {method: "POST", body: "{}"});
+        await backToLobby();
+      });
+      close.classList.add("invite-room-close");
+      close.setAttribute("aria-label", "关闭邀请房");
+      close.textContent = "×";
+    }
+    const notice = document.createElement("p");
+    notice.id = "inviteRoomNotice";
+    notice.className = "notice";
+    notice.setAttribute("role", "status");
+    panel.appendChild(notice);
+  }
+}
+$("reclaimControl").addEventListener("click", async () => {
+  const control = $("reclaimControl");
+  const targetRoomId = room?.room_id;
+  control.disabled = true;
+  try {
+    const data = await request(`/api/rooms/${targetRoomId}/reclaim`, {method: "POST", body: "{}"});
+    if (room?.room_id === targetRoomId) renderGame(data.room, data.message, data.timeline);
+  } catch (e) { showNotice(e.message, true); }
+  finally { control.disabled = false; }
+});
+$("inviteCreateEntry").addEventListener("click", () => showInviteDialog("create"));
+$("inviteJoinEntry").addEventListener("click", () => showInviteDialog("join"));
+$("inviteDismiss").addEventListener("click", () => $("inviteDialog").close());
+$("inviteCategory").addEventListener("change", inviteCategoryChanged);
+$("inviteGame").addEventListener("change", inviteCounts);
+$("inviteCount").addEventListener("change", () => {
+  updateInviteStakeAvailability();
+  renderInviteMachinePicker();
+});
+$("inviteAiTrigger").addEventListener("click", () => {
+  setInviteMachinePickerOpen($("inviteAiTrigger").getAttribute("aria-expanded") !== "true");
+});
+$("inviteAiField").addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $("inviteAiTrigger").getAttribute("aria-expanded") === "true") {
+    event.preventDefault();
+    setInviteMachinePickerOpen(false);
+    $("inviteAiTrigger").focus();
+  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    setInviteMachinePickerOpen(true);
+    const options = [...$("inviteAiMenu").querySelectorAll("button:not(:disabled)")];
+    const index = options.indexOf(document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+      : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    options[next]?.focus();
+  }
+});
+document.addEventListener("click", (event) => {
+  const field = $("inviteAiField");
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (!path.includes(field) && !field.contains(event.target)) setInviteMachinePickerOpen(false);
+});
+$("inviteSubmit").addEventListener("click", async () => {
+  $("inviteSubmit").disabled = true;
+  try {
+    if (inviteMode === "create") renderInviteMachinePicker();
+    const body = inviteMode === "create"
+      ? {game_type: $("inviteGame").value, target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}
+      : {invite_code: $("inviteCodeInput").value.trim().toUpperCase()};
+    const data = await request(inviteMode === "create" ? "/api/invites" : "/api/invites/join", {method: "POST", body: JSON.stringify(body)});
+    $("inviteDialog").close();
+    renderGame(data.room, data.message, data.timeline);
+    const url = new URL(location.href); url.searchParams.delete("invite"); history.replaceState(history.state, "", url);
+    writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true}); startRoomPolling();
+  } catch (e) { $("inviteError").textContent = e.message; }
+  finally { $("inviteSubmit").disabled = false; }
+});
+function syncChatRoomMode() {
+  const invite = room?.room_kind === "invite";
+  document.querySelector(".game-chat-area .chat-hint")?.classList.toggle("hidden", !invite);
+  const input = $("chatInput");
+  for (const [attribute, value] of Object.entries({role: "combobox", "aria-autocomplete": "list", "aria-controls": "mentionOptions"})) {
+    if (invite) input.setAttribute(attribute, value);
+    else input.removeAttribute(attribute);
+  }
+  if (invite && !input.hasAttribute("aria-expanded")) input.setAttribute("aria-expanded", "false");
+  if (!invite) {
+    $("mentionOptions").replaceChildren();
+    closeMentionOptions();
+  }
+}
+let mentionActiveIndex = -1;
+function closeMentionOptions() {
+  $("mentionOptions").classList.add("hidden");
+  if (room?.room_kind === "invite") $("chatInput").setAttribute("aria-expanded", "false");
+  else $("chatInput").removeAttribute("aria-expanded");
+  $("chatInput").removeAttribute("aria-activedescendant");
+  mentionActiveIndex = -1;
+}
+function selectMentionOption(index) {
+  const options = [...$("mentionOptions").children];
+  if (!options.length) return;
+  mentionActiveIndex = (index + options.length) % options.length;
+  options.forEach((option, i) => option.setAttribute("aria-selected", String(i === mentionActiveIndex)));
+  const option = options[mentionActiveIndex];
+  $("chatInput").setAttribute("aria-activedescendant", option.id);
+  // Scroll only the list: scrollIntoView can move the board/page on phones.
+  const menu = $("mentionOptions");
+  if (option.offsetTop < menu.scrollTop) menu.scrollTop = option.offsetTop;
+  else if (option.offsetTop + option.offsetHeight > menu.scrollTop + menu.clientHeight) {
+    menu.scrollTop = option.offsetTop + option.offsetHeight - menu.clientHeight;
+  }
+}
+function mentionCompletion() {
+  const input = $("chatInput");
+  const prefix = input.value.slice(0, input.selectionStart);
+  const match = prefix.match(/(?:^|\s)@([^\s@]*)$/u);
+  const list = $("mentionOptions");
+  list.replaceChildren();
+  closeMentionOptions();
+  const candidates = room?.room_kind === "invite" && match ? (room?.participants || []).filter((p) => p.participant_kind !== "system_npc" && p.handle && p.player_id !== viewerPlayerIdFor(room) && (p.handle.includes(match[1]) || p.display_name.includes(match[1]))) : [];
+  if (!candidates.length) return;
+  list.classList.remove("hidden");
+  input.setAttribute("aria-expanded", "true");
+  for (const [index, p] of candidates.entries()) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.id = `mention-option-${index}`;
+    b.tabIndex = -1;
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-selected", "false");
+    const name = document.createElement("span");
+    name.className = "mention-name";
+    name.textContent = p.display_name;
+    const id = document.createElement("span");
+    id.className = "mention-id";
+    id.textContent = ` · ID ${participantAccountId(p)}`;
+    b.append(name, id);
+    b.title = b.textContent;
+    // Keep the input focused and the software keyboard open on selection.
+    b.addEventListener("pointerdown", (event) => event.preventDefault());
+    b.addEventListener("click", () => {
+      const end = input.selectionStart; const start = prefix.lastIndexOf("@");
+      input.setRangeText(`@${p.handle} `, start, end, "end");
+      closeMentionOptions(); input.focus();
+    });
+    list.appendChild(b);
+  }
+}
+$("chatInput").addEventListener("input", mentionCompletion);
+$("chatInput").addEventListener("click", mentionCompletion);
+$("chatInput").addEventListener("blur", closeMentionOptions);
+$("chatInput").addEventListener("keydown", (e) => {
+  if (e.isComposing) return;
+  const list = $("mentionOptions");
+  if (!list.classList.contains("hidden") && ["ArrowDown", "ArrowUp", "Tab", "Enter"].includes(e.key)) {
+    if (e.key === "Tab" && e.shiftKey) { closeMentionOptions(); return; }
+    e.preventDefault();
+    if (e.key === "Enter" || e.key === "Tab") list.children[Math.max(0, mentionActiveIndex)]?.click();
+    else selectMentionOption(mentionActiveIndex < 0 ? (e.key === "ArrowDown" ? 0 : list.children.length - 1) : mentionActiveIndex + (e.key === "ArrowDown" ? 1 : -1));
+  }
+  if (e.key === "Escape") {
+    e.preventDefault(); closeMentionOptions();
+  }
+});
+
+
 $("createButton").addEventListener("click", createRoom);
 $("aiPlayer").addEventListener("change", machineSelectionChanged);
 $("aiMultiTrigger").addEventListener("click", toggleMachineMultiPicker);
@@ -4074,6 +4572,7 @@ $("rulesScrim").addEventListener("click", (event) => {
 });
 $("chatInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
+    if (event.isComposing || event.defaultPrevented || !$("mentionOptions").classList.contains("hidden")) return;
     event.preventDefault();
     sendMessage();
   }
@@ -4116,11 +4615,32 @@ window.addEventListener("popstate", () => {
   }
 });
 
+// Gameplay long-poll pauses on our turn. Keep incoming chat and timeout actions
+// observable without clearing the current move selection on an unchanged revision.
+window.setInterval(() => {
+  if (room && !document.hidden && canHumanMove() && !roomRequestController) {
+    void refreshRoom({quiet: true});
+  }
+}, ROOM_POLL_RETRY_MS);
+
 $("chipBalanceLink").href = apiPath("/chips");
 $("chipCenterLink").href = apiPath("/chips");
 ensureInitialRouteState();
 void (async () => {
+  const invite = new URL(location.href).searchParams.get("invite");
+  if (invite && /^[A-Fa-f0-9]{12}$/.test(invite)) {
+    const saved = localStorage.getItem("cedartoy_token");
+    if (saved && !new URL(location.href).searchParams.has("token")) {
+      const url = new URL(location.href); url.searchParams.set("token", saved); location.replace(url.href); return;
+    }
+  }
   await loadIdentity();
+  // Remove credentials from browser history; invitation links never include them.
+  const clean = new URL(location.href); clean.searchParams.delete("token"); history.replaceState(history.state, "", clean);
+  if (invite && /^[A-Fa-f0-9]{12}$/.test(invite)) {
+    if (!identity) { location.href = `/?duel_invite=${encodeURIComponent(invite)}`; return; }
+    await showInviteDialog("join", invite.toUpperCase());
+  }
   const routeRoomId = roomIdFromLocation();
   if (identity && routeRoomId) {
     await openRoom(routeRoomId, {historyMode: "none", routeRestore: true});

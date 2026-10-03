@@ -1,0 +1,51 @@
+/* Reuse Duel chrome, roster, chat and pixel controls; scope every board rule. */
+.board.bomb_plane {
+  display: block;
+  height: auto; aspect-ratio: auto; border: 0; padding: 0;
+  background: transparent; box-shadow: none; touch-action: manipulation;
+}
+#battleStage[data-game-type="bomb_plane"] .board-zone,
+#battleStage[data-game-type="bomb_plane"] .board-frame,
+#battleStage[data-game-type="bomb_plane"] .board,
+#battleStage[data-game-type="bomb_plane"] .game-controls {
+  width: min(100%, 480px); max-width: 100%; min-width: 0; margin-inline: auto;
+}
+.bp-game, .bp-controls { width: 100%; min-width: 0; color: var(--text); font: 13px/1.5 system-ui, sans-serif; text-align: left; }
+.bp-game > .bp-tabs { margin-bottom: 8px; }
+.bp-help { font-size: 11px; color: #6a6075; margin: 4px 0; }
+.bp-grid { display: grid; grid-template-columns: 20px repeat(10,minmax(0,1fr)); gap: 2px; }
+.bp-axis { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #6a6075; }
+.bp-cell { min-width: 24px; min-height: 24px; width: 100%; aspect-ratio: 1; padding: 0; border: 1px solid #a698b5; border-radius: 2px; background: #fffaf8; color: #504060; font: 600 12px/1 system-ui,sans-serif; cursor: pointer; }
+.bp-cell:disabled { opacity: 1; cursor: default; }
+.bp-cell:enabled:not(.bp-plane-head):hover { background: var(--purple-light); }
+.bp-cell.bp-plane { background: #e5ddf0; border-color: #847095; }
+.bp-cell.bp-preview { background: #dbecdf; border: 2px dashed #477355; }
+.bp-cell.bp-plane-head { background: #ffc7b5; border-color: #ad4930; color: #82351f; }
+.bp-cell.bp-invalid { background: #ffe4df; border-color: #9c463c; }
+/* Shot feedback takes precedence over the visible fleet's head/body colors. */
+.bp-cell:is(.bp-miss, .bp-hit, .bp-head) { border-width: 2px; border-style: solid; font-size: 15px; font-weight: 800; }
+.bp-cell.bp-miss { background: #087b9e; border-color: #064d68; color: #fff; }
+.bp-cell.bp-hit { background: #ffb000; border-color: #985000; color: #3f2500; }
+.bp-cell.bp-head { background: #d52b20; border-color: #86160f; color: #fff; font-weight: 900; }
+.bp-cell.bp-selected { outline: 2px solid #594171; outline-offset: -2px; }
+.bp-cell.bp-latest-incoming, .bp-cell.bp-latest-outgoing { position: relative; z-index: 1; outline: 4px solid #17212b; outline-offset: 0; box-shadow: inset 0 0 0 2px #fff; }
+.bp-cell:focus-visible, .bp-button:focus-visible { outline: 3px solid #52366d; outline-offset: 1px; }
+.bp-controls { display: grid; gap: 6px; }
+.bp-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.bp-game .bp-button, .bp-controls .bp-button { font: 600 12px/1.3 system-ui,sans-serif; min-height: 40px; padding: 6px 8px; white-space: normal; }
+.bp-button.secondary { color: #665776; }
+.bp-tabs [aria-pressed="true"] { color: #49385d; background: var(--purple-light); border-color: #77628f; box-shadow: inset 0 -2px #77628f; }
+.bp-button.bp-primary { color: #fff; background: #77628f; border-color: #514063; }
+.bp-status { margin: 6px 0; font-size: 12px; font-weight: 600; }
+.bp-incoming { margin: 4px 0 8px; min-height: 18px; font-size: 12px; color: #594171; }
+.bp-error { color: #9c352d; }
+.bp-legend { text-align: center; margin-top: 8px; }
+.bp-placement { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); gap: 8px; }
+.bp-placement .bp-button, .bp-controls > .bp-primary { min-height: 44px; }
+.bp-fleet { display: flex; flex-wrap: wrap; gap: 4px 12px; list-style: none; margin: 0; padding: 0; font-size: 11px; color: #6a6075; }
+.bp-tools { display: grid; grid-template-columns: 1.2fr 1.1fr 1fr; gap: 6px; }
+.bp-tools .bp-button { min-width: 0; padding: 4px; font-size: 11px; }
+.bp-button.bp-clear { color: #9c352d; }
+@media(max-width: 600px) {
+  .bp-grid { gap: 1px; grid-template-columns: 18px repeat(10,minmax(0,1fr)); }
+}

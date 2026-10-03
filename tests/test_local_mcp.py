@@ -1,3 +1,4 @@
+import asyncio
 import json
 import shutil
 import subprocess
@@ -156,7 +157,7 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
         schema = play_input_schema()
         self.assertEqual(schema["required"], ["action"])
         self.assertFalse(
-            {"player_id", "opponent_id", "participant_ids"}
+            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"}
             & set(schema["properties"])
         )
         self.assertIn("revision", schema["properties"])
@@ -205,6 +206,8 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         async def handler(request: httpx.Request) -> httpx.Response:
             seen.append(json.loads(request.content))
+            if seen[-1]["action"] == "cancel_wait":
+                return httpx.Response(200, json={"ok": True, "status": "wait_cancelled"})
             return httpx.Response(200, json=replies.pop(0))
 
         status, payload = await forward_play(
@@ -218,18 +221,49 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, 200)
         self.assertTrue(payload["your_turn"])
-        self.assertEqual(len(seen), 3)
+        self.assertEqual(len(seen), 4)
         self.assertEqual(seen[0]["action"], "move")
         self.assertEqual(seen[0]["move"], {"row": 0, "col": 0})
         self.assertEqual(seen[0]["message"], "下这里。")
-        for followup in seen[1:]:
+        for followup in seen[1:3]:
             self.assertEqual(followup, {
                 "action": "state",
                 "room_id": "ROOM1",
                 "wait": True,
                 "player_id": "local-ai",
                 "opponent_id": "local-human",
+                "wait_generation": seen[0]["wait_generation"],
+                "wait_resume": True,
             })
+
+    async def test_disconnect_releases_generation_between_heartbeats(self):
+        seen = []
+        retrying = asyncio.Event()
+
+        async def handler(request):
+            payload = json.loads(request.content)
+            seen.append(payload)
+            if payload["action"] == "cancel_wait":
+                return httpx.Response(200, json={"ok": True, "status": "wait_cancelled"})
+            return httpx.Response(200, json={"ok": True, "status": "playing", "room_id": "ROOM1",
+                                            "your_turn": False, "wait_downgraded": True})
+
+        async def pause(_seconds):
+            retrying.set()
+            await asyncio.Event().wait()
+
+        with patch("app.local_mcp.anyio.sleep", side_effect=pause):
+            task = asyncio.create_task(forward_play(
+                {"action": "state", "room_id": "ROOM1", "wait": True},
+                transport=httpx.MockTransport(handler),
+            ))
+            await asyncio.wait_for(retrying.wait(), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[-1], {"action": "cancel_wait", "player_id": "local-ai",
+                                    "room_id": "ROOM1", "wait_generation": seen[0]["wait_generation"]})
 
     async def test_wait_false_does_not_hide_still_waiting(self):
         calls = 0
@@ -265,6 +299,8 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         async def handler(request: httpx.Request) -> httpx.Response:
             seen.append(json.loads(request.content))
+            if seen[-1]["action"] == "cancel_wait":
+                return httpx.Response(200, json={"ok": True, "status": "wait_cancelled"})
             return httpx.Response(200, json=replies.pop(0))
 
         with patch("app.local_mcp.anyio.sleep", return_value=None) as sleeper:
@@ -276,7 +312,7 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, 200)
         self.assertTrue(payload["your_turn"])
-        self.assertEqual(len(seen), 2)
+        self.assertEqual(len(seen), 3)
         self.assertEqual(seen[1]["action"], "state")
         sleeper.assert_awaited_once()
 
@@ -325,7 +361,7 @@ class LocalMcpStdioTests(unittest.TestCase):
         listed = json.loads(completed.stdout)
         self.assertEqual([tool["name"] for tool in listed["tools"]], [TOOL_NAME])
         self.assertFalse(
-            {"player_id", "opponent_id", "participant_ids"}
+            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"}
             & set(listed["tools"][0]["inputSchema"]["properties"])
         )
 

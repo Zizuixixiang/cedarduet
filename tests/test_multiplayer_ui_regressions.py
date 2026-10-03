@@ -18,6 +18,42 @@ def css_rule(source: str, selector: str) -> str:
 
 
 class MultiplayerUiRegressionTests(unittest.TestCase):
+    def test_game_styles_preserve_shared_chat_scrolling_and_autocomplete(self):
+        for path in GAMES.glob("*.css"):
+            for selectors, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", path.read_text()):
+                if not re.search(r"\.(?:game-chat-area|chat-compose|recent-chat-\w+|mention-options)\b", selectors):
+                    continue
+                # Aeroplane may constrain layout width, but must not replace
+                # the common viewport, typography, or overlay behavior.
+                self.assertNotRegex(
+                    declarations,
+                    r"(?:^|;)\s*(?:overflow(?:-[xy])?|(?:min-|max-)?height|position|display|z-index|font(?:-[\w-]+)?|grid-template-rows)\s*:",
+                    path.name,
+                )
+        feed = css_rule(STYLES, ".recent-chat-feed")
+        messages = css_rule(STYLES, ".recent-chat-messages")
+        menu = css_rule(STYLES, ".mention-options")
+        self.assertIn("height: 134px;", feed)
+        self.assertIn("overflow-y: auto;", messages)
+        self.assertIn("overflow-anchor: none;", messages)
+        self.assertIn("position: relative;", css_rule(STYLES, ".chat-compose"))
+        self.assertIn("position: absolute;", menu)
+        self.assertIn("grid-column: 1 / 2;", menu)
+        self.assertIn("bottom: calc(100% + 4px);", menu)
+        self.assertIn("max-height: min(164px, 35dvh);", menu)
+        self.assertIn("font-family: system-ui, sans-serif;", menu)
+        desktop = STYLES[STYLES.index("@media (min-width: 1024px)"):]
+        self.assertIn("height: auto;", css_rule(desktop, ".multiplayer-presentation .recent-chat-feed"))
+        rail = css_rule(desktop, ".multiplayer-presentation .game-chat-area")
+        self.assertIn("align-self: stretch;", rail)
+        self.assertIn("contain: size;", rail)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) auto auto;", rail)
+        mobile = STYLES[STYLES.index("@media (max-width: 599px)"):]
+        self.assertIn("height: 126px;", css_rule(mobile, ".recent-chat-feed"))
+        self.assertNotIn("RECENT_CHAT_LIMIT", APP_SCRIPT)
+        recent_speech = APP_SCRIPT[APP_SCRIPT.index("function recentSpeechEvents"):APP_SCRIPT.index("function timelineSpeakerName")]
+        self.assertNotIn(".slice(", recent_speech)
+
     def test_desktop_chat_rail_is_multiplayer_only_at_every_width(self):
         desktop_start = STYLES.index("@media (min-width: 1024px)")
         wide_start = STYLES.index("@media (min-width: 1280px)", desktop_start)
@@ -63,12 +99,12 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
             APP_SCRIPT.index("function renderRecentChat") :
             APP_SCRIPT.index("function renderPlayers")
         ]
-        self.assertIn("const multiplayer = isMultiplayerRoom(room);", render_recent)
+        self.assertNotIn("isMultiplayerRoom", render_recent)
         self.assertIn(
-            "const messages = multiplayer ? recentSpeechEvents(timeline) : [];",
+            "const messages = recentSpeechEvents(timeline);",
             render_recent,
         )
-        self.assertIn('feed.classList.toggle("hidden", !multiplayer);', render_recent)
+        self.assertIn('feed.classList.remove("hidden");', render_recent)
         self.assertNotIn("desktopChatRail", APP_SCRIPT)
         self.assertNotIn("DESKTOP_GAME_LAYOUT_MEDIA", APP_SCRIPT)
 

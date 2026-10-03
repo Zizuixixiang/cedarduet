@@ -2,6 +2,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,14 +12,12 @@ from app import database, framework
 from app.games import GAMES
 from app.npc_controller import run_current_npc_turn
 from app.npc_providers import (
-    BRIDGE_MESSAGE_CHAR_LIMIT,
     CedarToyBridgeNpcProvider,
     DisabledNpcProvider,
     GLOBAL_PLAYER_RULES,
     GLOBAL_SPEECH_RULES,
     NpcDecisionRequest,
     NpcProvider,
-    NpcProviderError,
     NpcSpeechRequest,
     OpenAICompatibleNpcProvider,
     ProviderDecision,
@@ -267,33 +266,40 @@ class ProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
             captured["bodies"][1]["messages"][1]["content"]
         )
         self.assertEqual(speech_payload["visible_timeline"][-1]["text"], "真实结果")
-        self.assertTrue(all(
-            len(message["content"]) <= BRIDGE_MESSAGE_CHAR_LIMIT
-            for body in captured["bodies"] for message in body["messages"]
-        ))
+        self.assertEqual(captured["bodies"][0]["messages"], provider_request().messages())
 
-    async def test_bridge_rejects_an_oversized_single_message_before_transport(self):
-        called = False
+    async def test_bridge_forwards_large_messages_without_local_char_cap(self):
+        captured = []
 
         async def handler(request: httpx.Request):
-            nonlocal called
-            called = True
-            return httpx.Response(500, request=request)
+            body = json.loads(request.content)
+            captured.append(body)
+            content = (
+                '{"action_id":"a_step"}' if body["task"] == "decision"
+                else '{"message":"落子了"}'
+            )
+            return httpx.Response(200, request=request, json={"content": content})
 
         provider = CedarToyBridgeNpcProvider(
             bridge_url="http://127.0.0.1/internal/duel/npc-decision",
             bridge_token="internal-test-token",
             transport=httpx.MockTransport(handler),
         )
-        oversized = NpcSpeechRequest(
-            **{
-                **speech_request().__dict__,
-                "public_state": {"history": "x" * 5000},
-            }
-        )
-        with self.assertRaisesRegex(NpcProviderError, "3900"):
-            await provider.speak(oversized)
-        self.assertFalse(called)
+        for request, send, expected in (
+            (provider_request(), provider.decide, ProviderDecision("a_step", None)),
+            (speech_request(), provider.speak, "落子了"),
+        ):
+            for length in (3901, 19000, 50000):
+                with self.subTest(request=type(request).__name__, length=length):
+                    captured.clear()
+                    base = replace(request, game_rules="")
+                    sized = replace(
+                        base, game_rules="棋" * (length - len(base.messages()[1]["content"]))
+                    )
+                    self.assertEqual(len(sized.messages()[1]["content"]), length)
+                    self.assertEqual(await send(sized), expected)
+                    self.assertEqual(len(captured), 1)
+                    self.assertEqual(captured[0]["messages"], sized.messages())
 
     async def test_http_provider_global_concurrency_limit_allows_parallel_rooms(self):
         active = 0

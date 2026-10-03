@@ -236,7 +236,7 @@ class XiangqiFrameworkTests(unittest.TestCase):
         database.init_db()
         self.game = GAMES["xiangqi"]
 
-    def test_catalog_is_bound_pair_only_and_has_no_npc_capability(self):
+    def test_catalog_keeps_no_npc_fill_and_accepts_two_real_participants(self):
         item = next(
             item for item in game_catalog()
             if item["game_type"] == "xiangqi"
@@ -265,18 +265,15 @@ class XiangqiFrameworkTests(unittest.TestCase):
                     },
                 ],
             )
-        with self.assertRaisesRegex(framework.DuelError, "真实绑定小机"):
-            framework.create_room(
-                "xiangqi",
-                "human_first",
-                "human",
-                "human-one",
-                "human-two",
-                ordered_participants=[
-                    {"player_id": "human-one", "role": "human"},
-                    {"player_id": "human-two", "role": "human"},
-                ],
-            )
+        room = framework.create_room(
+            "xiangqi", "human_first", "human", "human-one", "human-two",
+            ordered_participants=[
+                {"player_id": "human-one", "role": "human"},
+                {"player_id": "human-two", "role": "human"},
+            ],
+        )
+        self.assertEqual(room["status"], "playing")
+        self.assertEqual({p["token"] for p in room["participants"]}, {"X", "O"})
 
     def test_selected_opener_is_red_for_human_first_and_ai_first(self):
         human_first = framework.create_room(

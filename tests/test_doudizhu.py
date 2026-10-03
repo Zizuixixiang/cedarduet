@@ -841,7 +841,7 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(
             [item["kind"] for item in referee_deltas],
-            ["landlord_decided", "play"],
+            ["play"],  # The explicit full_state already covered landlord_decided.
         )
         self.assertNotIn("cards", referee_deltas[0])
         play_delta = referee_deltas[-1]
@@ -919,7 +919,7 @@ class DoudizhuFrameworkAndMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(redealt.status_code, 200, redealt.text)
         payload = redealt.json()
         self.assertEqual(len(payload["private_state"]["hand"]), 17)
-        after_ids = {card["id"] for card in payload["private_state"]["hand"]}
+        after_ids = set(payload["private_state"]["hand"])
         self.assertNotEqual(before_ids, after_ids)
         self.assertNotIn("events", payload)
         latest = framework.get_room(room_id)

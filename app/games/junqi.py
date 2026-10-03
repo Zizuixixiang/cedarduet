@@ -75,6 +75,20 @@ class Junqi(GamePlugin):
         '自动布阵并确认：{"move":{"action":"auto_setup"}}；'
         '走棋：{"move":{"action":"move","from":"a6","to":"a7"}}。'
     )
+    mcp_move_format = (
+        move_format
+        + '以上示例中 move 字段的值作为 params.move。bootstrap/full_state 的 private_state.legal_actions '
+        '是完整动作对象，可原样提交。普通 turn 的 play 阶段以 legal_moves 列出全部合法走法：'
+        '每项 [from,to] 是起点、终点坐标，例如 ["a6","a7"] 提交 '
+        '{"action":"move","from":"a6","to":"a7"}；只能选择当前列表中的完整坐标对。'
+        '坐标列 a-e、行 1-12；空列表表示无合法走法。pieces 每轮均为完整的己方坐标到棋子等级映射：'
+        '0炸弹、1司令、2军长、3师长、4旅长、5团长、6营长、7连长、8排长、9工兵、10地雷、11军旗。'
+        'setup 阶段保留 legal_actions 中的 shuffle/ready/auto_setup；'
+        'legal_action_spec.swap 描述全部合法 swap：from/to 必须是 own_squares 中两个不同坐标，'
+        '双方棋子都必须允许换入对方坐标；按 pieces 等级选 destinations_by_rank 的 '
+        '0_bomb/10_landmine/11_flag/other 目的地列表。提交其 submit 模板并替换 from/to。'
+        '所有提交仍由服务端权威校验。'
+    )
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self._rng = rng or random.SystemRandom()
@@ -614,6 +628,20 @@ class Junqi(GamePlugin):
                 "rule": "from/to must both hold your pieces; each piece rank must allow the other's square",
             },
         }
+        return projected
+
+    def mcp_turn_private_state(
+        self,
+        private_state: dict[str, Any],
+        public_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Only play turns use pairs; setup and complete own pieces survive."""
+        projected = deepcopy(private_state)
+        if public_state.get("phase") == "play":
+            projected["legal_moves"] = [
+                [action["from"], action["to"]]
+                for action in projected.pop("legal_actions")
+            ]
         return projected
 
     def participant_summary(

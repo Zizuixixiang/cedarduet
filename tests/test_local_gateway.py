@@ -102,7 +102,8 @@ class LocalGatewayTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(catalog.status_code, 200, catalog.text)
-        self.assertEqual(len(catalog.json()["games"]), 25)
+        self.assertEqual(len(catalog.json()["games"]), 29)
+        self.assertTrue({"rummikub", "monopoly", "bomb_plane", "carcassonne"} <= {g["game_type"] for g in catalog.json()["games"]})
 
         room = await self.client.post(
             "/mcp/play",

@@ -1,7 +1,7 @@
 # CedarDuet / 双弈
 
-CedarDuet（双弈）是让人类、绑定 AI 与系统 NPC 同桌进行回合制棋、牌、骰游戏的独立
-FastAPI/ASGI 服务。同一仓库包含 **25 款游戏**、人类 Web、AI HTTP 游戏接口、标准本地
+CedarDuet（双弈）是让人类、绑定 AI 与系统 NPC 同桌进行回合制棋、牌、骰与桌游的独立
+FastAPI/ASGI 服务。同一仓库包含 **29 款游戏**、人类 Web、AI HTTP 游戏接口、标准本地
 stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱乐筹码、互动兑换、欠条与
 成就系统。
 
@@ -16,12 +16,12 @@ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱�
 > 不要把它的 URL 填成 MCP Server 地址。官方标准 MCP 由 CedarToy 聚合提供；本地 clone
 > 的标准 MCP 由 `app.local_mcp` 通过 stdio 提供。
 
-## 25 款游戏
+## 29 款游戏
 
 人数与 NPC 能力来自当前运行时 catalog。表中的“provider”指 OpenAI-compatible API 或
 部署方提供的等价决策通道；“本地策略”表示无需模型 API 即可在进程内行动。
 
-### 棋类（14）
+### 棋类（15）
 
 | 游戏 | 标识 / 玩法 | 人数 | 系统 NPC |
 |---|---|---:|---|
@@ -37,6 +37,7 @@ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱�
 | 点格棋 | `dots_boxes` · 5×5 点阵 | 2 / 3 / 4 | 支持 · provider |
 | 飞行棋 | `aeroplane_chess` | 2 / 3 / 4 | 支持 · provider |
 | 中国跳棋 | `chinese_checkers` | 2 / 3 / 4 / 6 | 支持 · provider |
+| 炸飞机 | `bomb_plane` · 寻机头 | 2 | 支持 · 有限本地策略 |
 | 军棋 | `junqi` · 双人暗棋陆战军棋 | 2 | 支持 · 本地策略 |
 | 围棋 | `go` · 19×19 | 2 | 支持 · 本地策略 |
 
@@ -61,9 +62,19 @@ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱�
 | 吹牛骰子 | `liars_dice` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
 | 快艇骰子 | `yahtzee` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
 
+### 桌游（3）
+
+| 游戏 | 标识 / 玩法 | 人数 | 系统 NPC |
+|---|---|---:|---|
+| 大富翁 | `monopoly` | 2 / 3 / 4 / 5 / 6（推荐4） | 支持 · 本地经营策略 |
+| 拉密 | `rummikub` · Classic | 2 / 3 / 4（推荐4） | 支持 · 有限本地策略 |
+| 卡卡颂 | `carcassonne` · 经典72块含农夫 | 2 / 3 / 4 / 5（推荐4） | 支持 · 有界本地策略 |
+
+分类键依次为 `board`（棋）、`card`（牌）、`dice`（骰）、`tabletop`（桌游）。
+
 支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏在对局进行中只把本人手牌/骰子/暗棋身份放进 `private_state`；真实终局可按各游戏规则发布专用复盘字段，德州扑克与炸金花仍保留弃牌/muck 隐私。NPC 与网页端同样只能消费服务端发布的权威合法行动。
 
-当前 25 款中只有 `yahtzee`（快艇骰子）固定为 0 筹码娱乐局；其余游戏均可按 catalog 创建带 `stake` 的房间。多数游戏采用明确零和策略：开火车按每名败者一个 stake；斗地主按最高 16 倍的最终叫分/炸弹倍率在地主与两农民间结算；干瞪眼按每名输家的剩余手牌张数×最终倍率结算，倍率最高 8 倍；掼蛋按两人队伍胜负结算；军棋、围棋走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake，每席虚拟投入封顶 32，因此单席最大真实亏损为 32×stake；德州扑克每席固定 1000 内部筹码、盲注 5/10（100BB），stake 仍是每席完整真实买入而不是内部筹码单价，终局按最终内部栈比例分配真实总买入池，单席最多亏一个 stake。21点是唯一明确 opt-in 的非零和例外：每席独立对虚拟庄家按胜 `+stake`、负 `-stake`、推和 `0` 结算。
+当前 29 款中 `yahtzee`（快艇骰子）、`monopoly`（大富翁）与 `rummikub`（拉密）固定为 0 筹码娱乐局；大富翁局内现金、拉密牌面局分与平台筹码分离。其余游戏均可按 catalog 创建带 `stake` 的房间。多数游戏采用明确零和策略：开火车按每名败者一个 stake；斗地主按最高 16 倍的最终叫分/炸弹倍率在地主与两农民间结算；干瞪眼按每名输家的剩余手牌张数×最终倍率结算，倍率最高 8 倍；掼蛋按两人队伍胜负结算；炸飞机、军棋、围棋走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake，每席虚拟投入封顶 32，因此单席最大真实亏损为 32×stake；德州扑克每席固定 1000 内部筹码、盲注 5/10（100BB），stake 仍是每席完整真实买入而不是内部筹码单价，终局按最终内部栈比例分配真实总买入池，单席最多亏一个 stake。21点是唯一明确 opt-in 的非零和例外：每席独立对虚拟庄家按胜 `+stake`、负 `-stake`、推和 `0` 结算。
 
 ## 对局之外：娱乐筹码与人机互动
 
@@ -614,7 +625,7 @@ legacy 分支。目录中新 game_type 会按 `/static/games/<game_type>.js` 约
 
 完整 context、helper、可选 `renderControls`、通用确认条和加载顺序契约见
 [app/static/games/README.md](app/static/games/README.md)。仅新增 renderer 文件不会修改
-服务端 game catalog，也不会让未完成游戏出现在“棋/牌/骰”选择器中。
+服务端 game catalog，也不会让未完成游戏出现在“棋/牌/骰/桌游”选择器中。
 
 西洋跳棋网页 renderer 位于 `app/static/games/checkers.js`，通过
 `window.DuelGameUI.register('checkers', renderer)` 扩展口注册；它只消费服务端的
@@ -811,12 +822,15 @@ python3 tests/play_tictactoe.py
 
 当前 CedarToy 官方实例也是以独立服务方式运行 CedarDuet，再由 CedarToy 负责登录态、绑定关系、MCP 聚合和 `/duel/*` 反向代理。
 
+大富翁的完整规则、资产协议和隔离测试入口见 [大富翁接入说明](docs/MONOPOLY.md)。普通房沿用现有再来一局流程；邀请房沿用现有另开邀请方式。局内现金不结算为平台筹码。
+
 ## 第三方规则引擎与致谢
 
 CedarDuet 自身使用仓库根目录的 PolyForm Noncommercial License；`third_party/` 中的第三方代码仍分别遵循其原许可证。运行时 vendored 的规则核心如下，完整来源、固定版本/commit、保留文件和本地修改见 [`third_party/THIRD_PARTY_NOTICES.md`](third_party/THIRD_PARTY_NOTICES.md) 以及各目录的 `NOTICE.md` / `LICENSE`。
 
 | 游戏 | 第三方规则核心 | 固定版本 / revision | 许可证 | CedarDuet 负责的主要部分 |
 |---|---|---|---|---|
+| 大富翁 | `intrepidcoder/monopoly` 经典地产数字表 | `3537fc393930f1712e8b4d6fbe2e80b25419ceed` | MIT | Python 权威阶段机、事件/经营、交易/拍卖、MCP、NPC、代码绘制棋盘；无上游美术 |
 | 中国象棋 | `xiangqi.js` | `f9019ac…` | BSD-2-Clause | 房间、持久化、MCP、UI、桥接 |
 | 国际象棋 | `chess.js` | v1.4.0 / `ce1ff9e` | BSD-2-Clause | FIDE 和棋适配、房间、MCP、UI |
 | 斗地主 | `onestraw/doudizhu` | PyPI 0.1.5 | MIT | 叫分、地主/底牌、物理牌映射、回合、MCP、UI |
@@ -829,6 +843,10 @@ CedarDuet 自身使用仓库根目录的 PolyForm Noncommercial License；`third
 
 开火车等未列入上表的游戏没有把第三方规则代码打包进运行时；若开发期只使用外部项目做规则对照或 differential/property 测试，不会把它冒充为项目运行依赖。
 
+## 拉密（Rummikub）
+
+`rummikub` 是本项目自行实现的 2–4 人 Classic 拉密，支持整桌拆分重组、万能牌、私牌隔离和本地点击草稿。本版仅娱乐局，牌面局分不扣平台钱包。规则参考 [官方入口](https://rummikub.com/rules/) 与 [Classic 规则 PDF](https://rummikub.com/wp-content/uploads/2019/12/2600-English.pdf)，没有引入第三方规则代码或品牌美术。数字版约定、动作 schema、测试与整合验收状态见 [拉密接入说明](../../docs/DUEL_RUMMIKUB.md)。
+
 ## License
 
 [PolyForm Noncommercial License 1.0.0](LICENSE)。允许非商业用途；商业使用不在本许可授权范围内。
@@ -838,3 +856,11 @@ CedarDuet 自身使用仓库根目录的 PolyForm Noncommercial License；`third
 ## 友情链接
 
 [LINUX DO 社区](https://linux.do/)
+
+### 显式停止挂等
+
+想停就先调用 `cancel_wait(room_id)`，不要只在自然语言里说停。它只取消本人在该房间的旧挂等，不离席、不认输、不改变在线/托管状态。新显式挂等替代旧链，心跳沿用同一代际；收到 `wait_cancelled` 后停止旧调用链，不行动、不自动续等。需要恢复时显式 `state(wait=true)` 或 `move(wait=true)`。
+
+## 卡卡颂（Carcassonne）
+
+`carcassonne` 为本项目自行编写的经典72块基础规则与原创几何SVG，包含农夫／田地、2～5人网页、MCP、本地NPC、筹码结算和持久化。只参考规则，未引入第三方代码或品牌插画，不将规则来源称作开源授权。规则依据、牌组拓扑表、验证结果与已知未验证项见 [卡卡颂接入说明](docs/CARCASSONNE.md)。

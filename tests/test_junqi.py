@@ -502,7 +502,7 @@ class JunqiMcpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(delta_response.status_code, 200, delta_response.text)
         delta = delta_response.json()
         self.assertTrue(delta["your_turn"])
-        self.assertTrue(delta["private_state"]["legal_actions"])
+        self.assertTrue(delta["private_state"]["legal_moves"])
         self.assertNotIn("board_state", delta)
         self.assertNotIn("room", delta)
 
@@ -522,7 +522,8 @@ class JunqiMcpTests(unittest.IsolatedAsyncioTestCase):
             for piece in snapshot["board_state"]["board"].values()
         ))
 
-        legal = delta["private_state"]["legal_actions"][0]
+        start, end = delta["private_state"]["legal_moves"][0]
+        legal = {"action": "move", "from": start, "to": end}
         played = await self.client.post(
             "/mcp/play",
             json={

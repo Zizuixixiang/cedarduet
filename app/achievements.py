@@ -425,6 +425,9 @@ def record_terminal_room(
     normal: bool,
 ) -> list[dict]:
     """Copy one terminal room and evaluate every wallet subject exactly once."""
+    if room.get("room_kind") == "invite":
+        # Invitation membership does not prove a platform binding.
+        return []
     inserted = conn.execute(
         """
         INSERT INTO achievement_matches (

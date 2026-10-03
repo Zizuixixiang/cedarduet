@@ -144,7 +144,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(payload["bootstrap"])
                 self.assertEqual(
                     payload["room"]["move_format"],
-                    get_game(game_type).move_format,
+                    getattr(get_game(game_type), "mcp_move_format", get_game(game_type).move_format),
                 )
                 if game_type == "mahjong":
                     legal = payload["room"]["private_state"]["legal_actions"]
@@ -371,14 +371,15 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(snapshot["private_state"], room["private_state"])
                 for key in (
-                    "rules_text", "move_format", "chip_balances",
+                    "chip_balances",
                     "action_history", "move_history", "dice_rolls",
                 ):
                     self.assertNotIn(key, snapshot)
                     self.assertNotIn(key, snapshot["board_state"])
-                snapshot_size = len(json.dumps(payload, ensure_ascii=False))
-                bootstrap_size = len(json.dumps(bootstrap, ensure_ascii=False))
-                self.assertLess(snapshot_size, bootstrap_size * 0.65)
+                game = get_game(game_type)
+                self.assertEqual(snapshot['rules_text'], game.rules_text)
+                self.assertEqual(snapshot['move_format'],
+                                 getattr(game, 'mcp_move_format', game.move_format))
 
                 board = snapshot["board_state"]
                 if game_type == "uno":
@@ -411,7 +412,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                         {"hidden"},
                     )
                 elif game_type == "aeroplane_chess":
-                    self.assertNotIn("path_mappings", board)
+                    self.assertEqual(board["path_mappings"], room["board_state"]["path_mappings"])
                     self.assertIn("legal_actions", board)
                 elif game_type == "chess":
                     self.assertNotIn("legal_moves", board)
@@ -425,8 +426,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn("legal_actions", board)
                     self.assertIn("legal_actions", snapshot["private_state"])
                 elif game_type == "chinese_checkers":
-                    self.assertNotIn("nodes", board)
-                    self.assertNotIn("camps", board)
+                    self.assertEqual(board["nodes"], room["board_state"]["nodes"])
+                    self.assertEqual(board["camps"], room["board_state"]["camps"])
                     self.assertTrue(all(
                         set(move) <= {"from", "to", "kind"}
                         for move in board["legal_moves"]
@@ -446,7 +447,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                         [{"hidden": True}] * 3,
                     )
 
-    async def test_full_state_does_not_claim_bootstrap_or_consume_events(self):
+    async def test_full_state_does_not_claim_bootstrap_and_delivers_text_once(self):
         room = framework.create_room(
             "uno", "human_first", "human", "human-resync", "ai-resync"
         )
@@ -467,9 +468,12 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("bootstrap", payload)
             self.assertEqual(len(payload["snapshot"]["private_state"]["hand"]), 7)
             self.assertNotIn("cards", payload["snapshot"]["board_state"])
-            self.assertEqual(
+            self.assertGreater(
                 self.event_cursor(room["room_id"], "ai-resync"), cursor_before
             )
+            self.assertEqual(payload.get("events", []), [] if repeat else [{
+                "name": "human-resync", "message": "尚未读",
+            }])
             self.assertFalse(self.bootstrap_claimed(room["room_id"], "ai-resync"))
 
         bootstrap = await self.client.post(
@@ -480,9 +484,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertTrue(bootstrap.json()["bootstrap"])
-        self.assertEqual(bootstrap.json()["events"], [{
-            "name": "human-resync", "message": "尚未读",
-        }])
+        self.assertNotIn("events", bootstrap.json())
         self.assertTrue(self.bootstrap_claimed(room["room_id"], "ai-resync"))
 
         after = await self.client.post("/mcp/play", json=request)

@@ -98,8 +98,8 @@ class Xiangqi(GamePlugin):
 
     def initialize(self, participants: list[dict[str, Any]]) -> dict[str, Any]:
         kinds = [item.get("participant_kind") for item in participants]
-        if len(kinds) != 2 or set(kinds) != {"human", "bound_machine"}:
-            raise ValueError("象棋固定需要 1 个人类和 1 只真实绑定小机")
+        if len(kinds) != 2 or any(kind not in {"human", "bound_machine"} for kind in kinds):
+            raise ValueError("象棋固定需要 2 名真实参与者")
         return self.initial_state()
 
     def mcp_snapshot_state(

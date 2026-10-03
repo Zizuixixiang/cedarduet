@@ -15,8 +15,13 @@ from urllib.parse import unquote
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from .wait_control import wait_control, WaitCancelled, cancelled_response
 
+from .invites import create_invite, join_invite, start_invite, preview_invite, reclaim, has_targeted_chat
+from .takeover import TakeoverScheduler
+from .models import InviteCreateBody, InviteJoinBody, InviteStartBody
 from .database import init_db
+from .full_state import LEGACY_GAMES, full_state_response
 from .framework import (
     DuelError,
     claim_mcp_bootstrap,
@@ -32,11 +37,13 @@ from .framework import (
     list_human_rooms,
     list_timeline,
     play_move,
+    participant_can_act,
     post_message,
     project_mcp_snapshot_for_viewer,
     project_mcp_room_for_viewer,
     project_room_for_viewer,
     read_new_room_events,
+    touch_room_presence,
     resign,
     respond_to_invitation,
     set_room_preserved,
@@ -220,13 +227,18 @@ async def _schedule_current_system_npc(room: dict) -> bool:
     return await npc_turn_scheduler.schedule(room["room_id"])
 
 
+takeover_scheduler = TakeoverScheduler(revision_events.notify, _schedule_current_system_npc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
     await npc_turn_scheduler.start()
+    await takeover_scheduler.start()
     try:
         yield
     finally:
+        await takeover_scheduler.shutdown()
         await npc_turn_scheduler.shutdown()
 
 
@@ -307,6 +319,8 @@ def human_response(
 
 
 def _chip_balances(room: dict) -> dict[str, int] | None:
+    if room.get("room_kind") == "invite":
+        return None
     participants = room.get("participants", [])
     humans = [
         item for item in participants
@@ -328,10 +342,18 @@ def _chip_balances(room: dict) -> dict[str, int] | None:
     }
 
 
+from . import mcp_minimal
+
+
 def _compact_events(events: list[dict]) -> list[dict]:
     compact: list[dict] = []
+    previous = None
     for event in events:
         item = {"name": event["sender"]["name"]}
+        if event.get('_mcp_merge'):
+            item['revision'] = event['revision_at_send']
+        if event.get('_mcp_actor'):
+            item['actor'] = event['_mcp_actor']
         event_type = event["event_type"]
         move = event.get("move")
         if event_type == "result" and isinstance(move, dict):
@@ -344,7 +366,17 @@ def _compact_events(events: list[dict]) -> list[dict]:
             event_type == "result" and isinstance(move, dict)
         ):
             item["message"] = event["text"]
-        compact.append(item)
+        # Only opt-in plugin output; never merge across chat, revisions or
+        # visibility boundaries. Raw database events remain untouched.
+        if (event.get('_mcp_merge') and previous is not None
+                and previous.get('_mcp_merge')
+                and previous['event_type'] == 'move' and event_type == 'result'
+                and previous['revision_at_send'] == event['revision_at_send']
+                and previous.get('is_public') and event.get('is_public')):
+            compact[-1].update({k: v for k, v in item.items() if k != 'name'})
+        else:
+            compact.append(item)
+        previous = event
     return compact
 
 
@@ -381,6 +413,8 @@ def _pending_ai_response(room: dict, player_id: str, message: str) -> dict:
 def _bootstrap_ai_response(
     room: dict, player_id: str, message: str, *, claimed: bool = False
 ) -> dict:
+    if mcp_minimal.enabled(room):
+        return mcp_minimal.response(room["room_id"], player_id, consume=True, source_room=room)
     if not claimed and not claim_mcp_bootstrap(room["room_id"], player_id):
         return _move_delta_response(room, player_id)
     projected_room = project_mcp_room_for_viewer(room, player_id)
@@ -394,7 +428,13 @@ def _bootstrap_ai_response(
     balances = _chip_balances(room)
     if balances is not None:
         payload["chip_balances"] = balances
-    events = _compact_events(read_new_room_events(room["room_id"], player_id))
+    raw_events = read_new_room_events(room["room_id"], player_id, mcp=True)
+    if getattr(get_game(room['game_type']), 'mcp_event_key', None):
+        # The bootstrap board already contains all earlier public actions.
+        # Preserve participants' words, without replaying old board mutations.
+        raw_events = [dict(e, event_type='message', move=None) for e in raw_events
+                      if e.get('text') and e['event_type'] != 'result']
+    events = _compact_events(raw_events)
     if events:
         payload["events"] = events
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
@@ -468,6 +508,8 @@ def _move_delta_response(
     *,
     consume_events: bool = False,
 ) -> dict:
+    if mcp_minimal.enabled(room):
+        return mcp_minimal.response(room["room_id"], player_id, consume=consume_events, source_room=room)
     if room.get("status") == "cancelled":
         return {
             "ok": True,
@@ -491,13 +533,18 @@ def _move_delta_response(
         }
         if participant is not None:
             events = _compact_events(
-                read_new_room_events(room["room_id"], player_id)
+                read_new_room_events(room["room_id"], player_id, mcp=True)
             )
             if events:
                 payload["events"] = events
         if room["status"] in {"finished", "archived"}:
             payload["room_status"] = room["status"]
             payload.update(_terminal_fields(room, player_id))
+        return payload
+    if room.get("room_kind") == "invite" and room["status"] == "waiting":
+        payload = _invite_response(room, player_id)
+        raw_events = read_new_room_events(room["room_id"], player_id, mcp=True)
+        payload["events"] = _compact_events(raw_events)
         return payload
     projected_room = project_mcp_room_for_viewer(room, player_id)
     payload = {
@@ -512,8 +559,11 @@ def _move_delta_response(
             "player_id": current["player_id"],
             "name": current["display_name"],
         }
-        payload["your_turn"] = current["player_id"] == player_id
+        payload["your_turn"] = participant_can_act(room, player_id)
         private_state = projected_room.get("private_state")
+        turn_projection = getattr(get_game(room['game_type']), 'mcp_turn_private_state', None)
+        if turn_projection and private_state:
+            private_state = turn_projection(private_state, projected_room['board_state'])
         if payload["your_turn"] and private_state:
             payload["private_state"] = private_state
     activity_state = participant.get("activity_state", "active")
@@ -522,11 +572,15 @@ def _move_delta_response(
             activity_state if activity_state != "active" else "inactive"
         )
     if consume_events or _participant_response_due(room, player_id):
-        events = _compact_events(
-            read_new_room_events(room["room_id"], player_id)
-        )
+        raw_events = read_new_room_events(room["room_id"], player_id, mcp=True)
+        events = _compact_events(raw_events)
         if events:
             payload["events"] = events
+        # Resign/leave do not have historical plugin result records. Repair the
+        # public context once after such a lifecycle event, not every decision.
+        repair = getattr(get_game(room['game_type']), 'mcp_lifecycle_state', None)
+        if repair and any(e['event_type'] in ('resign', 'leave') for e in raw_events):
+            payload['public_state'] = repair(projected_room['board_state'])
     if room["status"] in {"finished", "archived"}:
         payload.update(_terminal_fields(projected_room, player_id))
     unlocks = filter_unlocks(room.get("achievement_unlocks", []), "ai", player_id)
@@ -903,7 +957,9 @@ def _participant_response_due(room: dict, player_id: str) -> bool:
         or participant.get("join_status") == "left"
         or not participant.get("active", True)
         or participant.get("activity_state", "active") != "active"
-        or room.get("current_player_id") == player_id
+        or participant_can_act(room, player_id)
+        or (room.get("room_ready") and room.get("initiator_player_id") == player_id)
+        or has_targeted_chat(room["room_id"], player_id)
     )
 
 
@@ -922,6 +978,11 @@ def _heartbeat_or_delta(
             "status": "cancelled",
             "revision": baseline_revision,
         }
+    if mcp_minimal.enabled(latest):
+        payload = mcp_minimal.response(room_id, player_id)
+        if "wait" in payload and not any(k in payload for k in ("events", "bootstrap", "private")):
+            payload["status"] = "still_waiting"
+        return payload
     if _participant_response_due(latest, player_id):
         return _move_delta_response(latest, player_id)
     return {
@@ -940,10 +1001,13 @@ async def wait_for_revision(
     wake_on_visible_events: bool = False,
     wake_on_revision: bool = False,
     wake_on_participant_due: bool = True,
+    wait_lease=None,
 ) -> dict | None:
     """Wait without holding a SQLite connection, transaction, or application lock."""
     deadline = time.monotonic() + MCP_WAIT_SECONDS
     while True:
+        if wait_lease:
+            wait_lease.check()
         event = revision_events.current(room_id)
         try:
             room = get_room(room_id)
@@ -974,10 +1038,19 @@ async def wait_for_revision(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None
+        tasks = [asyncio.create_task(event.wait())]
+        if wait_lease:
+            tasks.append(asyncio.create_task(wait_lease.cancelled.wait()))
         try:
-            await asyncio.wait_for(event.wait(), timeout=remaining)
-        except asyncio.TimeoutError:
-            return None
+            done, _ = await asyncio.wait(tasks, timeout=remaining, return_when=asyncio.FIRST_COMPLETED)
+            if wait_lease:
+                wait_lease.check()
+            if not done:
+                return None
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @app.get("/health")
@@ -1107,6 +1180,7 @@ async def human_whoami(request: Request):
     return {
         "ok": True,
         "bound": True,
+        "human_player_id": human_player_id,
         "human_name": human_name,
         "human_avatar": _trusted_human_avatar(request),
         "machines": machines,
@@ -1157,6 +1231,57 @@ async def human_read_notifications(
         "read": count,
         **notification_state,
     }
+
+
+def _invite_response(room, player_id):
+    return {"ok": True, "status": room["status"], "room_id": room["room_id"],
+            "revision": room["revision"], "room_ready": room.get("room_ready", False),
+            "room": project_room_for_viewer(room, player_id),
+            "invite_code": room.get("invite_code"), "invite_link": room.get("invite_link"),
+            "message": "人齐啦，可以开始游戏" if room.get("room_ready") else "等待受邀玩家；人类可用链接或邀请码加入，小机请使用邀请码。"}
+
+
+@app.post("/api/invites")
+async def human_create_invite(request: Request, body: InviteCreateBody):
+    player = trusted_human_player(request)
+    room = create_invite(body.game_type, "human", player,
+                         target_player_count=body.target_player_count, stake=body.stake,
+                         timeout_takeover=body.timeout_takeover,
+                         timeout_takeover_seconds=body.timeout_takeover_seconds,
+                         ai_players=body.ai_players, trusted_bound_ais=_trusted_bound_ais(request),
+                         display_name=unquote(request.headers.get("X-Duel-Human-Name", "")))
+    return human_response(room, "邀请房已创建", player)
+
+
+@app.get("/api/invites/{invite_code}")
+async def human_preview_invite(invite_code: str, request: Request):
+    trusted_human_player(request)
+    return {"ok": True, "invitation": preview_invite(invite_code)}
+
+
+@app.post("/api/invites/join")
+async def human_join_invite(request: Request, body: InviteJoinBody):
+    player = trusted_human_player(request)
+    room = join_invite(body.invite_code, "human", player,
+                       display_name=unquote(request.headers.get("X-Duel-Human-Name", "")))
+    revision_events.notify(room["room_id"])
+    return human_response(room, "已加入邀请房，等待房主开局", player)
+
+
+@app.post("/api/rooms/{room_id}/start")
+async def human_start_invite(room_id: str, request: Request, body: InviteStartBody):
+    player = trusted_human_player(request)
+    room = start_invite(room_id, "human", player, fill_with_npcs=body.fill_with_npcs)
+    revision_events.notify(room_id)
+    await _schedule_current_system_npc(room)
+    return human_response(room, "已随机排座，游戏开始", player)
+
+
+@app.post("/api/rooms/{room_id}/reclaim")
+async def human_reclaim(room_id: str, request: Request):
+    player = trusted_human_player(request)
+    room = reclaim(room_id, "human", player)
+    return human_response(room, "已接回；已完成的代操作不回滚", player)
 
 
 @app.post("/api/rooms")
@@ -1333,6 +1458,7 @@ async def human_state(
     latest_room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
+    touch_room_presence(room_id, player_id)
     await _schedule_current_system_npc(latest_room)
     room = latest_room
     if (
@@ -1351,7 +1477,7 @@ async def human_state(
         and room.get("status") not in {"finished", "archived", "cancelled"}
         and not (
             room.get("status") == "playing"
-            and room.get("current_player_id") == player_id
+            and participant_can_act(room, player_id)
         )
         and not has_new_room_events(room_id, player_id)
     ):
@@ -1401,7 +1527,7 @@ async def human_move(room_id: str, request: Request, body: MoveBody):
             if value is not None
         }
     require(move, "move 动作需要 move 对象或对应坐标字段")
-    if move == {"action": "acknowledge_round"}:
+    if move == {"action": "acknowledge_round"} and get_room(room_id).get("room_kind") != "invite":
         human_player_id = trusted_human_player(request)
         if body.player_id != human_player_id:
             raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
@@ -1444,7 +1570,7 @@ async def human_message(room_id: str, body: MessageBody):
     revision_events.notify(room["room_id"])
     await _schedule_current_system_npc(room)
     return human_response(
-        room, "留言已发送，并已通知等待中的参与者。", body.player_id
+        room, "留言已发送。", body.player_id
     )
 
 
@@ -1518,7 +1644,7 @@ async def human_delete_room(
     }
 
 
-async def _mcp_play_impl(body: McpPlayBody):
+async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
     """MCP-friendly JSON action endpoint for the bound AI."""
     if body.player_id.startswith("npc:"):
         raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
@@ -1557,6 +1683,32 @@ async def _mcp_play_impl(body: McpPlayBody):
 
     if body.action == "chips":
         return _mcp_chips(body)
+
+    if body.action == "invite":
+        room = create_invite(require(body.game_type, "invite 需要 game_type"), "ai", body.player_id,
+                             target_player_count=body.target_player_count, stake=body.stake,
+                             timeout_takeover=body.timeout_takeover,
+                             timeout_takeover_seconds=body.timeout_takeover_seconds,
+                             display_name=body.display_name)
+        return _invite_response(room, body.player_id)
+    if body.action == "join" and body.invite_code:
+        room = join_invite(body.invite_code, "ai", body.player_id, display_name=body.display_name)
+        revision_events.notify(room["room_id"])
+        return _invite_response(room, body.player_id)
+    if body.action == "start":
+        room = start_invite(require(body.room_id, "start 需要 room_id"), "ai", body.player_id,
+                            fill_with_npcs=body.fill_with_npcs)
+        revision_events.notify(room["room_id"])
+        await _schedule_current_system_npc(room)
+        return _bootstrap_ai_response(room, body.player_id, "已随机排座，游戏开始")
+    if body.action == "chat":
+        room_id = require(body.room_id, "chat 需要 room_id")
+        room = post_message(room_id, "ai", body.player_id, require(body.message, "chat 需要 message"))
+        revision_events.notify(room_id)
+        return _move_delta_response(room, body.player_id, consume_events=True)
+    if body.action == "reclaim":
+        room = reclaim(require(body.room_id, "reclaim 需要 room_id"), "ai", body.player_id)
+        return _move_delta_response(room, body.player_id, consume_events=True)
 
     if body.action == "new":
         ordered_participants = None
@@ -1751,8 +1903,19 @@ async def _mcp_play_impl(body: McpPlayBody):
             post_message(room_id, "ai", body.player_id, body.message)
             revision_events.notify(room_id)
         room = get_room(room_id, "ai", body.player_id)
+        touch_room_presence(room_id, body.player_id)
         await _schedule_current_system_npc(room)
+        if wait_lease:
+            wait_lease.check()
+        if body.move is not None and mcp_minimal.enabled(room):
+            if body.full_state or body.message or body.wait:
+                raise DuelError("placements 查询不能与 full_state/message/wait 合用")
+            return mcp_minimal.placements(room, body.player_id, body.move)
         if body.full_state:
+            if mcp_minimal.enabled(room):
+                return mcp_minimal.response(room_id, body.player_id, full=True)
+            if room['game_type'] in LEGACY_GAMES:
+                return full_state_response(room, body.player_id)
             return {
                 "ok": True,
                 "status": room["status"],
@@ -1782,6 +1945,8 @@ async def _mcp_play_impl(body: McpPlayBody):
                 "对局现已开始；这是本房间唯一一次完整上下文。",
                 claimed=True,
             )
+        if mcp_minimal.enabled(room) and mcp_minimal.needs_bootstrap(room_id, body.player_id):
+            return mcp_minimal.response(room_id, body.player_id, consume=True)
         if body.wait and not _participant_response_due(room, body.player_id):
             if not await revision_events.try_acquire_wait_slot():
                 payload = _move_delta_response(room, body.player_id)
@@ -1789,9 +1954,11 @@ async def _mcp_play_impl(body: McpPlayBody):
                 return payload
             baseline = room["revision"]
             try:
-                changed = await wait_for_revision(room_id, body.player_id, baseline)
+                changed = await wait_for_revision(room_id, body.player_id, baseline, wait_lease=wait_lease)
             finally:
                 await revision_events.release_wait_slot()
+            if wait_lease:
+                wait_lease.check()
             if changed is None:
                 return _heartbeat_or_delta(
                     room_id, body.player_id, baseline
@@ -1843,6 +2010,18 @@ async def _mcp_play_impl(body: McpPlayBody):
     )
     revision_events.notify(room["room_id"])
     await _schedule_current_system_npc(room)
+    if wait_lease:
+        wait_lease.check()
+    if mcp_minimal.enabled(room):
+        return mcp_minimal.response(room["room_id"], body.player_id, consume=True, submitted=move, source_room=room)
+    move_private = getattr(get_game(room['game_type']), 'mcp_move_private_state', None)
+    if move_private:
+        projected = project_mcp_room_for_viewer(room, body.player_id)
+        private_update = move_private(projected['private_state'], move)
+        if private_update is not None:
+            payload = _move_delta_response(room, body.player_id, consume_events=True)
+            payload.setdefault('private_state', {}).update(private_update)
+            return payload
     immediate_events = bool(
         get_game(room["game_type"]).mcp_immediate_public_events
         and has_new_room_events(room["room_id"], body.player_id)
@@ -1865,9 +2044,11 @@ async def _mcp_play_impl(body: McpPlayBody):
 
     baseline = room["revision"]
     try:
-        changed = await wait_for_revision(room["room_id"], body.player_id, baseline)
+        changed = await wait_for_revision(room["room_id"], body.player_id, baseline, wait_lease=wait_lease)
     finally:
         await revision_events.release_wait_slot()
+    if wait_lease:
+        wait_lease.check()
     if changed is None:
         return _heartbeat_or_delta(
             room["room_id"], body.player_id, baseline
@@ -1884,7 +2065,7 @@ def _ack_mcp_response_notifications(payload: dict, body: McpPlayBody) -> None:
         room_status = payload["room"].get("status", room_status)
     if payload.get("status") in {"finished", "archived"}:
         room_status = payload["status"]
-    room_id = payload.get("room_id")
+    room_id = payload.get("room_id") or body.room_id
     if room_id is None and isinstance(payload.get("room"), dict):
         room_id = payload["room"].get("room_id")
     if room_status in {"finished", "archived"} and room_id:
@@ -1893,6 +2074,64 @@ def _ack_mcp_response_notifications(payload: dict, body: McpPlayBody) -> None:
 
 @app.post("/mcp/play")
 async def mcp_play(body: McpPlayBody):
-    payload = await _mcp_play_impl(body)
-    _ack_mcp_response_notifications(payload, body)
-    return attach_mcp_unread(payload, body.player_id)
+    if body.player_id.startswith("npc:"):
+        raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
+    if body.wait_resume and (body.action != "state" or not body.wait or body.message):
+        raise DuelError("wait_resume 仅用于无附言的 state(wait=true)")
+    if body.wait_resume and body.wait_generation is None:
+        raise DuelError("wait_resume 需要 wait_generation")
+    lease = None
+    keep_lease = False
+    finish_reason = "finished"
+    if body.room_id:
+        # Match the framework's room spelling before using a control key.
+        body = body.model_copy(update={"room_id": body.room_id.strip().upper()})
+        waiting = body.wait and body.action in {"state", "move"}
+        try:
+            lease = wait_control.apply(
+                body.player_id, body.room_id, generation=body.wait_generation,
+                waiting=waiting, resume=body.wait_resume,
+            )
+        except WaitCancelled:
+            if waiting or body.action == "cancel_wait":
+                return cancelled_response(body.room_id)
+            # An out-of-order ordinary action retains its normal semantics,
+            # but must not invalidate a newer wait.
+    if body.action == "cancel_wait":
+        require(body.room_id, "cancel_wait 动作需要 room_id")
+        return cancelled_response(body.room_id)
+    try:
+        payload = await _mcp_play_impl(body, wait_lease=lease)
+        if lease:
+            lease.check()
+        _ack_mcp_response_notifications(payload, body)
+        minimal = payload.get("protocol") == mcp_minimal.VERSION
+        if body.room_id and payload.get("status") != "cancelled" and body.action in {"state", "move", "chat", "resign", "leave", "reclaim"}:
+            room = get_room(body.room_id, "ai", body.player_id)
+            minimal = mcp_minimal.enabled(room)
+        if minimal:
+            payload = mcp_minimal.attach_new_notifications(payload, body.player_id)
+            # Gateways may retry empty heartbeats internally. Deliver gameplay
+            # and fresh notices to the caller, never swallow them as a heartbeat.
+            if any(payload.get(k) for k in ("events", "private", "bootstrap", "unread")):
+                payload.pop("wait_downgraded", None)
+                if payload.get("status") == "still_waiting":
+                    payload.pop("status")
+        else:
+            payload = attach_mcp_unread(payload, body.player_id)
+        if lease:
+            keep_lease = body.wait_generation is not None and (
+                payload.get("status") == "still_waiting"
+                or payload.get("wait_downgraded") is True
+            )
+        return payload
+    except WaitCancelled:
+        return cancelled_response(body.room_id)
+    except asyncio.CancelledError:
+        finish_reason = "abandoned"
+        raise
+    finally:
+        if lease:
+            lease.running = False
+            if not keep_lease:
+                wait_control.finish(body.player_id, body.room_id, lease, reason=finish_reason)

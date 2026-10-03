@@ -13,6 +13,7 @@
 | `pypokerengine` | https://github.com/ishikota/PyPokerEngine | `a52a048a15da276005eca4acae96fb6eeb4dc034` | MIT | 牌/牌桌/下注/手牌评估/side-pot 核心；含在 NOTICE 中逐项披露的 HU、kicker、odd-chip、all-in 等修正 |
 | `tenuki` | https://github.com/aprescott/tenuki | 0.3.1 / `aeedb4cd39d73242e49490aea359118ea5a4df23` | MIT | BoardState/Ruleset/Scorer/Region 等规则核心；固定 19×19、PSK、中国面积计分、贴 7.5 |
 | `pymahjonggb` | https://github.com/ailab-pku/PyMahjongGB | 1.4.0 / `bb404f3f3480c2569e14d54043ad06e366e128df` | MIT | 原样算法源码编译 C++11 CPython 扩展；仅按 MSVC/GCC/Clang 适配构建参数；`MahjongFanCalculator` 判胡/番，`MahjongShanten` 算向听 |
+| `intrepid_monopoly` | https://github.com/intrepidcoder/monopoly | `3537fc393930f1712e8b4d6fbe2e80b25419ceed` | MIT | `classicedition.js` 的地产价格/租金数字表转为 JSON；经典事件数值与规则对照，Python 阶段机及中文文案另行实现；未分发上游 UI、图片、品牌素材或 JS 引擎 |
 
 ## 规则验证参考与运行依赖的区别
 
@@ -21,3 +22,5 @@
 ## 修改披露
 
 不要仅依赖本汇总判断“是否原样”。每个目录的 `NOTICE.md` 是该 vendor 的细粒度真源，记录了复制范围、固定 SHA/版本以及本地修改。升级第三方核心时必须同步更新对应 `NOTICE.md`、许可证文件（若上游变化）和本汇总。
+
+大富翁另阅读 `hencter/monopoly-3d-ai` 的 MIT LICENSE 与 `src/core/engine.js`（`fec44211e930ba42ad98d9172e0830aa55a170a6`），其3D、行业/金融及联机代码均未采用，也不是运行依赖。详见 `intrepid_monopoly/NOTICE.md`。

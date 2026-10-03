@@ -19,7 +19,7 @@ from .models import McpPlayBody
 TOOL_NAME = "play"
 MAX_CONTINUOUS_WAIT_SECONDS = 600.0
 WAIT_SLOT_RETRY_SECONDS = 0.25
-IDENTITY_FIELDS = frozenset({"player_id", "opponent_id", "participant_ids"})
+IDENTITY_FIELDS = frozenset({"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"})
 
 
 def play_input_schema() -> dict[str, Any]:
@@ -46,75 +46,95 @@ async def forward_play(
         payload.pop(field, None)
     payload["player_id"] = LOCAL_AI_ID
     payload["opponent_id"] = LOCAL_HUMAN_ID
-    continue_waiting = payload.get("wait") is True
+    generation = time.time_ns()
+    if payload.get("room_id"):
+        payload["wait_generation"] = generation
+    continue_waiting = payload.get("action") in {"state", "move"} and str(payload.get("wait")).lower() == "true"
     deadline = time.monotonic() + max_wait_seconds
     timeout = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
 
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-        while True:
-            try:
-                response = await client.post(
-                    f"{base_url or local_base_url()}/mcp/play",
-                    json=payload,
-                    headers={"Accept": "application/json"},
-                )
-            except httpx.HTTPError as exc:
-                return 503, {
-                    "ok": False,
-                    "status": "error",
-                    "message": f"无法连接本地 CedarDuet gateway：{exc}",
-                }
-            try:
-                result = response.json()
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                result = {
-                    "ok": False,
-                    "status": "error",
-                    "message": "本地 CedarDuet gateway 返回了非 JSON 响应",
-                }
-            if not isinstance(result, dict):
-                result = {
-                    "ok": False,
-                    "status": "error",
-                    "message": "本地 CedarDuet gateway 返回了非对象 JSON",
-                }
+        try:
+            while True:
+                try:
+                    response = await client.post(
+                        f"{base_url or local_base_url()}/mcp/play",
+                        json=payload,
+                        headers={"Accept": "application/json"},
+                    )
+                except httpx.HTTPError as exc:
+                    return 503, {
+                        "ok": False,
+                        "status": "error",
+                        "message": f"无法连接本地 CedarDuet gateway：{exc}",
+                    }
+                try:
+                    result = response.json()
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    result = {
+                        "ok": False,
+                        "status": "error",
+                        "message": "本地 CedarDuet gateway 返回了非 JSON 响应",
+                    }
+                if not isinstance(result, dict):
+                    result = {
+                        "ok": False,
+                        "status": "error",
+                        "message": "本地 CedarDuet gateway 返回了非对象 JSON",
+                    }
 
-            retryable_wait = (
-                response.status_code < 400
-                and continue_waiting
-                and (
-                    result.get("status") == "still_waiting"
-                    or (
-                        result.get("wait_downgraded") is True
-                        and result.get("your_turn") is not True
-                        and result.get("status")
-                        not in {"finished", "archived", "cancelled", "left"}
-                        and result.get("room_status")
-                        not in {"finished", "archived", "cancelled"}
+                retryable_wait = (
+                    response.status_code < 400
+                    and continue_waiting
+                    and (
+                        result.get("status") == "still_waiting"
+                        or (
+                            result.get("wait_downgraded") is True
+                            and result.get("your_turn") is not True
+                            and result.get("status")
+                            not in {"finished", "archived", "cancelled", "left"}
+                            and result.get("room_status")
+                            not in {"finished", "archived", "cancelled"}
+                        )
                     )
                 )
-            )
-            if not retryable_wait or time.monotonic() >= deadline:
-                return response.status_code, result
-
-            room_id = result.get("room_id") or payload.get("room_id")
-            if room_id in {None, ""}:
-                return response.status_code, result
-
-            # Never replay a move/message after an internal heartbeat.  From the
-            # second request onward, only issue the canonical side-effect-free wait.
-            payload = {
-                "action": "state",
-                "room_id": str(room_id),
-                "wait": True,
-                "player_id": LOCAL_AI_ID,
-                "opponent_id": LOCAL_HUMAN_ID,
-            }
-            if result.get("wait_downgraded") is True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if not retryable_wait or time.monotonic() >= deadline:
                     return response.status_code, result
-                await anyio.sleep(min(WAIT_SLOT_RETRY_SECONDS, remaining))
+
+                room_id = result.get("room_id") or payload.get("room_id")
+                if room_id in {None, ""}:
+                    return response.status_code, result
+
+                # Never replay a move/message after an internal heartbeat.  From the
+                # second request onward, only issue the canonical side-effect-free wait.
+                payload = {
+                    "action": "state",
+                    "room_id": str(room_id),
+                    "wait": True,
+                    "player_id": LOCAL_AI_ID,
+                    "opponent_id": LOCAL_HUMAN_ID,
+                    "wait_generation": generation,
+                    "wait_resume": True,
+                }
+                if result.get("wait_downgraded") is True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return response.status_code, result
+                    await anyio.sleep(min(WAIT_SLOT_RETRY_SECONDS, remaining))
+        finally:
+            if continue_waiting and payload.get("room_id"):
+                # Close this generation even between heartbeat requests, on
+                # deadline or disconnect. A newer chain is never cancelled.
+                with anyio.move_on_after(5, shield=True):
+                    try:
+                        await client.post(
+                            f"{base_url or local_base_url()}/mcp/play",
+                            json={"action": "cancel_wait", "player_id": LOCAL_AI_ID,
+                                  "room_id": payload["room_id"], "wait_generation": generation},
+                            timeout=5,
+                        )
+                    except httpx.HTTPError:
+                        pass
 
 
 async def _list_tools(_context, _params) -> types.ListToolsResult:
@@ -124,6 +144,7 @@ async def _list_tools(_context, _params) -> types.ListToolsResult:
         description=(
             "以固定 local-ai 身份调用 CedarDuet 的 /mcp/play。"
             "身份字段由 adapter 强制注入；动作协议与生产 MCP 相同。"
+            "想停就先 cancel_wait(room_id)，不要只在自然语言里说停；恢复时显式重新挂等。"
         ),
         inputSchema=play_input_schema(),
         outputSchema={"type": "object", "additionalProperties": True},

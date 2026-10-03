@@ -48,9 +48,6 @@ GLOBAL_SPEECH_RULES = (
     "不要返回分析、解释或思维过程。"
 )
 MAX_PROVIDER_MESSAGE_LENGTH = 200
-# CedarToy bridge rejects any individual message at 4000 characters.  Keep a
-# little headroom for boundary accounting changes outside this service.
-BRIDGE_MESSAGE_CHAR_LIMIT = 3900
 
 
 class NpcProviderError(RuntimeError):
@@ -344,15 +341,7 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
     def _bridge_messages(
         request: NpcDecisionRequest | NpcSpeechRequest,
     ) -> list[dict[str, str]]:
-        messages = request.messages()
-        if any(
-            len(message.get("content", "")) > BRIDGE_MESSAGE_CHAR_LIMIT
-            for message in messages
-        ):
-            raise NpcProviderError(
-                "NPC bridge 单条 message 超过 3900 字符安全上限"
-            )
-        return messages
+        return request.messages()
 
     async def decide(self, request: NpcDecisionRequest) -> ProviderDecision:
         value = await self._post_json(

@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import unittest
@@ -26,7 +27,7 @@ def function_source(name: str) -> str:
 class GameUIExtensionContractTests(unittest.TestCase):
     def test_registry_and_renderer_scripts_load_before_the_application(self):
         registry_tag = '<script src="/static/game_ui_registry.js?v=0.9.1"></script>'
-        app_tag = '<script src="/static/app.js?v=0.9.5"></script>'
+        app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
         liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.1"></script>'
@@ -346,6 +347,8 @@ loading.then((loaded) => {
             function_source("gameUsesStandardMoveConfirmation"),
             function_source("syncMoveConfirmationVisibility"),
             function_source("registeredGameUIStateFor"),
+            function_source("viewerPlayerIdFor"),
+            function_source("relativeParticipantsFor"),
             function_source("createGameUIContext"),
             function_source("renderRegisteredGameUI"),
             function_source("renderBoard"),
@@ -580,6 +583,7 @@ class FrontendBoardVisualTests(unittest.TestCase):
         ))
         harness = f"""
 const assert = require("node:assert/strict");
+const room = {{viewer: {{token: "X"}}}};
 class ClassList {{
   constructor() {{ this.names = new Set(); }}
   add(...names) {{ names.forEach((name) => this.names.add(name)); }}
@@ -815,7 +819,7 @@ assert.ok(fullColumn.every((cell) => cell.disabled));
     def test_only_current_human_turn_gets_stronger_turn_prompts(self):
         render_game = function_source("renderGame")
         action_notice = function_source("roomActionNotice")
-        notice = function_source("showNotice")
+        notice = function_source("isInviteWaiting") + "\n" + function_source("showNotice")
         self.assertIn("#turn.my-turn", STYLES)
         self.assertIn("#gameMessage.my-turn", STYLES)
         self.assertIn("const humanCanMove = canHumanMove()", render_game)
@@ -1033,7 +1037,8 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
 
     def test_ended_room_cards_have_a_prominent_non_hover_status(self):
         renderer = function_source("renderRooms")
-        self.assertIn('card.className = `room-card${terminal ? " ended" : ""}`', renderer)
+        self.assertIn('card.className = `room-card${terminal ? " ended" : ""}${activeInvite ? " invite-active" : ""}`', renderer)
+        self.assertIn('const activeInvite = summary.room_kind === "invite" && !terminal;', renderer)
         self.assertIn('statusBadge.className = "room-status-badge pale"', renderer)
         self.assertIn("statusLabel(summary.status)", renderer)
         ended_style = STYLES[
@@ -1151,12 +1156,14 @@ class BoardPollingRenderTests(unittest.TestCase):
             function_source("gameUsesStandardMoveConfirmation"),
             function_source("syncMoveConfirmationVisibility"),
             function_source("roomActionNotice"),
+            function_source("isInviteWaiting"),
             function_source("renderGame"),
         ))
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
   constructor() {{ this.names = new Set(); }}
+  add(name) {{ this.names.add(name); }}
   toggle(name, force) {{
     if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
     else this.names.delete(name);
@@ -1166,6 +1173,7 @@ class ClassList {{
 class Element {{
   constructor() {{
     this.children = [];
+    this.dataset = {{}};
     this.classList = new ClassList();
     this.textContent = "";
     this.title = "";
@@ -1199,6 +1207,9 @@ const participantByPlayerId = () => null;
 const aiNameFor = () => "小机";
 const showView = () => {{}};
 const renderRetention = () => {{}};
+const renderInviteRoomPanel = () => {{}};
+const syncChatRoomMode = () => {{}};
+const closeMentionOptions = () => {{}};
 const showWaitModeModalOnce = () => {{}};
 const showNotice = () => {{}};
 const renderPlayers = () => {{}};
@@ -1923,7 +1934,7 @@ for (const gameType of ["liars_dice", "train_cards", "dots_boxes"]) {{
         self.run_node(harness)
 
     def test_notice_emphasis_is_limited_to_a_successful_human_turn(self):
-        notice = function_source("showNotice")
+        notice = function_source("isInviteWaiting") + "\n" + function_source("showNotice")
         harness = f"""
 const assert = require("node:assert/strict");
 class ClassList {{
@@ -2804,7 +2815,9 @@ for (const count of [3, 4, 5, 6]) {{
     assert.equal(ordered.length, count - 1);
     assert.deepEqual(
       ordered.map((item) => item.player_id),
-      records.filter((item) => item.player_id !== "me").map((item) => item.player_id)
+      records.filter((item) => item.player_id !== "me")
+        .sort((a,b) => ((a.seat_index-records[viewerIndex].seat_index+count)%count) - ((b.seat_index-records[viewerIndex].seat_index+count)%count))
+        .map((item) => item.player_id)
     );
   }}
 }}
@@ -2878,6 +2891,8 @@ const elements = {{gameCategory: categorySelect, gameType: gameSelect, gameToken
 const $ = (id) => elements[id];
 {functions}
 const games = [
+  {{game_type: "rummikub", display_name: "拉密", category: "tabletop", allowed_player_counts: [2, 3, 4]}},
+  {{game_type: "monopoly", display_name: "大富翁", category: "tabletop", allowed_player_counts: [2, 3, 4, 5, 6]}},
   {{game_type: "liars_dice", display_name: "吹牛骰子", category: "dice", allowed_player_counts: [2, 3, 4, 5, 6]}},
   {{game_type: "dots_boxes", display_name: "点格棋", category: "board", allowed_player_counts: [2, 3, 4]}},
   {{game_type: "xiangqi", display_name: "象棋", category: "board", allowed_player_counts: [2]}},
@@ -2926,6 +2941,15 @@ assert.equal(gameSelect.value, "liars_dice");
 assert.equal(gameTokenEstimate.textContent, "（约50–150 token/轮）");
 assert.equal(gameSelect.disabled, false);
 
+categorySelect.value = "tabletop";
+syncGameTypeOptions(games);
+assert.equal(gameCategoryLabel("tabletop"), "桌游");
+assert.equal(gameCategoryFor({{category: "unknown"}}), "");
+assert.deepEqual(gameSelect.options.map(option => option.value), ["rummikub", "monopoly"]);
+gameSelect.value = "monopoly";
+syncGameTypeOptions(games);
+assert.equal(gameSelect.value, "monopoly");
+
 categorySelect.value = "card";
 syncGameTypeOptions(games);
 assert.equal(gameSelect.options.length, 1);
@@ -2960,10 +2984,11 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
             game_field.index('<select id="gameCategory"'):
             game_field.index("</select>", game_field.index('<select id="gameCategory"'))
         ]
-        self.assertEqual(category_select.count("<option"), 3)
+        self.assertEqual(category_select.count("<option"), 4)
         self.assertIn('<option value="board">棋</option>', category_select)
         self.assertIn('<option value="card">牌</option>', category_select)
         self.assertIn('<option value="dice">骰</option>', category_select)
+        self.assertIn('<option value="tabletop">桌游</option>', category_select)
         for unwanted in ("全部", "派对", "其他"):
             self.assertNotIn(unwanted, category_select)
         game_select_start = HTML.index('<select id="gameType"')
@@ -3109,6 +3134,7 @@ assert.ok(renderCount >= 3);
             function_source("renderParticipantAvatar"),
             function_source("viewerParticipantFor"),
             function_source("tableParticipantsFor"),
+            function_source("participantAccountId"),
             function_source("createParticipantBadge"),
             function_source("renderParticipantRoster"),
         ))
@@ -3226,6 +3252,7 @@ for (const presentation of ["embedded", "board-edge"]) {{
             function_source("renderParticipantAvatar"),
             function_source("viewerParticipantFor"),
             function_source("tableParticipantsFor"),
+            function_source("participantAccountId"),
             function_source("createParticipantBadge"),
             function_source("renderParticipantRoster"),
         ))
@@ -3390,7 +3417,7 @@ assert.equal(content.children.length, 0);
         self.assertIn("gap: 4px;", compact)
         self.assertIn("--liars-pip-radius: 2px;", compact)
 
-    def test_recent_chat_feed_keeps_latest_public_player_speech(self):
+    def test_recent_chat_feed_keeps_all_public_player_speech(self):
         functions = "\n".join((
             function_source("participantByPlayerId"),
             function_source("actualPlayerCount"),
@@ -3405,6 +3432,7 @@ assert.equal(content.children.length, 0);
 const assert = require("node:assert/strict");
 class ClassList {{
   constructor() {{ this.names = new Set(["hidden"]); }}
+  remove(name) {{ this.names.delete(name); }}
   add(...names) {{ names.forEach((name) => this.names.add(name)); }}
   toggle(name, force) {{
     if (force === undefined ? !this.names.has(name) : force) this.names.add(name);
@@ -3414,10 +3442,12 @@ class ClassList {{
   [Symbol.iterator]() {{ return this.names[Symbol.iterator](); }}
 }}
 class Element {{
+  addEventListener() {{}}
   constructor() {{
     this.classList = new ClassList(); this.textContent = "";
-    this.attributes = {{}}; this.children = []; this.scrollTop = 0; this.scrollHeight = 80;
+    this.dataset = {{}}; this.clientHeight = 80; this.attributes = {{}}; this.children = []; this.scrollTop = 0; this.scrollHeight = 80;
   }}
+  getBoundingClientRect() {{ return {{top:0,bottom:24}}; }}
   set className(value) {{ this.classList.names = new Set(String(value).split(/\s+/).filter(Boolean)); }}
   get className() {{ return [...this.classList.names].join(" "); }}
   replaceChildren(...children) {{ this.children = children; this.textContent = ""; }}
@@ -3429,7 +3459,6 @@ const document = {{createElement: () => new Element()}};
 const feed = new Element();
 const list = new Element();
 const $ = (id) => ({{recentChatFeed: feed, recentChatMessages: list}})[id];
-const RECENT_CHAT_LIMIT = 5;
 let room = {{viewer: {{player_id: "p1"}}, participants: [
   {{player_id: "p1", seat_index: 0, display_name: "甲", role: "human"}},
   {{player_id: "p2", seat_index: 1, display_name: "乙", role: "ai"}},
@@ -3455,17 +3484,17 @@ const events = [
   {{event_type: "message", text: "最后消息", is_public: true, sender: {{player_id: "p3", name: "丙", role: "ai", seat: 2}}}},
 ];
 renderRecentChat(events);
-assert.equal(list.children.length, 5);
+assert.equal(list.children.length, 7);
 assert.deepEqual(
   list.children.map((item) => item.children[1].textContent),
-  ["认输附言", "离桌附言", "公开消息", "第二个落子附言", "最后消息"]
+  ["最早消息", "最早落子附言", "认输附言", "离桌附言", "公开消息", "第二个落子附言", "最后消息"]
 );
 assert.deepEqual(
   list.children.map((item) => item.children[0].textContent),
-  ["丙", "丙", "甲", "乙", "丙"]
+  ["甲", "乙", "丙", "丙", "甲", "乙", "丙"]
 );
-assert.ok(list.children[0].classList.contains("seat-2"));
-assert.ok(list.children[3].classList.contains("seat-1"));
+assert.ok(list.children[2].classList.contains("seat-2"));
+assert.ok(list.children[5].classList.contains("seat-1"));
 assert.ok(list.children.some((item) => item.children[1].textContent === "公开消息"));
 assert.ok(list.children.some((item) => item.children[1].textContent === "第二个落子附言"));
 assert.ok(!list.children.some((item) => item.children[1].textContent === "系统胜负结果"));
@@ -3486,8 +3515,8 @@ assert.ok(!feed.classList.contains("hidden"));
 
 room = {{...room, participants: room.participants.slice(0, 2)}};
 renderRecentChat(events);
-assert.equal(list.children.length, 0);
-assert.ok(feed.classList.contains("hidden"));
+assert.equal(list.children.length, 7);
+assert.ok(!feed.classList.contains("hidden"));
 """
         self.run_node(harness)
 
@@ -3500,6 +3529,7 @@ assert.ok(feed.classList.contains("hidden"));
             function_source("accountAvatarForParticipant"),
             function_source("renderParticipantAvatar"),
             function_source("participantFor"),
+            function_source("participantAccountId"),
             function_source("renderPlayers"),
             function_source("speechSenderRole"),
             function_source("speechSenderPlayerId"),
@@ -3693,7 +3723,7 @@ assert.equal(elements.aiAvatar.textContent, "🌌");
 
     def test_recent_chat_is_bounded_while_two_player_speech_can_still_wrap(self):
         chat_area = STYLES[
-            STYLES.index(".multiplayer-presentation .game-chat-area {"):
+            STYLES.index(".game-chat-area {"):
             STYLES.index(".recent-chat-feed {")
         ]
         recent = STYLES[

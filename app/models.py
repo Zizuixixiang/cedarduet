@@ -35,6 +35,33 @@ class CreateRoomBody(StrictBody):
         return value
 
 
+class InviteCreateBody(StrictBody):
+    player_id: str | None = None
+    ai_players: list[str] | None = Field(default=None, max_length=5)
+    game_type: str
+    target_player_count: int = Field(ge=2, le=6)
+    stake: int = Field(default=0, ge=0)
+    timeout_takeover: bool | None = None
+    timeout_takeover_seconds: Literal[0, 90, 180] = 0
+
+    @field_validator("stake", mode="before")
+    @classmethod
+    def require_integer_stake(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("stake 必须是大于等于 0 的整数")
+        return value
+
+
+class InviteJoinBody(StrictBody):
+    player_id: str | None = None
+    invite_code: str = Field(min_length=1, max_length=32)
+
+
+class InviteStartBody(StrictBody):
+    player_id: str | None = None
+    fill_with_npcs: bool = False
+
+
 class JoinRoomBody(StrictBody):
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
@@ -228,9 +255,13 @@ class ExchangeDecisionBody(StrictBody):
 class McpPlayBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    invite_code: str | None = Field(default=None, max_length=32, description="人类可用链接或邀请码加入；小机请使用邀请码。join 使用。")
+    timeout_takeover: bool | None = None
+    timeout_takeover_seconds: Literal[0, 90, 180] = 0
+    display_name: str | None = Field(default=None, max_length=100)
     action: Literal[
         "catalog", "rooms", "new", "rematch", "join", "move", "state", "resign", "leave", "accept", "reject",
-        "chips",
+        "chips", "invite", "start", "chat", "reclaim", "cancel_wait",
     ]
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
@@ -240,7 +271,10 @@ class McpPlayBody(BaseModel):
     mode: Literal["human_first", "ai_first"] | None = None
     move: dict[str, Any] | None = None
     wait: bool = False
-    full_state: bool = False
+    # Loopback adapter control fields; stripped from public MCP schemas.
+    wait_generation: int | None = Field(default=None, gt=0)
+    wait_resume: bool = False
+    full_state: bool = Field(default=False, description="完整重同步；四款 MCP v2 会重置事件游标。卡卡颂可用 state(move={query:placements,x,y,rotation?,meeple?}) 验证候选，或 all:true 查询全部；普通路径不发落点全集。")
     message: str | None = Field(default=None, max_length=500)
     include_terminal: bool = False
     limit: int | None = Field(default=None, ge=1, le=100)

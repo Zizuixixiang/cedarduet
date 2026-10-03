@@ -1,0 +1,78 @@
+/* The shared Duel roster/chat/buttons own the surrounding UI. */
+#battleStage[data-game-type="carcassonne"] { overflow-anchor: none; }
+.board.carcassonne {
+  display: block; width: min(100%, 880px); max-width: 100%; min-width: 0;
+  height: auto; aspect-ratio: auto; padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+#battleStage[data-game-type="carcassonne"] :is(.board-zone,.board-frame,.game-controls) {
+  width: min(100%, 880px); max-width: 100%; min-width: 0;
+}
+#battleStage[data-game-type="carcassonne"] .layout-duel .room-participants { display: flex; justify-content: center; }
+#battleStage[data-game-type="carcassonne"] .room-participant { height: auto; min-height: 78px; grid-template-rows: 26px auto; }
+#battleStage[data-game-type="carcassonne"] .room-participant-detail { white-space: normal; overflow-wrap: anywhere; }
+.cc-game, .cc-controls { width: 100%; min-width: 0; display: grid; gap: 8px; color: var(--text); font: 13px/1.5 system-ui,sans-serif; text-align: left; }
+.cc-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
+.cc-heading strong { font-size: 14px; }
+.cc-meta { font-size: 11px; line-height: 1.45; color: #6a6075; }
+.cc-map-hint { margin: 0; }
+.cc-mouse-hint { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .cc-touch-hint { display: none; }
+  .cc-mouse-hint { display: inline; }
+}
+.cc-viewport {
+  position: relative; width: 100%; height: 400px; overflow: hidden;
+  border: 2px solid var(--purple); background-color: #f1ecf4;
+  background-image: radial-gradient(#c9bfd3 1px, transparent 1px); background-size: 16px 16px;
+  touch-action: none; user-select: none; overscroll-behavior: contain; cursor: grab; isolation: isolate;
+}
+.cc-viewport:active { cursor: grabbing; }
+.cc-locate {
+  position: absolute; right: 8px; top: 8px; z-index: 4;
+  min-height: 44px; padding: 6px 10px; border: 1px solid var(--purple);
+  background: #fffaf8; color: #665776; font: 600 11px/1.3 system-ui,sans-serif;
+  box-shadow: 2px 2px 0 #beb1d133; cursor: pointer;
+}
+.cc-world { position: absolute; top: 50%; left: 50%; transform-origin: 0 0; }
+.cc-tile, .cc-spot { position: absolute; width: 80px; height: 80px; padding: 0; }
+.cc-tile { border: 1px solid #776c58; background: #c9dcad; }
+.cc-tile svg, .cc-spot svg, .cc-current-tile svg { width: 100%; height: 100%; display: block; }
+.cc-tile.is-latest { outline: 3px solid #58456f; outline-offset: -3px; z-index: 1; }
+.cc-new, .cc-draft { position: absolute; bottom: 0; right: 0; padding: 0 3px; color: white; background: #58456f; font: 600 11px/1.4 system-ui,sans-serif; }
+.cc-spot { border: 2px dashed #81708f; background: #ffffff70; color: #665078; font: 26px/1 system-ui,sans-serif; cursor: pointer; touch-action: none; }
+.cc-spot.is-selected { border: 3px dashed #68416f; background: #fcf6ff; z-index: 2; }
+.cc-spot.is-selected svg { opacity: .8; }
+.cc-draft { left: 0; right: auto; background: #68416f; }
+.cc-activity { min-height: 32px; font-size: 11px; line-height: 1.45; color: #6a6075; overflow-wrap: anywhere; }
+.cc-controls { align-content: start; padding: 10px; border: 2px solid var(--purple); background: #fffaf8; box-shadow: 3px 3px 0 #beb1d133; }
+.cc-current { display: flex; gap: 10px; align-items: center; }
+.cc-current-tile { flex: 0 0 72px; width: 72px; height: 72px; border: 1px solid #776c58; }
+.cc-current-copy { min-width: 0; display: grid; gap: 5px; }
+.cc-current-copy strong { font-size: 13px; }
+.cc-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cc-controls .cc-button { min-height: 36px; padding: 4px 8px; font: 600 11px/1.3 system-ui,sans-serif; white-space: normal; color: #665776; }
+.cc-controls .cc-primary { color: white; background: #77628f; border-color: #514063; }
+.cc-controls [aria-pressed="true"] { color: #49385d; background: var(--purple-light); border-color: #77628f; box-shadow: inset 0 -2px #77628f; }
+.cc-confirm { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; padding-top: 6px; }
+.cc-confirm .cc-meta { min-width: 0; overflow-wrap: anywhere; }
+.cc-confirm .cc-primary { justify-self: end; white-space: nowrap; }
+.cc-skip {
+  min-height: 36px; padding: 4px 8px; border: 1px solid transparent;
+  background: transparent; color: #665776; font: 11px/1.3 system-ui,sans-serif;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.cc-controls .cc-skip[aria-pressed="true"] { border-color: transparent; background: transparent; box-shadow: none; font-weight: 600; }
+.cc-skip:disabled { cursor: not-allowed; opacity: .45; }
+.cc-hint { font-size: 12px; min-height: 18px; }
+.cc-error { font-size: 12px; color: #a12638; }
+.cc-result { font-size: 14px; font-weight: 700; color: #66517f; }
+.cc-game :focus-visible, .cc-controls :focus-visible { outline: 3px solid #584776; outline-offset: 3px; }
+.cc-spot:focus-visible { outline-offset: -6px; z-index: 3; }
+@media (max-width: 480px) {
+  .cc-viewport { height: 310px; }
+  .cc-controls { padding: 8px; }
+}
+@media (min-width: 1024px) {
+  .battle-stage[data-game-type="carcassonne"] .board-frame > .board,
+  .battle-stage[data-game-type="carcassonne"] .game-controls { width: min(100%, var(--desktop-table-max)); max-width: var(--desktop-table-max); }
+}
