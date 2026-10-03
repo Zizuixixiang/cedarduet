@@ -27,10 +27,10 @@ class ZhajinhuaFrontendStructureTests(unittest.TestCase):
             "if (participants.length > 2 || publiclyRevealedOpponents.length)",
             SCRIPT,
         )
-        self.assertIn('if (!isMultiplayerRoom(targetRoom)) return "duel";', APP_SCRIPT)
+        self.assertIn('if (!isMultiplayerRoom(targetRoom) && !["monopoly", "carcassonne"].includes(targetRoom.game_type)) return "duel";', APP_SCRIPT)
         self.assertNotIn("function renderZhajinhua", APP_SCRIPT)
         self.assertNotIn('case "zhajinhua"', APP_SCRIPT)
-        self.assertIn('targetRoom.game_type === "zhajinhua"', APP_SCRIPT)
+        self.assertIn('["zhajinhua", "monopoly"].includes(targetRoom.game_type)', APP_SCRIPT)
         self.assertNotIn("/static/games/zhajinhua.js", HTML)
         self.assertNotIn("zhajinhua.css", HTML)
 

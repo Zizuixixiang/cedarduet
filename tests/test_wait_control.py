@@ -242,6 +242,8 @@ class WaitControlTests(unittest.IsolatedAsyncioTestCase):
         # Exercise the actual gateway loop against the actual game ASGI app;
         # authentication/finalize fencing have separate platform tests.
         path = Path(__file__).resolve().parents[3] / "duel_async_gateway.py"
+        if not path.is_file():
+            self.skipTest("CedarToy production gateway is outside the standalone cedarduet checkout")
         spec = importlib.util.spec_from_file_location("wait_test_gateway", path)
         gateway = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gateway)

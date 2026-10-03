@@ -824,7 +824,7 @@ assert.ok(fullColumn.every((cell) => cell.disabled));
         self.assertIn("#gameMessage.my-turn", STYLES)
         self.assertIn("const humanCanMove = canHumanMove()", render_game)
         self.assertIn('classList.toggle("my-turn", humanCanMove)', render_game)
-        self.assertIn('targetRoom.game_type === "zhajinhua"', action_notice)
+        self.assertIn('["zhajinhua", "monopoly"].includes(targetRoom.game_type)', action_notice)
         self.assertIn('"现在轮到你行动"', action_notice)
         self.assertIn('"现在轮到你落子"', action_notice)
         self.assertIn(
