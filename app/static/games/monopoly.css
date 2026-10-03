@@ -137,7 +137,14 @@
 .monopoly-button:focus-visible { outline: 3px solid #49384a; outline-offset: 3px; }
 .monopoly-context { font-size: 12px; overflow-wrap: anywhere; }
 .monopoly-help { font-size: 11px; color: #706175; line-height: 1.5; }
+.monopoly-pending-trades { min-width: 0; border: 1px solid #e4dae5; border-radius: 6px; background: #fffafc; }
+.monopoly-pending-trades > summary { min-height: 44px; padding: 12px 10px; font-size: 12px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+.monopoly-pending-trades > summary > span { margin-left: 8px; font-weight: 400; }
+.monopoly-pending-trades > summary:focus-visible { outline: 3px solid #49384a; outline-offset: 2px; }
+.monopoly-pending-trades.is-due > summary { color: #79354d; background: #f8e8ee; }
+.monopoly-pending-trades > .monopoly-pending-trade { margin: 0 6px 6px; }
 .monopoly-pending-trade { min-width: 0; display: grid; gap: 8px; padding: 10px; border: 1px solid #e4dae5; border-radius: 6px; background: #fffafc; }
+.monopoly-pending-trade.is-due { border-left: 3px solid #8b425b; }
 .monopoly-trade-parties { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .monopoly-offer-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .monopoly-offer-side { min-width: 0; overflow-wrap: anywhere; }

@@ -317,7 +317,8 @@ def _speech_reservation_is_stale(attempted_at: str | None) -> bool:
 
 
 def complete_npc_full_turn(
-    room_id: str, npc_player_id: str, completion_revision: int
+    room_id: str, npc_player_id: str, completion_revision: int,
+    *, allow_speech: bool = True,
 ) -> NpcSpeechClaim | None:
     """Count one ownership-complete turn and reserve speech when it is owed."""
     room_id = _room_id(room_id)
@@ -385,7 +386,7 @@ def complete_npc_full_turn(
         previous_silent = int(state["silent_completed_turns"])
         silent_turns = 0 if spoke else previous_silent + 1
         pending = bool(state["speech_pending"])
-        due = not spoke and (pending or silent_turns >= 3)
+        due = allow_speech and not spoke and (pending or silent_turns >= 3)
         existing_reserved = (
             state["last_attempt_status"] == "reserved"
             and not _speech_reservation_is_stale(state["speech_attempted_at"])
@@ -395,7 +396,7 @@ def complete_npc_full_turn(
         attempt_revision = state["last_attempt_revision"]
         attempt_status = state["last_attempt_status"]
         attempted_at = state["speech_attempted_at"]
-        if spoke and attempt_status == "reserved":
+        if (spoke or not allow_speech) and attempt_status == "reserved":
             attempt_status = "superseded"
         if claim:
             attempt_revision = completion_revision

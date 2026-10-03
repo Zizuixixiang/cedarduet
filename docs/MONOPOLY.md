@@ -30,9 +30,23 @@
 | `respond_trade` | `accept` 布尔值 |
 | `pay_bail/use_jail_card/bankrupt` | 无 |
 
-`trade_options` 给出可交易对象、双方可交易地产及余额。提出即发起方确认；接收方独占响应行动权，接受时重新核验现金、产权和建筑条件后同事务交割。临时接管不能提出或接受资产交易，可拒绝解除等待。系统NPC只以自己的席位估值交易，不能代理另一席确认。
+`trade_options` 给出可交易对象、双方可交易地产及余额。提出即发起方确认；可同时挂多笔报价，但每个接收人最多一笔，接收人已有报价时只从可交易对象中排除该人。接收方在自己的下个正常回合先响应，随后继续原阶段；接受时重新核验现金、产权、建筑及抵押条件后同事务交割，单笔失效不清掉其他有效报价。临时接管不能提出或接受资产交易，可拒绝解除等待。系统NPC只以自己的席位估值交易，不能代理另一席确认。
+
+待处理列表使用 `trades`；旧存档缺少此字段时从 `trade` 及旧抵押快照/提出回合信息兼容读取，在下次写入时迁移。旧 `phase=trade` 的恢复续步仍保留。`trade` 兼容字段指向当前行动者收到的报价，否则为最早的报价；回应动作格式不变，按接收人唯一定位。MCP v2 增量中 `trades` 整体替换，空列表表示清空。
+
+网页默认折叠为“待处理交易 N 笔”，可手动展开；轮到本人回应时自动展开、突出并优先显示发给本人的报价，提供接受/拒绝操作。普通停在监狱格显示“只是探访，未入狱”；真正入狱后才可在本人回合掷骰前保释或使用出狱卡。
+
+被拒绝的报价保存在私有状态中，仅用于系统 NPC 策略：双方和各方向地产集合相同、净现金方向相同，且净额差不超过 10 或原拒绝净额的 10%（取较大值），视为相近。接下来该 NPC 的三个正常回合不再提出，第四个可重新考虑；额外掷骰、拍卖和临时债务行动不消耗冷却，JSON 恢复后继续计数。
 
 公开投影包含玩家现金/位置/资产、地产状态、已揭示事件、当前阶段、拍卖和待确认交易。`_decks`、支付队列、恢复续步仅在存档；持有出狱卡只返回本人数量。移动/产权/付款摘要作为公共增量供小机续玩；`private_state.decision_context` 另附当前公开决策上下文，覆盖通用认输/离席事件触发拍卖、监狱尝试次数等场景。`rules_text/move_format`、private guide与合法行动均无需看图。
+
+## NPC 决策
+
+`system_npc` 每步优先调用现有 provider 一次 `decide`，同一响应返回 `action` 对象及 `message`（可为 `null`），包括只有一个普通合法动作的情况。不会另调 `speech`，连续静默、失败兜底和恢复路径也不补调。中间动作可静默，交易鼓励一句自然桌边说明；聊天不携带接口参数或内部推理。
+
+模型获得完整公开棋盘、本人出狱卡数量、全部待处理交易、最近公开事件、完整规则及合法动作。普通动作复制候选；`action_spec` 按当前窗口开放交易双方现金/地产与竞价参数，交易并不限于本地策略的固定报价。模型动作先经过引擎和拒价冷却校验，再由 `play_move` 在事务内复验。任何调用失败、20秒整体超时、错误格式或非法动作均直接回退原 `choose_local_npc_action`，不重试 provider。
+
+`uses_local_npc_strategy` 保留为本地能力标记，供离线补位和真实席位临时接管使用；系统 NPC 在 controller 中优先走上述模型路径。拉密、卡卡颂及其他游戏的本地策略和独立 speech 流程不变。
 
 ## 持久化与检查入口
 
@@ -43,6 +57,9 @@
 ```sh
 cd vendor/duel
 .venv/bin/python -m unittest tests.test_monopoly tests.test_monopoly_integration
+PLAYWRIGHT_MODULE=/path/to/playwright node tests/check_monopoly_trade_jail.js
+# 无法启动浏览器时可验证交互，但不能替代 360/430/1280px 视觉检查：
+DUEL_MONOPOLY_DOM_ONLY=1 node tests/check_monopoly_trade_jail.js
 cd ../..
 python3 scripts/persistence_check.py --duel-monopoly
 PLAYWRIGHT_MODULE=/path/to/playwright node scripts/check_duel_monopoly_browser.js

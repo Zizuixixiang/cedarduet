@@ -46,9 +46,10 @@ RULES = {
                    '>auction.bid and <=bidder cash, or pass_bid. Highest bidder pays automatically; '
                    'no bidder leaves title with bank. auction is the complete current window.',
         'trade': 'At most 3 proposals per overall turn, in roll/purchase/manage/debt. Proposer consents '
-                 'by submitting; only trade.to responds accept true/false at the start of their later normal turn, '
+                 'by submitting; only the recipient responds accept true/false at the start of their later normal turn, '
                  'before other actions. A pending offer does not interrupt the proposer or other players; '
-                 'only one offer may be pending. Use snapshot.legal_actions for the current response gate. '
+                 'trades holds all pending offers, at most one per recipient. trade is a legacy alias: '
+                 'actor incoming offer, else oldest. Use snapshot.legal_actions for the current response gate. '
                  'Invalidated cash, ownership, mortgage status or bankruptcy cancels the offer. '
                  'Legacy phase=trade saves still require an immediate recipient response. Cash must be nonnegative integer '
                  'within each balance; tiles unique and owned by giver, entire group unbuilt. '

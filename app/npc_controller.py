@@ -25,6 +25,7 @@ from .npc_providers import (
     NpcProvider,
     NpcSpeechRequest,
     ProviderDecision,
+    MAX_PROVIDER_MESSAGE_LENGTH,
     get_npc_provider,
 )
 from .npc_runtime import (
@@ -47,6 +48,7 @@ NPC_PUBLIC_ACTION_LIMIT = 8
 NPC_PERSONA_CONTEXT_LIMIT = 320
 NPC_EVENT_TEXT_LIMIT = 160
 NPC_LEGAL_ACTION_SHORTLIST_LIMIT = 64
+MONOPOLY_DECISION_TIMEOUT_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,10 @@ def _npc_projected_states(
     if for_speech and game.game_type == "bomb_plane":
         # Plane placement is unnecessary for speech and must never enter it.
         private_state = {}
+    if game.game_type == "monopoly" and not for_speech:
+        # Keep explicit unowned tiles, empty trades, dice and null phase windows
+        # in the model's complete public ledger. Projection already hid secrets.
+        return public_state, private_state
     return (
         _compact_context_value(public_state),
         _compact_context_value(private_state),
@@ -337,6 +343,9 @@ def _decision_request(
         public_state, private_state = _npc_projected_states(
             game, projected_room, npc_player_id, for_speech=False
         )
+        if game.game_type == "monopoly":
+            # The complete board is already present, including static rents.
+            private_state.pop("decision_context", None)
         recent_public_events = _compact_visible_events(
             list_timeline(
                 room["room_id"], NPC_DECISION_EVENT_LIMIT,
@@ -372,7 +381,7 @@ def _decision_request(
         legal_actions[index]
         for index in _shortlist_indices(
             len(legal_actions),
-            min(len(legal_actions), NPC_LEGAL_ACTION_SHORTLIST_LIMIT),
+            len(legal_actions) if game.game_type == "monopoly" else min(len(legal_actions), NPC_LEGAL_ACTION_SHORTLIST_LIMIT),
         )
     ]
     exposed_actions = [
@@ -390,6 +399,7 @@ def _decision_request(
         recent_public_events=recent_public_events,
         public_actions=public_actions,
         legal_actions=exposed_actions,
+        action_spec=game.npc_action_spec(state, actor) if game.game_type == "monopoly" and not temporary else None,
     )
     return request, action_map
 
@@ -486,7 +496,8 @@ def _finish_npc_action(
     ):
         return None
     claim = complete_npc_full_turn(
-        updated["room_id"], npc_player_id, int(updated["revision"])
+        updated["room_id"], npc_player_id, int(updated["revision"]),
+        allow_speech=updated["game_type"] != "monopoly",
     )
     if claim is None:
         return None
@@ -502,6 +513,41 @@ def _stored_decision(ticket: NpcDecisionTicket) -> tuple[dict[str, Any], str | N
     ):
         raise DuelError("已保存的 NPC 决策无效", 500)
     return action, message
+
+
+async def _monopoly_decision(room, actor, ticket, provider, legal_actions):
+    """One combined model call, or the unchanged local policy on any failure."""
+    game = get_game("monopoly")
+    try:
+        if ticket.stale_recovery:
+            raise ValueError("Recover without charging the provider again")
+        # Fixed proposals belong to the fallback policy, not the model menu.
+        request, _ = _decision_request(
+            room, actor["player_id"], game.legal_actions(room["board_state"], actor["player_id"])
+        )
+        active_provider = provider or get_npc_provider()
+        candidate = await asyncio.wait_for(
+            active_provider.decide(request), timeout=MONOPOLY_DECISION_TIMEOUT_SECONDS
+        )
+        if not isinstance(candidate, ProviderDecision) or not isinstance(candidate.action, dict) or candidate.action_id is not None:
+            raise ValueError("大富翁 provider 必须返回 action + message")
+        if candidate.message is not None and (
+            not isinstance(candidate.message, str) or len(candidate.message.strip()) > MAX_PROVIDER_MESSAGE_LENGTH
+        ):
+            raise ValueError("NPC message 格式无效")
+        game.validate_npc_action(room["board_state"], candidate.action, actor)
+        return candidate.action, candidate.message, active_provider.name
+    except asyncio.CancelledError:
+        fail_npc_decision(ticket, "NPC decision cancelled")
+        raise
+    except Exception:
+        action = game.choose_local_npc_action(
+            deepcopy(room["board_state"]), deepcopy(actor), deepcopy(room["participants"])
+        )
+        if not isinstance(action, dict) or action not in legal_actions:
+            raise ValueError("本地 NPC 策略必须选择权威 legal_actions 中的动作")
+        game.validate_npc_action(room["board_state"], action, actor)
+        return action, None, "fallback"
 
 
 async def run_current_npc_turn(
@@ -556,7 +602,18 @@ async def run_current_npc_turn(
     except Exception as exc:
         fail_npc_decision(ticket, str(exc))
         raise
-    if game.uses_local_npc_strategy:
+    if game.game_type == "monopoly":
+        try:
+            action, message, source = await _monopoly_decision(room, actor, ticket, provider, legal_actions)
+            # Parameterized actions enter the persisted allowlist only after
+            # engine validation; play_move validates again inside its transaction.
+            action_id = _action_id(action)
+            action_map[action_id] = deepcopy(action)
+            selected = ProviderDecision(action_id, message)
+        except Exception as exc:
+            fail_npc_decision(ticket, str(exc))
+            raise
+    elif game.uses_local_npc_strategy:
         try:
             actor_copy = deepcopy(actor)
             participants = deepcopy(room["participants"])

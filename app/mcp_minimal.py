@@ -57,6 +57,8 @@ FORMATS = {
     'monopoly': ('events=[actor,action,delta?]. Increment action_seq once per action (including resign/leave). '
         'delta: p=[id,cash,position,bankrupt,jailed,jail_turns] rows; t=[id,owner,level,mortgaged] rows; '
         'next=turn_player_id; other fields replace. Static tiles/rents are in bootstrap. '
+        'trades replaces all pending offers ([] clears), one per recipient; respond_trade handles your incoming offer. '
+        'trade is a legacy alias: actor incoming offer, else oldest. '
         'private.jail_cards replaces your count. Normal choices derive from phase and ledger; '
         'legal_actions in the snapshot are examples at that revision, not permanent choices.'),
     'rummikub': ('events=[actor,draw|pass] or [actor,meld,{table_patch,joker_roles?}]. '

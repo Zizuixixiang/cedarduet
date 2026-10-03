@@ -263,6 +263,61 @@ class MonopolyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room["current_player_id"], recipient["player_id"])
         self.assertEqual(room["board_state"]["phase"], "roll")
 
+    async def test_multiple_offers_mcp_v2_recovery_response_and_private_jail_delta(self):
+        room = self.ordinary(4)
+        p0, p1, p2, p3 = [p['player_id'] for p in room['participants']]
+        state = deepcopy(room['board_state']); state['phase'] = 'manage'
+        state['players'][2].update(position=10, jailed=True, jail_cards=['chance'])
+        state['_decks']['chance'].remove(0)
+        room = self.persist_fixture(room, state)
+        for pid in (p1, p2):
+            boot = await self.mcp(action='state', player_id=pid, room_id=room['room_id'])
+            self.assertEqual(boot['room']['board_state']['trades'], [])
+            self.assertEqual(boot['room']['private_state']['jail_cards'], int(pid == p2))
+        proposal = dict(give_cash=10, take_cash=0, give_tiles=[], take_tiles=[])
+        # p3 is first in the list; p2 must still respond to their own offer.
+        room = self.move(room, 'propose_trade', to=p3, **proposal)
+        room = self.move(room, 'propose_trade', to=p2, **proposal)
+        room = self.move(room, 'end_turn')
+        delta = await self.mcp(action='state', player_id=p1, room_id=room['room_id'])
+        offers = [e[2]['trades'] for e in delta['events'] if isinstance(e, list) and len(e) > 2 and 'trades' in e[2]]
+        self.assertEqual([len(v) for v in offers], [1, 2])
+        self.assertEqual(offers[-1], room['board_state']['trades'])
+        full = await self.mcp(action='state', player_id=p1, room_id=room['room_id'], full_state=True)
+        snap = full['snapshot']
+        self.assertEqual(snap['trade_options']['partners'], [p0])
+        self.assertIn('roll', [a['action'] for a in snap['legal_actions']])
+        self.assertEqual(snap['board_state']['trades'], offers[-1])
+        await self.mcp(action='move', player_id=p1, room_id=room['room_id'], revision=room['revision'],
+                       move=dict(action='propose_trade', action_seq=room['board_state']['action_seq'], to=p0, **proposal))
+        room = framework.get_room(room['room_id'])
+        self.assertEqual(len(room['board_state']['trades']), 3)
+        room = self.move(self.move(self.move(room, 'roll'), 'buy'), 'end_turn')
+        delta = await self.mcp(action='state', player_id=p2, room_id=room['room_id'])
+        self.assertNotIn('wait', delta)
+        full = await self.mcp(action='state', player_id=p2, room_id=room['room_id'], full_state=True)
+        snap = full['snapshot']
+        self.assertEqual(snap['trade_options']['partners'], [])
+        self.assertEqual([a['action'] for a in snap['legal_actions']], ['respond_trade'] * 2)
+        self.assertEqual(snap['board_state']['trade']['to'], p2)
+        response = next(a for a in snap['legal_actions'] if a['accept'])
+        delta = await self.mcp(action='move', player_id=p2, room_id=room['room_id'], revision=room['revision'], move=response)
+        offers = [e[2]['trades'] for e in delta['events'] if isinstance(e, list) and len(e) > 2 and 'trades' in e[2]]
+        self.assertEqual([t['to'] for t in offers[-1]], [p3, p0])
+        room = framework.get_room(room['room_id'])
+        self.assertEqual(self.game.player(room['board_state'], p2)['cash'], 1510)
+        full = await self.mcp(action='state', player_id=p2, room_id=room['room_id'], full_state=True)
+        actions = full['snapshot']['legal_actions']
+        self.assertIn('pay_bail', [a['action'] for a in actions])
+        card = next(a for a in actions if a['action'] == 'use_jail_card')
+        delta = await self.mcp(action='move', player_id=p2, room_id=room['room_id'], revision=room['revision'], move=card)
+        self.assertEqual(delta['private']['jail_cards'], 0)
+        self.assertTrue(any(isinstance(e, list) and len(e) > 2 and
+                            any(p[0] == p2 and p[4] is False for p in e[2].get('p', [])) for e in delta['events']))
+        for payload in (boot, snap, full, delta):
+            for hidden in ('_trade_meta', '_trade_rejections', '_trade_return', '_decks'):
+                self.assertNotIn(hidden, json.dumps(payload))
+
     async def test_pending_trade_mcp_bound_machine_gate_events_and_invalidation(self):
         for creator in (self.ordinary, self.invited):
             for invalidate in (False, True):
@@ -668,7 +723,7 @@ print(json.dumps({'board': room['board_state'], 'current': room['current_player_
 
     async def test_web_trade_waits_for_normal_npc_turn_before_scheduler_response(self):
         from app.npc_scheduler import NpcTurnScheduler
-        from unittest.mock import Mock
+        from unittest.mock import Mock, AsyncMock
         for accept, requested_cash in ((True, 20), (False, 200)):
             with self.subTest(accept=accept):
                 room = invites.create_invite("monopoly", "human", "owner", target_player_count=3)
@@ -687,7 +742,7 @@ print(json.dumps({'board': room['board_state'], 'current': room['current_player_
                 decisions = []
                 continued = asyncio.Event()
                 provider = Mock()
-                provider.decide.side_effect = AssertionError("No model decision allowed")
+                provider.decide = AsyncMock(side_effect=TimeoutError("model unavailable"))
                 async def run(room_id):
                     if decisions:
                         await continued.wait()
@@ -700,6 +755,7 @@ print(json.dumps({'board': room['board_state'], 'current': room['current_player_
                     await scheduler.start()
                 try:
                     with patch.object(main_module, "npc_turn_scheduler", scheduler), \
+                         patch.object(npc_controller, "get_persona", return_value=NpcPersona("trade-npc", "交易NPC", "测试")), \
                          patch.object(npc_controller, "_schedule_npc_speech", return_value=None):
                         response = await self.client.post(f"/api/rooms/{room['room_id']}/move",
                             headers={"X-Duel-Human-Player": "owner"}, json={"player_id": "owner", "revision": room["revision"],
@@ -729,7 +785,7 @@ print(json.dumps({'board': room['board_state'], 'current': room['current_player_
                         result = framework.get_room(room["room_id"])
                         self.assertEqual(len(decisions), 1)
                         self.assertEqual(decisions[0].status, "applied")
-                        self.assertEqual(decisions[0].source, "local")
+                        self.assertEqual(decisions[0].source, "fallback")
                         self.assertEqual(decisions[0].action["accept"], accept)
                         self.assertEqual(result["current_player_id"], npc["player_id"])
                         self.assertIsNone(result["board_state"]["trade"])
@@ -741,7 +797,8 @@ print(json.dumps({'board': room['board_state'], 'current': room['current_player_
                         self.assertEqual(cash["owner"], cash_before_response["owner"] + (10 if accept else 0))
                         self.assertEqual(cash[npc["player_id"]], cash_before_response[npc["player_id"]] - (10 if accept else 0))
                         self.assertEqual(self.wallet_snapshot(result), wallets)
-                        provider.decide.assert_not_called()
+                        provider.decide.assert_awaited_once()
+                        provider.speak.assert_not_called()
                         with self.assertRaises(framework.DuelError):
                             framework.play_move(room["room_id"], "ai", npc["player_id"], decisions[0].action,
                                                 expected_revision=pending["revision"])

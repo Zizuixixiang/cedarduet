@@ -48,6 +48,21 @@ GLOBAL_SPEECH_RULES = (
     "不要返回分析、解释或思维过程。"
 )
 MAX_PROVIDER_MESSAGE_LENGTH = 200
+MONOPOLY_PLAYER_RULES = (
+    "你是大富翁当前 NPC，依据 game_rules 经营资产，争取成为最后未破产的玩家。"
+    "只使用完整公开局势、公开事件及自己的私有状态；不得假装知道隐藏牌序或他人的出狱卡。"
+    "普通动作复制 legal_actions 中的 action；也可按 action_spec 中本次开放的参数化操作"
+    "自行构造交易或竞价。现金必须为余额内非负整数，地产只能选对应的可交易列表，"
+    "不得向已有报价的接收人报价，不得重复仍在冷却的相同或近似报价。"
+    "所有动作携带当前 action_seq，由服务器最终校验。只返回一个 JSON 对象："
+    '{"action":{"action":"...","action_seq":0},"message":null}。'
+    "action 仅用于游戏操作；message 仅用于房间聊天，不要把接口参数、内部ID、"
+    "分析或内部推理写进 message，也不要披露未公开私有信息。"
+    "一次决定同时返回 action 和 message，无话可说时 message 为 null。"
+    "同一回合可能有多次中间操作，不要求每次发言；参考 recent_public_events，"
+    "避免重复或刷屏。合适时附一句符合 persona 的简短自然中文桌边话，"
+    "尤其提出或回应交易时鼓励附自然报价说明；不超过200字。不要返回其他字段。"
+)
 
 
 class NpcProviderError(RuntimeError):
@@ -72,9 +87,10 @@ class NpcDecisionRequest:
     recent_public_events: list[dict[str, Any]]
     public_actions: list[dict[str, Any]]
     legal_actions: list[dict[str, Any]]
+    action_spec: dict[str, Any] | None = None
 
     def payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "persona": self.persona,
             "game_rules": self.game_rules,
             "participants": self.participants,
@@ -84,10 +100,13 @@ class NpcDecisionRequest:
             "public_actions": self.public_actions,
             "legal_actions": self.legal_actions,
         }
+        if self.action_spec is not None:
+            payload["action_spec"] = self.action_spec
+        return payload
 
     def messages(self) -> list[dict[str, str]]:
         return [
-            {"role": "system", "content": GLOBAL_PLAYER_RULES},
+            {"role": "system", "content": MONOPOLY_PLAYER_RULES if self.action_spec is not None else GLOBAL_PLAYER_RULES},
             {
                 "role": "user",
                 "content": json.dumps(
@@ -132,22 +151,31 @@ class NpcSpeechRequest:
 
 @dataclass(frozen=True)
 class ProviderDecision:
-    action_id: str
+    action_id: str | None
     message: str | None = None
+    action: dict[str, Any] | None = None
 
 
-def parse_provider_decision(content: str) -> ProviderDecision:
+def parse_provider_decision(content: str, *, action_response: bool = False) -> ProviderDecision:
     if not isinstance(content, str) or not content.strip():
         raise NpcProviderResponseError("NPC provider 返回空内容")
     try:
         value = json.loads(content)
     except json.JSONDecodeError as exc:
         raise NpcProviderResponseError("NPC provider 必须返回 JSON") from exc
-    if not isinstance(value, dict) or set(value) - {"action_id", "message"}:
+    if not isinstance(value, dict):
         raise NpcProviderResponseError("NPC provider 返回字段无效")
-    action_id = value.get("action_id")
-    if not isinstance(action_id, str) or not 1 <= len(action_id.strip()) <= 128:
-        raise NpcProviderResponseError("NPC provider action_id 无效")
+    if action_response:
+        if set(value) != {"action", "message"} or not isinstance(value["action"], dict):
+            raise NpcProviderResponseError("NPC provider 必须同时返回 action 对象和 message")
+        action_id = None
+    else:
+        if set(value) - {"action_id", "message"}:
+            raise NpcProviderResponseError("NPC provider 返回字段无效")
+        action_id = value.get("action_id")
+        if not isinstance(action_id, str) or not 1 <= len(action_id.strip()) <= 128:
+            raise NpcProviderResponseError("NPC provider action_id 无效")
+        action_id = action_id.strip()
     message = value.get("message")
     if message is not None:
         if not isinstance(message, str):
@@ -155,7 +183,7 @@ def parse_provider_decision(content: str) -> ProviderDecision:
         message = message.strip() or None
         if message is not None and len(message) > MAX_PROVIDER_MESSAGE_LENGTH:
             raise NpcProviderResponseError("NPC provider message 过长")
-    return ProviderDecision(action_id.strip(), message)
+    return ProviderDecision(action_id, message, value.get("action") if action_response else None)
 
 
 def parse_provider_speech(content: str) -> str | None:
@@ -293,7 +321,7 @@ class OpenAICompatibleNpcProvider(_HttpNpcProvider):
             content = value["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise NpcProviderResponseError("OpenAI-compatible 响应结构无效") from exc
-        return parse_provider_decision(content)
+        return parse_provider_decision(content, action_response=request.action_spec is not None)
 
     async def speak(self, request: NpcSpeechRequest) -> str | None:
         value = await self._post_json(
@@ -357,7 +385,7 @@ class CedarToyBridgeNpcProvider(_HttpNpcProvider):
         content = value.get("content")
         if not isinstance(content, str):
             raise NpcProviderResponseError("CedarToy bridge 响应结构无效")
-        return parse_provider_decision(content)
+        return parse_provider_decision(content, action_response=request.action_spec is not None)
 
     async def speak(self, request: NpcSpeechRequest) -> str | None:
         value = await self._post_json(

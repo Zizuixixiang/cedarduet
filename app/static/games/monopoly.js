@@ -21,19 +21,22 @@
   const canAct = c => c.canMove && !c.isTerminal && c.helpers.canMove();
   // Public actions describe the actor; private actions authorize only the viewer.
   // A pending offer alone never interrupts the current turn.
-  const tradeResponseDue = c => !c.isTerminal && !!c.state.trade
+  const pendingTrades = state => state.trades || (state.trade ? [state.trade] : []);
+  const incomingTrade = c => pendingTrades(c.state).find(t => t.to === c.state.turn_player_id);
+  const tradeResponseDue = c => !c.isTerminal && !!incomingTrade(c)
     && (Array.isArray(c.state.legal_actions) ? c.state.legal_actions : actions(c)).some(a => a.action === "respond_trade");
   const phaseLabel = c => tradeResponseDue(c) ? "交易待回应" : PHASES[c.state.phase] || "等待开始";
   const tradeOffer = (c, cash, ids, compact = false) => {
     const lands = (ids || []).map(id => tiles(c).find(t => t.id === id)?.name || "地产");
     return [cash ? `${compact ? "" : "现金 "}${money(cash)}` : "", compact && lands.length > 1 ? `${lands.length} 处地产` : lands.join("、")].filter(Boolean).join(" · ") || "—";
   };
-  const tradePrompt = c => c.viewer?.player_id === c.state.trade.to
-    ? `${name(c, c.state.trade.from)}向你提出交易` : `等待 ${name(c, c.state.trade.to)} 决定`;
+  const tradePrompt = c => c.viewer?.player_id === incomingTrade(c).to
+    ? `${name(c, incomingTrade(c).from)}向你提出交易` : `等待 ${name(c, incomingTrade(c).to)} 决定`;
 
-  function pendingTradeCard(c) {
-    const t = c.state.trade, due = tradeResponseDue(c);
+  function pendingTradeCard(c, t) {
+    const due = tradeResponseDue(c) && t.to === c.state.turn_player_id;
     const card = el("section", "monopoly-pending-trade"); card.setAttribute("aria-label", "挂起的交易报价");
+    card.classList.toggle("is-due", due && c.viewer?.player_id === t.to);
     card.append(el("strong", "monopoly-trade-parties", `${name(c, t.from)} ⇄ ${name(c, t.to)}`));
     const columns = el("div", "monopoly-offer-columns");
     for (const [id, cash, ids] of [[t.from, t.give_cash, t.give_tiles], [t.to, t.take_cash, t.take_tiles]]) {
@@ -52,12 +55,31 @@
     }
     return card;
   }
+  function pendingTradeList(c) {
+    const trades = pendingTrades(c.state);
+    const due = tradeResponseDue(c) && c.viewer?.player_id === c.state.turn_player_id;
+    const key = JSON.stringify([c.room.room_id, c.viewer?.player_id, due ? [c.state.turn_number, incomingTrade(c)] : null]);
+    if (c.uiState.monopolyTrades?.key !== key) c.uiState.monopolyTrades = {key, open: due};
+    const list = el("details", "monopoly-pending-trades");
+    list.open = c.uiState.monopolyTrades.open;
+    list.classList.toggle("is-due", due);
+    const summary = el("summary", "", `待处理交易 ${trades.length} 笔`);
+    if (due) summary.append(el("span", "monopoly-help", "有交易等你回应"));
+    list.append(summary);
+    // Put the viewer's required decision before unrelated pending offers.
+    const ordered = due ? [incomingTrade(c), ...trades.filter(t => t !== incomingTrade(c))] : trades;
+    ordered.forEach(t => list.append(pendingTradeCard(c, t)));
+    list.addEventListener("toggle", () => {
+      if (list.isConnected && c.uiState.monopolyTrades?.key === key) c.uiState.monopolyTrades.open = list.open;
+    });
+    return list;
+  }
   const eventCopy = event => typeof event === "string" ? event : event && (event.text || event.description || event.message || event.name) || "";
 
   function ensureStyles() {
     if (document.getElementById("duel-game-monopoly-styles")) return;
     const link = el("link"); link.id = "duel-game-monopoly-styles"; link.rel = "stylesheet";
-    link.href = "/static/games/monopoly.css?v=9"; link.dataset.duelGameStyle = "monopoly"; document.head.append(link);
+    link.href = "/static/games/monopoly.css?v=10"; link.dataset.duelGameStyle = "monopoly"; document.head.append(link);
   }
   function button(label, handler, disabled = false, primary = false) {
     const b = el("button", `pixel-btn monopoly-button${primary ? " primary" : ""}`, label);
@@ -298,7 +320,8 @@
   // reconstruct unobserved turns from a stale die or a position difference.
   let movementView = null;
   const movementKey = (room, viewer) => JSON.stringify([room.room_id, viewer || "spectator"]);
-  const positionCopy = (state, player) => `你当前在：${(state.tiles || []).find(t => t.id === player.position)?.name || "未知地块"}${player.jailed ? "（在押）" : ""}`;
+  const jailStatus = (state, player) => player.jailed ? "（在押）" : (state.tiles || []).find(t => t.id === player.position)?.kind === "jail" ? "（只是探访，未入狱）" : "";
+  const positionCopy = (state, player) => `你当前在：${(state.tiles || []).find(t => t.id === player.position)?.name || "未知地块"}${jailStatus(state, player)}`;
   function monopolyTransitionBeats(previousRoom, nextRoom) {
     if (!previousRoom || !nextRoom || previousRoom.room_id !== nextRoom.room_id) return [];
     const before = previousRoom.board_state || {}, after = nextRoom.board_state || {};
@@ -328,7 +351,8 @@
       beats.at(-1).eventId = card.event_id;
     }
     const failed = new Set(roster.filter(p => p.bankrupt && !prior.get(p.player_id)?.bankrupt).map(p => p.player_id));
-    const trade = before.trade && !after.trade && note.includes("交易已同时交割") ? before.trade : null;
+    const removedTrades = pendingTrades(before).filter(t => !pendingTrades(after).some(next => next.to === t.to));
+    const trade = note.includes("交易已同时交割") ? removedTrades.find(t => t.to === before.turn_player_id) : null;
     if (trade) {
       const offer = (cash, ids) => [cash ? `现金 ${money(cash)}` : "", ids?.length === 1 ? `「${tiles.find(t => t.id === ids[0])?.name || "地产"}」` : ids?.length ? `${ids.length} 处地产` : ""].filter(Boolean).join("、") || "无现金或地产";
       add("trade", "交易完成", `${who(trade.from)} ⇄ ${who(trade.to)}`, [...(trade.give_tiles || []), ...(trade.take_tiles || [])],
@@ -338,7 +362,7 @@
       // without inventing its terms from unrelated net cash changes.
       add("trade", "交易完成", "双方已完成交易交割", tiles.filter(t => lands.get(t.id)?.owner !== t.owner).map(t => t.id));
     }
-    if (before.trade && !after.trade && note.includes("交易条件已失效"))
+    if (removedTrades.length && note.includes("交易条件已失效"))
       add("trade-expired", "报价已取消", "交易条件已失效，可继续当前回合");
     for (const tile of tiles) {
       const old = lands.get(tile.id);
@@ -471,7 +495,7 @@
     const source = [...ring.querySelectorAll(".monopoly-tokens .monopoly-token")].find(t => t.dataset.playerId === viewer);
     if (!source) return;
     const destination = (after.tiles || []).find(t => t.id === newPlayer.position)?.name || "未知地块";
-    const copy = jailed ? "你被送到监狱" : `你移动到：${destination}`;
+    const copy = jailed ? "你被送到监狱" : `你移动到：${destination}${jailStatus(after, newPlayer)}`;
     const alive = () => movementView === view && wrap.isConnected && !wrap.closest(".hidden")
       && doc.querySelector(".monopoly-game") === wrap;
     const values = after.dice;
@@ -575,7 +599,7 @@
     const ring = el("div", "monopoly-ring"); ring.setAttribute("aria-label", "40 格地产棋盘，点击地块查看详情");
     const center = el("div", "monopoly-center");
     if (tradeResponseDue(c)) {
-      const t = c.state.trade, task = el("div", "monopoly-trade-task"); task.setAttribute("role", "status");
+      const t = incomingTrade(c), task = el("div", "monopoly-trade-task"); task.setAttribute("role", "status");
       task.append(el("strong", "", "⇄ 交易待回应"), el("p", "", tradePrompt(c)),
         el("small", "", `${tradeOffer(c, t.give_cash, t.give_tiles, true)} ↔ ${tradeOffer(c, t.take_cash, t.take_tiles, true)}`));
       center.append(task);
@@ -650,8 +674,9 @@
       if (t) panel.append(el("p", "monopoly-context", `${t.name} · 售价 ${money(t.price)}，不购买则进入拍卖。`));
     }
     const self = players(c).find(p => p.player_id === (c.viewer || {}).player_id);
+    if (self && !self.jailed && tiles(c).find(t => t.id === self.position)?.kind === "jail") panel.append(el("p", "monopoly-context", "你只是探访监狱，未入狱，可以正常行动。"));
     if (self && self.jailed && canAct(c) && c.state.phase === "roll" && !tradeResponseDue(c)) panel.append(el("p", "monopoly-context", `你在监狱，已尝试 ${self.jail_turns || 0} 轮。掷出双骰可出狱，或支付 50 保释金；第三次失败会强制缴费。`));
-    if ((c.privateState || {}).jail_cards) panel.append(el("p", "monopoly-help", `你持有 ${c.privateState.jail_cards} 张出狱卡。`));
+    if ((c.privateState || {}).jail_cards) panel.append(el("p", "monopoly-help", `你持有 ${c.privateState.jail_cards} 张出狱卡，只有真正入狱后，才能在自己的回合掷骰前使用。`));
     if (c.state.debt) panel.append(el("p", "monopoly-context", `待付 ${money(c.state.debt.amount)} 给${c.state.debt.creditor ? name(c, c.state.debt.creditor) : "银行"}。可出售建筑、抵押或交易筹款。`));
     if (c.state.auction) {
       const a = c.state.auction, t = tiles(c).find(t => t.id === a.tile_id);
@@ -663,7 +688,8 @@
         f.addEventListener("submit", async e => {e.preventDefault(); if (f.reportValidity()) await submit(c, {action: "bid", amount: Number(input.value)}, bid);}); row.append(f);
       }
     }
-    if (c.state.trade) panel.append(pendingTradeCard(c));
+    if (pendingTrades(c.state).length) panel.append(pendingTradeList(c));
+    else delete c.uiState.monopolyTrades;
     actions(c).filter(a => !ASSET_ACTIONS.includes(a.action) && !["bid", "propose_trade", "respond_trade"].includes(a.action)).forEach(a => row.append(actionButton(c, a)));
     if (!canAct(c) && !c.isTerminal && !tradeResponseDue(c)) panel.append(el("p", "monopoly-help", `等待${name(c, c.state.turn_player_id || c.state.current_player_id)}操作。`));
     row.append(button("地产与经营", () => assetsDialog(c)));

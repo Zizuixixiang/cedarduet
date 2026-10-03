@@ -206,7 +206,8 @@ class MonopolyRulesTests(unittest.TestCase):
                         self.rejects('respond_trade', accept=True)
                         with self.assertRaisesRegex(ValueError, '已有待处理报价'):
                             self.g.validate_action(self.s, dict(action='propose_trade',
-                                action_seq=self.s['action_seq']), self.ps[0])
+                                action_seq=self.s['action_seq'], to='p1', give_cash=1,
+                                take_cash=0, give_tiles=[], take_tiles=[]), self.ps[0])
                         if phase == 'roll':
                             self.play('roll'); self.play('buy')
                         self.play('end_turn')
@@ -285,6 +286,7 @@ class MonopolyRulesTests(unittest.TestCase):
     def test_legacy_trade_can_finish_or_decline_invalid_offer(self):
         for accept, invalid in ((True, False), (False, False), (False, True)):
             self.game(); self.own([1])
+            self.s.pop('trades')  # Actual legacy save has no multi-offer list.
             self.s.update(phase='trade', turn_player_id='p1',
                 trade=dict(to='p1', **{'from': 'p0'}, give_cash=10, take_cash=0,
                            give_tiles=[1], take_tiles=[]),
@@ -297,6 +299,139 @@ class MonopolyRulesTests(unittest.TestCase):
             self.assertIsNone(self.s['trade'])
             self.assertEqual(self.s['phase'], 'manage')
             self.assertEqual(self.s['turn_player_id'], 'p0')
+
+    def test_multiple_offers_only_gate_their_own_recipient(self):
+        self.game(4); self.s['phase'] = 'manage'
+        proposal = dict(give_cash=10, take_cash=0, give_tiles=[], take_tiles=[])
+        self.play('propose_trade', to='p2', **proposal)
+        self.play('propose_trade', to='p3', **proposal)
+        self.assertEqual(self.g.trade_options(self.s, 'p0')['partners'], ['p1'])
+        self.rejects('propose_trade', to='p2', **proposal)
+        self.play('end_turn')
+        # Third party still rolls and may make an unrelated offer.
+        self.assertIn('roll', [a['action'] for a in self.g.legal_actions(self.s, 'p1')])
+        self.assertEqual(self.g.trade_options(self.s, 'p1')['partners'], ['p0'])
+        self.play('propose_trade', to='p0', **proposal)
+        self.rejects('propose_trade', to='p3', **proposal)
+        self.s = json.loads(json.dumps(self.s))
+        self.assertEqual(len(self.s['trades']), 3)
+        self.s['phase'] = 'manage'; self.play('end_turn')
+        self.assertEqual(self.g.trade_options(self.s, 'p2')['partners'], [])
+        self.rejects('propose_trade', to='p1', **proposal)
+        self.rejects('roll')
+        self.play('respond_trade', accept=True)
+        self.assertEqual([t['to'] for t in self.s['trades']], ['p3', 'p0'])
+        self.assertEqual(self.s['players'][2]['cash'], 1510)
+        self.assertEqual(self.s['phase'], 'roll')
+        self.s['phase'] = 'manage'; self.play('end_turn')
+        self.play('respond_trade', accept=False)
+        self.assertEqual([t['to'] for t in self.s['trades']], ['p0'])
+        self.s['phase'] = 'manage'; self.play('end_turn')
+        self.play('respond_trade', accept=True)
+        self.assertEqual(self.s['trades'], [])
+        self.assertEqual([p['cash'] for p in self.s['players']], [1500, 1490, 1510, 1500])
+
+    def test_multiple_offer_invalidation_is_independent_and_rechecks_shared_assets(self):
+        for cause in ('mortgage', 'accept', 'resign'):
+            with self.subTest(cause=cause):
+                self.game(4); self.own([1]); self.s['phase'] = 'manage'
+                proposal = dict(give_cash=0, take_cash=10, give_tiles=[1], take_tiles=[])
+                self.play('propose_trade', to='p1', **proposal)
+                self.play('propose_trade', to='p2', **proposal)
+                self.play('propose_trade', to='p3', **{**proposal, 'give_tiles': []})
+                if cause == 'mortgage':
+                    self.play('mortgage', tile_id=1)
+                elif cause == 'accept':
+                    self.play('end_turn'); self.play('respond_trade', accept=True)
+                    self.assertEqual(self.s['tiles'][1]['owner'], 'p1')
+                    self.assertEqual(self.s['players'][0]['cash'], 1510)
+                else:
+                    self.g.apply_resignation(self.s, 'p1', self.ps)
+                    self.assertEqual([t['to'] for t in self.s['trades']], ['p2', 'p3'])
+                    continue
+                self.assertEqual([t['to'] for t in self.s['trades']], ['p3'])
+
+    def test_legacy_pending_offer_migrates_terms_mortgage_snapshot_and_turn(self):
+        self.game(4); self.own([1])
+        old = dict(to='p2', **{'from': 'p0'}, give_cash=10, take_cash=0, give_tiles=[1], take_tiles=[])
+        self.s.pop('trades')
+        self.s.update(trade=old, _trade_assets=[dict(id=1, mortgaged=False)], _trade_proposed_turn=1)
+        before = deepcopy(self.s)
+        public = self.g.public_state(self.s, self.ps)
+        self.assertEqual(public['trades'], [old])
+        self.assertEqual(self.s, before)  # Reading/validating never rewrites a save.
+        self.play('propose_trade', to='p3', give_cash=5, take_cash=0, give_tiles=[], take_tiles=[])
+        self.s = json.loads(json.dumps(self.s))
+        self.assertEqual(self.s['trades'][0], old)
+        self.assertEqual(self.s['_trade_meta']['p2']['proposed_turn'], 1)
+        self.play('mortgage', tile_id=1)
+        self.assertEqual([t['to'] for t in self.s['trades']], ['p3'])
+
+    def test_npc_rejection_cooldown_three_own_turns_and_fourth_allowed(self):
+        self.game(3); self.own([1]); self.own([3], 'p1')
+        move = self.g.choose_local_npc_action(self.s, self.ps[0], self.ps)
+        self.assertEqual(move['action'], 'propose_trade')
+        self.s = self.g.apply_action(self.s, move, self.ps[0]).state
+        self.s['phase'] = 'manage'; self.play('end_turn')
+        self.play('respond_trade', accept=False)
+        for own_turn in range(1, 5):
+            while self.s['current_player_id'] != 'p0':
+                self.s['phase'] = 'manage'; self.play('end_turn')
+            self.s = json.loads(json.dumps(self.s))
+            actions = self.g.npc_legal_actions(self.s, self.ps[0], self.ps)
+            self.assertEqual(any(a['action'] == 'propose_trade' for a in actions), own_turn == 4)
+            self.assertEqual(self.g.choose_local_npc_action(self.s, self.ps[0], self.ps)['action'],
+                             'propose_trade' if own_turn == 4 else 'roll')
+            if own_turn == 4:
+                break
+            # Reads, asset actions, extra rolls and temporary decisions don't tick.
+            remaining = deepcopy(self.s['_trade_rejections'])
+            self.play('mortgage', tile_id=1); self.play('redeem', tile_id=1)
+            self.s['phase'] = 'manage'; self.s['extra_roll'] = True
+            self.s['players'][0]['position'] = 17; self.g.rng = Dice(1, 2)
+            self.play('roll')  # Free parking; still same normal turn.
+            self.assertEqual(self.s['_trade_rejections'], remaining)
+            for phase in ('auction', 'debt'):
+                window = deepcopy(self.s); window['phase'] = phase
+                window['turn_player_id'] = 'p0'; window['current_player_id'] = 'p1'
+                self.g._cancel_invalid_trade(window)
+                self.assertEqual(window['_trade_rejections'], remaining)
+            self.s['phase'] = 'manage'; self.play('end_turn')
+
+    def test_npc_similar_offer_uses_parties_cash_direction_amount_and_tile_sets(self):
+        self.game()
+        rejected = dict(to='p1', **{'from': 'p0'}, give_cash=200, take_cash=0,
+                        give_tiles=[1, 3], take_tiles=[6], remaining=4)
+        self.s['_trade_rejections'] = [rejected]
+        for changes, blocked in (({}, True), ({'give_tiles': [3, 1]}, True),
+                ({'give_cash': 220}, True), ({'give_cash': 221}, False),
+                ({'give_cash': 210, 'take_cash': 10}, True),
+                ({'give_cash': 0, 'take_cash': 200}, False), ({'give_cash': 0}, False),
+                ({'to': 'p2'}, False), ({'from': 'p2'}, False),
+                ({'give_tiles': [1]}, False), ({'take_tiles': [8]}, False)):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.g._npc_trade_blocked(self.s, {**rejected, **changes}), blocked)
+        # Memory does not restrict the financial choices of human/AI seats.
+        self.own([1, 3]); self.own([6], 'p1')
+        self.play('propose_trade', **{k: v for k, v in rejected.items() if k not in ('from', 'remaining')})
+
+    def test_visiting_jail_cannot_consume_card_or_bail(self):
+        self.game(2, (1, 2)); self.s['players'][0]['position'] = 7
+        self.s['players'][0]['jail_cards'] = ['chance']; self.s['_decks']['chance'].remove(0)
+        self.play('roll')
+        self.assertEqual(self.s['players'][0]['position'], 10)
+        self.assertFalse(self.s['players'][0]['jailed'])
+        self.rejects('use_jail_card'); self.rejects('pay_bail')
+        self.s['phase'] = 'roll'
+        self.rejects('use_jail_card'); self.rejects('pay_bail')
+        self.assertEqual(self.s['players'][0]['jail_cards'], ['chance'])
+        self.s['players'][0]['jailed'] = True
+        actions = [a['action'] for a in self.g.legal_actions(self.s, 'p0')]
+        self.assertIn('pay_bail', actions); self.assertIn('use_jail_card', actions)
+        self.play('use_jail_card')
+        self.assertFalse(self.s['players'][0]['jailed'])
+        self.assertEqual(self.s['players'][0]['jail_cards'], [])
+        self.assertEqual(self.s['players'][0]['cash'], 1500)
 
     def test_debt_liquidation_auto_settles_once(self):
         self.game(2, (1, 2)); self.s['players'][0].update(cash=0, position=0)

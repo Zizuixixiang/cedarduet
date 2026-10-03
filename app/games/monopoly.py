@@ -58,6 +58,8 @@ class Monopoly(GamePlugin):
     min_players, max_players, recommended_players = 2, 6, 4
     allowed_player_counts = (2, 3, 4, 5, 6)
     supports_npcs = True
+    # Retain local capability for offline admission and temporary assistance.
+    # System NPCs use the combined provider path in npc_controller.
     uses_local_npc_strategy = True
     mcp_immediate_public_events = True
     mcp_event_key = 'monopoly'
@@ -75,7 +77,7 @@ class Monopoly(GamePlugin):
 - 自己掷骰前、落地后及筹款时可管理资产。整套无抵押才能均衡建房，每次只升一级，最高四屋再升旅馆；卖房反向均衡，退还每级造价的一半。
 - 银行共有32屋、12旅馆。旅馆降级需银行有4屋；破产清算不受库存限制。
 - 同组全部无建筑才能抵押或交易。抵押获得标价一半；赎回付抵押本金加10%利息，向上取整。
-- 交易可交换多块地产和双方现金。提出即发起者确认，报价挂起且不打断当前回合；接收方在自己的下个正常回合先接受或拒绝，随后继续该回合。全桌最多一笔待处理报价，条件失效自动取消，成交时同时重新验证并交割。每个正常回合最多提出3笔交易；抵押状态随产权转移，不额外收转让税。出狱卡不可交易。
+- 交易可交换多块地产和双方现金。提出即发起者确认，报价挂起且不打断当前回合；接收方在自己的下个正常回合先接受或拒绝，随后继续该回合。可同时挂多笔报价，每个接收人最多一笔；条件失效自动取消，成交时同时重新验证并交割。每个正常回合最多提出3笔交易；抵押状态随产权转移，不额外收转让税。出狱卡不可交易。
 
 【事件与监狱】
 - 机会、公益各16张，洗牌后逐张循环，顺序不公开。事件含收支、玩家间支付、移动、维修及出狱卡。出狱卡保留至使用或破产，再放回牌堆底。
@@ -113,7 +115,7 @@ class Monopoly(GamePlugin):
             self.rng.shuffle(deck)
         return dict(version=1, players=players, tiles=new_tiles(), phase='roll', current_player_id=first,
                     turn_player_id=first, turn_number=1, action_seq=0, dice=[], doubles=0, extra_roll=False,
-                    auction=None, trade=None, debt=None, last_event='', last_action_note='', last_card_events=[],
+                    auction=None, trade=None, trades=[], debt=None, last_event='', last_action_note='', last_card_events=[],
                     _decks=decks, _charges=[], _resume=None, _auction_queue=[], _auction_return=None,
                     _trade_return=None, _trade_assets=None, _trade_proposed_turn=None, trades_this_turn=0)
 
@@ -174,30 +176,62 @@ class Monopoly(GamePlugin):
                 actions.append(dict(action='build', tile_id=t['id']))
         return actions
 
+    @staticmethod
+    def pending_trades(state):
+        # Read old saves without mutating them, including the immediate-response
+        # phase used before offers were deferred to the recipient's normal turn.
+        return state['trades'] if 'trades' in state else ([state['trade']] if state.get('trade') else [])
+
+    def _trade_for(self, state, pid):
+        return next((t for t in self.pending_trades(state) if t['to'] == pid), None)
+
+    def _trade_metadata(self, state, trade):
+        if 'trades' not in state:
+            return dict(assets=state.get('_trade_assets'), proposed_turn=state.get('_trade_proposed_turn'))
+        return state.get('_trade_meta', {}).get(trade['to'], {})
+
+    def _sync_trade_alias(self, state):
+        # Old clients retain a useful single-offer view: the actor's incoming
+        # offer first, otherwise the oldest. All new clients use trades.
+        state['trade'] = self._trade_for(state, state['turn_player_id']) or next(iter(self.pending_trades(state)), None)
+
+    def _migrate_trades(self, state):
+        if 'trades' not in state:
+            trade = state.get('trade')
+            state['_trade_meta'] = {trade['to']: self._trade_metadata(state, trade)} if trade else {}
+            state['trades'] = [trade] if trade else []
+            state.pop('_trade_assets', None)
+            state.pop('_trade_proposed_turn', None)
+        self._sync_trade_alias(state)
+
     def _trade_gate(self, state, pid):
         # A temporary debt actor may offer to the normal turn owner. Even then
         # wait for a later normal turn, not the continuation of this one.
-        trade = state.get('trade')
+        trade = self._trade_for(state, pid)
         return bool(trade and trade['to'] == pid and pid == state['turn_player_id'] and (
             state['phase'] == 'trade' or (
                 pid == state['current_player_id'] and state['phase'] in ('roll', 'purchase', 'manage')
-                and state['turn_number'] > (state.get('_trade_proposed_turn') or 0))))
+                and state['turn_number'] > (self._trade_metadata(state, trade).get('proposed_turn') or 0))))
 
-    def _clear_trade(self, state):
+    def _clear_trade(self, state, trade):
+        self._migrate_trades(state)
         # Only legacy saves used an interrupting trade phase. Finish those in
         # their saved continuation; new offers never change the normal phase.
-        if state['phase'] == 'trade':
+        if state['phase'] == 'trade' and trade['to'] == state['turn_player_id']:
             resume = state.get('_trade_return') or {}
             state.update(phase=resume.get('phase', 'roll'),
                          turn_player_id=resume.get('player_id', state['current_player_id']))
-        state.update(trade=None, _trade_return=None, _trade_assets=None, _trade_proposed_turn=None)
+            state['_trade_return'] = None
+        state['trades'] = [t for t in state['trades'] if t['to'] != trade['to']]
+        state.get('_trade_meta', {}).pop(trade['to'], None)
+        self._sync_trade_alias(state)
 
     def _cancel_invalid_trade(self, state):
-        if state.get('trade'):
+        for trade in list(self.pending_trades(state)):
             try:
-                self._validate_trade(state, state['trade'])
+                self._validate_trade(state, trade)
             except ValueError:
-                self._clear_trade(state)
+                self._clear_trade(state, trade)
                 self.note(state, '交易条件已失效，报价已取消。')
 
     def legal_actions(self, state, pid):
@@ -211,7 +245,7 @@ class Monopoly(GamePlugin):
             if phase == 'trade':
                 # An invalid legacy offer can always be declined to resume play.
                 try:
-                    self._validate_trade(state, state['trade'])
+                    self._validate_trade(state, self._trade_for(state, pid))
                 except ValueError:
                     actions.pop()
         elif phase == 'auction':
@@ -241,12 +275,13 @@ class Monopoly(GamePlugin):
         return [dict(a, action_seq=state['action_seq']) for a in actions]
 
     def trade_options(self, state, pid):
-        if (state.get('trade') or pid != state['turn_player_id'] or state['phase'] not in ('roll', 'purchase', 'manage', 'debt')
+        if (self._trade_gate(state, pid) or pid != state['turn_player_id'] or state['phase'] not in ('roll', 'purchase', 'manage', 'debt')
                 or state['trades_this_turn'] >= 3 or pid not in self.active(state)):
             return {'partners': []}
         tradable = lambda who: [t['id'] for t in state['tiles'] if t['owner'] == who
                                 and not any(g['level'] for g in self.group(state, t))]
-        partners = [other for other in self.active(state) if other != pid]
+        recipients = {t['to'] for t in self.pending_trades(state)}
+        partners = [other for other in self.active(state) if other != pid and other not in recipients]
         return dict(partners=partners, give_tiles=tradable(pid),
                     take_tiles_by_player={other: tradable(other) for other in partners},
                     cash_by_player={p['player_id']: p['cash'] for p in state['players'] if not p['bankrupt']})
@@ -274,8 +309,8 @@ class Monopoly(GamePlugin):
                     raise ValueError('只能交易本人产权且整组无建筑的地产')
         # Newly proposed terms use live assets; pending offers keep the agreed
         # mortgage status, including estates already mortgaged at proposal time.
-        if trade is state.get('trade'):
-            for original in state.get('_trade_assets') or []:
+        if any(trade is t for t in self.pending_trades(state)):
+            for original in self._trade_metadata(state, trade).get('assets') or []:
                 tile = state['tiles'][original['id']]
                 if tile['mortgaged'] != original['mortgaged']:
                     raise ValueError('交易地产的抵押状态已变化')
@@ -290,10 +325,10 @@ class Monopoly(GamePlugin):
             raise ValueError('当前没有行动权')
         action = move.get('action')
         if action == 'propose_trade':
-            if state.get('trade'):
-                raise ValueError('已有待处理报价，请等待接收方回应或报价失效')
             if set(move) != {'action', 'action_seq', 'to', 'give_cash', 'take_cash', 'give_tiles', 'take_tiles'}:
                 raise ValueError('交易参数不完整或包含未知字段')
+            if self._trade_for(state, move['to']):
+                raise ValueError('该接收人已有待处理报价，请等待回应或报价失效')
             if move['to'] not in self.trade_options(state, pid)['partners']:
                 raise ValueError('此时不可向该玩家提出交易（每回合最多3笔）')
             self._validate_trade(state, dict(move, **{'from': pid}))
@@ -307,7 +342,7 @@ class Monopoly(GamePlugin):
         if not any(move == a and all(type(move[k]) is type(a[k]) for k in a) for a in self.legal_actions(state, pid)):
             raise ValueError('该动作不在当前合法行动中')
         if action == 'respond_trade' and move['accept']:
-            self._validate_trade(state, state['trade'])
+            self._validate_trade(state, self._trade_for(state, pid))
 
     def validate_move(self, state, move, mark):
         raise ValueError('大富翁需要参与者身份')
@@ -327,7 +362,16 @@ class Monopoly(GamePlugin):
             if nxt in self.active(state):
                 state.update(current_player_id=nxt, turn_player_id=nxt, phase='roll', dice=[], doubles=0,
                              extra_roll=False, turn_number=state['turn_number'] + 1, trades_this_turn=0)
+                # Only a new normal turn of the proposer consumes cooldown.
+                # Four starts means the next three are blocked, the fourth free.
+                for rejection in state.get('_trade_rejections', []):
+                    if rejection['from'] == nxt:
+                        rejection['remaining'] -= 1
+                state['_trade_rejections'] = [r for r in state.get('_trade_rejections', [])
+                                             if r['remaining'] > 0 and r['from'] in self.active(state)
+                                             and r['to'] in self.active(state)]
                 self._cancel_invalid_trade(state)
+                self._sync_trade_alias(state)
                 return
 
     def _jail(self, state, p):
@@ -559,15 +603,16 @@ class Monopoly(GamePlugin):
     def _terminal(self, state):
         ids = self.active(state)
         if len(ids) <= 1 and len(state['players']) >= 2:
-            state.update(phase='finished', turn_player_id=None, auction=None, trade=None, debt=None,
+            state.update(phase='finished', turn_player_id=None, auction=None, trade=None, trades=[], debt=None,
                          _charges=[], _auction_queue=[], _resume=None, _auction_return=None, _trade_return=None,
-                         _trade_assets=None, _trade_proposed_turn=None)
+                         _trade_assets=None, _trade_proposed_turn=None, _trade_meta={}, _trade_rejections=[])
             return {'winner_player_id': ids[0], 'draw': False} if ids else {'draw': True}
         return None
 
     def apply_action(self, state, move, actor):
         self.validate_action(state, move, actor)
         state = deepcopy(state)
+        self._migrate_trades(state)
         state['last_action_note'] = ''
         pid = actor['player_id']
         p = self.player(state, pid)
@@ -590,15 +635,17 @@ class Monopoly(GamePlugin):
         elif action in ('bid', 'pass_bid'):
             self._auction_step(state, pid, move)
         elif action == 'propose_trade':
-            state['trade'] = {k: deepcopy(move[k]) for k in ('to', 'give_cash', 'take_cash', 'give_tiles', 'take_tiles')}
-            state['trade']['from'] = pid
-            state['_trade_assets'] = [dict(id=i, mortgaged=state['tiles'][i]['mortgaged'])
-                                      for i in move['give_tiles'] + move['take_tiles']]
-            state['_trade_proposed_turn'] = state['turn_number']
+            trade = {k: deepcopy(move[k]) for k in ('to', 'give_cash', 'take_cash', 'give_tiles', 'take_tiles')}
+            trade['from'] = pid
+            state['trades'].append(trade)
+            state.setdefault('_trade_meta', {})[move['to']] = dict(
+                assets=[dict(id=i, mortgaged=state['tiles'][i]['mortgaged'])
+                        for i in move['give_tiles'] + move['take_tiles']],
+                proposed_turn=state['turn_number'])
             state['trades_this_turn'] += 1
             self.note(state, '已提出交易，等待接收方在自己的正常回合回应。')
         elif action == 'respond_trade':
-            trade = state['trade']
+            trade = self._trade_for(state, pid)
             if move['accept']:
                 a, b = self.player(state, trade['from']), self.player(state, trade['to'])
                 delta = trade['give_cash'] - trade['take_cash']
@@ -607,8 +654,12 @@ class Monopoly(GamePlugin):
                 for ids, owner in ((trade['give_tiles'], trade['to']), (trade['take_tiles'], trade['from'])):
                     for i in ids:
                         state['tiles'][i]['owner'] = owner
+            else:
+                # Record rejections regardless of seat kind so old saves need no
+                # participant migration. Only system NPC proposal choices use it.
+                state.setdefault('_trade_rejections', []).append(dict(deepcopy(trade), remaining=4))
             self.note(state, '交易已同时交割。' if move['accept'] else '交易已拒绝。')
-            self._clear_trade(state)
+            self._clear_trade(state, trade)
             # Legacy interruptions may have queued debt or bank auctions.
             self._drain_charges(state)
         elif action in ('build', 'sell_building', 'mortgage', 'redeem'):
@@ -640,6 +691,7 @@ class Monopoly(GamePlugin):
             if not self._terminal(state):
                 self._drain_charges(state)
         self._cancel_invalid_trade(state)
+        self._sync_trade_alias(state)
         state['action_seq'] += 1
         result = self._terminal(state)
         return MoveResult(state=state, next_player_id=state['turn_player_id'], result=result,
@@ -653,13 +705,16 @@ class Monopoly(GamePlugin):
                                   turn_number=state['turn_number'], extra_roll=state['extra_roll'],
                                   doubles=state['doubles'], trades_this_turn=state['trades_this_turn'],
                                   bank_supply=self.supply(state), last_card_events=deepcopy(state.get('last_card_events', [])),
-                                  auction=deepcopy(state['auction']), trade=deepcopy(state['trade']), debt=deepcopy(state['debt']),
+                                  auction=deepcopy(state['auction']),
+                                  trade=deepcopy(self._trade_for(state, state['turn_player_id']) or next(iter(self.pending_trades(state)), None)),
+                                  trades=deepcopy(self.pending_trades(state)), debt=deepcopy(state['debt']),
                                   tiles=[{k: t[k] for k in ('id', 'owner', 'level', 'mortgaged')}
                                          for t in state['tiles'] if t['price']],
                                   players=[{k: p[k] for k in ('player_id', 'cash', 'position', 'bankrupt', 'jailed', 'jail_turns')}
                                            for p in state['players']]))
 
     def apply_resignation(self, state, resigned_player_id, participants):
+        self._migrate_trades(state)
         pid = resigned_player_id
         state['last_action_note'] = ''
         creditor = state['debt']['creditor'] if state['debt'] and state['debt']['payer'] == pid else None
@@ -699,6 +754,8 @@ class Monopoly(GamePlugin):
 
     def public_state(self, state, participants):
         public = {k: deepcopy(v) for k, v in state.items() if not k.startswith('_')}
+        public['trades'] = deepcopy(self.pending_trades(state))
+        self._sync_trade_alias(public)
         for p in public['players']:
             p.pop('jail_cards', None)
             owned = [t for t in state['tiles'] if t['owner'] == p['player_id']]
@@ -766,6 +823,7 @@ class Monopoly(GamePlugin):
             'tiles': ['id', 'owner', 'level', 'mortgaged'],
             'players': ['player_id', 'cash', 'position', 'bankrupt', 'jailed', 'jail_turns'],
             'trade_options': 'partners only; cash/ownership from public state. An entire color group must have no buildings to trade its estates.',
+            'trades': 'Complete pending-offer list; replace as a whole, [] clears. One per recipient. respond_trade targets the actor incoming offer. trade is a legacy alias (actor incoming offer, else oldest).',
         }
         public['trade_action_spec'] = {'action': 'propose_trade', 'to': 'partner player_id',
             'give_cash': 'nonnegative integer', 'take_cash': 'nonnegative integer',
@@ -781,6 +839,21 @@ class Monopoly(GamePlugin):
     def participant_summary(self, state, participant, participants):
         p = next((p for p in state['players'] if p['player_id'] == participant['player_id']), None)
         return {'现金': p['cash'], '地产': p.get('property_count', 0)} if p else {}
+
+    @staticmethod
+    def _similar_trade(a, b):
+        if any(a[k] != b[k] for k in ('from', 'to')):
+            return False
+        if any(set(a[k]) != set(b[k]) for k in ('give_tiles', 'take_tiles')):
+            return False
+        # Cash in both directions is economically equivalent to its net amount.
+        # Same direction, within 10 cash or 10% of the rejected offer is similar.
+        net_a, net_b = a['give_cash'] - a['take_cash'], b['give_cash'] - b['take_cash']
+        return ((net_a > 0) - (net_a < 0) == (net_b > 0) - (net_b < 0)
+                and abs(net_a - net_b) * 10 <= max(100, abs(net_b)))
+
+    def _npc_trade_blocked(self, state, trade):
+        return any(self._similar_trade(trade, r) for r in state.get('_trade_rejections', []) if r['remaining'] > 0)
 
     def npc_legal_actions(self, state, actor, participants):
         pid = actor['player_id']
@@ -798,14 +871,41 @@ class Monopoly(GamePlugin):
                     continue
                 offer = t['price'] * 2
                 if cash - offer >= 200:
-                    actions.append(dict(action='propose_trade', to=t['owner'], give_cash=offer,
-                                        take_cash=0, give_tiles=[], take_tiles=[t['id']], action_seq=state['action_seq']))
+                    proposal = dict(action='propose_trade', to=t['owner'], give_cash=offer,
+                                    take_cash=0, give_tiles=[], take_tiles=[t['id']], action_seq=state['action_seq'])
+                    if not self._npc_trade_blocked(state, dict(proposal, **{'from': pid})):
+                        actions.append(proposal)
         return actions
 
     def npc_compact_rules(self, state, actor, participants):
-        return ('局内现金1500，经过起点200；集齐同色并均衡建房收租，最后存活获胜。'
-                '产权/现金/骰子服务端权威，复制legal_actions含action_seq。拍卖轮流加价或退出。'
-                '债务时卖房抵押筹款；交易只能本席确认。设施4/10倍骰点，车站25/50/100/200。')
+        return self.rules_text
+
+    def npc_action_spec(self, state, actor):
+        pid = actor['player_id']
+        spec = dict(player_id=pid, action_seq=state['action_seq'], parameterized={})
+        options = self.trade_options(state, pid)
+        if options['partners']:
+            spec['parameterized']['propose_trade'] = dict(
+                fields=dict(action='propose_trade', action_seq=state['action_seq'],
+                            to='one of options.partners', give_cash='integer 0..own cash',
+                            take_cash='integer 0..recipient cash',
+                            give_tiles='unique subset of options.give_tiles',
+                            take_tiles='unique subset of options.take_tiles_by_player[to]'),
+                options=options, remaining_proposals=3 - state['trades_this_turn'],
+                constraints='Nonempty offer; no buildings in either color group; mortgage status transfers unchanged.',
+                rejected_offers=[deepcopy(r) for r in state.get('_trade_rejections', [])
+                                 if r['from'] == pid and r['remaining'] > 0],
+                rejection_rule='Same parties and tile sets, same net cash direction, difference <= max(10, 10% of rejected net cash): blocked for next 3 own normal turns.')
+        if state['phase'] == 'auction':
+            spec['parameterized']['bid'] = dict(
+                fields=dict(action='bid', action_seq=state['action_seq'], amount='integer'),
+                minimum=state['auction']['bid'] + 1, maximum=self.player(state, pid)['cash'])
+        return spec
+
+    def validate_npc_action(self, state, move, actor):
+        self.validate_action(state, move, actor)
+        if move['action'] == 'propose_trade' and self._npc_trade_blocked(state, dict(move, **{'from': actor['player_id']})):
+            raise ValueError('NPC 被拒绝的相近报价仍在三个正常回合冷却中')
 
     def choose_local_npc_action(self, state, actor, participants):
         actions = self.npc_legal_actions(state, actor, participants)
@@ -817,7 +917,7 @@ class Monopoly(GamePlugin):
         if find('respond_trade'):
             accept = False
             if actor.get('participant_kind') == 'system_npc':
-                t = state['trade']
+                t = self._trade_for(state, actor['player_id'])
                 value = lambda ids: sum(state['tiles'][i]['price'] - (state['tiles'][i]['redemption_cost'] if state['tiles'][i]['mortgaged'] else 0) for i in ids)
                 accept = value(t['give_tiles']) + t['give_cash'] >= value(t['take_tiles']) + t['take_cash']
             return next((a for a in actions if a['accept'] == accept), find('respond_trade'))
