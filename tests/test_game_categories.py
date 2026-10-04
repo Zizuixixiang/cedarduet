@@ -10,17 +10,17 @@ from app.games import GAMES, GAME_CATEGORIES, game_catalog
 
 
 class GameCategoryTests(unittest.TestCase):
-    def test_four_categories_and_three_tabletop_games(self):
+    def test_four_categories_and_four_tabletop_games(self):
         self.assertEqual(GAME_CATEGORIES, {'board', 'card', 'dice', 'tabletop'})
         categories = {g['game_type']: g['category'] for g in game_catalog()}
         expected = {
-            'board': {'bomb_plane', 'aeroplane_chess', 'banqi', 'checkers', 'chess', 'chinese_checkers',
+            'board': {'aeroplane_chess', 'banqi', 'checkers', 'chess', 'chinese_checkers',
                       'connect4', 'dots_boxes', 'go', 'gomoku', 'jungle', 'junqi',
                       'othello', 'tictactoe', 'xiangqi'},
             'card': {'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
                      'texas_holdem', 'train_cards', 'uno', 'zhajinhua'},
             'dice': {'liars_dice', 'yahtzee'},
-            'tabletop': {'monopoly', 'rummikub', 'carcassonne'},
+            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne'},
         }
         self.assertEqual({category: {g for g, c in categories.items() if c == category}
                           for category in GAME_CATEGORIES}, expected)

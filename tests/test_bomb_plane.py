@@ -222,7 +222,7 @@ class BombPlaneRooms(unittest.TestCase):
 
     def test_catalog_waiting_and_each_seat_identity(self):
         item=next(x for x in game_catalog() if x['game_type']=='bomb_plane')
-        self.assertEqual(item['allowed_player_counts'],[2]);self.assertEqual(item['category'],'board')
+        self.assertEqual(item['allowed_player_counts'],[2]);self.assertEqual(item['category'],'tabletop')
         self.assertTrue(item['supports_stakes']);self.assertTrue(item['uses_local_npc_strategy'])
         r=framework.create_room('bomb_plane','ai_first','ai','waiting-ai')
         self.assertEqual(r['status'],'waiting');framework.project_room_for_viewer(r,'waiting-ai')

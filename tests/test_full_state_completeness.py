@@ -83,7 +83,7 @@ class FullStateCompleteness(unittest.IsolatedAsyncioTestCase):
                 for field, words in {'rent':['25/50/100/200','4*dice','10*sum'],
                                      'assets':['half','ceil','No build/redeem in debt'],
                                      'cards':['chance','chest','last_card_events','order hidden'],
-                                     'trade':['3 proposals','only trade.to','Mortgages'],
+                                     'trade':['3 proposals','trades','one per recipient','recipient responds','Mortgages'],
                                      'jail':['Third failed','no extra roll']}.items():
                     for word in words:self.assertIn(word,s['rules'][field])
                 self.assertEqual(set(s['action_formats']['propose_trade']),

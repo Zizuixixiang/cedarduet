@@ -143,7 +143,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             {
                 "monopoly": "tabletop",
                 "rummikub": "tabletop",
-                "bomb_plane": "board",
+                "bomb_plane": "tabletop",
                 "carcassonne": "tabletop",
                 "tictactoe": "board",
                 "gomoku": "board",
