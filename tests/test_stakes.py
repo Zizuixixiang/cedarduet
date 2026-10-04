@@ -240,6 +240,15 @@ class StakeHttpTests(unittest.IsolatedAsyncioTestCase):
         summary = next(item for item in listed.json()["rooms"] if item["room_id"] == room_id)
         self.assertEqual(summary["status"], "pending")
         self.assertEqual(summary["confirmation_decision"], "pending")
+        self.assertEqual(summary["allowed_actions"], ["accept", "reject"])
+        self.assertIn("用 accept(room_id) 接受", listed.json()["notices"][0]["summary"])
+
+        listed_again = await self.client.post(
+            "/mcp/play", json={"action": "rooms", "player_id": "ai-web"}
+        )
+        self.assertEqual(listed_again.status_code, 200, listed_again.text)
+        self.assertNotIn("notices", listed_again.json())
+        self.assertEqual(listed_again.json()["rooms"][0]["allowed_actions"], ["accept", "reject"])
 
         accepted = await self.client.post(
             "/mcp/play",
@@ -247,6 +256,55 @@ class StakeHttpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(accepted.status_code, 200, accepted.text)
         self.assertEqual(accepted.json()["room"]["status"], "playing")
+
+        playing = await self.client.post(
+            "/mcp/play", json={"action": "rooms", "player_id": "ai-web"}
+        )
+        self.assertEqual(playing.status_code, 200, playing.text)
+        self.assertEqual(playing.json()["rooms"][0]["status"], "playing")
+        self.assertNotIn("allowed_actions", playing.json()["rooms"][0])
+
+    async def test_pending_actions_follow_each_ai_confirmation(self):
+        room = framework.create_room(
+            "dots_boxes", "human_first", "human", "human-owner", stake=3,
+            ordered_participants=[
+                {"player_id": "human-owner", "role": "human"},
+                {"player_id": "ai-first", "role": "ai"},
+                {"player_id": "ai-second", "role": "ai"},
+            ],
+        )
+        room_id = room["room_id"]
+        pending = main_module._pending_ai_response(room, "ai-first", "")
+        self.assertEqual(pending["confirmation_decision"], "pending")
+        self.assertEqual(pending["allowed_actions"], ["accept", "reject"])
+
+        async def mcp(action, player_id):
+            response = await self.client.post(
+                "/mcp/play",
+                json={"action": action, "player_id": player_id, "room_id": room_id},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()
+
+        before = await mcp("state", "ai-first")
+        self.assertEqual(before["status"], "pending")
+        self.assertEqual(before["room_id"], room_id)
+        self.assertEqual(before["allowed_actions"], ["accept", "reject"])
+
+        accepted = await mcp("accept", "ai-first")
+        self.assertEqual(accepted["status"], "pending")
+        self.assertEqual(accepted["confirmation_decision"], "accepted")
+        self.assertNotIn("allowed_actions", accepted)
+        after = await mcp("state", "ai-first")
+        self.assertEqual(after["status"], "pending")
+        self.assertNotIn("allowed_actions", after)
+        other = await mcp("state", "ai-second")
+        self.assertEqual(other["allowed_actions"], ["accept", "reject"])
+
+        started = await mcp("accept", "ai-second")
+        self.assertEqual(started["status"], "playing")
+        self.assertNotIn("allowed_actions", started)
+        self.assertNotIn("allowed_actions", await mcp("state", "ai-first"))
 
     async def test_ai_initiated_invite_appears_for_human_accept_or_reject(self):
         created = await self.client.post(
@@ -258,6 +316,14 @@ class StakeHttpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(created.json()["status"], "pending")
         self.assertNotIn("room", created.json())
+        listed = await self.client.post(
+            "/mcp/play", json={"action": "rooms", "player_id": "ai-web"}
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        summary = listed.json()["rooms"][0]
+        self.assertEqual(summary["status"], "pending")
+        self.assertEqual(summary["confirmation_decision"], "accepted")
+        self.assertNotIn("allowed_actions", summary)
         room_id = created.json()["room_id"]
         whoami = await self.client.get("/api/whoami", headers=self.headers())
         pending = whoami.json()["pending_invitations"]

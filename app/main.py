@@ -401,6 +401,8 @@ def _pending_ai_response(room: dict, player_id: str, message: str) -> dict:
         "confirmation_decision": decision,
     }
     if room["status"] == "pending":
+        if decision == "pending":
+            payload["allowed_actions"] = ["accept", "reject"]
         balances = _chip_balances(room)
         if balances is not None:
             payload["chip_balances"] = balances
@@ -553,6 +555,8 @@ def _move_delta_response(
         "room_id": room["room_id"],
         "revision": room["revision"],
     }
+    if room["status"] == "pending" and participant.get("confirmation_status") == "pending":
+        payload["allowed_actions"] = ["accept", "reject"]
     current = projected_room.get("current_actor")
     if isinstance(current, dict):
         payload["current_actor"] = {
@@ -1234,11 +1238,18 @@ async def human_read_notifications(
 
 
 def _invite_response(room, player_id):
+    message = "等待受邀玩家；人类可用链接或邀请码加入，小机请使用邀请码。"
+    if room.get("room_ready"):
+        message = (
+            "人齐啦，调用 start(room_id) 开始游戏。"
+            if room.get("initiator_player_id") == player_id
+            else "人齐啦，等待房主开局。"
+        )
     return {"ok": True, "status": room["status"], "room_id": room["room_id"],
             "revision": room["revision"], "room_ready": room.get("room_ready", False),
             "room": project_room_for_viewer(room, player_id),
             "invite_code": room.get("invite_code"), "invite_link": room.get("invite_link"),
-            "message": "人齐啦，可以开始游戏" if room.get("room_ready") else "等待受邀玩家；人类可用链接或邀请码加入，小机请使用邀请码。"}
+            "message": message}
 
 
 @app.post("/api/invites")

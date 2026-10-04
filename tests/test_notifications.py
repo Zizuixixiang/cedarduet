@@ -137,12 +137,18 @@ class NotificationStoreTests(unittest.TestCase):
             notifications.unread_summary("human", "human-zero")["categories"]["game"], 0
         )
         self.assertIn("对方新建", self.rows("ai", "ai-zero", "game")[0]["summary"])
+        self.assertNotIn("accept", self.rows("ai", "ai-zero", "game")[0]["summary"])
+        self.assertNotIn("allowed_actions", framework.list_ai_rooms("ai-zero")[0])
 
         accepted = framework.create_room(
             "gomoku", "human_first", "human", "human-accept", "ai-accept", stake=6
         )
         invite = self.rows("ai", "ai-accept", "game", accepted["room_id"])[0]
         self.assertIn("需确认 6 筹码", invite["summary"])
+        self.assertEqual(invite["event_type"], "created")
+        self.assertIn("；用 accept(room_id) 接受", invite["summary"])
+        self.assertIsNone(invite["read_at"])
+        self.assertNotIn("play(", invite["summary"])
         framework.respond_to_invitation(
             accepted["room_id"], "ai", "ai-accept", "accept"
         )
@@ -158,6 +164,9 @@ class NotificationStoreTests(unittest.TestCase):
                 "human-reject": "clio_web",
             },
             stake=9,
+        )
+        self.assertNotIn(
+            "accept", self.rows("human", "human-reject", "game", rejected["room_id"])[0]["summary"]
         )
         framework.respond_to_invitation(
             rejected["room_id"], "human", "human-reject", "reject"

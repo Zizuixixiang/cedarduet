@@ -222,6 +222,7 @@ def _notify_game_participants(
     event_type: str,
     summary: str,
     event_key: str,
+    ai_summary: str | None = None,
     exclude_player_ids: set[str] | None = None,
     only_player_ids: set[str] | None = None,
     created_at: str | None = None,
@@ -243,7 +244,7 @@ def _notify_game_participants(
             "game",
             event_type,
             room["room_id"],
-            summary,
+            ai_summary if subject[0] == "ai" and ai_summary is not None else summary,
             event_key=event_key,
             created_at=created_at,
         )
@@ -988,6 +989,8 @@ def list_ai_rooms(
                 confirmation_decision=row["confirmation_decision"],
             )
             item.update(stake_presentation(row["game_type"], row["stake"]))
+            if row["confirmation_decision"] == "pending":
+                item["allowed_actions"] = ["accept", "reject"]
         result.append(item)
     return _invite_list_metadata(result)
 
@@ -2093,6 +2096,10 @@ def create_room(
                 f"{game_name}邀请：需确认 {stake} 筹码"
                 if confirmation_required
                 else f"对方新建了{game_name}房间"
+            ),
+            ai_summary=(
+                f"{game_name}邀请：需确认 {stake} 筹码；用 accept(room_id) 接受"
+                if confirmation_required else None
             ),
             event_key=f"game:created:{room_id}",
             exclude_player_ids={player_id},
