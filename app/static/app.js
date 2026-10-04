@@ -3929,9 +3929,36 @@ async function sendMessage() {
       body: JSON.stringify({message}),
     });
     if (!roomSyncIsCurrent(generation, targetRoomId)) return;
+    // Capture at response time so scrolling while the request is in flight
+    // (including keyboard dismissal) is not undone by the UI update.
+    const {scrollX, scrollY} = window;
     $("chatInput").value = "";
     closeMentionOptions();
-    renderGame(data.room, data.message, data.timeline);
+    if (
+      data.room.room_id === room.room_id
+      && data.room.revision === room.revision
+      && data.room.status === room.status
+      && !isInviteWaiting(room)
+    ) {
+      // Chat does not advance the room revision. Keep the board, controls and
+      // composer mounted, and reuse the chat feed's own scroll-follow policy.
+      room = data.room;
+      currentTimeline = data.timeline || [];
+      renderPlayers(currentTimeline);
+      renderRecentChat(currentTimeline);
+      renderTimeline(currentTimeline);
+      const humanCanMove = canHumanMove();
+      showNotice(
+        roomActionNotice(room, data.message, humanCanMove),
+        false,
+        humanCanMove && !isTerminal(room)
+      );
+    } else {
+      // A concurrent move or room transition still needs the full update.
+      renderGame(data.room, data.message, data.timeline);
+    }
+    // Restore only the page, without moving focus or reopening the keyboard.
+    window.scrollTo({left: scrollX, top: scrollY, behavior: "instant"});
   } catch (error) {
     if (roomSyncIsCurrent(generation, targetRoomId)) {
       showNotice(error.message, true);
