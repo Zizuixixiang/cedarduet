@@ -445,9 +445,13 @@ button.gm-card { cursor: pointer; }
   .gm-royal-short { display: block; }
   .gm-royal { min-height: 44px; padding: 3px; column-gap: 3px; }
   .gm-royal-emblem { width: 16px; height: 16px; font-size: 10px; }
+  .gm-board-zone { grid-template-columns: minmax(0, 226px) 46px; justify-content: center; }
+  .gm-gem-board { width: 100%; padding: 4px; gap: 3px; }
+  .gm-cell { min-width: 38px; min-height: 38px; padding: 3px; }
+  .gm-board-side { gap: 4px; }
+  .gm-side-box { padding: 3px; }
 }
 
 @media (max-width: 359px) {
-  .gm-cell { min-width: 38px; min-height: 38px; padding: 3px; }
   .gm-token-chip { min-width: 24px; }
 }
