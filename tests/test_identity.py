@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 29)
+        self.assertEqual(len(payload["games"]), 30)
         self.assertIn("monopoly", {game["game_type"] for game in payload["games"]})
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
@@ -145,6 +145,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "rummikub": "tabletop",
                 "bomb_plane": "tabletop",
                 "carcassonne": "tabletop",
+                "gem_merchant": "tabletop",
                 "tictactoe": "board",
                 "gomoku": "board",
                 "go": "board",
@@ -189,6 +190,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "rummikub": "拉密",
                 "bomb_plane": "炸飞机",
                 "carcassonne": "卡卡颂",
+                "gem_merchant": "宝石商人",
                 "tictactoe": "井字棋",
                 "gomoku": "五子棋",
                 "go": "围棋",

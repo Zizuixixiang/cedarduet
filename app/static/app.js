@@ -1330,6 +1330,7 @@ function gameTokenEstimateLabel(gameType) {
     carcassonne: "约100–260 token/轮",
     monopoly: "约50–600 token/轮",
     rummikub: "约80–300 token/轮",
+    gem_merchant: "约300–900 token/轮",
     bomb_plane: "约30–50 token/轮",
     aeroplane_chess: "约40–150 token/轮",
     banqi: "约50–150 token/轮",

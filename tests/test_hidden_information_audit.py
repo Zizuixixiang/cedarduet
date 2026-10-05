@@ -13,6 +13,7 @@ FULL_TERMINAL_REVIEW_REASONS = {
     "banqi": "unflipped piece identities become reviewable only after the room is terminal",
     "blackjack": "the dealer hole is hidden during play and revealed after settlement or room termination",
     "doudizhu": "opponent hands stay private during play and remaining hands are shown at terminal",
+    "gem_merchant": "blind-reserved card faces stay private during play and are reviewable at terminal; deck order never leaves the server",
     "gandengyan": "opponent hands stay private during play and remaining hands are shown at terminal",
     "guandan": "opponent hands stay private during play and remaining hands are shown at terminal",
     "junqi": "unrevealed ranks stay private during play and the terminal board is reviewable",

@@ -3,7 +3,8 @@ from copy import deepcopy
 
 LEGACY = '''aeroplane_chess banqi blackjack tictactoe texas_holdem train_cards
 gomoku go gandengyan guandan othello connect4 checkers chess chinese_checkers
-dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua'''.split()
+dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua
+gem_merchant'''.split()
 
 
 def choose(snapshot, step=0):
@@ -37,6 +38,11 @@ def choose(snapshot, step=0):
         if spec:
             r, columns = next((r, v) for r, v in enumerate(spec['columns_by_row']) if v)
             return {'action': spec['action'], 'row': r, 'col': int(columns.split(',')[0].split('-')[0])}
+    if game == 'gem_merchant' and not private.get('legal_actions'):
+        # The optional phase publishes a compact MCP summary; take one token.
+        cells = [[r, c] for r, row in enumerate(board['board'])
+                 for c, value in enumerate(row) if value not in '.O']
+        return {'action': 'take', 'cells': [cells[step % len(cells)]]}
     actions = private.get('legal_actions') or board.get('legal_actions') or board.get('legal_moves')
     if game == 'guandan':
         # First published option keeps the baseline trace executable. Some other

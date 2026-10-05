@@ -44,6 +44,11 @@ def timeout_legal_actions(room, actor):
         if room["game_type"] == "liars_dice" and state.get("pending_next_round"):
             return [{"action": "acknowledge_round"}]
         return game.npc_legal_actions(state, actor, room["participants"])
+    # Newer plugins without system NPCs may still publish authoritative actions
+    # for temporary assistance; base plugins return an empty list here.
+    published = game.npc_legal_actions(state, actor, room["participants"])
+    if published:
+        return published
     # Legacy public-board games already expose legal moves or validators. Reuse
     # those authorities for temporary assistance without adding permanent NPCs.
     if room["game_type"] == "xiangqi":

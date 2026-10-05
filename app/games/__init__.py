@@ -9,6 +9,7 @@ from .chess import Chess
 from .chinese_checkers import ChineseCheckers
 from .dots_boxes import DotsBoxes
 from .doudizhu import Doudizhu
+from .gem_merchant import GemMerchant
 from .gomoku import Gomoku
 from .go import Go
 from .gandengyan import Gandengyan
@@ -47,6 +48,7 @@ GAMES = {
     Carcassonne.game_type: Carcassonne(),
     BombPlane.game_type: BombPlane(),
     Rummikub.game_type: Rummikub(),
+    GemMerchant.game_type: GemMerchant(),
     AeroplaneChess.game_type: AeroplaneChess(),
     Banqi.game_type: Banqi(),
     Blackjack.game_type: Blackjack(),

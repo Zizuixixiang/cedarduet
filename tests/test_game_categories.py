@@ -20,7 +20,7 @@ class GameCategoryTests(unittest.TestCase):
             'card': {'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
                      'texas_holdem', 'train_cards', 'uno', 'zhajinhua'},
             'dice': {'liars_dice', 'yahtzee'},
-            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne'},
+            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne', 'gem_merchant'},
         }
         self.assertEqual({category: {g for g, c in categories.items() if c == category}
                           for category in GAME_CATEGORIES}, expected)

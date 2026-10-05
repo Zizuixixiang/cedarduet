@@ -217,7 +217,7 @@ class JungleTests(unittest.TestCase):
 
 class RegistryErrorTests(unittest.TestCase):
     def test_every_plugin_has_shared_rules_and_move_format(self):
-        self.assertEqual(len(GAMES), 29)
+        self.assertEqual(len(GAMES), 30)
 
         for plugin in GAMES.values():
             self.assertTrue(plugin.rules_text)
@@ -231,7 +231,7 @@ class RegistryErrorTests(unittest.TestCase):
                 self.assertIn(plugin.min_players, plugin.resolved_allowed_player_counts())
 
     def test_all_move_formats_follow_shared_mcp_action_layering(self):
-        self.assertEqual(len(GAMES), 29)
+        self.assertEqual(len(GAMES), 30)
         for game_type, plugin in GAMES.items():
             with self.subTest(game_type=game_type):
                 self.assertNotIn('"revision":当前版本', plugin.move_format)

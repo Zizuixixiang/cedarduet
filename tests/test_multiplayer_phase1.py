@@ -257,7 +257,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 29)
+        self.assertEqual(len(production), 30)
         self.assertEqual(production["rummikub"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(production["rummikub"]["category"], "tabletop")
         self.assertFalse(production["rummikub"]["supports_stakes"])
