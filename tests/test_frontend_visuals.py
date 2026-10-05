@@ -248,7 +248,7 @@ assert.equal(gameUsesStandardMoveConfirmation("liars_dice"), false);
 '''
         self.run_node(harness)
 
-    def test_embedded_action_feedback_avoids_variable_height_global_notice(self):
+    def test_playing_rooms_avoid_routine_global_notice(self):
         sources = "\n".join((
             function_source("registeredGameUIRenderer"),
             function_source("roomActionNotice"),
@@ -270,11 +270,12 @@ const generic = {game_type: "generic", status: "playing"};
 const longMoveResult = "人类落子成功，已通知等待中的 AI。掷出 6 点，请从 4 架可移动飞机中选择。";
 assert.equal(roomActionNotice(embedded, "现在轮到你落子", true), "");
 assert.equal(roomActionNotice(embedded, longMoveResult, true), "");
-assert.equal(roomActionNotice(generic, longMoveResult, true), longMoveResult);
-assert.equal(roomActionNotice(generic, "", true), "现在轮到你落子");
-assert.equal(roomActionNotice(zhajinhua, "", true), "现在轮到你行动");
-assert.equal(roomActionNotice(zhajinhua, "现在轮到你落子", true), "现在轮到你行动");
-assert.equal(roomActionNotice(zhajinhua, longMoveResult, true), longMoveResult);
+assert.equal(roomActionNotice(generic, longMoveResult, true), "");
+assert.equal(roomActionNotice(generic, "", true), "");
+assert.equal(roomActionNotice(zhajinhua, "", true), "");
+assert.equal(roomActionNotice(zhajinhua, "现在轮到你落子", true), "");
+assert.equal(roomActionNotice(zhajinhua, longMoveResult, true), "");
+assert.equal(roomActionNotice(generic, "房间已为绑定 AI 创建，可以开始对局。", false), "");
 assert.equal(
   roomActionNotice({game_type: "generic", status: "finished"}, "", false),
   "对局已结束"
@@ -1947,10 +1948,11 @@ class ClassList {{
 }}
 const elements = {{
   gameMessage: {{textContent: "", classList: new ClassList()}},
+  inviteRoomNotice: {{textContent: "", classList: new ClassList()}},
   notice: {{textContent: "", classList: new ClassList()}},
 }};
 const $ = (id) => elements[id];
-let room = {{room_id: "ROOM-XQ"}};
+let room = {{room_id: "ROOM-XQ", status: "playing"}};
 {notice}
 showNotice("现在轮到你落子", false, true);
 assert.equal(elements.gameMessage.classList.contains("my-turn"), true);
@@ -1960,6 +1962,12 @@ assert.equal(elements.gameMessage.classList.contains("my-turn"), false);
 showNotice("落子失败", true, true);
 assert.equal(elements.gameMessage.classList.contains("my-turn"), false);
 assert.equal(elements.gameMessage.classList.contains("error"), true);
+assert.equal(elements.gameMessage.textContent, "落子失败");
+room = {{room_kind: "invite", status: "waiting"}};
+showNotice("等待受邀玩家加入");
+assert.equal(elements.inviteRoomNotice.textContent, "等待受邀玩家加入");
+showNotice("开始失败", true);
+assert.equal(elements.inviteRoomNotice.classList.contains("error"), true);
 room = null;
 showNotice("大厅提示");
 assert.equal(elements.notice.classList.contains("my-turn"), false);

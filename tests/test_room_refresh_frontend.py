@@ -161,11 +161,7 @@ class SharedTurnLayoutContractTests(unittest.TestCase):
         self.assertIn("padding: 7px 12px", message)
         self.assertIn("border-left: 4px solid transparent", message)
         self.assertIn("#gameMessage:empty {", STYLES)
-        self.assertIn("display: block", style_rule("#gameMessage:empty"))
-        self.assertIn(
-            "#gameMessage.embedded-action-feedback:empty { display: none; }",
-            STYLES,
-        )
+        self.assertIn("display: none", style_rule("#gameMessage:empty"))
         render = function_source("renderGame")
         self.assertIn('"embedded-action-feedback"', render)
         self.assertIn("renderer.usesEmbeddedActionFeedback === true", render)

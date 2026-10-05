@@ -3642,6 +3642,9 @@ function renderRulesText(value) {
 }
 
 function roomActionNotice(targetRoom, message, humanCanMove) {
+  // During play, the header already shows room/turn status. Keep this space
+  // for explicit feedback from showNotice, not routine render/poll messages.
+  if (targetRoom.status === "playing") return "";
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   if (renderer && renderer.usesEmbeddedActionFeedback === true) return "";
   if (isTerminal(targetRoom)) return roomTurnText(targetRoom);

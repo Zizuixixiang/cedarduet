@@ -1248,10 +1248,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   text-align: center;
 }
 #gameMessage:empty {
-  display: block;
-  visibility: hidden;
+  display: none;
 }
-#gameMessage.embedded-action-feedback:empty { display: none; }
 #gameMessage.my-turn {
   color: var(--pink-dark);
   background: rgba(230, 168, 177, .14);
