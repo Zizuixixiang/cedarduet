@@ -437,6 +437,48 @@ button.gm-card { cursor: pointer; }
 .gm-detail-close { flex: none; min-width: 44px; }
 .gm-detail-info strong { font-size: 14px; }
 
+/* ---------- 首次引导：原生模态层隔离操作，高亮始终跟随真实区域 ---------- */
+.gm-tutorial {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: rgba(92, 84, 99, .55);
+  color: var(--text, #5C5463);
+  font: 13px/1.4 system-ui, -apple-system, "PingFang SC", sans-serif;
+}
+.gm-tutorial::backdrop { background: transparent; }
+.gm-tutorial.has-target { background: transparent; }
+.gm-tutorial [hidden] { display: none !important; }
+.gm-tutorial-spotlight {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid var(--purple-darker, #8678A0);
+  box-shadow: 0 0 0 9999px rgba(92, 84, 99, .55);
+}
+.gm-tutorial-panel {
+  position: absolute;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  padding: 12px;
+  overflow-y: auto;
+  border: 3px solid var(--purple, #BEB1D1);
+  background: var(--bg, #FDF6F7);
+  box-shadow: 4px 4px 0 rgba(155, 141, 181, .3);
+}
+.gm-tutorial-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gm-tutorial-head h2 { margin: 0; color: var(--purple-darker, #8678A0); font-size: 16px; line-height: 1.3; }
+.gm-tutorial .gm-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
+.gm-tutorial-progress { display: block; margin-top: 4px; color: var(--purple-darker, #8678A0); font-size: 11px; }
+.gm-tutorial-copy { margin: 8px 0 12px; }
+.gm-tutorial .gm-button:focus-visible { outline: 2px solid var(--purple-darker, #8678A0); outline-offset: 3px; }
+
 @media (max-width: 599px) {
   .board.gem_merchant { width: 100%; max-width: 100%; }
   .gm-game { gap: 7px; }

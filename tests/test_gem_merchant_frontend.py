@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -251,6 +252,24 @@ assert.ok(all(review).some((n) => n.dataset.cardId === String(FX.terminal.secret
 assert.ok(v.nodes().some((n) => cls(n, "gm-status") && cls(n, "is-final")));
 assert.ok(!v.nodes().some((n) => cls(n, "gm-cell") && !n.disabled));
 ''')
+
+
+@unittest.skipUnless(NODE, "node is required for browser tutorial tests")
+class GemMerchantTutorialBrowserTests(unittest.TestCase):
+    def test_tutorial_lifecycle_and_mobile_geometry(self):
+        available = subprocess.run(
+            [NODE, "-e", "require.resolve('playwright')"], cwd=ROOT,
+            capture_output=True, text=True,
+        )
+        if available.returncode:
+            self.skipTest("Playwright is required; install it or set NODE_PATH")
+        fixtures = {kind: fixture(kind) for kind in ("opening", "reserved", "terminal")}
+        completed = subprocess.run(
+            [NODE, str(ROOT / "tests/gem_merchant_tutorial_browser.cjs")], cwd=ROOT,
+            input=json.dumps(fixtures, ensure_ascii=False), capture_output=True, text=True,
+            env=os.environ.copy(), timeout=180,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
 
 if __name__ == "__main__":

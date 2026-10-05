@@ -565,6 +565,214 @@
     return any ? review : null;
   }
 
+  // Tutorial state belongs to a page visit, not uiState (which resets every revision).
+  const TUTORIAL_KEY = "cedarduet.gem_merchant.tutorial.v1";
+  const TUTORIAL_STEPS = [
+    {title: "先看胜利目标", targets: [".gm-player.is-opponent", ".gm-player", ".gm-status"],
+      text: "回合结束时，满足任一项就获胜：总分 20 分、皇冠 10 顶，或同一种颜色的卡累计 10 分。双方玩家面板都会显示进度。"},
+    {title: "皇冠换称号", targets: [".gm-royals", ".gm-player"],
+      text: "皇冠累计到 3 顶、6 顶时，各选一张称号卡。称号带来分数，有些还带有额外能力。"},
+    {title: "挑选发展卡", targets: [".gm-pyramid"],
+      text: "发展卡分三层，卡面显示分数、加成、能力和成本。点一张卡，下方就会展开详情和购买信息。"},
+    {title: "沿一条线拿宝石", targets: [".gm-gem-board", ".gm-board-zone"],
+      text: "一次拿 1–3 枚非金宝石。拿多枚时，必须横、竖或斜向连成一条线，中间不能隔空格或金。金色宝石用于保留卡，支付时也能代替其他宝石。"},
+    {title: "特权券与袋中宝石", targets: [".gm-board-side", ".gm-board-zone"],
+      text: "每用一张特权券，可从盘上另拿一枚非金宝石。“桌上券”是公共余量，“袋中”是可补回空格的宝石数。补盘后，对手会拿一张特权券。"},
+    {title: "你的收藏与进度", targets: [".gm-player.is-viewer", ".gm-player"],
+      text: "这里放着你的宝石、特权券、永久加成和保留卡，也显示胜利进度。购买时，同色加成能抵扣成本；回合结束时最多留 10 枚宝石。"},
+    {title: "看清信息再行动", targets: [".gm-detail", ".gm-pyramid", ".gm-controls"],
+      text: "详情会列出成本和还缺多少宝石。实际可做的动作，以当前按钮和高亮为准。教程只作介绍，不会替你出手。",
+      fallbackText: "点卡后，下方会出现详情，告诉你成本和还缺多少宝石。实际可做的动作，以当前按钮和高亮为准。教程不会替你出手。"},
+  ];
+  let tutorialContext = null;
+  let tutorialVisit = null;
+  let tutorialOverlay = null;
+  let tutorialFrame = 0;
+  let tutorialObserver = null;
+
+  function tutorialRemembered() {
+    try { return ["completed", "dismissed"].includes(window.localStorage.getItem(TUTORIAL_KEY)); }
+    catch (_) { return false; }
+  }
+
+  function closeTutorial(remember, restore = true) {
+    const tour = tutorialOverlay;
+    if (!tour) return;
+    tutorialOverlay = null;
+    if (remember) {
+      try { window.localStorage.setItem(TUTORIAL_KEY, remember); }
+      catch (_) { /* Storage may be unavailable; this visit still stays dismissed. */ }
+    }
+    tour.resizeObserver?.disconnect();
+    tour.dialog.close();
+    tour.dialog.remove();
+    if (restore) {
+      window.scrollTo({left: tour.scrollX, top: tour.scrollY, behavior: "instant"});
+      if (tour.focus?.isConnected) tour.focus.focus({preventScroll: true});
+    }
+  }
+
+  function tutorialTarget(step) {
+    const context = tutorialContext;
+    for (const selector of step.targets) {
+      const node = context.board.querySelector(selector) || context.controls.querySelector(selector);
+      if (node && node.getClientRects().length) return node;
+    }
+    return null;
+  }
+
+  function positionTutorial(scrollToTarget = false) {
+    const tour = tutorialOverlay;
+    if (!tour) return;
+    const {dialog, panel, spotlight} = tour;
+    const width = dialog.clientWidth, height = dialog.clientHeight;
+    const margin = 12, gap = 14;
+    panel.style.left = `${Math.max(margin, (width - panel.offsetWidth) / 2)}px`;
+    const step = TUTORIAL_STEPS[tour.step];
+    const target = step && tutorialTarget(step);
+    const text = step && (step.fallbackText && !target?.matches(".gm-detail") ? step.fallbackText : step.text);
+    if (text && tour.copy.textContent !== text) tour.copy.textContent = text;
+    const panelHeight = panel.getBoundingClientRect().height;
+    if (!target) {
+      spotlight.hidden = true;
+      dialog.classList.remove("has-target");
+      panel.style.top = `${Math.max(margin, (height - panelHeight) / 2)}px`;
+      return;
+    }
+    if (scrollToTarget) target.scrollIntoView({block: "center", inline: "nearest", behavior: "instant"});
+    let rect = target.getBoundingClientRect();
+    // Make room for the explanation without changing the game's document layout.
+    if (scrollToTarget && rect.bottom + gap + panelHeight > height - margin
+        && rect.top - gap - panelHeight < margin) {
+      window.scrollBy({top: rect.top - margin - 4, behavior: "instant"});
+      rect = target.getBoundingClientRect();
+    }
+    const below = rect.bottom + gap;
+    const above = rect.top - gap - panelHeight;
+    const top = below + panelHeight <= height - margin ? below
+      : above >= margin ? above : height - margin - panelHeight;
+    panel.style.top = `${Math.max(margin, top)}px`;
+    const left = Math.max(2, rect.left - 4), right = Math.min(width - 2, rect.right + 4);
+    const targetTop = Math.max(2, rect.top - 4), bottom = Math.min(height - 2, rect.bottom + 4);
+    spotlight.hidden = false;
+    dialog.classList.add("has-target");
+    Object.assign(spotlight.style, {left: `${left}px`, top: `${targetTop}px`,
+      width: `${Math.max(0, right - left)}px`, height: `${Math.max(0, bottom - targetTop)}px`});
+  }
+
+  function showTutorialStep(index) {
+    const tour = tutorialOverlay;
+    tour.step = index;
+    tour.dialog.dataset.step = String(index + 1);
+    tour.title.textContent = TUTORIAL_STEPS[index].title;
+    tour.progress.textContent = `${index + 1} / ${TUTORIAL_STEPS.length}`;
+    tour.copy.textContent = TUTORIAL_STEPS[index].text;
+    tour.previous.hidden = false;
+    tour.previous.disabled = index === 0;
+    tour.next.textContent = index === TUTORIAL_STEPS.length - 1 ? "完成" : "下一步";
+    positionTutorial(true);
+    tour.next.focus({preventScroll: true});
+  }
+
+  function openTutorial() {
+    const doc = tutorialContext.board.ownerDocument;
+    const dialog = el(doc, "dialog", "gm-tutorial");
+    dialog.setAttribute("aria-labelledby", "gm-tutorial-title");
+    dialog.setAttribute("aria-describedby", "gm-tutorial-copy");
+    const spotlight = el(doc, "div", "gm-tutorial-spotlight");
+    spotlight.setAttribute("aria-hidden", "true");
+    spotlight.hidden = true;
+    const panel = el(doc, "section", "gm-tutorial-panel");
+    const head = el(doc, "div", "gm-tutorial-head");
+    const title = el(doc, "h2", "", "第一次来宝石商人？");
+    title.id = "gm-tutorial-title";
+    const close = actionButton(doc, "×", false, false, () => closeTutorial());
+    close.classList.add("gm-tutorial-close");
+    close.setAttribute("aria-label", "关闭本次教程");
+    const progress = el(doc, "span", "gm-tutorial-progress", "7 步认识桌面");
+    const copy = el(doc, "p", "gm-tutorial-copy", "要看看怎么玩吗？跟着高亮认识牌桌，不会替你操作。这次先关掉也没关系，下次进入还会提示。");
+    copy.id = "gm-tutorial-copy";
+    copy.setAttribute("aria-live", "polite");
+    const actions = el(doc, "div", "gm-actions");
+    const previous = actionButton(doc, "上一步", false, true, () => showTutorialStep(tutorialOverlay.step - 1));
+    previous.hidden = true;
+    const next = actionButton(doc, "查看教程", true, false, () => {
+      const index = tutorialOverlay.step;
+      if (index === TUTORIAL_STEPS.length - 1) closeTutorial("completed");
+      else showTutorialStep(index + 1);
+    });
+    const dismiss = actionButton(doc, "不再提示", false, false, () => closeTutorial("dismissed"));
+    dismiss.classList.add("gm-tutorial-dismiss");
+    next.addEventListener("click", () => { dismiss.hidden = true; });
+    head.append(title, close);
+    actions.append(previous, next, dismiss);
+    panel.append(head, progress, copy, actions);
+    dialog.append(spotlight, panel);
+    tutorialOverlay = {dialog, panel, spotlight, title, progress, copy, previous, next, step: -1,
+      scrollX: window.scrollX, scrollY: window.scrollY, focus: doc.activeElement};
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeTutorial(); });
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const buttons = [...dialog.querySelectorAll("button")].filter(node => !node.disabled && node.getClientRects().length);
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && doc.activeElement === first) {
+        event.preventDefault(); last.focus({preventScroll: true});
+      } else if (!event.shiftKey && doc.activeElement === last) {
+        event.preventDefault(); first.focus({preventScroll: true});
+      }
+    });
+    doc.body.appendChild(dialog);
+    dialog.showModal();
+    if (window.ResizeObserver) {
+      tutorialOverlay.resizeObserver = new window.ResizeObserver(() => scheduleTutorial());
+      [tutorialContext.board, tutorialContext.controls, panel].forEach(node => tutorialOverlay.resizeObserver.observe(node));
+    }
+    positionTutorial();
+    next.focus({preventScroll: true});
+  }
+
+  function scheduleTutorial() {
+    if (tutorialFrame) return;
+    tutorialFrame = window.requestAnimationFrame(() => {
+      tutorialFrame = 0;
+      const context = tutorialContext;
+      if (!context) return;
+      const visible = context.board.isConnected && context.board.getClientRects().length
+        && context.board.querySelector(".gm-game");
+      if (!visible) {
+        closeTutorial(null, false);
+        tutorialVisit = null;
+        return;
+      }
+      const key = `${context.room.room_id || ""}:${viewerId(context)}`;
+      if (!tutorialVisit || tutorialVisit.key !== key || tutorialVisit.board !== context.board) {
+        closeTutorial(null, false);
+        tutorialVisit = {key, board: context.board};
+        if (!tutorialRemembered()) openTutorial();
+      } else {
+        positionTutorial();
+      }
+    });
+  }
+
+  function syncTutorial(context) {
+    // Modal positioning requires a mounted browser document.
+    if (!window.MutationObserver || !context.board.ownerDocument.body) return;
+    tutorialContext = context;
+    if (!tutorialObserver) {
+      tutorialObserver = new window.MutationObserver(records => {
+        if (records.some(record => !record.target.closest?.(".gm-tutorial"))) scheduleTutorial();
+      });
+      tutorialObserver.observe(context.board.ownerDocument.body, {
+        subtree: true, childList: true, attributes: true, attributeFilter: ["class", "hidden"],
+      });
+      window.addEventListener("scroll", () => { if (tutorialOverlay) scheduleTutorial(); }, true);
+      window.addEventListener("resize", () => { if (tutorialOverlay) scheduleTutorial(); });
+      window.visualViewport?.addEventListener("resize", () => { if (tutorialOverlay) scheduleTutorial(); });
+    }
+    scheduleTutorial();
+  }
+
   function renderBoard(context) {
     const doc = context.board.ownerDocument;
     ensureStylesheet(doc);
@@ -583,6 +791,7 @@
       if (review) root.appendChild(review);
     }
     context.board.appendChild(root);
+    syncTutorial(context);
   }
 
   // ---------------------------------------------------------------- 操作区
