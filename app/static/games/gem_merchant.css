@@ -214,7 +214,7 @@ button.gm-royal { cursor: pointer; border-color: #c99a2a; box-shadow: 0 0 0 2px 
   font-weight: 800;
 }
 .gm-royal-body { min-width: 0; display: grid; }
-.gm-royal-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-royal-name { font-size: 11px; line-height: 1.2; text-wrap: balance; }
 .gm-royal-ability { font-size: 9px; line-height: 1.2; opacity: .85; }
 .gm-royal-short { display: none; font-size: 9px; line-height: 1.2; opacity: .85; }
 .gm-royal-points { font-size: 14px; font-weight: 800; }
@@ -347,12 +347,12 @@ button.gm-card { cursor: pointer; }
 .gm-card.is-back .gm-level { position: static; font-size: 14cqw; color: #5d4f73; }
 
 .gm-card.is-small { width: 46px; flex: none; }
-.gm-card.is-large { width: 108px; flex: none; }
+.gm-card.is-large { width: 88px; flex: none; }
 
 /* ---------- 宝石盘 ---------- */
-.gm-board-zone { display: grid; grid-template-columns: minmax(0, 1fr) 62px; gap: 8px; align-items: center; }
+.gm-board-zone { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 6px; align-items: center; }
 .gm-gem-board {
-  width: min(100%, 300px);
+  width: min(100%, 260px);
   justify-self: center;
   padding: 6px;
   display: grid;
@@ -431,8 +431,10 @@ button.gm-card { cursor: pointer; }
   touch-action: manipulation;
 }
 .gm-choice.is-selected { border-color: var(--purple-darker, #8678A0); background: var(--purple-light, #E6DFF0); }
-.gm-detail { display: flex; gap: 10px; align-items: flex-start; }
-.gm-detail-info { min-width: 0; display: grid; gap: 3px; font-size: 12px; }
+.gm-detail { display: flex; gap: 8px; align-items: flex-start; }
+.gm-detail-info { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: 12px; line-height: 1.3; }
+.gm-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.gm-detail-close { flex: none; min-width: 44px; }
 .gm-detail-info strong { font-size: 14px; }
 
 @media (max-width: 599px) {
@@ -441,13 +443,11 @@ button.gm-card { cursor: pointer; }
   .gm-meter { min-width: 34px; }
   .gm-royal-ability { display: none; }
   .gm-royal-short { display: block; }
-  .gm-royal { min-height: 40px; padding: 3px; column-gap: 3px; }
+  .gm-royal { min-height: 44px; padding: 3px; column-gap: 3px; }
   .gm-royal-emblem { width: 16px; height: 16px; font-size: 10px; }
-  .gm-royal-name { font-size: 10px; }
 }
 
 @media (max-width: 359px) {
   .gm-cell { min-width: 38px; min-height: 38px; padding: 3px; }
-  .gm-board-zone { grid-template-columns: minmax(0, 1fr) 52px; }
   .gm-token-chip { min-width: 24px; }
 }

@@ -615,7 +615,12 @@
     }
     panel.appendChild(cardNode(doc, card, {size: "large", short}));
     const info = el(doc, "div", "gm-detail-info");
-    info.appendChild(el(doc, "strong", "", cardText(card).split("，")[0]));
+    const head = el(doc, "div", "gm-detail-head");
+    head.appendChild(el(doc, "strong", "", cardText(card).split("，")[0]));
+    const close = actionButton(doc, "关上", false, false, () => { reset(context); rerender(context); });
+    close.classList.add("gm-detail-close");
+    head.appendChild(close);
+    info.appendChild(head);
     info.appendChild(el(doc, "span", "", `${card.points} 分${card.crowns ? ` · ${card.crowns} 顶皇冠` : ""}${card.bonus === 2 ? " · 双加成" : ""}`));
     if (card.ability) info.appendChild(el(doc, "span", "", `能力：${ABILITY_LONG[card.ability]}`));
     if (card.joker) info.appendChild(el(doc, "span", "", "百搭：压在你已有加成的一种颜色上"));
@@ -644,7 +649,6 @@
       });
       controls.appendChild(chooser);
     }
-    buttons.appendChild(actionButton(doc, "关上", false, false, () => { reset(context); rerender(context); }));
     if (myTurn(context) && !context.state.pending && ui.cardWhere !== "opponent") {
       const buy = card.joker
         ? (buys.length === 1 ? buys[0] : buys.find((a) => a.joker_color === ui.joker))
@@ -657,7 +661,7 @@
         }));
       }
     }
-    controls.appendChild(buttons);
+    if (buttons.children.length) controls.appendChild(buttons);
     return true;
   }
 
