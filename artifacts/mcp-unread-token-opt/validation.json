@@ -1,0 +1,34 @@
+{
+  "tests": [
+    {
+      "modules": [
+        "tests.test_mcp_notifications",
+        "tests.test_notifications"
+      ],
+      "run": 24,
+      "passed": 24
+    },
+    {
+      "modules": [
+        "tests.test_mcp_compact",
+        "tests.test_four_game_incremental",
+        "tests.test_wait_control",
+        "tests.test_local_mcp",
+        "tests.test_gem_merchant",
+        "tests.test_gem_merchant_compact"
+      ],
+      "run": 97,
+      "passed": 95,
+      "failed": 1,
+      "skipped": 1
+    }
+  ],
+  "python": "/opt/cedartoy/vendor/duel/.venv/bin/python",
+  "command": "PYTHONPATH=. <python> -m unittest <modules> -q",
+  "failure": "tests.test_local_mcp.LocalMcpStdioTests.test_adapter_is_a_real_stdio_mcp_server: initialize timeout; reproduced on unmodified HEAD and on isolated retry; app.local_mcp is unchanged",
+  "skip": "Production gateway test requires duel_async_gateway.py outside this standalone checkout",
+  "legacy_games_covered": 26,
+  "diff_check": "passed, including whitespace checks for new Python files",
+  "sampling_environment": "PYTHONHASHSEED=0 PYTHONPATH=.:/opt/cedartoy/vendor/duel/.venv/lib/python3.10/site-packages python scripts/sample_mcp_unread_tokens.py --out <trace.json>",
+  "baseline_sampling": "Same sampler copied into git archive HEAD extracted under /tmp; both runs use disposable databases"
+}

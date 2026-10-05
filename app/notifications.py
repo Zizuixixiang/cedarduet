@@ -487,10 +487,46 @@ def unread_hint(summary: dict) -> str:
     return "；".join(parts)
 
 
-def attach_mcp_unread(payload: dict, subject_id: str) -> dict:
-    """Attach the compact stable MCP summary only when unread work remains."""
-    summary = unread_summary("ai", subject_id)
-    if summary["total"]:
-        payload["unread"] = summary
-        payload["unread_hint"] = unread_hint(summary)
+def attach_mcp_unread(
+    payload: dict, subject_id: str, *, only_new: bool = True
+) -> dict:
+    """Deliver new work once per AI, without marking notifications read.
+
+    The ID watermark, summary and delivery claim share a writer transaction:
+    concurrent responses cannot claim the same notice or skip a later insert.
+    Explicit lists use only_new=False and do not touch the delivery watermark.
+    Call only after successful response construction and wait-lease checks;
+    callers must not let gateways retry a response carrying a fresh notice.
+    """
+    if not only_new:
+        summary = unread_summary("ai", subject_id)
+        if summary["total"]:
+            payload["unread"] = summary
+            payload["unread_hint"] = unread_hint(summary)
+        return payload
+
+    with write_transaction() as conn:
+        newest = conn.execute(
+            """SELECT COALESCE(MAX(id), 0) FROM notifications
+               WHERE subject_type = 'ai' AND subject_id = ? AND read_at IS NULL""",
+            (subject_id,),
+        ).fetchone()[0]
+        old = conn.execute(
+            "SELECT last_id FROM mcp_notification_delivery WHERE player_id = ?",
+            (subject_id,),
+        ).fetchone()
+        if newest and (old is None or newest > old[0]):
+            summary = unread_summary("ai", subject_id, conn=conn)
+            hint = unread_hint(summary)
+            conn.execute(
+                """INSERT INTO mcp_notification_delivery (player_id, last_id)
+                   VALUES (?, ?) ON CONFLICT(player_id) DO UPDATE
+                   SET last_id = excluded.last_id""",
+                (subject_id, newest),
+            )
+        else:
+            return payload
+    # A failed commit must not leave an apparently delivered payload behind.
+    payload["unread"] = summary
+    payload["unread_hint"] = hint
     return payload

@@ -316,15 +316,8 @@ def placements(room, pid, query):
 
 
 def attach_new_notifications(payload, pid):
-    from .notifications import unread_summary, unread_hint
-    with write_transaction() as conn:
-        newest=conn.execute("SELECT COALESCE(MAX(id),0) FROM notifications WHERE subject_type='ai' AND subject_id=? AND read_at IS NULL",(pid,)).fetchone()[0]
-        old=conn.execute('SELECT last_id FROM mcp_notification_delivery WHERE player_id=?',(pid,)).fetchone()
-        if newest and (not old or newest>old[0]):
-            summary=unread_summary('ai',pid,conn=conn)
-            payload['unread']=summary; payload['unread_hint']=unread_hint(summary)
-            conn.execute('INSERT OR REPLACE INTO mcp_notification_delivery VALUES(?,?)',(pid,newest))
-    return payload
+    from .notifications import attach_mcp_unread
+    return attach_mcp_unread(payload, pid)
 
 
 def needs_bootstrap(room_id, pid):

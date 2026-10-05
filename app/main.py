@@ -2122,14 +2122,23 @@ async def mcp_play(body: McpPlayBody):
             minimal = mcp_minimal.enabled(room)
         if minimal:
             payload = mcp_minimal.attach_new_notifications(payload, body.player_id)
-            # Gateways may retry empty heartbeats internally. Deliver gameplay
-            # and fresh notices to the caller, never swallow them as a heartbeat.
-            if any(payload.get(k) for k in ("events", "private", "bootstrap", "unread")):
-                payload.pop("wait_downgraded", None)
-                if payload.get("status") == "still_waiting":
-                    payload.pop("status")
         else:
-            payload = attach_mcp_unread(payload, body.player_id)
+            payload = attach_mcp_unread(
+                payload, body.player_id,
+                only_new=body.action not in {"catalog", "rooms", "chips"},
+            )
+        # Gateways retry empty heartbeats internally. A claimed notice must
+        # reach the caller in both protocols before a subsequent response can
+        # omit it. Empty heartbeats retain their retry/lease behavior.
+        if payload.get("unread") or (
+            minimal and any(payload.get(k) for k in ("events", "private", "bootstrap"))
+        ):
+            payload.pop("wait_downgraded", None)
+            if payload.get("status") == "still_waiting":
+                if minimal:
+                    payload.pop("status")
+                else:
+                    payload["status"] = room["status"]
         if lease:
             keep_lease = body.wait_generation is not None and (
                 payload.get("status") == "still_waiting"
