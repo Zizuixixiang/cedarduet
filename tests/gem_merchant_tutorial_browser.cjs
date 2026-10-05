@@ -21,11 +21,11 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
         : route.fulfill({path: path.join(root, 'app', url.pathname)});
     });
     const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    async function mount() {
+    async function mount(loginIdentity = null) {
       await page.goto('http://gm.test/');
       await page.evaluate(() => { window.DuelGameUI = {register: (_, r) => { window.renderer = r; }}; });
       await page.addScriptTag({path: path.join(root, 'app/static/games/gem_merchant.js')});
-      await page.evaluate(fixtures => {
+      await page.evaluate(({fixtures, loginIdentity}) => {
         window.fixtures = fixtures;
         window.submitted = [];
         window.show = (kind = 'opening', viewer = 'human', roomId = 'room-one') => {
@@ -36,7 +36,8 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
             state: structuredClone(fx.state), privateState: priv, legalActions: priv.legal_actions,
             uiState: {}, canMove: !fx.terminal && fx.current === viewer, isTerminal: fx.terminal,
             room: {room_id: roomId, revision: 1, current_player_id: fx.current, status: fx.terminal ? 'finished' : 'playing'},
-            viewer: {player_id: viewer}, participants: [{player_id: 'human', display_name: '南山'}, {player_id: 'machine', display_name: '小机'}],
+            identity: loginIdentity,
+            viewer: {player_id: viewer, role: viewer === 'human' ? 'human' : 'ai'}, participants: [{player_id: 'human', display_name: '南山'}, {player_id: 'machine', display_name: '小机'}],
             helpers: {canMove: () => context.canMove, rerender: () => {
               context.board.replaceChildren(); context.controls.replaceChildren();
               renderer.renderBoard(context); renderer.renderControls(context);
@@ -45,7 +46,7 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
           context.helpers.rerender();
         };
         show();
-      }, fixtures);
+      }, {fixtures, loginIdentity});
       await page.waitForFunction(() => getComputedStyle(document.querySelector('.gm-game')).display === 'grid');
       await frames();
     }
@@ -67,6 +68,16 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
       await page.screenshot({path: path.join(screenshots, name + '.png')});
     }
     async function step(n) { await page.waitForFunction(n => document.querySelector('.gm-tutorial')?.dataset.step === String(n), n); await frames(); }
+    async function assertHighlighted(selector) {
+      assert.ok(await page.evaluate(selector => {
+        const h = document.querySelector('.gm-tutorial-spotlight').getBoundingClientRect();
+        const t = document.querySelector(selector).getBoundingClientRect();
+        const prompt = document.querySelector('.gm-controls .gm-prompt')?.getBoundingClientRect();
+        return Math.abs(h.x - t.x + 4) < 1 && Math.abs(h.y - t.y + 4) < 1
+          && Math.abs(h.width - t.width - 8) < 1 && Math.abs(h.height - t.height - 8) < 1
+          && (!prompt || h.bottom <= prompt.top || h.top >= prompt.bottom);
+      }, selector), `highlight ${selector}, never the status prompt`);
+    }
 
     await mount(); await intro();
     await button('关闭本次教程').click(); assert.equal(await stored(), null);
@@ -93,6 +104,47 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
     assert.deepEqual(await page.evaluate(() => submitted), []);
     console.log('PASS previous/next, interrupted tutorial, final completion/reload, no game actions');
 
+    const resetMarker = 'cedarduet.gem_merchant.tutorial.reset.20261005.turn-guide.human';
+    const nanshan = {bound: true, human_name: '南杉', human_player_id: 'human'};
+    // Login identity, never a room display name, authorizes this one-time reset.
+    for (const identity of [null, {...nanshan, human_name: '南山'}, {...nanshan, bound: false},
+      {...nanshan, human_player_id: ''}, {...nanshan, human_player_id: 'another-human'}]) {
+      await mount(identity);
+      await leave();
+      await page.evaluate(() => { show(); context.participants[0].display_name = '南杉'; context.helpers.rerender(); });
+      await frames();
+      assert.equal(await stored(), 'completed');
+      assert.equal(await page.evaluate(k => localStorage.getItem(k), resetMarker), null);
+      assert.equal(await modal.count(), 0);
+    }
+    // An AI viewer must not reset the human's preference, even with matching IDs.
+    await leave();
+    await page.evaluate(identity => {
+      show(); context.identity = identity; context.viewer.role = 'ai'; context.helpers.rerender();
+    }, nanshan);
+    await frames(); assert.equal(await stored(), 'completed');
+    assert.equal(await page.evaluate(k => localStorage.getItem(k), resetMarker), null);
+    // A blocked marker write leaves the completed record intact.
+    await leave();
+    await page.evaluate(identity => {
+      window.originalSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => { throw new Error('quota'); };
+      show(); context.identity = identity; context.helpers.rerender();
+    }, nanshan);
+    await frames(); assert.equal(await stored(), 'completed');
+    await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
+    await mount(nanshan); await intro();
+    assert.equal(await stored(), null);
+    assert.equal(await page.evaluate(k => localStorage.getItem(k), resetMarker), '1');
+    await button('查看教程').click();
+    for (let i = 1; i < 7; i++) await button('下一步').click();
+    await button('完成').click(); assert.equal(await stored(), 'completed');
+    await mount(nanshan);
+    assert.equal(await modal.count(), 0, 'new completion survives the next entry');
+    assert.equal(await stored(), 'completed');
+    assert.equal(await page.evaluate(k => localStorage.getItem(k), resetMarker), '1');
+    console.log('PASS targeted reset: exact human login only, write failure, one-time marker, completion survives reload');
+
     for (const width of [360, 390, 430, 1280]) {
       await page.setViewportSize({width, height: 800});
       await fresh(); await snap(`${width}-intro`);
@@ -116,8 +168,9 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
           const dialog = document.querySelector('.gm-tutorial');
           const highlight = dialog.querySelector('.gm-tutorial-spotlight').getBoundingClientRect();
           const panel = dialog.querySelector('.gm-tutorial-panel').getBoundingClientRect();
-          const targetSelectors = ['.gm-player.is-opponent', '.gm-controls', '.gm-gem-board', '.gm-pyramid', '.gm-pyramid', '.gm-controls', '.gm-player.is-viewer'];
-          const target = document.querySelector(targetSelectors[Number(dialog.dataset.step) - 1]).getBoundingClientRect();
+          const targetSelectors = ['.gm-player.is-opponent', '.gm-controls .gm-actions', '.gm-gem-board', '.gm-pyramid', '.gm-pyramid', '.gm-player.is-viewer', '.gm-player.is-viewer'];
+          const target = (document.querySelector(targetSelectors[Number(dialog.dataset.step) - 1])
+            || document.querySelector('.gm-player.is-viewer')).getBoundingClientRect();
           const overlap = Math.min(panel.right, target.right) > Math.max(panel.left, target.left)
             && Math.min(panel.bottom, target.bottom) > Math.max(panel.top, target.top);
           const next = [...dialog.querySelectorAll('button')].find(b => /^(下一步|完成)$/.test(b.textContent));
@@ -185,6 +238,34 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
     assert.equal(await page.evaluate(() => JSON.stringify(context.uiState.gm)), savedDraft);
     assert.ok(await page.locator('.gm-detail-close').evaluate(node => node === document.activeElement));
     console.log('PASS existing detail, resize alignment, keyboard focus isolation and restoration');
+
+    // Waiting text is not an action area: both lessons must highlight the viewer's panel.
+    for (const width of [360, 390, 430]) {
+      await page.setViewportSize({width, height: 800});
+      await leave(); await page.evaluate(key => localStorage.removeItem(key), key);
+      await page.evaluate(() => {
+        show(); context.canMove = false; context.room.current_player_id = 'machine';
+        context.helpers.rerender();
+      });
+      await intro();
+      assert.ok((await page.locator('.gm-controls').innerText()).includes('出手；可以先点卡看看'));
+      assert.equal(await page.locator('.gm-controls .gm-actions').count(), 0);
+      await button('查看教程').click(); await button('下一步').click(); await step(2);
+      await assertHighlighted('.gm-player.is-viewer'); await snap(`${width}-waiting-step-2`);
+      for (let i = 2; i < 6; i++) await button('下一步').click();
+      await step(6); await assertHighlighted('.gm-player.is-viewer'); await snap(`${width}-waiting-step-6`);
+      await button('关闭本次教程').click();
+    }
+    // Actual actions still take precedence for lesson 2; lesson 6 stays on the player.
+    await leave(); await enter(); await intro(); await button('关闭本次教程').click();
+    await page.locator('.gm-pyramid .gm-card[data-card-id]').first().click();
+    await page.evaluate(() => { context.room.room_id = 'action-target-check'; context.helpers.rerender(); });
+    await intro(); await button('查看教程').click(); await button('下一步').click(); await step(2);
+    await assertHighlighted('.gm-controls .gm-actions');
+    for (let i = 2; i < 6; i++) await button('下一步').click();
+    await step(6); await assertHighlighted('.gm-player.is-viewer');
+    await button('关闭本次教程').click();
+    console.log('PASS lessons 2/6: waiting prompts excluded at 360/390/430px; real action priority preserved');
 
     // Missing/replaced targets, waiting and finished rooms remain navigable.
     for (const [kind, viewer] of [['opening', 'machine'], ['terminal', 'human']]) {

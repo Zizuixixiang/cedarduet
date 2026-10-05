@@ -570,7 +570,7 @@
   const TUTORIAL_STEPS = [
     {title: "先看胜利目标", targets: [".gm-player.is-opponent", ".gm-player", ".gm-status"],
       text: "回合结束时，满足任一项就获胜：总分 20 分、皇冠 10 顶，或同一种颜色的卡累计 10 分。双方玩家面板都会显示进度。"},
-    {title: "轮到你，三选一", targets: [".gm-controls", ".gm-player.is-viewer"],
+    {title: "轮到你，三选一", targets: [".gm-controls .gm-actions", ".gm-player.is-viewer"],
       text: "轮到你，主要行动只选一个：①拿宝石 ②保留一张卡 ③买一张卡。先记住这三个，不用一回合全做。"},
     {title: "沿一条线拿宝石", targets: [".gm-gem-board", ".gm-board-zone"],
       text: "先点 1–3 颗非金色宝石，再按“拿！”。拿 2–3 颗时，必须横、竖或斜着连成直线，中间不能隔空格或金色。例：连着三颗可以，中间隔空不行。"},
@@ -578,7 +578,7 @@
       text: "卡上彩色圆点里的数字就是价格。先拿宝石凑够，再点卡看详情、按“买下”。买卡能赚分，也能积累永久加成：蓝色加成能抵扣以后买卡的蓝色价格。"},
     {title: "买不起？先留给自己", targets: [".gm-pyramid", ".gm-gem-board"],
       text: "很想要一张卡，宝石却不够？盘上有金色宝石时，点卡选“拿金保留”：拿 1 枚金，把卡留给自己以后买。金能代任意颜色付款。最多保留 3 张。"},
-    {title: "额外规则，遇到再看", targets: [".gm-controls", ".gm-player.is-viewer"],
+    {title: "额外规则，遇到再看", targets: [".gm-player.is-viewer", ".gm-controls .gm-actions"],
       text: "特权券、补盘、偷宝石、再来一次，先不用全背。遇到额外选择，看界面高亮和按钮跟着选就好。回合结束时，宝石超过 10 枚，要弃到只剩 10 枚。"},
     {title: "记住这个循环就能开玩", targets: [".gm-player.is-viewer", ".gm-pyramid", ".gm-player"],
       text: "拿宝石 → 买卡 → 获得永久加成 → 更容易买更贵的卡 → 达成胜利条件。开局先挑一张想买的卡，照着价格拿宝石吧！皇冠到 3 顶、6 顶时，还会各选一张称号卡。"},
@@ -588,6 +588,20 @@
   let tutorialOverlay = null;
   let tutorialFrame = 0;
   let tutorialObserver = null;
+
+  function resetTutorialOnce(context) {
+    const account = context.identity;
+    if (account?.bound !== true || account.human_name !== "南杉" || !account.human_player_id
+        || context.viewer?.role !== "human" || viewerId(context) !== account.human_player_id) return;
+    const marker = `cedarduet.gem_merchant.tutorial.reset.20261005.turn-guide.${account.human_player_id}`;
+    try {
+      const storage = window.localStorage;
+      if (storage.getItem(marker)) return;
+      // Persist the one-time guard first: a failed write must not repeatedly erase completion.
+      storage.setItem(marker, "1");
+      storage.removeItem(TUTORIAL_KEY);
+    } catch (_) { /* Unavailable storage must not interrupt the game. */ }
+  }
 
   function tutorialRemembered() {
     try { return ["completed", "dismissed"].includes(window.localStorage.getItem(TUTORIAL_KEY)); }
@@ -747,6 +761,7 @@
       if (!tutorialVisit || tutorialVisit.key !== key || tutorialVisit.board !== context.board) {
         closeTutorial(null, false);
         tutorialVisit = {key, board: context.board};
+        resetTutorialOnce(context);
         if (!tutorialRemembered()) openTutorial();
       } else {
         positionTutorial();
