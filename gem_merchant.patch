@@ -1,0 +1,4136 @@
+From 1a7c5b897b9206d1d18b63d0d524567242a3096d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E9=A1=BE=E5=B1=BF?= <guyu0726@agent.qq.com>
+Date: Mon, 5 Oct 2026 04:24:02 -0700
+Subject: [PATCH] =?UTF-8?q?feat:=20=E6=96=B0=E5=A2=9E=E5=AE=9D=E7=9F=B3?=
+ =?UTF-8?q?=E5=95=86=E4=BA=BA=EF=BC=88gem=5Fmerchant=EF=BC=89=E4=B8=A4?=
+ =?UTF-8?q?=E4=BA=BA=E5=AE=9D=E7=9F=B3=E5=AF=B9=E5=86=B3?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 规则引擎、67 张卡表、权威 legal_actions、公共/私有/终局投影
+- 盲抽保留对手只见等级、终局复盘公开；场上保留双方可见
+- MCP 紧凑编码与 gem_merchant_delta，full_state 走原协议路径
+- 前端 renderer 与样式：沿用双弈配色，CSS 原创卡面，手机竖屏优先
+- 不支持系统 NPC；临时代操作在 takeover 加通用回退
+- 新增 35 个测试，更新写死游戏数量/分类/隐私分桶的旧测试
+- 规则机制与卡牌数值来自《Splendor Duel》，名称与美术原创，详见 docs/GEM_MERCHANT.md
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ README.md                              |    9 +-
+ app/full_state.py                      |    3 +-
+ app/games/__init__.py                  |    2 +
+ app/games/gem_merchant.py              | 1466 ++++++++++++++++++++++++
+ app/static/app.js                      |    1 +
+ app/static/games/gem_merchant.css      |  453 ++++++++
+ app/static/games/gem_merchant.js       |  811 +++++++++++++
+ app/takeover.py                        |    5 +
+ docs/GEM_MERCHANT.md                   |  127 ++
+ docs/MCP_GUIDE.md                      |    4 +
+ tests/full_state_support.py            |    8 +-
+ tests/test_game_categories.py          |    2 +-
+ tests/test_gem_merchant.py             |  686 +++++++++++
+ tests/test_gem_merchant_frontend.py    |  257 +++++
+ tests/test_hidden_information_audit.py |    1 +
+ tests/test_identity.py                 |    4 +-
+ tests/test_local_gateway.py            |    2 +-
+ tests/test_multiplayer_phase1.py       |    2 +-
+ tests/test_new_games.py                |    4 +-
+ 19 files changed, 3835 insertions(+), 12 deletions(-)
+ create mode 100644 app/games/gem_merchant.py
+ create mode 100644 app/static/games/gem_merchant.css
+ create mode 100644 app/static/games/gem_merchant.js
+ create mode 100644 docs/GEM_MERCHANT.md
+ create mode 100644 tests/test_gem_merchant.py
+ create mode 100644 tests/test_gem_merchant_frontend.py
+
+diff --git a/README.md b/README.md
+index 19adbaa..4198ea6 100644
+--- a/README.md
++++ b/README.md
+@@ -1,7 +1,7 @@
+ # CedarDuet / 双弈
+ 
+ CedarDuet（双弈）是让人类、绑定 AI 与系统 NPC 同桌进行回合制棋、牌、骰与桌游的独立
+-FastAPI/ASGI 服务。同一仓库包含 **29 款游戏**、人类 Web、AI HTTP 游戏接口、标准本地
++FastAPI/ASGI 服务。同一仓库包含 **30 款游戏**、人类 Web、AI HTTP 游戏接口、标准本地
+ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱乐筹码、互动兑换、欠条与
+ 成就系统。
+ 
+@@ -16,7 +16,7 @@ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱
+ > 不要把它的 URL 填成 MCP Server 地址。官方标准 MCP 由 CedarToy 聚合提供；本地 clone
+ > 的标准 MCP 由 `app.local_mcp` 通过 stdio 提供。
+ 
+-## 29 款游戏
++## 30 款游戏
+ 
+ 人数与 NPC 能力来自当前运行时 catalog。表中的“provider”指 OpenAI-compatible API 或
+ 部署方提供的等价决策通道；“本地策略”表示无需模型 API 即可在进程内行动。
+@@ -62,19 +62,20 @@ stdio MCP adapter、SQLite 持久化，以及房间时间线、NPC、全局娱
+ | 吹牛骰子 | `liars_dice` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+ | 快艇骰子 | `yahtzee` | 2 / 3 / 4 / 5 / 6 | 支持 · provider |
+ 
+-### 桌游（3）
++### 桌游（4）
+ 
+ | 游戏 | 标识 / 玩法 | 人数 | 系统 NPC |
+ |---|---|---:|---|
+ | 大富翁 | `monopoly` | 2 / 3 / 4 / 5 / 6（推荐4） | 支持 · 模型决策，本地经营兜底 |
+ | 拉密 | `rummikub` · Classic | 2 / 3 / 4（推荐4） | 支持 · 有限本地策略 |
+ | 卡卡颂 | `carcassonne` · 经典72块含农夫 | 2 / 3 / 4 / 5（推荐4） | 支持 · 有界本地策略 |
++| 宝石商人 | `gem_merchant` · 两人宝石对决（机制同 Splendor Duel，名称美术原创） | 2 | 不支持 |
+ 
+ 分类键依次为 `board`（棋）、`card`（牌）、`dice`（骰）、`tabletop`（桌游）。
+ 
+ 支持人数、NPC 与筹码能力以运行时 catalog 的 `allowed_player_counts`、`supports_npcs`、`supports_stakes` 为权威。暗信息游戏在对局进行中只把本人手牌/骰子/暗棋身份放进 `private_state`；真实终局可按各游戏规则发布专用复盘字段，德州扑克与炸金花仍保留弃牌/muck 隐私。NPC 与网页端同样只能消费服务端发布的权威合法行动。
+ 
+-当前 29 款中 `yahtzee`（快艇骰子）、`monopoly`（大富翁）与 `rummikub`（拉密）固定为 0 筹码娱乐局；大富翁局内现金、拉密牌面局分与平台筹码分离。其余游戏均可按 catalog 创建带 `stake` 的房间。多数游戏采用明确零和策略：开火车按每名败者一个 stake；斗地主按最高 16 倍的最终叫分/炸弹倍率在地主与两农民间结算；干瞪眼按每名输家的剩余手牌张数×最终倍率结算，倍率最高 8 倍；掼蛋按两人队伍胜负结算；炸飞机、军棋、围棋走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake，每席虚拟投入封顶 32，因此单席最大真实亏损为 32×stake；德州扑克每席固定 1000 内部筹码、盲注 5/10（100BB），stake 仍是每席完整真实买入而不是内部筹码单价，终局按最终内部栈比例分配真实总买入池，单席最多亏一个 stake。21点是唯一明确 opt-in 的非零和例外：每席独立对虚拟庄家按胜 `+stake`、负 `-stake`、推和 `0` 结算。
++当前 30 款中 `yahtzee`（快艇骰子）、`monopoly`（大富翁）与 `rummikub`（拉密）固定为 0 筹码娱乐局；大富翁局内现金、拉密牌面局分与平台筹码分离。其余游戏均可按 catalog 创建带 `stake` 的房间。多数游戏采用明确零和策略：开火车按每名败者一个 stake；斗地主按最高 16 倍的最终叫分/炸弹倍率在地主与两农民间结算；干瞪眼按每名输家的剩余手牌张数×最终倍率结算，倍率最高 8 倍；掼蛋按两人队伍胜负结算；炸飞机、军棋、围棋、宝石商人走双人 ±stake；麻将按自摸或点炮/抢杠来源结算；炸金花按本局实际下注单位×stake，每席虚拟投入封顶 32，因此单席最大真实亏损为 32×stake；德州扑克每席固定 1000 内部筹码、盲注 5/10（100BB），stake 仍是每席完整真实买入而不是内部筹码单价，终局按最终内部栈比例分配真实总买入池，单席最多亏一个 stake。21点是唯一明确 opt-in 的非零和例外：每席独立对虚拟庄家按胜 `+stake`、负 `-stake`、推和 `0` 结算。
+ 
+ ## 对局之外：娱乐筹码与人机互动
+ 
+diff --git a/app/full_state.py b/app/full_state.py
+index 9df93ad..6e954e9 100644
+--- a/app/full_state.py
++++ b/app/full_state.py
+@@ -12,10 +12,11 @@ from .games import get_game
+ from .games.tools import public_card_state
+ 
+ 
++# 原协议（非 MCP v2）游戏的显式 resync 白名单；gem_merchant 为后加入的原协议游戏。
+ LEGACY_GAMES = frozenset('''aeroplane_chess banqi blackjack tictactoe texas_holdem
+ train_cards gomoku go gandengyan guandan othello connect4 checkers chess
+ chinese_checkers dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi
+-xiangqi zhajinhua'''.split())
++xiangqi zhajinhua gem_merchant'''.split())
+ 
+ # No static/roster deletion has a verified repeatable mid-game query contract.
+ # Retain the empty audit list so tests reject new omissions without review.
+diff --git a/app/games/__init__.py b/app/games/__init__.py
+index 72e4d4a..d89c51e 100644
+--- a/app/games/__init__.py
++++ b/app/games/__init__.py
+@@ -9,6 +9,7 @@ from .chess import Chess
+ from .chinese_checkers import ChineseCheckers
+ from .dots_boxes import DotsBoxes
+ from .doudizhu import Doudizhu
++from .gem_merchant import GemMerchant
+ from .gomoku import Gomoku
+ from .go import Go
+ from .gandengyan import Gandengyan
+@@ -47,6 +48,7 @@ GAMES = {
+     Carcassonne.game_type: Carcassonne(),
+     BombPlane.game_type: BombPlane(),
+     Rummikub.game_type: Rummikub(),
++    GemMerchant.game_type: GemMerchant(),
+     AeroplaneChess.game_type: AeroplaneChess(),
+     Banqi.game_type: Banqi(),
+     Blackjack.game_type: Blackjack(),
+diff --git a/app/games/gem_merchant.py b/app/games/gem_merchant.py
+new file mode 100644
+index 0000000..5c3ed91
+--- /dev/null
++++ b/app/games/gem_merchant.py
+@@ -0,0 +1,1466 @@
++"""宝石商人（gem_merchant）：两人宝石对决。
++
++规则机制与 67 张发展卡的数值来自桌游《Splendor Duel》（Space Cowboys /
++Asmodee，2022）的两人规则；游戏名、称号卡名称与全部美术均为原创。规则出处、
++卡表来源与实现取舍见 docs/GEM_MERCHANT.md。
++
++一回合拆成若干个服务端权威动作，全部经 ``legal_actions`` 发布：
++
++- 可选阶段（phase=optional）：先用特权券（可多次）、再补充宝石盘（每回合一次），
++  然后必须做一个必选动作（拿宝石 / 拿金保留 / 购买）；三样都做不了且已补盘或
++  袋子为空时才允许 pass。
++- 结算阶段（phase=resolve）：卡牌能力、称号卡与超过 10 枚的弃宝石。只有一个
++  选项时服务端自动结算，多于一个才等玩家选择。
++
++隐藏信息只有两类：三个牌堆的顺序（永不公开）与盲抽保留的卡（对局中对手只看到
++等级，终局复盘公开）。从场上保留的卡对双方都公开。
++"""
++from __future__ import annotations
++
++import random
++from copy import deepcopy
++from typing import Any
++
++from .base import GamePlugin, MoveResult
++from .tools import advance_flow, ensure_flow
++
++
++GEM_COLORS = ("white", "blue", "green", "red", "black")
++TOKEN_COLORS = GEM_COLORS + ("pearl", "gold")
++COLOR_LABELS = {
++    "white": "白", "blue": "蓝", "green": "绿", "red": "红", "black": "黑",
++    "pearl": "珍珠", "gold": "金",
++}
++ABILITY_LABELS = {
++    "extra_turn": "再来一回合",
++    "take_gem": "从盘上拿 1 枚同色宝石",
++    "steal": "从对手拿 1 枚宝石或珍珠",
++    "privilege": "拿 1 张特权券",
++}
++LEVEL_LABELS = {1: "一级", 2: "二级", 3: "三级"}
++PYRAMID_SIZES = {1: 5, 2: 4, 3: 3}
++BOARD_SIZE = 5
++WIN_POINTS = 20
++WIN_CROWNS = 10
++WIN_COLOR_POINTS = 10
++TOKEN_LIMIT = 10
++MAX_RESERVED = 3
++PRIVILEGE_COUNT = 3
++CROWN_THRESHOLDS = (3, 6)
++HISTORY_LIMIT = 40
++LINE_DIRECTIONS = ((0, 1), (1, 0), (1, 1), (1, -1))
++
++_SHORT = {
++    "w": "white", "u": "blue", "g": "green", "r": "red", "k": "black",
++    "p": "pearl", "o": "gold",
++}
++_ABILITY = {
++    "again": "extra_turn", "gem": "take_gem", "steal": "steal",
++    "scroll": "privilege",
++}
++
++# 67 张发展卡：(等级, 颜色, 加成数, 分, 皇冠, 能力, 成本)。
++# 颜色 "-" 为没有加成的纯分卡，"*" 为百搭卡。数值出处见 docs/GEM_MERCHANT.md：
++# BGG plaidmac 卡表 v3 为主，CGY 数据交叉核对，唯一分歧一张以卡面图为准。
++_RAW = (
++    (1, "k", 1, 0, 0, "", "w1 u1 g1 r1"),
++    (1, "k", 1, 0, 0, "again", "w2 u2 p1"),
++    (1, "k", 1, 0, 0, "gem", "g2 r2"),
++    (1, "k", 1, 1, 0, "", "u2 g3"),
++    (1, "k", 1, 0, 1, "", "w3"),
++    (1, "r", 1, 0, 0, "", "w1 u1 g1 k1"),
++    (1, "r", 1, 0, 0, "again", "w2 k2 p1"),
++    (1, "r", 1, 0, 0, "gem", "u2 g2"),
++    (1, "r", 1, 1, 0, "", "w2 u3"),
++    (1, "r", 1, 0, 1, "", "k3"),
++    (1, "g", 1, 0, 0, "", "w1 u1 r1 k1"),
++    (1, "g", 1, 0, 0, "again", "r2 k2 p1"),
++    (1, "g", 1, 0, 0, "gem", "w2 u2"),
++    (1, "g", 1, 1, 0, "", "w3 k2"),
++    (1, "g", 1, 0, 1, "", "r3"),
++    (1, "u", 1, 0, 0, "", "w1 g1 r1 k1"),
++    (1, "u", 1, 0, 0, "again", "g2 r2 p1"),
++    (1, "u", 1, 0, 0, "gem", "w2 k2"),
++    (1, "u", 1, 1, 0, "", "r2 k3"),
++    (1, "u", 1, 0, 1, "", "g3"),
++    (1, "w", 1, 0, 0, "", "u1 g1 r1 k1"),
++    (1, "w", 1, 0, 0, "again", "u2 g2 p1"),
++    (1, "w", 1, 0, 0, "gem", "r2 k2"),
++    (1, "w", 1, 1, 0, "", "g2 r3"),
++    (1, "w", 1, 0, 1, "", "u3"),
++    (1, "-", 0, 3, 0, "", "r4 p1"),
++    (1, "*", 1, 1, 0, "joker", "k4 p1"),
++    (1, "*", 1, 0, 1, "joker", "w4 p1"),
++    (1, "*", 1, 1, 0, "joker", "w2 g2 k1 p1"),
++    (1, "*", 1, 1, 0, "joker", "u2 r2 k1 p1"),
++    (2, "k", 1, 1, 0, "steal", "w4 g3"),
++    (2, "k", 2, 1, 0, "", "w5 u2"),
++    (2, "k", 1, 2, 1, "", "u2 g2 r2 p1"),
++    (2, "k", 1, 2, 0, "scroll", "r2 k4 p1"),
++    (2, "r", 1, 1, 0, "steal", "u3 k4"),
++    (2, "r", 2, 1, 0, "", "w2 k5"),
++    (2, "r", 1, 2, 1, "", "w2 u2 g2 p1"),
++    (2, "r", 1, 2, 0, "scroll", "g2 r4 p1"),
++    (2, "g", 1, 1, 0, "steal", "w3 r4"),
++    (2, "g", 2, 1, 0, "", "r5 k2"),
++    (2, "g", 1, 2, 1, "", "w2 u2 k2 p1"),
++    (2, "g", 1, 2, 0, "scroll", "u2 g4 p1"),
++    (2, "u", 1, 1, 0, "steal", "g4 k3"),
++    (2, "u", 2, 1, 0, "", "g5 r2"),
++    (2, "u", 1, 2, 1, "", "w2 r2 k2 p1"),
++    (2, "u", 1, 2, 0, "scroll", "w2 u4 p1"),
++    (2, "w", 1, 1, 0, "steal", "u4 r3"),
++    (2, "w", 2, 1, 0, "", "u5 g2"),
++    (2, "w", 1, 2, 1, "", "g2 r2 k2 p1"),
++    (2, "w", 1, 2, 0, "scroll", "w4 k2 p1"),
++    (2, "-", 0, 5, 0, "", "u6 p1"),
++    (2, "*", 1, 2, 0, "joker", "g6 p1"),
++    (2, "*", 1, 0, 2, "joker", "g6 p1"),
++    (2, "*", 1, 0, 2, "joker", "u6 p1"),
++    (3, "k", 1, 3, 2, "", "w3 g5 r3 p1"),
++    (3, "k", 1, 4, 0, "", "w2 r2 k6"),
++    (3, "r", 1, 3, 2, "", "u5 g3 k3 p1"),
++    (3, "r", 1, 4, 0, "", "g2 r6 k2"),
++    (3, "g", 1, 3, 2, "", "w5 u3 r3 p1"),
++    (3, "g", 1, 4, 0, "", "u2 g6 r2"),
++    (3, "u", 1, 3, 2, "", "w3 g3 k5 p1"),
++    (3, "u", 1, 4, 0, "", "w2 u6 g2"),
++    (3, "w", 1, 3, 2, "", "u3 r5 k3 p1"),
++    (3, "w", 1, 4, 0, "", "w6 u2 k2"),
++    (3, "-", 0, 6, 0, "", "w8"),
++    (3, "*", 1, 0, 3, "joker", "k8"),
++    (3, "*", 1, 3, 0, "joker again", "r8"),
++)
++
++
++def _build_cards() -> dict[int, dict[str, Any]]:
++    cards: dict[int, dict[str, Any]] = {}
++    for card_id, (level, color, bonus, points, crowns, ability, cost) in enumerate(_RAW, 1):
++        words = ability.split()
++        raw_cost = {_SHORT[item[0]]: int(item[1:]) for item in cost.split()}
++        cards[card_id] = {
++            "id": card_id,
++            "level": level,
++            "color": _SHORT[color] if color in _SHORT else None,
++            "joker": "joker" in words,
++            "bonus": bonus,
++            "points": points,
++            "crowns": crowns,
++            "ability": next((_ABILITY[w] for w in words if w != "joker"), None),
++            "cost": {c: raw_cost[c] for c in TOKEN_COLORS if c in raw_cost},
++        }
++    return cards
++
++
++CARDS = _build_cards()
++assert len(CARDS) == 67
++assert [sum(1 for c in CARDS.values() if c["level"] == lv) for lv in (1, 2, 3)] == [30, 24, 13]
++
++# 称号卡（原版为四张皇室卡），名称原创，分值与能力照原版。
++ROYALS = {
++    1: {"id": 1, "name": "糖霜女王", "points": 3, "ability": None},
++    2: {"id": 2, "name": "斗篷小偷", "points": 2, "ability": "steal"},
++    3: {"id": 3, "name": "风车旅人", "points": 2, "ability": "extra_turn"},
++    4: {"id": 4, "name": "卷轴管家", "points": 2, "ability": "privilege"},
++}
++
++# 宝石盘螺旋：从中心格起铺盘与补盘，[row, col] 零起始。
++SPIRAL = (
++    (2, 2), (3, 2), (3, 1), (2, 1), (1, 1), (1, 2), (1, 3), (2, 3), (3, 3),
++    (4, 3), (4, 2), (4, 1), (4, 0), (3, 0), (2, 0), (1, 0), (0, 0), (0, 1),
++    (0, 2), (0, 3), (0, 4), (1, 4), (2, 4), (3, 4), (4, 4),
++)
++assert sorted(SPIRAL) == [(r, c) for r in range(BOARD_SIZE) for c in range(BOARD_SIZE)]
++
++INITIAL_TOKENS = (
++    [color for color in GEM_COLORS for _ in range(4)] + ["pearl"] * 2 + ["gold"] * 3
++)
++
++
++def card_view(card_id: int) -> dict[str, Any]:
++    return deepcopy(CARDS[card_id])
++
++
++def _card_label(card_id: int) -> str:
++    card = CARDS[card_id]
++    if card["joker"]:
++        kind = "百搭卡"
++    elif card["color"]:
++        kind = f"{COLOR_LABELS[card['color']]}卡"
++    else:
++        kind = "纯分卡"
++    return f"{LEVEL_LABELS[card['level']]}{kind} #{card_id}"
++
++
++def _tokens_text(tokens: dict[str, int]) -> str:
++    parts = [f"{COLOR_LABELS[c]}{tokens[c]}" for c in TOKEN_COLORS if tokens.get(c)]
++    return " ".join(parts) if parts else "0 枚"
++
++
++def _cell_label(cell) -> str:
++    return f"{'ABCDE'[cell[0]]}{cell[1] + 1}"
++
++
++def _other(state: dict[str, Any], player_id: str) -> str:
++    order = state["participant_order"]
++    return order[1] if order[0] == player_id else order[0]
++
++
++def card_color(item: dict[str, Any]) -> str | None:
++    """A purchased joker counts as the color it was placed on."""
++    return item.get("as") or CARDS[item["id"]]["color"]
++
++
++def bonuses(state: dict[str, Any], player_id: str) -> dict[str, int]:
++    totals = {c: 0 for c in GEM_COLORS}
++    for item in state["players"][player_id]["cards"]:
++        color = card_color(item)
++        if color in totals:
++            totals[color] += CARDS[item["id"]]["bonus"]
++    return totals
++
++
++def color_points(state: dict[str, Any], player_id: str) -> dict[str, int]:
++    totals = {c: 0 for c in GEM_COLORS}
++    for item in state["players"][player_id]["cards"]:
++        color = card_color(item)
++        if color in totals:
++            totals[color] += CARDS[item["id"]]["points"]
++    return totals
++
++
++def prestige(state: dict[str, Any], player_id: str) -> int:
++    player = state["players"][player_id]
++    return (
++        sum(CARDS[item["id"]]["points"] for item in player["cards"])
++        + sum(ROYALS[rid]["points"] for rid in player["royals"])
++    )
++
++
++def crowns(state: dict[str, Any], player_id: str) -> int:
++    return sum(CARDS[item["id"]]["crowns"] for item in state["players"][player_id]["cards"])
++
++
++def token_total(state: dict[str, Any], player_id: str) -> int:
++    return sum(state["players"][player_id]["tokens"].values())
++
++
++def cost_after_bonus(state: dict[str, Any], player_id: str, card_id: int) -> dict[str, int]:
++    owned = bonuses(state, player_id)
++    due = {}
++    for color, amount in CARDS[card_id]["cost"].items():
++        need = max(0, amount - owned.get(color, 0))
++        if need:
++            due[color] = need
++    return due
++
++
++def gold_needed(state: dict[str, Any], player_id: str, card_id: int) -> int:
++    tokens = state["players"][player_id]["tokens"]
++    return sum(
++        max(0, need - tokens.get(color, 0))
++        for color, need in cost_after_bonus(state, player_id, card_id).items()
++    )
++
++
++def joker_colors(state: dict[str, Any], player_id: str) -> list[str]:
++    return [color for color, count in bonuses(state, player_id).items() if count > 0]
++
++
++def can_afford(state: dict[str, Any], player_id: str, card_id: int) -> bool:
++    if CARDS[card_id]["joker"] and not joker_colors(state, player_id):
++        return False
++    return gold_needed(state, player_id, card_id) <= state["players"][player_id]["tokens"]["gold"]
++
++
++def win_reason(state: dict[str, Any], player_id: str) -> str | None:
++    points = prestige(state, player_id)
++    if points >= WIN_POINTS:
++        return f"声望 {points} 分"
++    crown_count = crowns(state, player_id)
++    if crown_count >= WIN_CROWNS:
++        return f"{crown_count} 顶皇冠"
++    per_color = color_points(state, player_id)
++    best = max(GEM_COLORS, key=lambda c: per_color[c])
++    if per_color[best] >= WIN_COLOR_POINTS:
++        return f"{COLOR_LABELS[best]}色卡共 {per_color[best]} 分"
++    return None
++
++
++def _board_cells(state: dict[str, Any], predicate) -> list[tuple[int, int]]:
++    board = state["board"]
++    return [
++        (r, c) for r in range(BOARD_SIZE) for c in range(BOARD_SIZE)
++        if predicate(board[r][c])
++    ]
++
++
++def _takeable(value) -> bool:
++    return value is not None and value != "gold"
++
++
++def take_lines(state: dict[str, Any]) -> list[tuple[tuple[int, int], ...]]:
++    """Every legal 1–3 token line, cells sorted by (row, col)."""
++    board = state["board"]
++    lines: set[tuple[tuple[int, int], ...]] = set()
++    for r in range(BOARD_SIZE):
++        for c in range(BOARD_SIZE):
++            if not _takeable(board[r][c]):
++                continue
++            lines.add(((r, c),))
++            for dr, dc in LINE_DIRECTIONS:
++                cells = [(r, c)]
++                for step in (1, 2):
++                    rr, cc = r + dr * step, c + dc * step
++                    if not (0 <= rr < BOARD_SIZE and 0 <= cc < BOARD_SIZE):
++                        break
++                    if not _takeable(board[rr][cc]):
++                        break
++                    cells.append((rr, cc))
++                    lines.add(tuple(sorted(cells)))
++    return sorted(lines, key=lambda line: (len(line), line))
++
++
++def line_error(state: dict[str, Any], cells: list[tuple[int, int]]) -> str | None:
++    """Human-readable reason a requested take is illegal, or ``None``."""
++    if not 1 <= len(cells) <= 3:
++        return "一次拿 1 到 3 枚宝石"
++    if len(set(cells)) != len(cells):
++        return "同一个格子不能选两次"
++    board = state["board"]
++    for r, c in cells:
++        value = board[r][c]
++        if value is None:
++            return f"{_cell_label((r, c))} 是空格"
++        if value == "gold":
++            return "金不能直接拿；要拿金只能通过“拿金并保留一张卡”"
++    if len(cells) == 1:
++        return None
++    ordered = sorted(cells)
++    dr, dc = ordered[1][0] - ordered[0][0], ordered[1][1] - ordered[0][1]
++    if (dr, dc) not in LINE_DIRECTIONS:
++        return "这几枚不相邻：必须在同一条横、竖或斜线上紧挨着"
++    for first, second in zip(ordered, ordered[1:]):
++        if (second[0] - first[0], second[1] - first[1]) != (dr, dc):
++            return "这几枚不在同一条直线上连续（中间不能隔空格或金）"
++    return None
++
++
++def _pyramid_ids(state: dict[str, Any]) -> list[int]:
++    return [cid for lv in ("1", "2", "3") for cid in state["pyramid"][lv] if cid]
++
++
++def _bag_count(state: dict[str, Any]) -> int:
++    return sum(state["bag"].values())
++
++
++def _int_value(value, label: str) -> int:
++    if isinstance(value, bool) or not isinstance(value, int):
++        raise ValueError(f"{label} 必须是整数")
++    return value
++
++
++def _cell_value(value, label: str = "cell") -> tuple[int, int]:
++    if (
++        not isinstance(value, (list, tuple)) or len(value) != 2
++        or any(isinstance(v, bool) or not isinstance(v, int) for v in value)
++    ):
++        raise ValueError(f"{label} 必须是 [row, col] 两个整数")
++    r, c = value
++    if not (0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE):
++        raise ValueError(f"{label} 越界：row 和 col 都在 0–4 之间")
++    return int(r), int(c)
++
++
++def _color_value(value, allowed, label: str) -> str:
++    if value not in allowed:
++        names = "/".join(allowed)
++        raise ValueError(f"{label} 只能是 {names}")
++    return value
++
++
++COLOR_CODES = {"white": "W", "blue": "U", "green": "G", "red": "R", "black": "K",
++               "pearl": "P", "gold": "O"}
++
++
++def tokens_code(amounts: dict[str, int]) -> str:
++    return " ".join(f"{COLOR_CODES[c]}{amounts[c]}" for c in TOKEN_COLORS if amounts.get(c))
++
++
++def card_code(card: dict[str, Any] | None) -> str | None:
++    """Compact, LLM-readable card text used only by MCP projections."""
++    if card is None:
++        return None
++    if card.get("hidden"):
++        return f"hidden L{card['level']}"
++    if card.get("as"):
++        kind = f"joker-as-{card['as']}+{card['bonus']}"
++    elif card["joker"]:
++        kind = f"joker+{card['bonus']}"
++    elif card["color"]:
++        kind = f"{card['color']}+{card['bonus']}"
++    else:
++        kind = "points-only"
++    parts = [f"#{card['id']}", f"L{card['level']}", kind]
++    if card["points"]:
++        parts.append(f"{card['points']}pt")
++    if card["crowns"]:
++        parts.append(f"{card['crowns']}crown")
++    if card["ability"]:
++        parts.append(card["ability"])
++    parts.append("=" + tokens_code(card["cost"]))
++    if card.get("blind"):
++        parts.append("blind")
++    return " ".join(parts)
++
++
++def compact_public(public: dict[str, Any]) -> dict[str, Any]:
++    """MCP view of the already-safe public projection (never raw state)."""
++    players = {}
++    for pid, p in public["players"].items():
++        players[pid] = {
++            "tokens": tokens_code(p["tokens"]),
++            "privileges": p["privileges"],
++            "points": p["points"],
++            "crowns": p["crowns"],
++            "bonuses": tokens_code(p["bonuses"]),
++            "color_points": tokens_code(p["color_points"]),
++            "purchased": [item["id"] for item in p["purchased"]],
++            "reserved": [card_code(card) for card in p["reserved"]],
++            "royals": [r["id"] for r in p["royals"]],
++        }
++    return {
++        "board": ["".join(COLOR_CODES[t] if t else "." for t in row) for row in public["board"]],
++        "bag": tokens_code(public["bag"]),
++        "privileges_on_table": public["privileges_on_table"],
++        "pyramid": {lv: [card_code(card) for card in row] for lv, row in public["pyramid"].items()},
++        "deck_counts": dict(public["deck_counts"]),
++        "royals_available": [r["id"] for r in public["royals_available"]],
++        "players": players,
++        "pending": deepcopy(public["pending"]),
++        "extra_turn": public["extra_turn"],
++        "refilled": public["refilled"],
++        "winner_player_id": public["winner_player_id"],
++        "finish_reason": public["finish_reason"],
++    }
++
++
++ACTION_KEYS = {
++    "use_privilege": ({"action", "cell"}, set()),
++    "refill": ({"action"}, set()),
++    "take": ({"action", "cells"}, set()),
++    "reserve": ({"action"}, {"gold", "card_id", "level"}),
++    "buy": ({"action", "card_id"}, {"joker_color"}),
++    "pass": ({"action"}, set()),
++    "take_bonus_gem": ({"action", "cell"}, set()),
++    "steal": ({"action", "gem"}, set()),
++    "choose_royal": ({"action", "royal_id"}, set()),
++    "discard": ({"action", "gem"}, set()),
++}
++OPTIONAL_ACTIONS = {"use_privilege", "refill"}
++MANDATORY_ACTIONS = {"take", "reserve", "buy", "pass"}
++PENDING_ACTIONS = {
++    "take_gem": "take_bonus_gem",
++    "steal": "steal",
++    "royal": "choose_royal",
++    "discard": "discard",
++}
++
++
++class GemMerchant(GamePlugin):
++    game_type = "gem_merchant"
++    display_name = "宝石商人"
++    category = "tabletop"
++    min_players = 2
++    max_players = 2
++    allowed_player_counts = (2,)
++    recommended_players = 2
++    supports_npcs = False
++    supports_stakes = True
++    # Refills, newly revealed pyramid cards and auto-resolved abilities are
++    # random or rule-derived; the mover needs the public delta immediately.
++    mcp_immediate_public_events = True
++    rules_text = (
++        "【目标】\n"
++        "- 两人对决。回合结束时满足任一条立刻获胜：声望达到 20 分；皇冠达到 10 顶；"
++        "同一种颜色的卡累计 10 分（百搭卡算它压着的颜色，纯分卡不算任何颜色）。\n"
++        "- 配件：5×5 宝石盘，白/蓝/绿/红/黑各 4 枚、珍珠 2 枚、金 3 枚；3 张特权券；"
++        "一级 30 张、二级 24 张、三级 13 张发展卡；4 张称号卡。\n"
++        "- 开局翻出一级 5 张、二级 4 张、三级 3 张；宝石随机从中心沿螺旋铺满盘面；"
++        "后手先拿 1 张特权券。\n\n"
++        "【行动】\n"
++        "- 每回合先做 0–2 个可选行动，顺序固定：先用特权券，再补盘；然后必须做 1 个必选行动。\n"
++        "- 用特权券：每交回 1 张，从盘上拿任意 1 枚非金宝石（珍珠可以）。补过盘后本回合不能再用。\n"
++        "- 补盘：袋中宝石全部随机从中心沿螺旋填回空格；每回合最多一次，补完对手拿 1 张特权券。\n"
++        "- 必选一：拿 1–3 枚在同一条横、竖、斜线上紧挨着的非金宝石，中间不能隔空格或金。"
++        "一次拿 3 枚同色、或拿到 2 枚珍珠时，对手拿 1 张特权券。\n"
++        "- 必选二：保留区不足 3 张且盘上有金时，拿 1 枚金，并保留场上任意 1 张卡或从任一牌堆顶盲抽 1 张。\n"
++        "- 必选三：购买场上或自己保留区的 1 张卡。成本先扣同色加成（每色最多扣到 0，珍珠没有加成），"
++        "剩下的付宝石，金可以顶任何颜色或珍珠；付出的宝石回到袋中。\n"
++        "- 三样必选都做不了时，必须先补盘；补盘后仍做不了（或袋子为空）才能 pass。\n\n"
++        "【特殊规则】\n"
++        "- 拿特权券：桌上有就从桌上拿，桌上没有就从对手那里拿，3 张都在自己手里则不变。\n"
++        "- 卡牌能力在购买后立即结算：再来一回合；从盘上拿 1 枚同色宝石；从对手拿 1 枚非金宝石或珍珠；"
++        "拿 1 张特权券；百搭卡必须压在自己已有加成的一种颜色上，没有加成卡时不能买。\n"
++        "- 皇冠累计到第 3 顶、第 6 顶时各选 1 张称号卡：糖霜女王 3 分；斗篷小偷 2 分并从对手拿 1 枚；"
++        "风车旅人 2 分并再来一回合；卷轴管家 2 分并拿 1 张特权券。\n"
++        "- 场上空位从同级牌堆补，牌堆空了就空着。从场上保留的卡双方可见；盲抽的卡对手只看到等级，终局公开。\n"
++        "- 回合结束时宝石（含珍珠与金）超过 10 枚，要逐枚弃回袋中直到 10 枚。\n"
++        "- 只有一个选项的能力、称号卡与弃宝石由服务端自动结算。\n\n"
++        "【胜负】\n"
++        "- 回合结束（弃宝石之后）检查三条胜利条件，达成即胜；再来一回合在胜负检查之后才生效。\n"
++        "- 极端情况下双方连续都只能 pass，按声望分高低判胜，相同为平局。\n"
++        "- 本作规则机制与卡牌数值来自《Splendor Duel》，名称与美术为原创。"
++    )
++    move_format = (
++        '坐标 cell 为零起始 [row,col]，row/col 都在 0–4；宝石颜色为 '
++        'white/blue/green/red/black/pearl/gold。'
++        '可选：{"move":{"action":"use_privilege","cell":[2,3]}}；{"move":{"action":"refill"}}。'
++        '必选：拿宝石 {"move":{"action":"take","cells":[[0,0],[0,1],[0,2]]}}；'
++        '保留 {"move":{"action":"reserve","gold":[4,4],"card_id":12}} 或盲抽 '
++        '{"move":{"action":"reserve","gold":[4,4],"level":2}}（gold 省略时取第一枚金）；'
++        '购买 {"move":{"action":"buy","card_id":40}}，百搭卡另传 "joker_color":"red"；'
++        '无事可做时 {"move":{"action":"pass"}}。'
++        '结算：{"move":{"action":"take_bonus_gem","cell":[1,1]}}、'
++        '{"move":{"action":"steal","gem":"pearl"}}、'
++        '{"move":{"action":"choose_royal","royal_id":3}}、'
++        '{"move":{"action":"discard","gem":"red"}}（每次弃 1 枚）。'
++        '轮到你时 private_state 给出 legal_actions（可选阶段为 legal_summary 摘要）；'
++        '对局中每个动作后 gem_merchant_delta 给出变化的公开字段。'
++    )
++
++    def __init__(self, rng: random.Random | None = None) -> None:
++        self._rng = rng or random.SystemRandom()
++
++    # ------------------------------------------------------------------
++    # setup
++
++    @staticmethod
++    def _fixture() -> list[dict[str, Any]]:
++        return [
++            {"player_id": f"player-{index + 1}", "seat_index": index,
++             "role": "human" if index == 0 else "ai"}
++            for index in range(2)
++        ]
++
++    def initial_state(self) -> dict[str, Any]:
++        return self.initialize(self._fixture())
++
++    def initialize(self, participants: list[dict[str, Any]]) -> dict[str, Any]:
++        order = [
++            str(item["player_id"])
++            for item in sorted(participants, key=lambda item: item.get("seat_index", 0))
++        ]
++        if len(order) != 2 or len(set(order)) != 2:
++            raise ValueError("宝石商人只支持 2 名不同玩家")
++        opener = next(
++            (str(item["player_id"]) for item in participants if item.get("_opening_player")),
++            order[0],
++        )
++        tokens = list(INITIAL_TOKENS)
++        self._rng.shuffle(tokens)
++        board: list[list[str | None]] = [[None] * BOARD_SIZE for _ in range(BOARD_SIZE)]
++        for (r, c), token in zip(SPIRAL, tokens):
++            board[r][c] = token
++        decks: dict[str, list[int]] = {}
++        pyramid: dict[str, list[int | None]] = {}
++        for level in (1, 2, 3):
++            ids = [cid for cid, card in CARDS.items() if card["level"] == level]
++            self._rng.shuffle(ids)
++            size = PYRAMID_SIZES[level]
++            pyramid[str(level)] = ids[:size]
++            decks[str(level)] = ids[size:]
++        state: dict[str, Any] = {
++            "board_kind": self.game_type,
++            "participant_order": order,
++            "first_player_id": opener,
++            "turn_player_id": opener,
++            "board": board,
++            "bag": {color: 0 for color in TOKEN_COLORS},
++            "privileges_on_table": PRIVILEGE_COUNT,
++            "decks": decks,
++            "pyramid": pyramid,
++            "royals": sorted(ROYALS),
++            "players": {
++                pid: {
++                    "tokens": {color: 0 for color in TOKEN_COLORS},
++                    "cards": [],
++                    "reserved": [],
++                    "royals": [],
++                    "privileges": 0,
++                }
++                for pid in order
++            },
++            "turn_state": {"refilled": False, "pending": [], "extra_turn": False},
++            "consecutive_passes": 0,
++            "winner_player_id": None,
++            "result": None,
++            "finish_reason": None,
++            "last_action": None,
++            "action_history": [],
++        }
++        ensure_flow(state, phase="optional")
++        self._set_opener(state, opener)
++        return state
++
++    @staticmethod
++    def _set_opener(state: dict[str, Any], opener: str) -> None:
++        state["first_player_id"] = opener
++        state["turn_player_id"] = opener
++        for pid in state["participant_order"]:
++            state["players"][pid]["privileges"] = 0
++        state["players"][_other(state, opener)]["privileges"] = 1
++        state["privileges_on_table"] = PRIVILEGE_COUNT - 1
++
++    def prepare_opening_state(
++        self,
++        state: dict[str, Any],
++        first_player_id: str,
++        participants: list[dict[str, Any]],
++    ) -> dict[str, Any]:
++        del participants
++        if first_player_id in state["participant_order"]:
++            self._set_opener(state, first_player_id)
++        return state
++
++    # ------------------------------------------------------------------
++    # legality
++
++    @staticmethod
++    def _is_finished(state: dict[str, Any]) -> bool:
++        return bool(state.get("result")) or state.get("flow", {}).get("phase") == "finished"
++
++    @staticmethod
++    def _can_reserve(state: dict[str, Any], player_id: str) -> bool:
++        if len(state["players"][player_id]["reserved"]) >= MAX_RESERVED:
++            return False
++        if not _board_cells(state, lambda v: v == "gold"):
++            return False
++        return bool(_pyramid_ids(state)) or any(state["decks"][lv] for lv in ("1", "2", "3"))
++
++    def _buy_actions(self, state: dict[str, Any], player_id: str) -> list[dict[str, Any]]:
++        actions = []
++        own = [item["id"] for item in state["players"][player_id]["reserved"]]
++        for card_id in _pyramid_ids(state) + own:
++            if not can_afford(state, player_id, card_id):
++                continue
++            if CARDS[card_id]["joker"]:
++                for color in joker_colors(state, player_id):
++                    actions.append({"action": "buy", "card_id": card_id, "joker_color": color})
++            else:
++                actions.append({"action": "buy", "card_id": card_id})
++        return actions
++
++    def _reserve_actions(self, state: dict[str, Any], player_id: str) -> list[dict[str, Any]]:
++        if not self._can_reserve(state, player_id):
++            return []
++        actions = []
++        targets: list[dict[str, Any]] = [{"card_id": cid} for cid in _pyramid_ids(state)]
++        targets += [{"level": int(lv)} for lv in ("1", "2", "3") if state["decks"][lv]]
++        for r, c in _board_cells(state, lambda v: v == "gold"):
++            for target in targets:
++                actions.append({"action": "reserve", "gold": [r, c], **target})
++        return actions
++
++    def _mandatory_actions(self, state: dict[str, Any], player_id: str) -> list[dict[str, Any]]:
++        actions = [
++            {"action": "take", "cells": [list(cell) for cell in line]}
++            for line in take_lines(state)
++        ]
++        actions += self._reserve_actions(state, player_id)
++        actions += self._buy_actions(state, player_id)
++        return actions
++
++    def _pending_options(
++        self, state: dict[str, Any], player_id: str, item: dict[str, Any]
++    ) -> list[Any]:
++        kind = item["kind"]
++        if kind == "take_gem":
++            return [list(cell) for cell in _board_cells(state, lambda v: v == item["color"])]
++        if kind == "steal":
++            tokens = state["players"][_other(state, player_id)]["tokens"]
++            return [c for c in TOKEN_COLORS if c != "gold" and tokens[c] > 0]
++        if kind == "royal":
++            return list(state["royals"])
++        if kind == "discard":
++            tokens = state["players"][player_id]["tokens"]
++            return [c for c in TOKEN_COLORS if tokens[c] > 0]
++        return []
++
++    def _legal_actions_for(self, state: dict[str, Any], player_id: str) -> list[dict[str, Any]]:
++        if self._is_finished(state) or state.get("turn_player_id") != player_id:
++            return []
++        phase = state["flow"]["phase"]
++        turn = state["turn_state"]
++        if phase == "resolve":
++            if not turn["pending"]:
++                return []
++            item = turn["pending"][0]
++            action = PENDING_ACTIONS[item["kind"]]
++            key = {"take_bonus_gem": "cell", "steal": "gem",
++                   "choose_royal": "royal_id", "discard": "gem"}[action]
++            return [
++                {"action": action, key: option}
++                for option in self._pending_options(state, player_id, item)
++            ]
++        actions: list[dict[str, Any]] = []
++        me = state["players"][player_id]
++        if not turn["refilled"]:
++            if me["privileges"] > 0:
++                actions += [
++                    {"action": "use_privilege", "cell": [r, c]}
++                    for r, c in _board_cells(state, _takeable)
++                ]
++            if _bag_count(state) > 0:
++                actions.append({"action": "refill"})
++        mandatory = self._mandatory_actions(state, player_id)
++        actions += mandatory
++        if not mandatory and (turn["refilled"] or _bag_count(state) == 0):
++            actions.append({"action": "pass"})
++        return actions
++
++    def _normalize(
++        self, state: dict[str, Any], move: dict[str, Any], player_id: str
++    ) -> dict[str, Any]:
++        """Validate with readable errors and return the canonical legal move."""
++        if self._is_finished(state):
++            raise ValueError("对局已经结束")
++        if state.get("turn_player_id") != player_id:
++            raise ValueError("还没轮到你")
++        if not isinstance(move, dict):
++            raise ValueError("move 必须是对象")
++        action = move.get("action")
++        if action not in ACTION_KEYS:
++            raise ValueError(f"未知动作：{action}")
++        required, optional = ACTION_KEYS[action]
++        keys = set(move)
++        if not required <= keys or keys - required - optional:
++            raise ValueError(f"{action} 的参数不正确，请对照 move_format")
++        phase = state["flow"]["phase"]
++        turn = state["turn_state"]
++        me = state["players"][player_id]
++
++        if phase == "resolve":
++            item = turn["pending"][0] if turn["pending"] else None
++            expected = PENDING_ACTIONS.get(item["kind"]) if item else None
++            if action != expected:
++                raise ValueError(f"现在需要先完成结算：{self._pending_text(state, player_id)}")
++        elif action in PENDING_ACTIONS.values():
++            raise ValueError("现在没有需要结算的能力或弃宝石")
++
++        if action == "use_privilege":
++            if turn["refilled"]:
++                raise ValueError("补过盘后本回合不能再用特权券")
++            if me["privileges"] <= 0:
++                raise ValueError("你没有特权券")
++            r, c = _cell_value(move["cell"])
++            value = state["board"][r][c]
++            if value is None:
++                raise ValueError(f"{_cell_label((r, c))} 是空格")
++            if value == "gold":
++                raise ValueError("特权券不能换金")
++            canonical = {"action": action, "cell": [r, c]}
++        elif action == "refill":
++            if turn["refilled"]:
++                raise ValueError("本回合已经补过盘")
++            if _bag_count(state) == 0:
++                raise ValueError("袋子是空的，不能补盘")
++            canonical = {"action": action}
++        elif action == "take":
++            cells = move["cells"]
++            if not isinstance(cells, list):
++                raise ValueError("cells 必须是 [row,col] 数组")
++            parsed = [_cell_value(cell, "cells 的每一项") for cell in cells]
++            error = line_error(state, parsed)
++            if error:
++                raise ValueError(error)
++            canonical = {"action": action, "cells": [list(cell) for cell in sorted(parsed)]}
++        elif action == "reserve":
++            has_card = "card_id" in move
++            has_level = "level" in move
++            if has_card == has_level:
++                raise ValueError("保留时 card_id（场上的卡）和 level（盲抽牌堆）二选一")
++            if len(me["reserved"]) >= MAX_RESERVED:
++                raise ValueError("保留区已满（最多 3 张）")
++            golds = _board_cells(state, lambda v: v == "gold")
++            if not golds:
++                raise ValueError("盘上没有金，现在不能保留")
++            gold = _cell_value(move["gold"], "gold") if "gold" in move else golds[0]
++            if gold not in golds:
++                raise ValueError(f"{_cell_label(gold)} 上不是金")
++            if has_card:
++                card_id = _int_value(move["card_id"], "card_id")
++                if card_id not in _pyramid_ids(state):
++                    raise ValueError(f"#{card_id} 不在场上；场上的卡才能直接保留，否则用 level 盲抽")
++                canonical = {"action": action, "gold": list(gold), "card_id": card_id}
++            else:
++                level = _int_value(move["level"], "level")
++                if level not in (1, 2, 3):
++                    raise ValueError("level 只能是 1、2、3")
++                if not state["decks"][str(level)]:
++                    raise ValueError(f"{LEVEL_LABELS[level]}牌堆已经空了")
++                canonical = {"action": action, "gold": list(gold), "level": level}
++        elif action == "buy":
++            card_id = _int_value(move["card_id"], "card_id")
++            own = [item["id"] for item in me["reserved"]]
++            if card_id not in _pyramid_ids(state) and card_id not in own:
++                raise ValueError(f"#{card_id} 不在场上，也不在你的保留区")
++            card = CARDS[card_id]
++            canonical = {"action": action, "card_id": card_id}
++            if card["joker"]:
++                options = joker_colors(state, player_id)
++                if not options:
++                    raise ValueError("百搭卡要压在一张有加成的卡上；你还没有带加成的卡")
++                color = move.get("joker_color")
++                if color is None:
++                    if len(options) != 1:
++                        raise ValueError(
++                            "百搭卡要指定 joker_color：" + "/".join(options)
++                        )
++                    color = options[0]
++                color = _color_value(color, options, "joker_color")
++                canonical["joker_color"] = color
++            elif "joker_color" in move:
++                raise ValueError("只有百搭卡需要 joker_color")
++            short = gold_needed(state, player_id, card_id)
++            if short > me["tokens"]["gold"]:
++                raise ValueError(
++                    f"买不起 #{card_id}：还要付 {_tokens_text(cost_after_bonus(state, player_id, card_id))}，"
++                    f"差 {short} 枚而金只有 {me['tokens']['gold']} 枚"
++                )
++        elif action == "pass":
++            if self._mandatory_actions(state, player_id):
++                raise ValueError("还有能做的必选动作，不能 pass")
++            if not turn["refilled"] and _bag_count(state) > 0:
++                raise ValueError("三样必选都做不了时要先补盘")
++            canonical = {"action": action}
++        elif action == "take_bonus_gem":
++            canonical = {"action": action, "cell": list(_cell_value(move["cell"]))}
++        elif action == "steal":
++            canonical = {"action": action, "gem": _color_value(
++                move["gem"], tuple(c for c in TOKEN_COLORS if c != "gold"), "gem")}
++        elif action == "choose_royal":
++            canonical = {"action": action, "royal_id": _int_value(move["royal_id"], "royal_id")}
++        else:  # discard
++            canonical = {"action": action, "gem": _color_value(move["gem"], TOKEN_COLORS, "gem")}
++
++        if action in MANDATORY_ACTIONS | OPTIONAL_ACTIONS and phase != "optional":
++            raise ValueError("本回合的必选动作已经做过了")
++        if canonical not in self._legal_actions_for(state, player_id):
++            if action in PENDING_ACTIONS.values():
++                raise ValueError(f"这个选择不可用：{self._pending_text(state, player_id)}")
++            raise ValueError("该动作不在服务端权威 legal_actions 中")
++        return canonical
++
++    def validate_action(
++        self, state: dict[str, Any], move: dict[str, Any], actor: dict[str, Any]
++    ) -> None:
++        self._normalize(state, move, str(actor["player_id"]))
++
++    def validate_move(self, state, move, mark):
++        del state, move, mark
++        raise ValueError("宝石商人使用带玩家身份的 action 接口")
++
++    def apply_move(self, state, move, mark):
++        del state, move, mark
++        raise ValueError("宝石商人使用带玩家身份的 action 接口")
++
++    def check_winner(self, state):
++        del state
++        return None
++
++    # ------------------------------------------------------------------
++    # rule helpers that mutate state
++
++    @staticmethod
++    def _gain_privilege(state: dict[str, Any], player_id: str) -> str:
++        me = state["players"][player_id]
++        opponent = state["players"][_other(state, player_id)]
++        if state["privileges_on_table"] > 0:
++            state["privileges_on_table"] -= 1
++            me["privileges"] += 1
++            return "从桌上拿 1 张特权券"
++        if opponent["privileges"] > 0:
++            opponent["privileges"] -= 1
++            me["privileges"] += 1
++            return "桌上没有特权券，从对手那里拿走 1 张"
++        return "3 张特权券都已在手里，不再增加"
++
++    @staticmethod
++    def _replace_pyramid_slot(state: dict[str, Any], card_id: int) -> tuple[str, int, int | None]:
++        for level in ("1", "2", "3"):
++            row = state["pyramid"][level]
++            if card_id in row:
++                index = row.index(card_id)
++                deck = state["decks"][level]
++                row[index] = deck.pop(0) if deck else None
++                return level, index, row[index]
++        raise ValueError(f"#{card_id} 不在场上")
++
++    def _pending_text(self, state: dict[str, Any], player_id: str) -> str:
++        pending = state["turn_state"]["pending"]
++        if not pending:
++            return "无"
++        item = pending[0]
++        if item["kind"] == "take_gem":
++            return f"从盘上拿 1 枚{COLOR_LABELS[item['color']]}"
++        if item["kind"] == "steal":
++            return "从对手那里拿 1 枚非金宝石或珍珠"
++        if item["kind"] == "royal":
++            return "选 1 张称号卡"
++        need = token_total(state, player_id) - TOKEN_LIMIT
++        return f"宝石超过 10 枚，还要弃 {max(need, 0)} 枚"
++
++    def _resolve_pending(
++        self, state: dict[str, Any], player_id: str, item: dict[str, Any],
++        choice: Any, notes: list[str], effects: list[dict[str, Any]],
++    ) -> None:
++        kind = item["kind"]
++        pending = state["turn_state"]["pending"]
++        me = state["players"][player_id]
++        if kind == "take_gem":
++            pending.remove(item)
++            r, c = choice
++            color = state["board"][r][c]
++            state["board"][r][c] = None
++            me["tokens"][color] += 1
++            notes.append(f"卡牌能力：从 {_cell_label((r, c))} 拿 1 枚{COLOR_LABELS[color]}")
++            effects.append({"effect": "take_gem", "cell": [r, c], "gem": color})
++        elif kind == "steal":
++            pending.remove(item)
++            opponent = state["players"][_other(state, player_id)]
++            opponent["tokens"][choice] -= 1
++            me["tokens"][choice] += 1
++            notes.append(f"从对手那里拿走 1 枚{COLOR_LABELS[choice]}")
++            effects.append({"effect": "steal", "gem": choice})
++        elif kind == "royal":
++            pending.remove(item)
++            state["royals"].remove(choice)
++            me["royals"].append(choice)
++            royal = ROYALS[choice]
++            notes.append(f"请来称号卡「{royal['name']}」（{royal['points']} 分）")
++            effects.append({"effect": "royal", "royal_id": choice})
++            if royal["ability"] == "steal":
++                pending.insert(0, {"kind": "steal"})
++            elif royal["ability"] == "extra_turn":
++                state["turn_state"]["extra_turn"] = True
++            elif royal["ability"] == "privilege":
++                notes.append("称号卡能力：" + self._gain_privilege(state, player_id))
++        elif kind == "discard":
++            me["tokens"][choice] -= 1
++            state["bag"][choice] += 1
++            notes.append(f"弃回 1 枚{COLOR_LABELS[choice]}")
++            effects.append({"effect": "discard", "gem": choice})
++            if token_total(state, player_id) <= TOKEN_LIMIT:
++                pending.remove(item)
++
++    def _advance(
++        self, state: dict[str, Any], player_id: str,
++        notes: list[str], effects: list[dict[str, Any]],
++    ) -> bool:
++        """Auto-resolve forced choices. Return True once the turn is complete."""
++        pending = state["turn_state"]["pending"]
++        while True:
++            if pending:
++                item = pending[0]
++                if item["kind"] == "discard" and token_total(state, player_id) <= TOKEN_LIMIT:
++                    pending.pop(0)
++                    continue
++                options = self._pending_options(state, player_id, item)
++                if not options:
++                    pending.pop(0)
++                    notes.append({
++                        "take_gem": "盘上没有这种颜色，“拿同色”跳过",
++                        "steal": "对手没有能拿的宝石，跳过",
++                        "royal": "称号卡已经全部被选走",
++                        "discard": "",
++                    }[item["kind"]])
++                    continue
++                if len(options) == 1:
++                    self._resolve_pending(state, player_id, item, options[0], notes, effects)
++                    continue
++                state["flow"]["phase"] = "resolve"
++                return False
++            if token_total(state, player_id) > TOKEN_LIMIT:
++                pending.append({"kind": "discard"})
++                continue
++            return True
++
++    def _finish(self, state: dict[str, Any], winner: str | None, reason: str) -> dict[str, Any]:
++        state["flow"]["phase"] = "finished"
++        state["turn_state"] = {"refilled": False, "pending": [], "extra_turn": False}
++        state["winner_player_id"] = winner
++        state["finish_reason"] = reason
++        state["turn_player_id"] = None
++        if winner:
++            result = {"winner_player_id": winner, "draw": False, "reason": reason}
++        else:
++            result = {"draw": True, "reason": reason}
++        state["result"] = result
++        return result
++
++    def _end_turn(self, state: dict[str, Any], player_id: str, notes: list[str]) -> MoveResult:
++        reason = win_reason(state, player_id)
++        if reason:
++            result = self._finish(state, player_id, reason)
++            notes.append(f"达成胜利条件：{reason}")
++            return MoveResult(state=state, note="；".join(n for n in notes if n), result=deepcopy(result))
++        extra = state["turn_state"]["extra_turn"]
++        state["turn_state"] = {"refilled": False, "pending": [], "extra_turn": False}
++        state["flow"]["phase"] = "optional"
++        advance_flow(state)
++        if extra:
++            notes.append("再来一回合")
++            return MoveResult(state=state, retain_turn=True, note="；".join(n for n in notes if n))
++        nxt = _other(state, player_id)
++        state["turn_player_id"] = nxt
++        return MoveResult(state=state, next_player_id=nxt, note="；".join(n for n in notes if n))
++
++    # ------------------------------------------------------------------
++    # apply
++
++    def apply_action(
++        self, state: dict[str, Any], move: dict[str, Any], actor: dict[str, Any]
++    ) -> MoveResult:
++        player_id = str(actor["player_id"])
++        move = self._normalize(state, move, player_id)
++        before = self._delta_basis(state)
++        action = move["action"]
++        me = state["players"][player_id]
++        turn = state["turn_state"]
++        notes: list[str] = []
++        effects: list[dict[str, Any]] = []
++        record: dict[str, Any] = {"player_id": player_id, "action": action}
++        complete = False
++
++        if action == "use_privilege":
++            r, c = move["cell"]
++            color = state["board"][r][c]
++            state["board"][r][c] = None
++            me["tokens"][color] += 1
++            me["privileges"] -= 1
++            state["privileges_on_table"] += 1
++            record.update(cell=[r, c], gem=color)
++            notes.append(f"用 1 张特权券拿 {_cell_label((r, c))} 的{COLOR_LABELS[color]}")
++        elif action == "refill":
++            pool = [c for c in TOKEN_COLORS for _ in range(state["bag"][c])]
++            self._rng.shuffle(pool)
++            placed = 0
++            for r, c in SPIRAL:
++                if not pool:
++                    break
++                if state["board"][r][c] is None:
++                    state["board"][r][c] = pool.pop()
++                    placed += 1
++            state["bag"] = {c: 0 for c in TOKEN_COLORS}
++            for leftover in pool:  # 25 枚宝石恰好 25 格，防御性保留
++                state["bag"][leftover] += 1
++            turn["refilled"] = True
++            record.update(placed=placed)
++            notes.append(f"补充宝石盘 {placed} 枚")
++            notes.append("对手" + self._gain_privilege(state, _other(state, player_id)))
++        elif action in MANDATORY_ACTIONS:
++            if action == "pass":
++                state["consecutive_passes"] += 1
++                notes.append("三样必选都做不了，本回合 pass")
++            else:
++                state["consecutive_passes"] = 0
++            if action == "take":
++                taken = []
++                for r, c in move["cells"]:
++                    color = state["board"][r][c]
++                    taken.append(color)
++                    state["board"][r][c] = None
++                    me["tokens"][color] += 1
++                record.update(cells=move["cells"], gems=taken)
++                notes.append("拿了 " + "·".join(COLOR_LABELS[c] for c in taken))
++                if (len(taken) == 3 and len(set(taken)) == 1) or taken.count("pearl") == 2:
++                    why = "两枚珍珠" if taken.count("pearl") == 2 else "三枚同色"
++                    notes.append(f"一次拿了{why}，对手" + self._gain_privilege(
++                        state, _other(state, player_id)))
++            elif action == "reserve":
++                r, c = move["gold"]
++                state["board"][r][c] = None
++                me["tokens"]["gold"] += 1
++                if "card_id" in move:
++                    card_id = move["card_id"]
++                    level, index, revealed = self._replace_pyramid_slot(state, card_id)
++                    me["reserved"].append({"id": card_id, "blind": False})
++                    record.update(gold=[r, c], card_id=card_id, slot=[int(level), index])
++                    notes.append(f"拿 1 枚金并保留场上的{_card_label(card_id)}")
++                else:
++                    level = move["level"]
++                    card_id = state["decks"][str(level)].pop(0)
++                    me["reserved"].append({"id": card_id, "blind": True})
++                    record.update(gold=[r, c], level=level, blind=True)
++                    notes.append(f"拿 1 枚金并从{LEVEL_LABELS[level]}牌堆盲抽保留 1 张")
++            elif action == "buy":
++                card_id = move["card_id"]
++                card = CARDS[card_id]
++                due = cost_after_bonus(state, player_id, card_id)
++                paid: dict[str, int] = {}
++                for color, need in due.items():
++                    use = min(need, me["tokens"][color])
++                    if use:
++                        me["tokens"][color] -= use
++                        state["bag"][color] += use
++                        paid[color] = use
++                short = sum(due.values()) - sum(paid.values())
++                if short:
++                    me["tokens"]["gold"] -= short
++                    state["bag"]["gold"] += short
++                    paid["gold"] = short
++                reserved = next((item for item in me["reserved"] if item["id"] == card_id), None)
++                if reserved is not None:
++                    me["reserved"].remove(reserved)
++                    record.update(source="reserved")
++                else:
++                    level, index, _revealed = self._replace_pyramid_slot(state, card_id)
++                    record.update(source="pyramid", slot=[int(level), index])
++                crowns_before = crowns(state, player_id)
++                bought = {"id": card_id}
++                if card["joker"]:
++                    bought["as"] = move["joker_color"]
++                me["cards"].append(bought)
++                crowns_after = crowns(state, player_id)
++                paid_text = _tokens_text(paid) if paid else "0 枚（加成全部抵扣）"
++                label = _card_label(card_id)
++                if card["joker"]:
++                    label += f"（压在{COLOR_LABELS[move['joker_color']]}色上）"
++                record.update(card_id=card_id, paid=paid)
++                if card["joker"]:
++                    record["joker_color"] = move["joker_color"]
++                notes.append(f"买下{label}，付 {paid_text}")
++                ability = card["ability"]
++                if ability == "extra_turn":
++                    turn["extra_turn"] = True
++                elif ability == "take_gem":
++                    turn["pending"].append({"kind": "take_gem", "color": card["color"]})
++                elif ability == "steal":
++                    turn["pending"].append({"kind": "steal"})
++                elif ability == "privilege":
++                    notes.append("卡牌能力：" + self._gain_privilege(state, player_id))
++                for threshold in CROWN_THRESHOLDS:
++                    if crowns_before < threshold <= crowns_after:
++                        turn["pending"].append({"kind": "royal"})
++            state["flow"]["phase"] = "resolve"
++            if state["consecutive_passes"] >= 2:
++                order = state["participant_order"]
++                a, b = (prestige(state, pid) for pid in order)
++                winner = order[0] if a > b else order[1] if b > a else None
++                result = self._finish(state, winner, f"双方都无法行动，按声望 {a}:{b} 判定")
++                self._record(state, record, effects, notes)
++                return self._with_delta(
++                    state, before,
++                    MoveResult(state=state, note="；".join(n for n in notes if n),
++                               result=deepcopy(result)),
++                )
++            complete = self._advance(state, player_id, notes, effects)
++        else:  # pending choice
++            item = turn["pending"][0]
++            choice = move.get("cell") or move.get("gem") or move.get("royal_id")
++            self._resolve_pending(state, player_id, item, choice, notes, effects)
++            record.update({k: v for k, v in move.items() if k != "action"})
++            complete = self._advance(state, player_id, notes, effects)
++
++        self._record(state, record, effects, notes)
++        if action in OPTIONAL_ACTIONS:
++            result = MoveResult(state=state, retain_turn=True, note="；".join(notes))
++        elif complete:
++            result = self._end_turn(state, player_id, notes)
++        else:
++            result = MoveResult(
++                state=state, retain_turn=True,
++                note="；".join(n for n in notes + ["等待选择：" + self._pending_text(state, player_id)] if n),
++            )
++        return self._with_delta(state, before, result)
++
++    @staticmethod
++    def _record(
++        state: dict[str, Any], record: dict[str, Any],
++        effects: list[dict[str, Any]], notes: list[str],
++    ) -> None:
++        if effects:
++            record["effects"] = effects
++        record["note"] = "；".join(n for n in notes if n)
++        state["last_action"] = deepcopy(record)
++        history = state.setdefault("action_history", [])
++        history.append(deepcopy(record))
++        del history[:-HISTORY_LIMIT]
++
++    # ------------------------------------------------------------------
++    # MCP delta (compact encoding shared with bootstrap/full_state)
++
++    def _delta_basis(self, state: dict[str, Any]) -> dict[str, Any]:
++        return compact_public(self._project_public(state, terminal=False))
++
++    DELTA_KEYS = (
++        "board", "bag", "privileges_on_table", "deck_counts", "royals_available",
++        "pending", "extra_turn", "refilled", "winner_player_id", "finish_reason",
++    )
++
++    def _with_delta(
++        self, state: dict[str, Any], before: dict[str, Any], result: MoveResult
++    ) -> MoveResult:
++        after = self._delta_basis(state)
++        delta: dict[str, Any] = {}
++        for key in self.DELTA_KEYS:
++            if before[key] != after[key]:
++                delta[key] = after[key]
++        slots = [
++            [int(level), index, card]
++            for level in ("1", "2", "3")
++            for index, card in enumerate(after["pyramid"][level])
++            if card != before["pyramid"][level][index]
++        ]
++        if slots:
++            delta["pyramid_set"] = slots
++        players = {}
++        for pid, value in after["players"].items():
++            old = before["players"].get(pid, {})
++            changed = {k: v for k, v in value.items() if old.get(k) != v}
++            if changed:
++                players[pid] = changed
++        if players:
++            delta["players"] = players
++        result.public_event = {"gem_merchant_delta": delta} if delta else None
++        return result
++
++    # ------------------------------------------------------------------
++    # projections
++
++    def _player_public(self, state: dict[str, Any], player_id: str, *, terminal: bool) -> dict[str, Any]:
++        player = state["players"][player_id]
++        reserved = []
++        for item in player["reserved"]:
++            if item["blind"] and not terminal:
++                reserved.append({"hidden": True, "blind": True,
++                                 "level": CARDS[item["id"]]["level"]})
++            else:
++                card = card_view(item["id"])
++                card["blind"] = bool(item["blind"])
++                reserved.append(card)
++        per_color = color_points(state, player_id)
++        return {
++            "tokens": dict(player["tokens"]),
++            "token_total": token_total(state, player_id),
++            "privileges": player["privileges"],
++            "points": prestige(state, player_id),
++            "crowns": crowns(state, player_id),
++            "bonuses": bonuses(state, player_id),
++            "color_points": per_color,
++            "best_color_points": max(per_color.values()),
++            "purchased": [
++                {"id": item["id"], **({"as": item["as"]} if item.get("as") else {})}
++                for item in player["cards"]
++            ],
++            "reserved": reserved,
++            "royals": [deepcopy(ROYALS[rid]) for rid in player["royals"]],
++        }
++
++    def _project_public(self, state: dict[str, Any], *, terminal: bool) -> dict[str, Any]:
++        order = state["participant_order"]
++        turn = state["turn_state"]
++        pending = None
++        if turn["pending"] and not self._is_finished(state):
++            item = turn["pending"][0]
++            pending = {"kind": item["kind"]}
++            if item["kind"] == "take_gem":
++                pending["color"] = item["color"]
++            if item["kind"] == "discard" and state.get("turn_player_id"):
++                pending["count"] = token_total(state, state["turn_player_id"]) - TOKEN_LIMIT
++        return {
++            "board_kind": self.game_type,
++            "flow": deepcopy(state["flow"]),
++            "participant_order": list(order),
++            "first_player_id": state["first_player_id"],
++            "turn_player_id": state["turn_player_id"],
++            "board": deepcopy(state["board"]),
++            "bag": dict(state["bag"]),
++            "bag_count": _bag_count(state),
++            "privileges_on_table": state["privileges_on_table"],
++            "pyramid": {
++                level: [card_view(cid) if cid else None for cid in state["pyramid"][level]]
++                for level in ("1", "2", "3")
++            },
++            "deck_counts": {level: len(state["decks"][level]) for level in ("1", "2", "3")},
++            "royals_available": [deepcopy(ROYALS[rid]) for rid in state["royals"]],
++            "players": {pid: self._player_public(state, pid, terminal=terminal) for pid in order},
++            "refilled": bool(turn["refilled"]),
++            "extra_turn": bool(turn["extra_turn"]),
++            "pending": pending,
++            "consecutive_passes": state["consecutive_passes"],
++            "winner_player_id": state["winner_player_id"],
++            "finish_reason": state["finish_reason"],
++            "result": deepcopy(state["result"]),
++            "last_action": self._public_record(state["last_action"]),
++            "action_history": [self._public_record(item) for item in state["action_history"][-20:]],
++            "win_targets": {"points": WIN_POINTS, "crowns": WIN_CROWNS,
++                            "color_points": WIN_COLOR_POINTS, "token_limit": TOKEN_LIMIT},
++            "last_action_note": state.get("last_action_note", ""),
++        }
++
++    @staticmethod
++    def _public_record(record):
++        # Records are authored public: blind reservations store only the level.
++        return deepcopy(record)
++
++    def public_state(self, state, participants):
++        del participants
++        return self._project_public(state, terminal=self._is_finished(state))
++
++    def terminal_public_state(self, state, participants):
++        del participants
++        return self._project_public(state, terminal=True)
++
++    def private_state(self, state, viewer, participants):
++        del participants
++        player_id = str(viewer["player_id"])
++        player = state["players"].get(player_id)
++        if player is None:
++            return {}
++        reserved = []
++        for item in player["reserved"]:
++            card = card_view(item["id"])
++            card["blind"] = bool(item["blind"])
++            reserved.append(card)
++        return {
++            "reserved": reserved,
++            "legal_actions": self._legal_actions_for(state, player_id),
++        }
++
++    def participant_summary(self, state, participant, participants):
++        del participants
++        player = (state.get("players") or {}).get(participant["player_id"])
++        if not player:
++            return {}
++        return {"score": player["points"], "皇冠": player["crowns"]}
++
++    def result_for(self, state, participants):
++        del participants
++        return deepcopy(state.get("result")) if state.get("result") else None
++
++    def npc_legal_actions(self, state, actor, participants):
++        """Authoritative actions for temporary timeout assistance only.
++
++        There is no system NPC (``supports_npcs=False``). Assistance skips the
++        optional privilege/refill steps unless refilling is the only option.
++        """
++        del participants
++        actions = self._legal_actions_for(state, str(actor["player_id"]))
++        core = [item for item in actions if item["action"] not in OPTIONAL_ACTIONS]
++        return core or actions
++
++    # MCP projections ---------------------------------------------------
++
++    DELTA_FORMAT = (
++        "编码：W白 U蓝 G绿 R红 K黑 P珍珠 O金。board 为 5 个字符串（行 0–4，字符下标为列 0–4，. 为空格）；"
++        "bag/tokens/bonuses/color_points 形如 \"W2 U1\"（未列出的为 0）；"
++        "卡牌形如 \"#59 L3 green+1 3pt 2crown steal =W5 U3 R3 P1\"：编号、等级、加成颜色+加成数"
++        "（joker 为百搭，points-only 为纯分卡，joker-as-red 为压在红色上的百搭）、声望、皇冠、能力、成本；"
++        "hidden L3 为对手盲抽的三级卡。gem_merchant_delta 只给本动作改变的字段："
++        "players 按玩家 ID 与字段合并，pyramid_set=[[level,index,card|null]] 替换金字塔对应格，其余键整体替换。"
++    )
++
++    def mcp_snapshot_state(self, public_state, viewer, participants):
++        del viewer, participants
++        snapshot = compact_public(public_state)
++        for key in ("board_kind", "flow", "participant_order", "first_player_id",
++                    "turn_player_id", "win_targets", "consecutive_passes", "result"):
++            snapshot[key] = deepcopy(public_state.get(key))
++        snapshot["royal_table"] = {
++            str(rid): f"{r['name']} {r['points']}分 " + (ABILITY_LABELS[r["ability"]] if r["ability"] else "无能力")
++            for rid, r in ROYALS.items()
++        }
++        snapshot["delta_format"] = self.DELTA_FORMAT
++        return snapshot
++
++    def mcp_bootstrap_state(self, public_state, viewer, participants):
++        return self.mcp_snapshot_state(public_state, viewer, participants)
++
++    def mcp_private_state(self, private_state, viewer, participants):
++        del viewer, participants
++        private = {"reserved": [card_code(card) for card in private_state.get("reserved", [])]}
++        actions = private_state.get("legal_actions") or []
++        if any(a["action"] in MANDATORY_ACTIONS | OPTIONAL_ACTIONS for a in actions):
++            private["legal_summary"] = self._legal_summary(actions)
++        else:
++            private["legal_actions"] = deepcopy(actions)
++        return private
++
++    @staticmethod
++    def _legal_summary(actions: list[dict[str, Any]]) -> dict[str, Any]:
++        summary: dict[str, Any] = {}
++        if any(a["action"] == "use_privilege" for a in actions):
++            summary["use_privilege"] = "cell=盘上任意非金宝石"
++        if {"action": "refill"} in actions:
++            summary["refill"] = True
++        takes = sum(1 for a in actions if a["action"] == "take")
++        if takes:
++            summary["take"] = f"{takes} 种：1–3 枚同一横/竖/斜线上紧挨着的非金宝石"
++        reserves = [a for a in actions if a["action"] == "reserve"]
++        if reserves:
++            summary["reserve"] = {
++                "gold": [list(cell) for cell in sorted({tuple(a["gold"]) for a in reserves})],
++                "card_ids": sorted({a["card_id"] for a in reserves if "card_id" in a}),
++                "levels": sorted({a["level"] for a in reserves if "level" in a}),
++            }
++        buys: list[Any] = []
++        for a in actions:
++            if a["action"] != "buy":
++                continue
++            if "joker_color" not in a:
++                buys.append(a["card_id"])
++                continue
++            entry = next((b for b in buys if isinstance(b, dict) and b["card_id"] == a["card_id"]), None)
++            if entry is None:
++                entry = {"card_id": a["card_id"], "joker_color": []}
++                buys.append(entry)
++            entry["joker_color"].append(a["joker_color"])
++        if buys:
++            summary["buy"] = buys
++        if {"action": "pass"} in actions:
++            summary["pass"] = True
++        return summary
++
++    def format_action(self, state, move, actor):
++        del actor
++        if not isinstance(move, dict):
++            return "宝石商人行动"
++        action = move.get("action")
++        try:
++            if action == "use_privilege":
++                return f"用特权券拿 {_cell_label(_cell_value(move.get('cell')))}"
++            if action == "refill":
++                return "补充宝石盘"
++            if action == "take":
++                cells = [_cell_value(c) for c in move.get("cells") or []]
++                colors = [state["board"][r][c] for r, c in cells]
++                return "拿宝石 " + "·".join(COLOR_LABELS.get(c, "?") for c in colors)
++            if action == "reserve":
++                if "card_id" in move:
++                    return f"拿金并保留 {_card_label(_int_value(move['card_id'], 'card_id'))}"
++                return f"拿金并盲抽保留{LEVEL_LABELS.get(move.get('level'), '')}卡"
++            if action == "buy":
++                text = f"购买 {_card_label(_int_value(move['card_id'], 'card_id'))}"
++                if move.get("joker_color") in COLOR_LABELS:
++                    text += f"（百搭作{COLOR_LABELS[move['joker_color']]}）"
++                return text
++            if action == "pass":
++                return "无事可做，pass"
++            if action == "take_bonus_gem":
++                return f"能力：拿 {_cell_label(_cell_value(move.get('cell')))}"
++            if action == "steal":
++                return f"从对手拿 1 枚{COLOR_LABELS.get(move.get('gem'), '')}"
++            if action == "choose_royal":
++                royal = ROYALS.get(move.get("royal_id"))
++                return f"选称号卡「{royal['name']}」" if royal else "选称号卡"
++            if action == "discard":
++                return f"弃 1 枚{COLOR_LABELS.get(move.get('gem'), '')}"
++        except (KeyError, TypeError, ValueError, IndexError):
++            pass
++        return "宝石商人行动"
++
++    def format_move(self, state, move, mark):
++        del mark
++        return self.format_action(state, move, {})
+diff --git a/app/static/app.js b/app/static/app.js
+index 9298a8f..16b86a9 100644
+--- a/app/static/app.js
++++ b/app/static/app.js
+@@ -1330,6 +1330,7 @@ function gameTokenEstimateLabel(gameType) {
+     carcassonne: "约100–260 token/轮",
+     monopoly: "约50–600 token/轮",
+     rummikub: "约80–300 token/轮",
++    gem_merchant: "约300–900 token/轮",
+     bomb_plane: "约30–50 token/轮",
+     aeroplane_chess: "约40–150 token/轮",
+     banqi: "约50–150 token/轮",
+diff --git a/app/static/games/gem_merchant.css b/app/static/games/gem_merchant.css
+new file mode 100644
+index 0000000..ba32b73
+--- /dev/null
++++ b/app/static/games/gem_merchant.css
+@@ -0,0 +1,453 @@
++/* 宝石商人：沿用双弈的粉紫像素配色；所有卡面、宝石、称号卡都是 CSS 原创绘制。 */
++.board.gem_merchant {
++  display: block;
++  width: 100%;
++  max-width: 100%;
++  min-width: 0;
++  height: auto;
++  aspect-ratio: auto;
++  padding: 0;
++  border: 0;
++  background: transparent;
++  box-shadow: none;
++  touch-action: manipulation;
++}
++
++#battleStage[data-game-type="gem_merchant"] .board-zone,
++#battleStage[data-game-type="gem_merchant"] .board-frame,
++#battleStage[data-game-type="gem_merchant"] .board,
++#battleStage[data-game-type="gem_merchant"] .game-controls {
++  width: min(100%, 520px);
++  max-width: 100%;
++  min-width: 0;
++  margin-inline: auto;
++}
++
++.gm-game,
++.gm-game *,
++.gm-controls,
++.gm-controls * { box-sizing: border-box; }
++
++.gm-game,
++.gm-controls {
++  width: 100%;
++  min-width: 0;
++  color: var(--text, #5C5463);
++  font: 13px/1.4 system-ui, -apple-system, "PingFang SC", sans-serif;
++  text-align: left;
++}
++
++.gm-game { display: grid; gap: 8px; }
++
++/* ---------- 宝石 ---------- */
++.gem-white { --gm-hi: #fffdf8; --gm-mid: #ebe4d6; --gm-lo: #a99f8b; --gm-ink: #5a5446; }
++.gem-blue { --gm-hi: #a7cff5; --gm-mid: #4a8fd9; --gm-lo: #2b5f9e; --gm-ink: #fff; }
++.gem-green { --gm-hi: #b0ddb7; --gm-mid: #5ea86a; --gm-lo: #38703f; --gm-ink: #fff; }
++.gem-red { --gm-hi: #f6b0a6; --gm-mid: #d9574a; --gm-lo: #9c3027; --gm-ink: #fff; }
++.gem-black { --gm-hi: #8f8a85; --gm-mid: #3d3a37; --gm-lo: #151413; --gm-ink: #fff; }
++.gem-pearl { --gm-hi: #ffffff; --gm-mid: #f3dbe4; --gm-lo: #cf9cb0; --gm-ink: #7a4b5c; }
++.gem-gold { --gm-hi: #fde6a6; --gm-mid: #e3a13a; --gm-lo: #a86a12; --gm-ink: #fff; }
++
++.gm-gem {
++  position: relative;
++  width: 100%;
++  aspect-ratio: 1;
++  display: inline-block;
++  flex: none;
++  border: 1px solid var(--gm-lo);
++  border-radius: 50%;
++  background: radial-gradient(circle at 34% 28%, var(--gm-hi), var(--gm-mid) 56%, var(--gm-lo));
++  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .12);
++}
++
++.gm-facet {
++  position: absolute;
++  inset: 20%;
++  clip-path: polygon(50% 0, 100% 26%, 100% 74%, 50% 100%, 0 74%, 0 26%);
++  background:
++    linear-gradient(200deg, rgba(255, 255, 255, .7) 0 32%, transparent 33%),
++    linear-gradient(160deg, var(--gm-hi), var(--gm-mid) 58%, var(--gm-lo));
++}
++
++.gm-gem.gem-pearl .gm-facet {
++  inset: 18% 46% 52% 20%;
++  clip-path: none;
++  border-radius: 50%;
++  background: #fff;
++  opacity: .85;
++}
++
++.gm-gem.gem-gold .gm-facet {
++  inset: 30% 22% 30% 22%;
++  clip-path: polygon(0 100%, 0 20%, 25% 55%, 50% 0, 75% 55%, 100% 20%, 100% 100%);
++  background: #fff4d0;
++  opacity: .92;
++}
++
++.gm-gem.is-small { width: 16px; height: 16px; }
++.gm-gem.is-mini { width: 32cqw; height: 32cqw; max-width: 18px; max-height: 18px; }
++
++/* ---------- 状态行 ---------- */
++.gm-status {
++  min-height: 30px;
++  padding: 5px 8px;
++  display: flex;
++  flex-wrap: wrap;
++  align-items: baseline;
++  gap: 2px 8px;
++  border: 2px dashed var(--purple, #BEB1D1);
++  background: #fff;
++  font-size: 12px;
++}
++.gm-status strong { color: var(--purple-darker, #8678A0); }
++.gm-status.is-final { border-style: solid; border-color: var(--pink, #E6A8B1); background: #fdecef; font-weight: 700; }
++.gm-last-note { min-width: 0; color: #7d7187; overflow-wrap: anywhere; }
++
++/* ---------- 玩家面板 ---------- */
++.gm-player {
++  padding: 7px 8px;
++  display: grid;
++  gap: 6px;
++  border: 2px solid var(--purple, #BEB1D1);
++  background: #fff;
++  box-shadow: 3px 3px 0 rgba(155, 141, 181, .25);
++}
++.gm-player.is-viewer { border-color: var(--pink, #E6A8B1); box-shadow: 3px 3px 0 rgba(194, 139, 147, .28); }
++.gm-player.is-acting { outline: 2px solid #f0c95a; outline-offset: 1px; }
++
++.gm-player-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
++.gm-player-name { min-width: 0; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
++.gm-player-name strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
++.gm-tag {
++  padding: 0 5px;
++  border: 1px solid var(--purple, #BEB1D1);
++  color: var(--purple-darker, #8678A0);
++  font-size: 10px;
++  line-height: 16px;
++  white-space: nowrap;
++}
++.gm-tag.is-acting { border-color: #c99a2a; color: #6b4b12; background: #ffefbd; }
++
++.gm-meters { display: flex; gap: 6px; flex: none; }
++.gm-meter { min-width: 40px; display: grid; justify-items: center; font-size: 10px; color: #8d8297; }
++.gm-meter strong { color: var(--text, #5C5463); font-size: 15px; line-height: 1.1; }
++.gm-meter-bar { width: 100%; height: 3px; background: var(--purple-light, #E6DFF0); position: relative; overflow: hidden; }
++.gm-meter-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: var(--pink, #E6A8B1); }
++
++.gm-token-row,
++.gm-bonus-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
++.gm-token-chip { display: inline-flex; align-items: center; gap: 2px; min-width: 28px; font-weight: 700; font-size: 12px; }
++.gm-token-chip.is-zero { opacity: .3; }
++.gm-privileges { display: inline-flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--purple-light, #E6DFF0); font-weight: 700; font-size: 12px; }
++.gm-token-total { margin-left: auto; font-size: 11px; color: #8d8297; }
++.gm-token-total.is-over { color: #c0473b; font-weight: 700; }
++
++.gm-bonus-box {
++  min-width: 24px;
++  height: 26px;
++  padding: 0 4px;
++  display: inline-flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  border: 1px solid var(--gm-lo);
++  background: var(--gm-mid);
++  color: var(--gm-ink);
++  line-height: 1;
++}
++.gm-bonus-box strong { font-size: 13px; }
++.gm-bonus-box small { font-size: 8px; opacity: .9; }
++.gm-royal-tag { padding: 1px 5px; border: 1px solid #d8b56a; background: #fff3d6; color: #6b4b12; font-size: 11px; }
++.gm-muted { color: #9a90a4; font-size: 11px; }
++
++.gm-reserved { display: flex; align-items: center; gap: 5px; }
++.gm-reserved-label { writing-mode: vertical-rl; font-size: 10px; color: #9a90a4; letter-spacing: 2px; }
++
++/* ---------- 图标 ---------- */
++.gm-crown-icon {
++  width: 13px;
++  height: 10px;
++  display: inline-block;
++  flex: none;
++  background: linear-gradient(#f3c955, #d89b1f);
++  clip-path: polygon(0 100%, 0 18%, 26% 52%, 50% 0, 74% 52%, 100% 18%, 100% 100%);
++}
++.gm-scroll-icon {
++  width: 11px;
++  height: 14px;
++  display: inline-block;
++  flex: none;
++  border: 1px solid #b8945a;
++  border-radius: 3px 3px 5px 5px;
++  background:
++    linear-gradient(#b8945a, #b8945a) 2px 4px / 5px 1px no-repeat,
++    linear-gradient(#b8945a, #b8945a) 2px 7px / 4px 1px no-repeat,
++    #f6e7c6;
++}
++
++/* ---------- 称号卡 ---------- */
++.gm-royals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
++.gm-royal {
++  min-width: 0;
++  min-height: 48px;
++  padding: 4px;
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr) auto;
++  align-items: center;
++  column-gap: 4px;
++  border: 2px solid #e5c98c;
++  background: linear-gradient(160deg, #fff8e6, #f8e3b8);
++  color: #6b4b12;
++  font: inherit;
++  text-align: left;
++}
++button.gm-royal { cursor: pointer; border-color: #c99a2a; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f0c95a; }
++.gm-royal.is-selected { background: #fff; box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--purple-darker, #8678A0); }
++.gm-royal-emblem {
++  width: 20px;
++  height: 20px;
++  display: grid;
++  place-items: center;
++  border: 1px solid #c99a2a;
++  background: #fff;
++  font-size: 11px;
++  font-weight: 800;
++}
++.gm-royal-body { min-width: 0; display: grid; }
++.gm-royal-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
++.gm-royal-ability { font-size: 9px; line-height: 1.2; opacity: .85; }
++.gm-royal-short { display: none; font-size: 9px; line-height: 1.2; opacity: .85; }
++.gm-royal-points { font-size: 14px; font-weight: 800; }
++
++/* ---------- 发展卡 ---------- */
++.gm-pyramid { display: grid; gap: 5px; }
++.gm-pyramid-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 5px; align-items: stretch; }
++.gm-pyramid-cards { min-width: 0; display: flex; justify-content: center; gap: 4px; }
++.gm-pyramid-cards > .gm-card { flex: 0 0 calc((100% - 16px) / 5); width: calc((100% - 16px) / 5); }
++
++.gm-deck {
++  min-height: 44px;
++  padding: 2px;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  border: 2px solid var(--purple, #BEB1D1);
++  background: repeating-linear-gradient(135deg, var(--purple-light, #E6DFF0) 0 5px, #fff 5px 10px);
++  color: var(--purple-darker, #8678A0);
++  font: inherit;
++  font-size: 11px;
++  touch-action: manipulation;
++}
++.gm-deck strong { font-size: 14px; color: var(--text, #5C5463); }
++.gm-deck .gm-level { position: static; font-size: 8px; letter-spacing: 0; color: var(--purple-darker, #8678A0); }
++.gm-deck:disabled { opacity: .75; cursor: default; }
++.gm-deck.can-reserve { border-color: #d89b1f; }
++.gm-deck.is-focused { box-shadow: 0 0 0 3px var(--purple-darker, #8678A0); }
++
++.gm-card {
++  --gm-tint: #f6f0e1;
++  position: relative;
++  min-width: 0;
++  aspect-ratio: 5 / 7;
++  padding: 0;
++  display: block;
++  overflow: hidden;
++  container-type: inline-size;
++  border: 2px solid rgba(92, 84, 99, .25);
++  background: var(--gm-tint);
++  color: var(--text, #5C5463);
++  font: inherit;
++  text-align: left;
++  touch-action: manipulation;
++}
++button.gm-card { cursor: pointer; }
++.gm-card.tint-white { --gm-tint: #fbf8f1; }
++.gm-card.tint-blue { --gm-tint: #e3eefa; }
++.gm-card.tint-green { --gm-tint: #e5f2e6; }
++.gm-card.tint-red { --gm-tint: #f9e3df; }
++.gm-card.tint-black { --gm-tint: #e2dfdc; }
++.gm-card.tint-none { --gm-tint: #f6efdc; }
++.gm-card.is-joker {
++  background: linear-gradient(135deg, #f9e3df, #fbf8f1 25%, #e5f2e6 50%, #e3eefa 75%, #e2dfdc);
++}
++.gm-card.lv-2 { border-style: double; border-width: 3px; }
++.gm-card.lv-3 { border-color: rgba(201, 154, 42, .7); }
++.gm-card.is-empty { border: 2px dashed var(--purple-light, #E6DFF0); background: transparent; }
++.gm-card.is-back {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  gap: 4px;
++  border-color: var(--purple-dark, #9B8DB5);
++  background: repeating-linear-gradient(45deg, #d8cfe6 0 6px, #e9e3f2 6px 12px);
++  color: #5d4f73;
++}
++.gm-back-mark { font-size: 18cqw; font-weight: 800; letter-spacing: 1px; }
++.gm-card.can-buy { border-color: #5ea86a; box-shadow: 0 0 0 2px rgba(94, 168, 106, .35); }
++.gm-card.can-reserve { border-color: #d89b1f; }
++.gm-card.is-focused { border-color: var(--purple-darker, #8678A0); box-shadow: 0 0 0 3px var(--purple-darker, #8678A0); transform: translateY(-2px); }
++.gm-card.is-blind-own::after {
++  content: "盲";
++  position: absolute;
++  right: 2px;
++  top: 30%;
++  padding: 0 2px;
++  background: var(--purple-dark, #9B8DB5);
++  color: #fff;
++  font-size: 16cqw;
++}
++
++.gm-card-top {
++  position: absolute;
++  inset: 0 0 auto 0;
++  height: 28%;
++  padding: 3cqw 4cqw;
++  display: flex;
++  align-items: flex-start;
++  gap: 2cqw;
++  background: rgba(255, 255, 255, .6);
++}
++.gm-points { font-size: 30cqw; font-weight: 900; line-height: 1; }
++.gm-points.is-zero { visibility: hidden; }
++.gm-card-crowns { display: inline-flex; align-items: center; gap: 1px; font-size: 16cqw; font-weight: 800; color: #a8781a; }
++.gm-card-crowns .gm-crown-icon { width: 20cqw; height: 15cqw; }
++.gm-card-bonus { margin-left: auto; display: flex; gap: 1px; }
++.gm-card-bonus .gm-gem { width: 26cqw; height: 26cqw; }
++.gm-joker-mark { font-size: 16cqw; font-weight: 800; color: #8678A0; }
++.gm-card-art { position: absolute; right: -14%; bottom: 10%; width: 64%; height: auto; opacity: .16; border-width: 0; }
++.gm-ability {
++  position: absolute;
++  right: 3cqw;
++  top: 31%;
++  padding: 0 4cqw;
++  border: 1px solid rgba(92, 84, 99, .25);
++  background: #fff;
++  font-size: 15cqw;
++  font-weight: 700;
++  white-space: nowrap;
++}
++.gm-cost { position: absolute; left: 3cqw; bottom: 3cqw; display: flex; flex-direction: column-reverse; gap: 2cqw; }
++.gm-cost-dot {
++  width: 24cqw;
++  height: 24cqw;
++  display: grid;
++  place-items: center;
++  border: 1px solid var(--gm-lo);
++  border-radius: 50%;
++  background: var(--gm-mid);
++  color: var(--gm-ink);
++  font-size: 16cqw;
++  font-weight: 800;
++  line-height: 1;
++}
++.gm-cost-dot.is-short { box-shadow: 0 0 0 2px #c0473b; }
++.gm-level { position: absolute; right: 4cqw; bottom: 3cqw; font-size: 10cqw; letter-spacing: 1px; color: #9a90a4; }
++.gm-card.is-back .gm-level { position: static; font-size: 14cqw; color: #5d4f73; }
++
++.gm-card.is-small { width: 46px; flex: none; }
++.gm-card.is-large { width: 108px; flex: none; }
++
++/* ---------- 宝石盘 ---------- */
++.gm-board-zone { display: grid; grid-template-columns: minmax(0, 1fr) 62px; gap: 8px; align-items: center; }
++.gm-gem-board {
++  width: min(100%, 300px);
++  justify-self: center;
++  padding: 6px;
++  display: grid;
++  grid-template-columns: repeat(5, minmax(0, 1fr));
++  gap: 4px;
++  border: 3px solid var(--purple-dark, #9B8DB5);
++  background:
++    radial-gradient(circle at 50% 50%, #fff 0 18%, transparent 19%),
++    #efe7f4;
++  box-shadow: 3px 3px 0 rgba(155, 141, 181, .3);
++}
++.gm-cell {
++  position: relative;
++  min-width: 44px;
++  min-height: 44px;
++  aspect-ratio: 1;
++  padding: 4px;
++  display: grid;
++  place-items: center;
++  border: 1px solid rgba(155, 141, 181, .4);
++  border-radius: 50%;
++  background: rgba(255, 255, 255, .7);
++  touch-action: manipulation;
++}
++.gm-cell:disabled { opacity: 1; cursor: default; }
++.gm-cell.is-empty { background: rgba(255, 255, 255, .35); border-style: dashed; }
++.gm-cell.is-selected { box-shadow: 0 0 0 3px var(--purple-darker, #8678A0); background: #fff; }
++.gm-cell.is-selected .gm-gem { transform: scale(1.08); }
++.gm-cell.is-option { box-shadow: 0 0 0 3px #f0c95a; animation: gm-pulse 1.3s ease-in-out infinite; }
++@keyframes gm-pulse { 50% { box-shadow: 0 0 0 3px rgba(240, 201, 90, .25); } }
++
++.gm-board-side { display: grid; gap: 6px; justify-items: stretch; }
++.gm-side-box {
++  padding: 4px;
++  display: grid;
++  justify-items: center;
++  border: 2px solid var(--purple-light, #E6DFF0);
++  background: #fff;
++  font-size: 10px;
++  color: #8d8297;
++}
++.gm-side-box strong { display: inline-flex; align-items: center; gap: 3px; color: var(--text, #5C5463); font-size: 15px; }
++.gm-side-note { font-size: 10px; color: #c0473b; text-align: center; }
++
++/* ---------- 终局复盘 ---------- */
++.gm-review { padding: 7px 8px; display: grid; gap: 6px; border: 2px dashed var(--pink, #E6A8B1); background: #fff; }
++.gm-review-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
++
++/* ---------- 操作区 ---------- */
++.gm-controls { display: grid; gap: 7px; padding-top: 4px; }
++.gm-prompt { margin: 0; font-size: 13px; min-height: 18px; }
++.gm-warn { color: #c0473b; }
++.gm-actions { display: flex; gap: 8px; }
++.gm-actions .gm-button {
++  flex: 1 1 0;
++  min-width: 0;
++  min-height: 44px;
++  padding: 6px 8px;
++  font: 700 13px/1.25 system-ui, -apple-system, "PingFang SC", sans-serif;
++  white-space: normal;
++  touch-action: manipulation;
++}
++.gm-actions .gm-primary { color: #fff; background: var(--pink, #E6A8B1); border-color: var(--pink-dark, #C28B93); }
++.gm-actions .gm-button:disabled { opacity: .45; }
++.gm-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
++.gm-choice {
++  min-height: 44px;
++  padding: 4px 10px;
++  display: inline-flex;
++  align-items: center;
++  gap: 5px;
++  border: 2px solid var(--purple-light, #E6DFF0);
++  background: #fff;
++  color: var(--text, #5C5463);
++  font: 700 13px/1 system-ui, sans-serif;
++  touch-action: manipulation;
++}
++.gm-choice.is-selected { border-color: var(--purple-darker, #8678A0); background: var(--purple-light, #E6DFF0); }
++.gm-detail { display: flex; gap: 10px; align-items: flex-start; }
++.gm-detail-info { min-width: 0; display: grid; gap: 3px; font-size: 12px; }
++.gm-detail-info strong { font-size: 14px; }
++
++@media (max-width: 599px) {
++  .board.gem_merchant { width: 100%; max-width: 100%; }
++  .gm-game { gap: 7px; }
++  .gm-meter { min-width: 34px; }
++  .gm-royal-ability { display: none; }
++  .gm-royal-short { display: block; }
++  .gm-royal { min-height: 40px; padding: 3px; column-gap: 3px; }
++  .gm-royal-emblem { width: 16px; height: 16px; font-size: 10px; }
++  .gm-royal-name { font-size: 10px; }
++}
++
++@media (max-width: 359px) {
++  .gm-cell { min-width: 38px; min-height: 38px; padding: 3px; }
++  .gm-board-zone { grid-template-columns: minmax(0, 1fr) 52px; }
++  .gm-token-chip { min-width: 24px; }
++}
+diff --git a/app/static/games/gem_merchant.js b/app/static/games/gem_merchant.js
+new file mode 100644
+index 0000000..ccf9d87
+--- /dev/null
++++ b/app/static/games/gem_merchant.js
+@@ -0,0 +1,811 @@
++(function registerGemMerchant() {
++  "use strict";
++
++  // 宝石商人：服务端 legal_actions 是唯一权威。这里只做展示、草稿选择和
++  // “当前选择是否等于某个合法动作”的比对，不在浏览器复制规则。
++  const STYLE_ID = "duel-game-gem-merchant-styles";
++  const STYLE_HREF = "/static/games/gem_merchant.css?v=1";
++  const GEMS = ["white", "blue", "green", "red", "black"];
++  const TOKENS = [...GEMS, "pearl", "gold"];
++  const LABELS = {
++    white: "白", blue: "蓝", green: "绿", red: "红", black: "黑", pearl: "珍珠", gold: "金",
++  };
++  const ABILITY_SHORT = {extra_turn: "再来", take_gem: "+同色", steal: "偷1", privilege: "+券"};
++  const ABILITY_LONG = {
++    extra_turn: "再来一回合",
++    take_gem: "从盘上拿 1 枚同色宝石",
++    steal: "从对手拿 1 枚宝石或珍珠",
++    privilege: "拿 1 张特权券",
++  };
++  const LEVELS = {1: "一级", 2: "二级", 3: "三级"};
++  const ROYAL_MARKS = {1: "冠", 2: "影", 3: "风", 4: "卷"};
++
++  function el(doc, tag, cls, text) {
++    const node = doc.createElement(tag);
++    if (cls) node.className = cls;
++    if (text !== undefined && text !== null) node.textContent = String(text);
++    if (tag === "button") node.type = "button";
++    return node;
++  }
++
++  function ensureStylesheet(doc) {
++    if (!doc || !doc.head) return null;
++    const existing = typeof doc.getElementById === "function" ? doc.getElementById(STYLE_ID) : null;
++    if (existing) return existing;
++    const link = doc.createElement("link");
++    link.id = STYLE_ID;
++    link.rel = "stylesheet";
++    link.href = STYLE_HREF;
++    link.dataset.duelGameStyle = "gem_merchant";
++    doc.head.appendChild(link);
++    return link;
++  }
++
++  const cellName = (cell) => `${"ABCDE"[cell[0]]}${cell[1] + 1}`;
++  const sameCell = (a, b) => Boolean(a && b && a[0] === b[0] && a[1] === b[1]);
++  const sortCells = (cells) => [...cells].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
++  const cellsKey = (cells) => sortCells(cells).map((c) => c.join(",")).join(";");
++
++  function draft(context) {
++    if (!context.uiState.gm) {
++      context.uiState.gm = {
++        mode: null, sel: [], gold: null, card: null, deck: null,
++        joker: null, pick: null, busy: false, error: "",
++      };
++    }
++    return context.uiState.gm;
++  }
++
++  function legal(context) {
++    const list = context.legalActions || (context.privateState || {}).legal_actions;
++    return Array.isArray(list) ? list : [];
++  }
++
++  function viewerId(context) {
++    return (context.viewer && context.viewer.player_id) || "";
++  }
++
++  function order(context) {
++    const ids = context.state.participant_order || [];
++    const me = viewerId(context);
++    if (!ids.includes(me)) return [ids[1], ids[0]].filter(Boolean);
++    return [ids.find((id) => id !== me), me];
++  }
++
++  function nameOf(context, playerId) {
++    const participant = (context.participants || []).find((p) => p.player_id === playerId);
++    return participant ? (participant.display_name || participant.player_id) : (playerId || "玩家");
++  }
++
++  function isTerminal(context) {
++    return Boolean(
++      context.isTerminal || context.state.result
++      || ((context.state.flow || {}).phase === "finished")
++      || ["finished", "archived"].includes((context.room || {}).status)
++    );
++  }
++
++  function myTurn(context) {
++    return Boolean(context.canMove && !isTerminal(context) && legal(context).length);
++  }
++
++  function rerender(context) {
++    if (context.helpers && typeof context.helpers.rerender === "function") context.helpers.rerender();
++  }
++
++  function submit(context, move) {
++    const ui = draft(context);
++    if (ui.busy) return;
++    if (context.helpers.canMove && !context.helpers.canMove()) return;
++    ui.busy = true;
++    ui.error = "";
++    rerender(context);
++    Promise.resolve(context.helpers.submitMove(move)).then((ok) => {
++      ui.busy = false;
++      if (!ok) rerender(context);
++    }, () => {
++      ui.busy = false;
++      rerender(context);
++    });
++  }
++
++  function reset(context) {
++    const ui = draft(context);
++    Object.assign(ui, {mode: null, sel: [], gold: null, card: null, deck: null, joker: null, pick: null, error: ""});
++  }
++
++  // ---------------------------------------------------------------- 画面零件
++
++  function gem(doc, color, extra) {
++    const node = el(doc, "span", `gm-gem gem-${color}${extra ? ` ${extra}` : ""}`);
++    node.appendChild(el(doc, "span", "gm-facet"));
++    node.setAttribute("aria-hidden", "true");
++    return node;
++  }
++
++  function crownIcon(doc) {
++    const node = el(doc, "span", "gm-crown-icon");
++    node.setAttribute("aria-hidden", "true");
++    return node;
++  }
++
++  function scrollIcon(doc) {
++    const node = el(doc, "span", "gm-scroll-icon");
++    node.setAttribute("aria-hidden", "true");
++    return node;
++  }
++
++  function cardText(card) {
++    if (!card || card.hidden) return `${LEVELS[card && card.level] || ""}盲抽卡（对手看不到）`;
++    const kind = card.joker ? (card.as ? `百搭（作${LABELS[card.as]}）` : "百搭") : card.color ? `${LABELS[card.color]}色` : "纯分";
++    const bits = [`${LEVELS[card.level]}${kind}卡 #${card.id}`, `${card.points} 分`];
++    if (card.crowns) bits.push(`${card.crowns} 顶皇冠`);
++    if (card.bonus === 2) bits.push("双加成");
++    if (card.ability) bits.push(ABILITY_LONG[card.ability]);
++    const cost = TOKENS.filter((t) => card.cost && card.cost[t]).map((t) => `${LABELS[t]}${card.cost[t]}`);
++    bits.push(`成本 ${cost.join(" ") || "0"}`);
++    return bits.join("，");
++  }
++
++  function cardNode(doc, card, options = {}) {
++    const tag = options.onClick ? "button" : "div";
++    if (!card) {
++      const empty = el(doc, "div", "gm-card is-empty");
++      empty.setAttribute("aria-label", "空位");
++      return empty;
++    }
++    if (card.hidden) {
++      const back = el(doc, tag, `gm-card is-back lv-${card.level}`);
++      if (options.size) back.classList.add(`is-${options.size}`);
++      back.appendChild(el(doc, "span", "gm-back-mark", "盲抽"));
++      back.appendChild(el(doc, "span", "gm-level", "◆".repeat(card.level || 1)));
++      back.setAttribute("aria-label", cardText(card));
++      if (options.onClick) back.addEventListener("click", options.onClick);
++      return back;
++    }
++    const tint = card.joker && !card.as ? "is-joker" : `tint-${card.as || card.color || "none"}`;
++    const node = el(doc, tag, `gm-card lv-${card.level} ${tint}`);
++    if (options.size) node.classList.add(`is-${options.size}`);
++    if (options.buyable) node.classList.add("can-buy");
++    if (options.focused) node.classList.add("is-focused");
++    if (options.reservable) node.classList.add("can-reserve");
++    node.dataset.cardId = String(card.id);
++    const top = el(doc, "span", "gm-card-top");
++    top.appendChild(el(doc, "span", `gm-points${card.points ? "" : " is-zero"}`, card.points || ""));
++    if (card.crowns) {
++      const crowns = el(doc, "span", "gm-card-crowns");
++      crowns.appendChild(crownIcon(doc));
++      if (card.crowns > 1) crowns.appendChild(el(doc, "span", "", card.crowns));
++      top.appendChild(crowns);
++    }
++    const bonus = el(doc, "span", "gm-card-bonus");
++    if (card.joker && !card.as) {
++      bonus.appendChild(el(doc, "span", "gm-joker-mark", "百搭"));
++    } else if (card.as || card.color) {
++      for (let i = 0; i < (card.bonus || 0); i += 1) bonus.appendChild(gem(doc, card.as || card.color, "is-mini"));
++    }
++    top.appendChild(bonus);
++    node.appendChild(top);
++    // 原创底纹：每种颜色一枚大号淡色宝石轮廓。
++    if (card.as || card.color) node.appendChild(gem(doc, card.as || card.color, "gm-card-art"));
++    if (card.ability) node.appendChild(el(doc, "span", "gm-ability", ABILITY_SHORT[card.ability]));
++    const cost = el(doc, "span", "gm-cost");
++    TOKENS.filter((t) => card.cost && card.cost[t]).forEach((t) => {
++      const dot = el(doc, "span", `gm-cost-dot gem-${t}`, card.cost[t]);
++      if (options.short && options.short[t]) dot.classList.add("is-short");
++      cost.appendChild(dot);
++    });
++    node.appendChild(cost);
++    node.appendChild(el(doc, "span", "gm-level", "◆".repeat(card.level)));
++    node.setAttribute("aria-label", cardText(card));
++    if (options.onClick) node.addEventListener("click", options.onClick);
++    return node;
++  }
++
++  function royalNode(doc, royal, options = {}) {
++    const node = el(doc, options.onClick ? "button" : "div", "gm-royal");
++    if (options.selected) node.classList.add("is-selected");
++    node.dataset.royalId = String(royal.id);
++    node.appendChild(el(doc, "span", "gm-royal-emblem", ROYAL_MARKS[royal.id] || "冠"));
++    const body = el(doc, "span", "gm-royal-body");
++    body.appendChild(el(doc, "strong", "gm-royal-name", royal.name));
++    body.appendChild(el(doc, "span", "gm-royal-ability", royal.ability ? ABILITY_LONG[royal.ability] : "只有声望"));
++    body.appendChild(el(doc, "span", "gm-royal-short", royal.ability ? ABILITY_SHORT[royal.ability] : "纯分"));
++    node.appendChild(body);
++    node.appendChild(el(doc, "span", "gm-royal-points", royal.points));
++    node.setAttribute("aria-label", `称号卡「${royal.name}」${royal.points} 分，${royal.ability ? ABILITY_LONG[royal.ability] : "无能力"}`);
++    if (options.onClick) node.addEventListener("click", options.onClick);
++    return node;
++  }
++
++  function meter(doc, label, value, target) {
++    const node = el(doc, "span", "gm-meter");
++    node.appendChild(el(doc, "strong", "", value));
++    node.appendChild(el(doc, "span", "", `${label}/${target}`));
++    const bar = el(doc, "span", "gm-meter-bar");
++    bar.style.setProperty("--fill", `${Math.min(100, Math.round((Number(value) || 0) / target * 100))}%`);
++    node.appendChild(bar);
++    return node;
++  }
++
++  // ---------------------------------------------------------------- 动作索引
++
++  function actionsOf(context, kind) {
++    return legal(context).filter((a) => a.action === kind);
++  }
++
++  function takeFor(context, cells) {
++    const key = cellsKey(cells);
++    return actionsOf(context, "take").find((a) => cellsKey(a.cells) === key) || null;
++  }
++
++  function extendable(context, cells, cell) {
++    const wanted = cells.concat([cell]);
++    const key = cellsKey(wanted);
++    return actionsOf(context, "take").some((a) => {
++      if (a.cells.length < wanted.length) return false;
++      if (cellsKey(a.cells) === key) return true;
++      return wanted.every((w) => a.cells.some((c) => sameCell(c, w)));
++    });
++  }
++
++  function buyOptions(context, cardId) {
++    return actionsOf(context, "buy").filter((a) => a.card_id === cardId);
++  }
++
++  function reserveOptions(context, target) {
++    return actionsOf(context, "reserve").filter((a) => (
++      target.card_id !== undefined ? a.card_id === target.card_id : a.level === target.level
++    ));
++  }
++
++  // ---------------------------------------------------------------- 点击
++
++  function onCell(context, cell) {
++    const ui = draft(context);
++    if (!myTurn(context) || ui.busy) return;
++    const value = context.state.board[cell[0]][cell[1]];
++    const pending = context.state.pending;
++    if (pending) {
++      if (pending.kind === "take_gem" && actionsOf(context, "take_bonus_gem").some((a) => sameCell(a.cell, cell))) {
++        ui.pick = cell;
++        rerender(context);
++      }
++      return;
++    }
++    if (ui.mode === "privilege") {
++      if (actionsOf(context, "use_privilege").some((a) => sameCell(a.cell, cell))) ui.pick = cell;
++      else ui.error = value === "gold" ? "特权券不能换金" : "这一格不能用特权券";
++      rerender(context);
++      return;
++    }
++    if (value === "gold") {
++      if (!actionsOf(context, "reserve").some((a) => sameCell(a.gold, cell))) {
++        ui.error = "现在不能拿金保留（保留区满了或无卡可保留）";
++        rerender(context);
++        return;
++      }
++      const keepCard = ui.mode === "reserve" ? ui.card : null;
++      const keepDeck = ui.mode === "reserve" ? ui.deck : null;
++      reset(context);
++      Object.assign(ui, {mode: "reserve", gold: cell, card: keepCard, deck: keepDeck});
++      rerender(context);
++      return;
++    }
++    if (!value) return;
++    if (ui.mode && ui.mode !== "take") reset(context);
++    ui.mode = "take";
++    ui.card = null;
++    if (ui.sel.some((c) => sameCell(c, cell))) {
++      ui.sel = ui.sel.filter((c) => !sameCell(c, cell));
++    } else if (ui.sel.length >= 3) {
++      ui.error = "一次最多拿 3 枚";
++    } else {
++      ui.sel = ui.sel.concat([cell]);
++      ui.error = "";
++    }
++    if (!ui.sel.length) ui.mode = null;
++    rerender(context);
++  }
++
++  function onCard(context, cardId, where) {
++    const ui = draft(context);
++    if (ui.busy) return;
++    if (ui.mode === "reserve" && where === "pyramid" && myTurn(context)) {
++      ui.card = cardId;
++      ui.deck = null;
++      rerender(context);
++      return;
++    }
++    if (ui.mode === "take" || ui.mode === "privilege") reset(context);
++    ui.mode = "card";
++    ui.card = cardId;
++    ui.cardWhere = where;
++    ui.joker = null;
++    rerender(context);
++  }
++
++  function onDeck(context, level) {
++    const ui = draft(context);
++    if (!myTurn(context) || ui.busy || context.state.pending) return;
++    if (!reserveOptions(context, {level}).length) {
++      ui.error = `${LEVELS[level]}牌堆现在不能盲抽保留`;
++      rerender(context);
++      return;
++    }
++    if (ui.mode !== "reserve") {
++      reset(context);
++      ui.mode = "reserve";
++      ui.gold = reserveOptions(context, {level})[0].gold;
++    }
++    ui.deck = level;
++    ui.card = null;
++    rerender(context);
++  }
++
++  // ---------------------------------------------------------------- 桌面
++
++  function playerPanel(context, playerId, isViewer) {
++    const doc = context.board.ownerDocument;
++    const state = context.state;
++    const player = (state.players || {})[playerId];
++    const panel = el(doc, "section", `gm-player${isViewer ? " is-viewer" : " is-opponent"}`);
++    if (!player) return panel;
++    const acting = !isTerminal(context) && context.room && context.room.current_player_id === playerId;
++    if (acting) panel.classList.add("is-acting");
++    panel.dataset.playerId = playerId;
++    const head = el(doc, "div", "gm-player-head");
++    const title = el(doc, "div", "gm-player-name");
++    title.appendChild(el(doc, "strong", "", isViewer ? `${nameOf(context, playerId)}（你）` : nameOf(context, playerId)));
++    if (state.first_player_id === playerId) title.appendChild(el(doc, "span", "gm-tag", "先手"));
++    if (acting) title.appendChild(el(doc, "span", "gm-tag is-acting", "行动中"));
++    head.appendChild(title);
++    const meters = el(doc, "div", "gm-meters");
++    const targets = state.win_targets || {points: 20, crowns: 10, color_points: 10};
++    meters.append(
++      meter(doc, "分", player.points, targets.points),
++      meter(doc, "冠", player.crowns, targets.crowns),
++      meter(doc, "单色", player.best_color_points, targets.color_points),
++    );
++    head.appendChild(meters);
++    panel.appendChild(head);
++
++    const tokens = el(doc, "div", "gm-token-row");
++    TOKENS.forEach((t) => {
++      const chip = el(doc, "span", `gm-token-chip${player.tokens[t] ? "" : " is-zero"}`);
++      chip.appendChild(gem(doc, t, "is-small"));
++      chip.appendChild(el(doc, "span", "", player.tokens[t] || 0));
++      chip.setAttribute("aria-label", `${LABELS[t]} ${player.tokens[t] || 0} 枚`);
++      tokens.appendChild(chip);
++    });
++    const privileges = el(doc, "span", "gm-privileges");
++    privileges.appendChild(scrollIcon(doc));
++    privileges.appendChild(el(doc, "span", "", player.privileges));
++    privileges.setAttribute("aria-label", `特权券 ${player.privileges} 张`);
++    tokens.appendChild(privileges);
++    const total = el(doc, "span", `gm-token-total${player.token_total > (targets.token_limit || 10) ? " is-over" : ""}`,
++      `${player.token_total}/${targets.token_limit || 10}`);
++    tokens.appendChild(total);
++    panel.appendChild(tokens);
++
++    const bonuses = el(doc, "div", "gm-bonus-row");
++    const owned = GEMS.filter((c) => player.bonuses[c]);
++    if (!owned.length) bonuses.appendChild(el(doc, "span", "gm-muted", "还没有加成卡"));
++    owned.forEach((c) => {
++      const box = el(doc, "span", `gm-bonus-box gem-${c}`);
++      box.appendChild(el(doc, "strong", "", player.bonuses[c]));
++      if (player.color_points[c]) box.appendChild(el(doc, "small", "", `${player.color_points[c]}分`));
++      box.setAttribute("aria-label", `${LABELS[c]}色加成 ${player.bonuses[c]}，该色 ${player.color_points[c]} 分`);
++      bonuses.appendChild(box);
++    });
++    if ((player.purchased || []).length) bonuses.appendChild(el(doc, "span", "gm-muted", `${player.purchased.length} 张卡`));
++    (player.royals || []).forEach((r) => bonuses.appendChild(el(doc, "span", "gm-royal-tag", `${r.name} ${r.points}分`)));
++    panel.appendChild(bonuses);
++
++    const reservedCards = isViewer && Array.isArray((context.privateState || {}).reserved)
++      ? context.privateState.reserved
++      : (player.reserved || []);
++    if (reservedCards.length) {
++      const reserved = el(doc, "div", "gm-reserved");
++      reserved.appendChild(el(doc, "span", "gm-reserved-label", "保留"));
++      const ui = draft(context);
++      reservedCards.forEach((card) => {
++        const node = cardNode(doc, card, {
++          size: "small",
++          buyable: isViewer && !card.hidden && buyOptions(context, card.id).length > 0,
++          focused: !card.hidden && ui.card === card.id,
++          onClick: card.hidden ? null : () => onCard(context, card.id, isViewer ? "reserved" : "opponent"),
++        });
++        if (isViewer && card.blind) node.classList.add("is-blind-own");
++        reserved.appendChild(node);
++      });
++      panel.appendChild(reserved);
++    }
++    return panel;
++  }
++
++  function statusLine(context) {
++    const doc = context.board.ownerDocument;
++    const state = context.state;
++    const line = el(doc, "div", "gm-status");
++    line.setAttribute("role", "status");
++    if (isTerminal(context)) {
++      const winner = state.winner_player_id;
++      line.classList.add("is-final");
++      line.textContent = winner
++        ? `${nameOf(context, winner)} 获胜：${state.finish_reason || ""}`
++        : `平局：${state.finish_reason || ""}`;
++      return line;
++    }
++    const turn = (state.flow || {}).turn_number || 0;
++    const actor = (context.room || {}).current_player_id;
++    const who = actor === viewerId(context) ? "你" : nameOf(context, actor);
++    line.appendChild(el(doc, "strong", "", `第 ${turn + 1} 回合 · ${who}`));
++    const note = state.last_action_note || "";
++    if (note) line.appendChild(el(doc, "span", "gm-last-note", note));
++    return line;
++  }
++
++  function royalsStrip(context) {
++    const doc = context.board.ownerDocument;
++    const strip = el(doc, "section", "gm-royals");
++    strip.setAttribute("aria-label", "称号卡：皇冠累计到第 3、第 6 顶各选一张");
++    const ui = draft(context);
++    const pendingRoyal = myTurn(context) && context.state.pending && context.state.pending.kind === "royal";
++    const royals = context.state.royals_available || [];
++    if (!royals.length) strip.appendChild(el(doc, "span", "gm-muted", "称号卡都被请走了"));
++    royals.forEach((royal) => {
++      const option = pendingRoyal && actionsOf(context, "choose_royal").some((a) => a.royal_id === royal.id);
++      strip.appendChild(royalNode(doc, royal, {
++        selected: option && ui.pick === royal.id,
++        onClick: option ? () => { ui.pick = royal.id; rerender(context); } : null,
++      }));
++    });
++    return strip;
++  }
++
++  function pyramid(context) {
++    const doc = context.board.ownerDocument;
++    const state = context.state;
++    const ui = draft(context);
++    const wrap = el(doc, "section", "gm-pyramid");
++    wrap.setAttribute("aria-label", "发展卡：三级在上、一级在下，左侧为牌堆");
++    ["3", "2", "1"].forEach((level) => {
++      const row = el(doc, "div", `gm-pyramid-row lv-${level}`);
++      const count = (state.deck_counts || {})[level] || 0;
++      const blindable = myTurn(context) && reserveOptions(context, {level: Number(level)}).length > 0;
++      const deck = el(doc, "button", `gm-deck lv-${level}${blindable ? " can-reserve" : ""}${ui.deck === Number(level) ? " is-focused" : ""}`);
++      deck.appendChild(el(doc, "span", "gm-level", "◆".repeat(Number(level))));
++      deck.appendChild(el(doc, "strong", "", count));
++      deck.setAttribute("aria-label", `${LEVELS[level]}牌堆 ${count} 张${blindable ? "，可盲抽保留" : ""}`);
++      deck.disabled = !blindable;
++      deck.addEventListener("click", () => onDeck(context, Number(level)));
++      row.appendChild(deck);
++      const cards = el(doc, "div", "gm-pyramid-cards");
++      ((state.pyramid || {})[level] || []).forEach((card) => {
++        cards.appendChild(cardNode(doc, card, card ? {
++          buyable: buyOptions(context, card.id).length > 0,
++          reservable: ui.mode === "reserve" && reserveOptions(context, {card_id: card.id}).length > 0,
++          focused: ui.card === card.id,
++          onClick: () => onCard(context, card.id, "pyramid"),
++        } : {}));
++      });
++      row.appendChild(cards);
++      wrap.appendChild(row);
++    });
++    return wrap;
++  }
++
++  function gemBoard(context) {
++    const doc = context.board.ownerDocument;
++    const state = context.state;
++    const ui = draft(context);
++    const zone = el(doc, "section", "gm-board-zone");
++    const grid = el(doc, "div", "gm-gem-board");
++    grid.setAttribute("aria-label", "宝石盘 5×5，行 A–E，列 1–5");
++    const active = myTurn(context) && !ui.busy;
++    const pending = state.pending;
++    const bonusCells = actionsOf(context, "take_bonus_gem").map((a) => a.cell);
++    const privilegeCells = ui.mode === "privilege" ? actionsOf(context, "use_privilege").map((a) => a.cell) : [];
++    (state.board || []).forEach((row, r) => {
++      row.forEach((value, c) => {
++        const cell = [r, c];
++        const button = el(doc, "button", `gm-cell${value ? "" : " is-empty"}`);
++        button.dataset.cell = cellName(cell);
++        if (value) button.appendChild(gem(doc, value));
++        const selected = ui.sel.some((s) => sameCell(s, cell)) || sameCell(ui.gold, cell) || sameCell(ui.pick, cell);
++        if (selected) button.classList.add("is-selected");
++        let option = false;
++        if (active && pending && pending.kind === "take_gem") option = bonusCells.some((s) => sameCell(s, cell));
++        else if (active && ui.mode === "privilege") option = privilegeCells.some((s) => sameCell(s, cell));
++        else if (active && ui.mode === "take" && ui.sel.length && !selected && value && value !== "gold") {
++          option = extendable(context, ui.sel, cell);
++        }
++        if (option && !selected) button.classList.add("is-option");
++        button.disabled = !active || !value;
++        button.setAttribute("aria-pressed", String(selected));
++        button.setAttribute("aria-label", `${cellName(cell)} ${value ? LABELS[value] : "空格"}`);
++        button.addEventListener("click", () => onCell(context, cell));
++        grid.appendChild(button);
++      });
++    });
++    zone.appendChild(grid);
++    const side = el(doc, "div", "gm-board-side");
++    const table = el(doc, "span", "gm-side-box");
++    table.appendChild(el(doc, "small", "", "桌上券"));
++    const scroll = el(doc, "strong", "");
++    scroll.appendChild(scrollIcon(doc));
++    scroll.appendChild(el(doc, "span", "", state.privileges_on_table));
++    table.appendChild(scroll);
++    const bag = el(doc, "span", "gm-side-box");
++    bag.appendChild(el(doc, "small", "", "袋中"));
++    bag.appendChild(el(doc, "strong", "", state.bag_count || 0));
++    side.append(table, bag);
++    if (state.refilled) side.appendChild(el(doc, "span", "gm-side-note", "本回合已补盘"));
++    zone.appendChild(side);
++    return zone;
++  }
++
++  function terminalReview(context) {
++    const doc = context.board.ownerDocument;
++    const review = el(doc, "section", "gm-review");
++    review.appendChild(el(doc, "strong", "", "终局复盘：盲抽保留的卡"));
++    let any = false;
++    (context.state.participant_order || []).forEach((pid) => {
++      const cards = ((context.state.players || {})[pid] || {}).reserved || [];
++      const blind = cards.filter((c) => c.blind && !c.hidden);
++      if (!blind.length) return;
++      any = true;
++      const row = el(doc, "div", "gm-review-row");
++      row.dataset.playerId = pid;
++      row.appendChild(el(doc, "span", "", nameOf(context, pid)));
++      blind.forEach((card) => row.appendChild(cardNode(doc, card, {size: "small"})));
++      review.appendChild(row);
++    });
++    return any ? review : null;
++  }
++
++  function renderBoard(context) {
++    const doc = context.board.ownerDocument;
++    ensureStylesheet(doc);
++    context.board.classList.add("gem_merchant");
++    context.board.setAttribute("aria-label", "宝石商人桌面");
++    const [opponent, me] = order(context);
++    const root = el(doc, "div", "gm-game");
++    root.appendChild(statusLine(context));
++    if (opponent) root.appendChild(playerPanel(context, opponent, false));
++    root.appendChild(royalsStrip(context));
++    root.appendChild(pyramid(context));
++    root.appendChild(gemBoard(context));
++    if (me) root.appendChild(playerPanel(context, me, true));
++    if (isTerminal(context)) {
++      const review = terminalReview(context);
++      if (review) root.appendChild(review);
++    }
++    context.board.appendChild(root);
++  }
++
++  // ---------------------------------------------------------------- 操作区
++
++  function cardDetail(context, controls) {
++    const doc = context.board.ownerDocument;
++    const ui = draft(context);
++    const state = context.state;
++    const [, me] = order(context);
++    const all = [];
++    ["1", "2", "3"].forEach((lv) => ((state.pyramid || {})[lv] || []).forEach((c) => c && all.push(c)));
++    ((context.privateState || {}).reserved || []).forEach((c) => all.push(c));
++    Object.values(state.players || {}).forEach((p) => (p.reserved || []).forEach((c) => !c.hidden && all.push(c)));
++    const card = all.find((c) => c.id === ui.card);
++    if (!card) return false;
++    const panel = el(doc, "div", "gm-detail");
++    const player = (state.players || {})[me];
++    const short = {};
++    let need = [];
++    if (player) {
++      TOKENS.forEach((t) => {
++        const cost = (card.cost || {})[t] || 0;
++        if (!cost) return;
++        const due = Math.max(0, cost - ((player.bonuses || {})[t] || 0));
++        if (!due) return;
++        const lack = Math.max(0, due - (player.tokens[t] || 0));
++        if (lack) short[t] = lack;
++        need.push(`${LABELS[t]}${due}${lack ? `（缺${lack}）` : ""}`);
++      });
++    }
++    panel.appendChild(cardNode(doc, card, {size: "large", short}));
++    const info = el(doc, "div", "gm-detail-info");
++    info.appendChild(el(doc, "strong", "", cardText(card).split("，")[0]));
++    info.appendChild(el(doc, "span", "", `${card.points} 分${card.crowns ? ` · ${card.crowns} 顶皇冠` : ""}${card.bonus === 2 ? " · 双加成" : ""}`));
++    if (card.ability) info.appendChild(el(doc, "span", "", `能力：${ABILITY_LONG[card.ability]}`));
++    if (card.joker) info.appendChild(el(doc, "span", "", "百搭：压在你已有加成的一种颜色上"));
++    if (player && ui.cardWhere !== "opponent") {
++      const lack = Object.values(short).reduce((a, b) => a + b, 0);
++      info.appendChild(el(doc, "span", "", `扣加成后要付：${need.join(" ") || "0（加成全抵）"}`));
++      if (lack) info.appendChild(el(doc, "span", lack <= (player.tokens.gold || 0) ? "" : "gm-warn",
++        `差 ${lack} 枚，用金补${lack <= (player.tokens.gold || 0) ? "得上" : "不够"}`));
++    }
++    panel.appendChild(info);
++    controls.appendChild(panel);
++
++    const buys = buyOptions(context, card.id);
++    const reserves = reserveOptions(context, {card_id: card.id});
++    const buttons = el(doc, "div", "gm-actions");
++    if (card.joker && buys.length > 1) {
++      const chooser = el(doc, "div", "gm-choices");
++      chooser.appendChild(el(doc, "span", "gm-muted", "压在哪个颜色："));
++      buys.forEach((a) => {
++        const b = el(doc, "button", `gm-choice${ui.joker === a.joker_color ? " is-selected" : ""}`);
++        b.appendChild(gem(doc, a.joker_color, "is-small"));
++        b.appendChild(el(doc, "span", "", LABELS[a.joker_color]));
++        b.setAttribute("aria-pressed", String(ui.joker === a.joker_color));
++        b.addEventListener("click", () => { ui.joker = a.joker_color; rerender(context); });
++        chooser.appendChild(b);
++      });
++      controls.appendChild(chooser);
++    }
++    buttons.appendChild(actionButton(doc, "关上", false, false, () => { reset(context); rerender(context); }));
++    if (myTurn(context) && !context.state.pending && ui.cardWhere !== "opponent") {
++      const buy = card.joker
++        ? (buys.length === 1 ? buys[0] : buys.find((a) => a.joker_color === ui.joker))
++        : buys[0];
++      buttons.appendChild(actionButton(doc, "买下", true, !buy || ui.busy, () => buy && submit(context, buy)));
++      if (ui.cardWhere === "pyramid") {
++        buttons.appendChild(actionButton(doc, "拿金保留", false, !reserves.length || ui.busy, () => {
++          const chosen = reserves.find((a) => sameCell(a.gold, ui.gold)) || reserves[0];
++          if (chosen) submit(context, chosen);
++        }));
++      }
++    }
++    controls.appendChild(buttons);
++    return true;
++  }
++
++  function actionButton(doc, label, primary, disabled, onClick) {
++    const b = el(doc, "button", `pixel-btn compact gm-button${primary ? " gm-primary" : " secondary"}`, label);
++    b.disabled = Boolean(disabled);
++    b.addEventListener("click", () => { if (!b.disabled) onClick(); });
++    return b;
++  }
++
++  function prompt(doc, controls, text, warn) {
++    const p = el(doc, "p", `gm-prompt${warn ? " gm-warn" : ""}`, text);
++    p.setAttribute("role", "status");
++    controls.appendChild(p);
++  }
++
++  function pendingControls(context, controls) {
++    const doc = context.board.ownerDocument;
++    const ui = draft(context);
++    const pending = context.state.pending;
++    const buttons = el(doc, "div", "gm-actions");
++    if (pending.kind === "take_gem") {
++      const move = actionsOf(context, "take_bonus_gem").find((a) => sameCell(a.cell, ui.pick));
++      prompt(doc, controls, ui.pick
++        ? `卡牌能力：拿 ${cellName(ui.pick)} 的${LABELS[pending.color]}？`
++        : `卡牌能力：点盘上亮起的一枚${LABELS[pending.color]}`);
++      buttons.appendChild(actionButton(doc, "确认", true, !move || ui.busy, () => submit(context, move)));
++    } else if (pending.kind === "royal") {
++      const move = actionsOf(context, "choose_royal").find((a) => a.royal_id === ui.pick);
++      prompt(doc, controls, "集到皇冠：点上方一张称号卡请回来");
++      buttons.appendChild(actionButton(doc, "就这位", true, !move || ui.busy, () => submit(context, move)));
++    } else {
++      const kind = pending.kind === "steal" ? "steal" : "discard";
++      const options = actionsOf(context, kind);
++      prompt(doc, controls, kind === "steal"
++        ? "从对手那里拿 1 枚（金不能拿）"
++        : `宝石超过 10 枚，还要弃 ${pending.count || 1} 枚（一次一枚）`);
++      const chooser = el(doc, "div", "gm-choices");
++      options.forEach((a) => {
++        const b = el(doc, "button", `gm-choice${ui.pick === a.gem ? " is-selected" : ""}`);
++        b.dataset.gem = a.gem;
++        b.appendChild(gem(doc, a.gem, "is-small"));
++        b.appendChild(el(doc, "span", "", LABELS[a.gem]));
++        b.setAttribute("aria-pressed", String(ui.pick === a.gem));
++        b.addEventListener("click", () => { ui.pick = a.gem; rerender(context); });
++        chooser.appendChild(b);
++      });
++      controls.appendChild(chooser);
++      const move = options.find((a) => a.gem === ui.pick);
++      buttons.appendChild(actionButton(doc, kind === "steal" ? "拿这枚" : "弃这枚", true, !move || ui.busy,
++        () => submit(context, move)));
++    }
++    controls.appendChild(buttons);
++  }
++
++  function optionalControls(context, controls) {
++    const doc = context.board.ownerDocument;
++    const ui = draft(context);
++    const state = context.state;
++    const buttons = el(doc, "div", "gm-actions");
++    const cancel = () => { reset(context); rerender(context); };
++    if (ui.mode === "privilege") {
++      const move = actionsOf(context, "use_privilege").find((a) => sameCell(a.cell, ui.pick));
++      prompt(doc, controls, ui.pick
++        ? `用 1 张特权券拿 ${cellName(ui.pick)} 的${LABELS[state.board[ui.pick[0]][ui.pick[1]]]}`
++        : "点盘上一枚非金宝石，用 1 张特权券换它");
++      buttons.append(actionButton(doc, "撤销", false, false, cancel),
++        actionButton(doc, "确认", true, !move || ui.busy, () => submit(context, move)));
++    } else if (ui.mode === "refill") {
++      prompt(doc, controls, `袋中 ${state.bag_count} 枚从中心沿螺旋填回空格；补完对手拿 1 张特权券，本回合不能再用特权券。`);
++      buttons.append(actionButton(doc, "算了", false, false, cancel),
++        actionButton(doc, "补盘", true, ui.busy, () => submit(context, {action: "refill"})));
++    } else if (ui.mode === "reserve") {
++      const target = ui.card !== null ? {card_id: ui.card} : ui.deck !== null ? {level: ui.deck} : null;
++      const options = target ? reserveOptions(context, target) : [];
++      const move = options.find((a) => sameCell(a.gold, ui.gold)) || null;
++      const what = ui.card !== null ? `#${ui.card}` : ui.deck !== null ? `${LEVELS[ui.deck]}牌堆盲抽 1 张` : "";
++      prompt(doc, controls, target
++        ? `拿 ${cellName(ui.gold)} 的金，保留 ${what}`
++        : `拿 ${cellName(ui.gold)} 的金：再点场上一张卡或左侧牌堆`);
++      buttons.append(actionButton(doc, "撤销", false, false, cancel),
++        actionButton(doc, "确认保留", true, !move || ui.busy, () => submit(context, move)));
++    } else if (ui.mode === "take" && ui.sel.length) {
++      const move = takeFor(context, ui.sel);
++      const colors = ui.sel.map((c) => state.board[c[0]][c[1]]);
++      const gift = (colors.length === 3 && new Set(colors).size === 1) || colors.filter((c) => c === "pearl").length === 2;
++      prompt(doc, controls, move
++        ? `拿 ${colors.map((c) => LABELS[c]).join("·")}${gift ? "（这样拿对手会得 1 张特权券）" : ""}`
++        : "要在同一条横、竖或斜线上紧挨着，中间不能隔空格或金", !move);
++      buttons.append(actionButton(doc, "撤销", false, false, cancel),
++        actionButton(doc, "拿！", true, !move || ui.busy, () => submit(context, move)));
++    } else {
++      const canPrivilege = actionsOf(context, "use_privilege").length > 0;
++      const canRefill = actionsOf(context, "refill").length > 0;
++      const canPass = actionsOf(context, "pass").length > 0;
++      const mandatory = legal(context).some((a) => ["take", "reserve", "buy"].includes(a.action));
++      prompt(doc, controls, !mandatory && canRefill
++        ? "拿、保留、买都做不了：先补盘"
++        : canPass
++          ? "什么都做不了，只能跳过"
++          : state.refilled
++            ? "补过盘了：拿宝石、拿金保留或买卡"
++            : "点连成一线的 1–3 枚宝石 · 点金保留 · 点卡查看或购买", !mandatory && canRefill);
++      const me = (state.players || {})[viewerId(context)] || {};
++      if (canPrivilege) {
++        buttons.appendChild(actionButton(doc, `特权券 ×${me.privileges || 0}`, false, ui.busy, () => {
++          reset(context); ui.mode = "privilege"; rerender(context);
++        }));
++      }
++      if (canRefill) {
++        buttons.appendChild(actionButton(doc, "补盘", !mandatory, ui.busy, () => {
++          reset(context); ui.mode = "refill"; rerender(context);
++        }));
++      }
++      if (canPass) buttons.appendChild(actionButton(doc, "跳过", true, ui.busy, () => submit(context, {action: "pass"})));
++    }
++    if (buttons.children.length) controls.appendChild(buttons);
++  }
++
++  function renderControls(context) {
++    const doc = context.board.ownerDocument;
++    const ui = draft(context);
++    const controls = el(doc, "div", "gm-controls");
++    if (ui.mode === "card" && cardDetail(context, controls)) {
++      context.controls.appendChild(controls);
++      return;
++    }
++    if (isTerminal(context)) {
++      prompt(doc, controls, "对局结束。可以点场上的卡看看。");
++    } else if (!myTurn(context)) {
++      const pending = context.state.pending;
++      prompt(doc, controls, pending
++        ? `${nameOf(context, context.room.current_player_id)} 正在结算卡牌能力…`
++        : `等 ${nameOf(context, context.room.current_player_id)} 出手；可以先点卡看看`);
++    } else if (context.state.pending) {
++      pendingControls(context, controls);
++    } else {
++      optionalControls(context, controls);
++    }
++    if (ui.error) prompt(doc, controls, ui.error, true);
++    context.controls.appendChild(controls);
++  }
++
++  window.DuelGameUI.register("gem_merchant", {
++    usesStandardMoveConfirmation: false,
++    ownsPrivateStatePresentation: true,
++    participantPresentation: "embedded",
++    renderBoard,
++    renderControls,
++  });
++}());
+diff --git a/app/takeover.py b/app/takeover.py
+index d8559a1..93dc469 100644
+--- a/app/takeover.py
++++ b/app/takeover.py
+@@ -44,6 +44,11 @@ def timeout_legal_actions(room, actor):
+         if room["game_type"] == "liars_dice" and state.get("pending_next_round"):
+             return [{"action": "acknowledge_round"}]
+         return game.npc_legal_actions(state, actor, room["participants"])
++    # Newer plugins without system NPCs may still publish authoritative actions
++    # for temporary assistance; base plugins return an empty list here.
++    published = game.npc_legal_actions(state, actor, room["participants"])
++    if published:
++        return published
+     # Legacy public-board games already expose legal moves or validators. Reuse
+     # those authorities for temporary assistance without adding permanent NPCs.
+     if room["game_type"] == "xiangqi":
+diff --git a/docs/GEM_MERCHANT.md b/docs/GEM_MERCHANT.md
+new file mode 100644
+index 0000000..58efd8d
+--- /dev/null
++++ b/docs/GEM_MERCHANT.md
+@@ -0,0 +1,127 @@
++# 宝石商人 `gem_merchant`：两人宝石对决
++
++南山君好！这是一份新游戏插件的投稿说明。我们原本在自己搭的小服务上和小机玩一个两人宝石对局，
++很想能搬到双弈里玩，所以照双弈现有的插件契约重新写了一份。下面是它是什么、规则从哪来、改了哪些文件、
++测了什么，以及几处拿不准、需要您来定的地方。若有任何不合适，按您的判断改或不收都完全没问题。
++
++## 版权与出处（请先看这一段）
++
++**规则机制与 67 张发展卡的数值来自桌游《Splendor Duel》**（中文名《璀璨宝石：对决》，Space Cowboys / Asmodee 2022 出版）。
++本插件的游戏名「宝石商人」、四张称号卡的名称（糖霜女王、斗篷小偷、风车旅人、卷轴管家）以及全部卡面、宝石、图标
++都是原创的 CSS 绘制，没有使用原版的名字、文字或美术素材，也没有任何图片文件。
++
++但规则机制和卡牌数值确实与原版一致。是否适合在 toy.cedarstar.org 这个公益非商业站点上线，请您自行判断；
++如果您觉得不妥，这个分支可以只留在本地自用。
++
++参考资料：
++
++- 官方英文规则书（12 页）：https://cdn.1j1ju.com/medias/d5/20/a3-splendor-duel-rulebook.pdf
++  （1jour-1jeu 文件区 https://en.1jour-1jeu.com/cardgame/2022-splendor-duel/files ）
++- 67 张发展卡数值：BoardGameGeek 文件区 plaidmac 整理的 *Splendor_Duel_Card_List-v3*（2024-05-08）
++  https://boardgamegeek.com/filepage/276448/card-list-for-splendor-duel
++- 交叉核对：GitHub `CGYGameDevelopment/Splendor-Duel` 的 `jewel-cards.csv` / `royal-cards.csv`（只看数据）。
++  两份 67 张逐张比对，66 张一致，1 张不同：一级 1 冠百搭卡，BGG 为「白4 珍珠1」，CSV 为「白4 黑1 珍珠1」；
++  对照 splendortactics.com 的卡面图确认为「白4 珍珠1」，采用 BGG（测试里锁定为 #28）。
++- 4 张皇室卡（本作称号卡）：3 分无能力 / 2 分+从对手拿 1 枚 / 2 分+再来一回合 / 2 分+拿特权券。
++- 宝石盘螺旋：规则书只写“从中心格沿盘上印的螺旋”，走向取自 CGY 仓库的盘面图；没有用实体盘核对过。
++  宝石本身随机入袋随机铺，走向只影响“空格先补哪里”，不影响公平。
++
++## 规则摘要（实现即按此）
++
++- 5×5 宝石盘；白/蓝/绿/红/黑各 4 枚、珍珠 2、金 3；3 张特权券；一级 30 / 二级 24 / 三级 13 张发展卡；4 张称号卡。
++- 开局：三级各翻 3/4/5 张成金字塔；宝石随机从中心沿螺旋铺满；后手先拿 1 张特权券。
++- 每回合：可选行动按顺序 —— 先用特权券（每张换盘上 1 枚非金宝石，可多张），再补盘（袋中宝石沿螺旋填空，对手得 1 张特权券，
++  补完本回合不能再用券）；然后必选其一：
++  - 拿 1–3 枚在同一横/竖/斜线上紧挨着的非金宝石（中间不能隔空格或金）；一次 3 枚同色或拿到 2 枚珍珠，对手得 1 张特权券；
++  - 保留区不足 3 张且盘上有金：拿 1 枚金，保留场上 1 张或从任一牌堆顶盲抽 1 张；
++  - 购买场上或自己保留区的 1 张：成本先扣同色加成（珍珠无加成），金可顶任何颜色，花掉的宝石回袋。
++  - 三样都做不了时必须先补盘；补盘后仍做不了（或袋空）才能 pass。
++- 能力：再来一回合 / 从盘上拿 1 枚同色 / 从对手拿 1 枚非金宝石或珍珠 / 拿 1 张特权券 / 百搭（必须压在自己已有加成的颜色上）。
++- 皇冠累计到第 3、第 6 顶各选 1 张称号卡。
++- 回合结束：宝石超过 10 枚弃到 10；然后检查胜利 —— 声望 ≥ 20、皇冠 ≥ 10、或同一颜色的卡累计 ≥ 10 分（百搭算所压颜色）。
++
++## 实现取舍
++
++- **一回合拆成多个权威动作**：`use_privilege` / `refill` 保留行动权；必选动作后若有需要人选的结算
++  （`take_bonus_gem` / `steal` / `choose_royal` / `discard`，弃宝石一次一枚），仍由本人继续提交。
++  只有一个选项时服务端自动结算，减少无意义的往返。所有动作都来自 `private_state.legal_actions`，
++  前端只比对“当前选择是否等于某个已发布动作”，不在浏览器复制规则。
++- **付款自动**：先用同色宝石/珍珠，不够再用金（金比任何单色都灵活，所以不会更差）。
++- **保留时选哪枚金**：动作里的 `gold` 指定；MCP 可省略，取阅读顺序第一枚金。
++- **防死锁**：双方连续都只能 pass（实际几乎不可能），按声望判胜，相同为平局。
++- **再来一回合不叠加**：同一回合同时触发卡牌与称号卡的“再来”只多走一回合（原版对此没有明确说明，我们按一次处理）。
++- **NPC**：不支持系统 NPC（`supports_npcs=False`）。为了满足“所有游戏都支持超时临时代操作”的现有测试，
++  插件实现了 `npc_legal_actions`（跳过可选步骤），并在 `app/takeover.py` 加了一个通用回退：
++  不支持 NPC 的插件若主动发布了合法动作，就用它来做临时代操作。基类返回空列表，其他游戏行为不变。
++- **筹码**：`supports_stakes=True`，沿用双人固定 ±stake，平局 0。
++- **隐私**：牌堆顺序永不离开服务端；盲抽保留的卡在对局中对手只看到等级（公共投影为
++  `{"hidden":true,"blind":true,"level":n}`，MCP 为 `"hidden L2"`），本人在 `private_state.reserved` 看到全貌，
++  真实终局（`terminal_public_state`）公开复盘；**从场上保留的卡双方都可见**。
++  动作记录、`format_action` 文案、裁判 delta 都不含盲抽卡号。隐藏信息审计表把它归入 terminal review 一类。
++- **MCP（原协议）**：
++  - bootstrap / full_state 的 `board_state` 用紧凑编码：`board` 为 5 个字符串（W/U/G/R/K/P/O，`.` 为空），
++    卡牌形如 `"#59 L3 green+1 3pt 2crown =W5 U3 R3 P1"`，另附 `royal_table` 与 `delta_format` 说明。Web 投影保持完整对象不变。
++  - 每个动作后发 `gem_merchant_delta`（`mcp_immediate_public_events=True`），只含变化字段：
++    `players` 按玩家与字段合并，`pyramid_set=[[level,index,card|null]]` 替换金字塔格，其余整体替换。
++  - 可选阶段 MCP `private_state` 给 `legal_summary` 摘要（取法数、可保留的金格/卡号/等级、可买卡号与百搭颜色），
++    避免每轮发送上百条拿宝石组合；结算阶段给完整 `legal_actions`。
++  - 我把 `gem_merchant` 加进了 `app/full_state.py` 的 `LEGACY_GAMES`（及 `tests/full_state_support.py` 的同名列表），
++    让 `full_state` 也带 `rules_text/move_format` 并沿用原协议的“快照覆盖的旧事件不重放”语义。
++    这个集合原本叫“老 25 款”，如果您希望新游戏走别的路径（例如 MCP v2），请按您的设计调整。
++  - 实测（cl100k_base，4 局随机对局、按小机每轮 state+move 计）：bootstrap 约 3.7k token；
++    每轮中位数约 500、p10 约 340、p90 约 950 token。大厅的估算文案写的是「约300–900 token/轮」。
++
++## 文件清单
++
++新增：
++
++- `app/games/gem_merchant.py` —— 规则引擎、卡表、合法动作、公共/私有/终局投影、MCP 紧凑编码与 delta。
++- `app/static/games/gem_merchant.js` —— renderer（`usesStandardMoveConfirmation:false`、`ownsPrivateStatePresentation:true`），
++  只用 DOM/CSS，没有图片和 `innerHTML`。
++- `app/static/games/gem_merchant.css` —— 沿用 `--purple/--pink/--text` 等配色变量；手机竖屏优先，触控目标 ≥ 44px，
++  有 `max-width: 599px` 与 `359px` 两档。
++- `tests/test_gem_merchant.py` —— 规则单测、60 局随机整局守恒、校验器与 legal_actions 一致性、框架整局、认输、MCP 隐私。
++- `tests/test_gem_merchant_frontend.py` —— 前端契约 + node DOM 运行时测试（用真实服务端投影做 fixture）。
++- `docs/GEM_MERCHANT.md` —— 本文件。
++
++修改：
++
++- `app/games/__init__.py` —— 注册。
++- `app/takeover.py` —— 上文所述的通用临时代操作回退（5 行）。
++- `app/full_state.py` —— 加入 `LEGACY_GAMES`。
++- `app/static/app.js` —— 只加了一行 token 估算文案。
++- `README.md`、`docs/MCP_GUIDE.md` —— 游戏表与 MCP 说明各加一节，计数 29 → 30。
++- 已有测试里写死的游戏数量/分类/隐私分桶：`test_game_categories`、`test_hidden_information_audit`、`test_identity`、
++  `test_local_gateway`、`test_multiplayer_phase1`、`test_new_games`、`tests/full_state_support.py`。
++
++## 测试结果
++
++环境：macOS arm64，Python 3.12.15，Node 20.18.0（launcher 自建 `.venv`，PyMahjongGB 本地编译通过）。
++
++```bash
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s tests
++```
++
++- 加入前（干净 main）：1297 个测试，1 个失败、10 个跳过。
++- 加入后：1332 个测试（新增 35 个），同样只有那 1 个失败、10 个跳过。
++- 这个失败是 `test_npc_framework.PersonaLoaderTests.test_avatar_mapping_is_external_and_rejects_unsafe_paths`，
++  原因是 macOS 的临时目录 `/var` 是 `/private/var` 的符号链接，路径比较不相等；与本插件无关，干净 main 上同样失败。
++- 宝石商人自己的测试：`.venv/bin/python -m unittest tests.test_gem_merchant tests.test_gem_merchant_frontend`，35 个全过。
++  随机整局测试会检查每一步的宝石总数、67 张卡、3 张特权券守恒，回合结束时宝石不超过 10 枚，非行动方没有合法动作。
++
++浏览器验证：按 `docs/LOCAL.md` 用 `DUEL_LOCAL_PORT=8790 ./scripts/start-local.sh --no-browser` 起本地实例，
++Playwright Chromium 以 390×844（iPhone 竖屏，2x）走了一遍：大厅选桌游 → 开局 → 选三枚宝石拿取 → 小机经 `/mcp/play`
++从场上保留并附言 → 查看卡牌详情 → 盲抽保留 → 小机盲抽 → 看对手保留区（场上保留的可见、盲抽的只见牌背）→
++买下带“偷”能力的卡并选择 → 买到 20 分终局 → 终局复盘 → 规则抽屉。页面无 JS 报错。
++（为了快速到达能力结算和终局，截图脚本直接改了本地 `data/local-duel.db` 里的局面；正常对局不需要这样做。）
++
++## 拿不准、请您定夺的地方
++
++1. 规则机制与卡牌数值来自已出版的商业桌游，是否适合上线请您判断（见开头）。
++2. 加入 `LEGACY_GAMES` 的做法是否符合您的协议规划。
++3. `app/takeover.py` 的通用回退是否可以接受；不接受的话，也可以改成在测试里把本游戏排除，或者给本游戏写一个本地策略。
++4. 宝石盘螺旋走向没对过实体盘（不影响公平）。
++5. 同一回合两次“再来一回合”按一次处理。
++6. 没有系统 NPC。若以后想支持，可以在 `npc_legal_actions` 基础上接 provider，或写个简单的本地策略。
++
++谢谢您做了双弈 :)
+diff --git a/docs/MCP_GUIDE.md b/docs/MCP_GUIDE.md
+index e3649e6..e0304bf 100644
+--- a/docs/MCP_GUIDE.md
++++ b/docs/MCP_GUIDE.md
+@@ -709,3 +709,7 @@ full_state 的 `board_state.shots` 按攻击者及 miss/hit/head 分组保存全
+ 首次 bootstrap 后使用增量；需要恢复局面时请求 `state(full_state=true)`。
+ 
+ 规则与图形为自行实现；仅参考 [PlaneBlock README 的纸笔规则](https://github.com/Nirvazure/PlaneBlock/blob/main/README.md)，未复制其代码、UI、云服务或品牌资源。
++
++## 宝石商人 `gem_merchant`
++
++固定双人，原协议（非 v2）。一回合拆成多个服务端权威动作：可选的 `use_privilege`（可多次）与 `refill`（每回合一次，且之后不能再用特权券）保留行动权；必选 `take/reserve/buy`（或无事可做时的 `pass`）之后，若卡牌能力、称号卡或超过 10 枚宝石需要选择，仍由本人继续提交 `take_bonus_gem/steal/choose_royal/discard`，只有一个选项时服务端自动结算。可选阶段 MCP `private_state` 给 `legal_summary` 摘要（取法数、可保留的金格/卡号/等级、可买卡号及百搭可选颜色），结算阶段给完整 `legal_actions`。bootstrap/full_state 的 `board_state` 用紧凑编码：`board` 为 5 个字符串（W/U/G/R/K/P/O，`.` 为空），卡牌为 `"#59 L3 green+1 3pt 2crown =W5 U3 R3 P1"` 形式，编码说明在 `delta_format`。每个动作后裁判 `gem_merchant_delta` 只发变化字段：`players` 按玩家与字段合并，`pyramid_set` 替换金字塔格，其余键整体替换。牌堆顺序永不公开；盲抽保留的卡对手只看到 `hidden L<等级>`，真实终局复盘公开；从场上保留的卡双方可见。带 stake 时为双人 ±stake，平局 0。详见 [GEM_MERCHANT.md](GEM_MERCHANT.md)。
+diff --git a/tests/full_state_support.py b/tests/full_state_support.py
+index e0e2bd9..9be4eb1 100644
+--- a/tests/full_state_support.py
++++ b/tests/full_state_support.py
+@@ -3,7 +3,8 @@ from copy import deepcopy
+ 
+ LEGACY = '''aeroplane_chess banqi blackjack tictactoe texas_holdem train_cards
+ gomoku go gandengyan guandan othello connect4 checkers chess chinese_checkers
+-dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua'''.split()
++dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua
++gem_merchant'''.split()
+ 
+ 
+ def choose(snapshot, step=0):
+@@ -37,6 +38,11 @@ def choose(snapshot, step=0):
+         if spec:
+             r, columns = next((r, v) for r, v in enumerate(spec['columns_by_row']) if v)
+             return {'action': spec['action'], 'row': r, 'col': int(columns.split(',')[0].split('-')[0])}
++    if game == 'gem_merchant' and not private.get('legal_actions'):
++        # The optional phase publishes a compact MCP summary; take one token.
++        cells = [[r, c] for r, row in enumerate(board['board'])
++                 for c, value in enumerate(row) if value and value != 'gold']
++        return {'action': 'take', 'cells': [cells[step % len(cells)]]}
+     actions = private.get('legal_actions') or board.get('legal_actions') or board.get('legal_moves')
+     if game == 'guandan':
+         # First published option keeps the baseline trace executable. Some other
+diff --git a/tests/test_game_categories.py b/tests/test_game_categories.py
+index 02c9b5a..a0c90f1 100644
+--- a/tests/test_game_categories.py
++++ b/tests/test_game_categories.py
+@@ -20,7 +20,7 @@ class GameCategoryTests(unittest.TestCase):
+             'card': {'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
+                      'texas_holdem', 'train_cards', 'uno', 'zhajinhua'},
+             'dice': {'liars_dice', 'yahtzee'},
+-            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne'},
++            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne', 'gem_merchant'},
+         }
+         self.assertEqual({category: {g for g, c in categories.items() if c == category}
+                           for category in GAME_CATEGORIES}, expected)
+diff --git a/tests/test_gem_merchant.py b/tests/test_gem_merchant.py
+new file mode 100644
+index 0000000..6add569
+--- /dev/null
++++ b/tests/test_gem_merchant.py
+@@ -0,0 +1,686 @@
++"""宝石商人（gem_merchant）：规则单测、随机整局、隐私与 MCP 集成。"""
++import json
++import random
++import re
++import tempfile
++import unittest
++from collections import Counter
++from copy import deepcopy
++from pathlib import Path
++from unittest.mock import patch
++
++import httpx
++
++from app import database, framework
++from app import main as main_module
++from app.games import game_catalog, get_game
++from app.games.gem_merchant import (
++    CARDS, INITIAL_TOKENS, ROYALS, SPIRAL, TOKEN_COLORS, GemMerchant, line_error,
++    take_lines, win_reason,
++)
++
++LETTERS = {"W": "white", "U": "blue", "G": "green", "R": "red", "K": "black",
++           "P": "pearl", "O": "gold", ".": None}
++
++
++def seats():
++    return [
++        {"player_id": "p0", "seat_index": 0, "role": "human", "participant_kind": "human",
++         "display_name": "南山", "token": "X", "active": True, "join_status": "joined"},
++        {"player_id": "p1", "seat_index": 1, "role": "ai", "participant_kind": "bound_machine",
++         "display_name": "小机", "token": "O", "active": True, "join_status": "joined"},
++    ]
++
++
++class NoShuffle(random.Random):
++    def shuffle(self, x):  # deterministic fixture: keep list order
++        return None
++
++
++def new_game(seed=7, opener="p0", rng=None):
++    game = GemMerchant(rng or random.Random(seed))
++    state = game.initialize(seats())
++    game.prepare_opening_state(state, opener, seats())
++    return game, state
++
++
++def set_board(state, rows):
++    state["board"] = [[LETTERS[ch] for ch in row] for row in rows]
++
++
++def tokens(**amounts):
++    return {color: amounts.get(color, 0) for color in TOKEN_COLORS}
++
++
++def put_in_pyramid(state, card_id, level=None, index=0):
++    level = str(level or CARDS[card_id]["level"])
++    for lv in ("1", "2", "3"):
++        if card_id in state["decks"][lv]:
++            state["decks"][lv].remove(card_id)
++        if card_id in state["pyramid"][lv]:
++            state["pyramid"][lv][state["pyramid"][lv].index(card_id)] = None
++    old = state["pyramid"][level][index]
++    if old:
++        state["decks"][level].append(old)
++    state["pyramid"][level][index] = card_id
++
++
++def remove_everywhere(state, card_id):
++    for lv in ("1", "2", "3"):
++        if card_id in state["decks"][lv]:
++            state["decks"][lv].remove(card_id)
++        row = state["pyramid"][lv]
++        if card_id in row:
++            row[row.index(card_id)] = state["decks"][lv].pop(0) if state["decks"][lv] else None
++
++
++def give_cards(state, pid, *items):
++    for item in items:
++        item = item if isinstance(item, dict) else {"id": item}
++        remove_everywhere(state, item["id"])
++        state["players"][pid]["cards"].append(item)
++
++
++def play(game, state, pid, move):
++    game.validate_action(state, move, {"player_id": pid})
++    return game.apply_action(state, move, {"player_id": pid})
++
++
++def card_ids_in(value):
++    found = set()
++    if isinstance(value, dict):
++        if isinstance(value.get("id"), int) and "level" in value and "cost" in value:
++            found.add(value["id"])
++        for child in value.values():
++            found |= card_ids_in(child)
++    elif isinstance(value, list):
++        for child in value:
++            found |= card_ids_in(child)
++    return found
++
++
++def conservation(state):
++    total = Counter()
++    for row in state["board"]:
++        total.update(t for t in row if t)
++    for color, n in state["bag"].items():
++        total[color] += n
++    for player in state["players"].values():
++        for color, n in player["tokens"].items():
++            assert n >= 0, (color, n)
++            total[color] += n
++    ids = [c for lv in state["decks"].values() for c in lv]
++    ids += [c for lv in state["pyramid"].values() for c in lv if c]
++    for player in state["players"].values():
++        ids += [x["id"] for x in player["cards"]] + [x["id"] for x in player["reserved"]]
++    privileges = state["privileges_on_table"] + sum(p["privileges"] for p in state["players"].values())
++    return total, sorted(ids), privileges
++
++
++class GemMerchantDataTests(unittest.TestCase):
++    def test_catalog_entry_and_capabilities(self):
++        entry = next(g for g in game_catalog() if g["game_type"] == "gem_merchant")
++        self.assertEqual(entry["display_name"], "宝石商人")
++        self.assertEqual(entry["category"], "tabletop")
++        self.assertEqual(entry["allowed_player_counts"], [2])
++        self.assertFalse(entry["supports_npcs"])
++        self.assertTrue(entry["supports_stakes"])
++        game = get_game("gem_merchant")
++        for heading in ("【目标】", "【行动】", "【特殊规则】", "【胜负】"):
++            self.assertIn(heading, game.rules_text)
++        self.assertIn("Splendor Duel", game.rules_text)
++        self.assertIn('"action":"take"', game.move_format)
++
++    def test_card_table_matches_reference_counts_and_disputed_card(self):
++        self.assertEqual(len(CARDS), 67)
++        by_level = Counter(c["level"] for c in CARDS.values())
++        self.assertEqual(by_level, {1: 30, 2: 24, 3: 13})
++        self.assertEqual(sum(c["joker"] for c in CARDS.values()), 9)
++        self.assertEqual(sorted(c["points"] for c in CARDS.values() if not c["bonus"]), [3, 5, 6])
++        self.assertEqual(sorted(c["id"] for c in CARDS.values() if c["bonus"] == 2), [32, 36, 40, 44, 48])
++        # BGG v3 与 CGY 唯一分歧：一级 1 冠百搭卡，卡面为“白4 珍珠1”。
++        self.assertEqual(CARDS[28]["cost"], {"white": 4, "pearl": 1})
++        self.assertTrue(CARDS[28]["joker"])
++        self.assertEqual(CARDS[28]["crowns"], 1)
++        self.assertEqual(sum(c["crowns"] for c in CARDS.values()), 28)
++        for card in CARDS.values():
++            self.assertTrue(set(card["cost"]) <= set(TOKEN_COLORS) - {"gold"})
++            self.assertTrue(all(n > 0 for n in card["cost"].values()))
++
++    def test_royal_titles_are_original_names_with_reference_values(self):
++        self.assertEqual(
++            [(r["name"], r["points"], r["ability"]) for r in ROYALS.values()],
++            [("糖霜女王", 3, None), ("斗篷小偷", 2, "steal"),
++             ("风车旅人", 2, "extra_turn"), ("卷轴管家", 2, "privilege")],
++        )
++        self.assertEqual(Counter(INITIAL_TOKENS), Counter(
++            white=4, blue=4, green=4, red=4, black=4, pearl=2, gold=3))
++
++
++class GemMerchantSetupTests(unittest.TestCase):
++    def test_setup_fills_board_pyramid_and_gives_second_player_a_privilege(self):
++        game, state = new_game()
++        flat = [t for row in state["board"] for t in row]
++        self.assertEqual(Counter(flat), Counter(INITIAL_TOKENS))
++        self.assertEqual({lv: len(row) for lv, row in state["pyramid"].items()}, {"1": 5, "2": 4, "3": 3})
++        self.assertEqual({lv: len(d) for lv, d in state["decks"].items()}, {"1": 25, "2": 20, "3": 10})
++        self.assertEqual(state["turn_player_id"], "p0")
++        self.assertEqual(state["players"]["p1"]["privileges"], 1)
++        self.assertEqual(state["players"]["p0"]["privileges"], 0)
++        self.assertEqual(state["privileges_on_table"], 2)
++        game.prepare_opening_state(state, "p1", seats())
++        self.assertEqual(state["turn_player_id"], "p1")
++        self.assertEqual(state["players"]["p0"]["privileges"], 1)
++        self.assertEqual(state["players"]["p1"]["privileges"], 0)
++        self.assertEqual(state["privileges_on_table"], 2)
++
++    def test_initial_layout_follows_spiral_from_center(self):
++        _game, state = new_game(rng=NoShuffle())
++        for (r, c), token in zip(SPIRAL, INITIAL_TOKENS):
++            self.assertEqual(state["board"][r][c], token)
++        self.assertEqual(SPIRAL[0], (2, 2))
++
++    def test_only_two_players(self):
++        with self.assertRaisesRegex(ValueError, "2 名"):
++            GemMerchant().initialize(seats()[:1])
++
++
++class GemMerchantTurnRuleTests(unittest.TestCase):
++    def assert_invalid(self, game, state, pid, move, message=""):
++        before = deepcopy(state)
++        with self.assertRaisesRegex(ValueError, message):
++            game.apply_action(state, move, {"player_id": pid})
++        self.assertEqual(state, before, "invalid moves must not touch the state")
++
++    def test_take_lines_in_all_four_directions_and_rejections(self):
++        game, state = new_game()
++        set_board(state, ["RRRUO", "G.GUK", "WWWPP", "KUKUK", "GUGGG"])
++        for cells in ([[0, 0], [0, 1], [0, 2]], [[2, 0], [3, 0], [4, 0]],
++                      [[2, 0], [3, 1], [4, 2]], [[2, 2], [3, 1], [4, 0]],
++                      [[0, 2], [0, 0], [0, 1]], [[3, 3]]):
++            self.assertIsNone(line_error(state, [tuple(c) for c in cells]), cells)
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[1, 0], [1, 2]]}, "不相邻")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[1, 0], [1, 1], [1, 2]]}, "空格")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[0, 3], [0, 4]]}, "金不能直接拿")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[4, 0], [4, 1], [4, 2], [4, 3]]}, "1 到 3")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[0, 0], [1, 1], [0, 2]]}, "")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[0, 0], [0, 0]]}, "两次")
++        self.assert_invalid(game, state, "p1", {"action": "take", "cells": [[0, 0]]}, "还没轮到")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[9, 9]]}, "越界")
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[0, 0]], "x": 1}, "参数")
++        self.assert_invalid(game, state, "p0", {"action": "fly"}, "未知动作")
++        legal = {tuple(map(tuple, a["cells"])) for a in game._legal_actions_for(state, "p0") if a["action"] == "take"}
++        self.assertEqual(legal, set(take_lines(state)))
++
++    def test_taking_three_same_or_two_pearls_gifts_a_privilege(self):
++        game, state = new_game()
++        set_board(state, ["RRRUO", "PPWUK", "WWWPP", "KUKUK", "GUGGG"])
++        result = play(game, state, "p0", {"action": "take", "cells": [[0, 0], [0, 1], [0, 2]]})
++        self.assertEqual(state["players"]["p0"]["tokens"]["red"], 3)
++        self.assertEqual(state["players"]["p1"]["privileges"], 2)
++        self.assertEqual(state["privileges_on_table"], 1)
++        self.assertEqual(result.next_player_id, "p1")
++        self.assertIn("gem_merchant_delta", result.public_event)
++        play(game, state, "p1", {"action": "take", "cells": [[1, 0], [1, 1]]})
++        self.assertEqual(state["players"]["p0"]["privileges"], 1)
++        self.assertEqual(state["privileges_on_table"], 0)
++        # Table empty: the opponent's privilege is taken instead.
++        play(game, state, "p0", {"action": "take", "cells": [[2, 0], [2, 1], [2, 2]]})
++        self.assertEqual(state["players"]["p1"]["privileges"], 3)
++        self.assertEqual(state["players"]["p0"]["privileges"], 0)
++        # The receiver already holds all three: nothing changes.
++        play(game, state, "p1", {"action": "take", "cells": [[4, 0]]})
++        play(game, state, "p0", {"action": "take", "cells": [[4, 2], [4, 3], [4, 4]]})
++        self.assertEqual(state["players"]["p1"]["privileges"], 3)
++        self.assertEqual(state["players"]["p0"]["privileges"], 0)
++        self.assertEqual(state["privileges_on_table"], 0)
++
++    def test_privilege_must_precede_refill_and_refill_gifts_opponent(self):
++        game, state = new_game(rng=NoShuffle())
++        state["players"]["p0"]["privileges"] = 2
++        state["players"]["p1"]["privileges"] = 0
++        state["privileges_on_table"] = 1
++        set_board(state, ["RRRUO", "PPWUK", "W.WPP", "KU.UK", "GUGG."])
++        state["bag"] = tokens(red=2, blue=1)
++        result = play(game, state, "p0", {"action": "use_privilege", "cell": [0, 0]})
++        self.assertTrue(result.retain_turn)
++        self.assertEqual(state["players"]["p0"]["tokens"]["red"], 1)
++        self.assertEqual(state["privileges_on_table"], 2)
++        self.assert_invalid(game, state, "p0", {"action": "use_privilege", "cell": [0, 4]}, "金")
++        result = play(game, state, "p0", {"action": "refill"})
++        self.assertTrue(result.retain_turn)
++        # Pool order white..gold, popped from the end: red, red, blue along the spiral.
++        self.assertEqual(state["board"][2][1], "red")
++        self.assertEqual(state["board"][3][2], "red")
++        self.assertEqual(state["board"][0][0], "blue")
++        self.assertIsNone(state["board"][4][4])
++        self.assertEqual(sum(state["bag"].values()), 0)
++        self.assertEqual(state["players"]["p1"]["privileges"], 1)
++        self.assert_invalid(game, state, "p0", {"action": "use_privilege", "cell": [0, 1]}, "补过盘")
++        self.assert_invalid(game, state, "p0", {"action": "refill"}, "补过盘")
++        self.assertFalse(any(a["action"] in {"use_privilege", "refill"}
++                             for a in game._legal_actions_for(state, "p0")))
++
++    def test_reserve_from_pyramid_is_public_and_blind_reserve_is_level_only(self):
++        game, state = new_game()
++        visible = state["pyramid"]["2"][1]
++        refill_card = state["decks"]["2"][0]
++        gold = next([r, c] for r in range(5) for c in range(5) if state["board"][r][c] == "gold")
++        play(game, state, "p0", {"action": "reserve", "gold": gold, "card_id": visible})
++        self.assertEqual(state["pyramid"]["2"][1], refill_card)
++        self.assertEqual(state["players"]["p0"]["tokens"]["gold"], 1)
++        public = game.public_state(state, seats())
++        self.assertEqual(public["players"]["p0"]["reserved"][0]["id"], visible)
++        self.assertFalse(public["players"]["p0"]["reserved"][0]["blind"])
++
++        secret = state["decks"]["3"][0]
++        result = play(game, state, "p1", {"action": "reserve", "level": 3})
++        self.assertEqual(state["players"]["p1"]["reserved"], [{"id": secret, "blind": True}])
++        public = game.public_state(state, seats())
++        self.assertEqual(public["players"]["p1"]["reserved"], [{"hidden": True, "blind": True, "level": 3}])
++        self.assertNotIn(secret, card_ids_in(public))
++        self.assertNotIn(secret, card_ids_in(game.private_state(state, seats()[0], seats())))
++        self.assertNotIn(secret, card_ids_in(result.public_event))
++        self.assertNotIn("card_id", state["last_action"])
++        self.assertEqual(game.private_state(state, seats()[1], seats())["reserved"][0]["id"], secret)
++        terminal = game.terminal_public_state(state, seats())
++        self.assertEqual(terminal["players"]["p1"]["reserved"][0]["id"], secret)
++        self.assertTrue(terminal["players"]["p1"]["reserved"][0]["blind"])
++        self.assertEqual(game.format_action(state, {"action": "reserve", "level": 3}, {}), "拿金并盲抽保留三级卡")
++
++    def test_reserve_limits(self):
++        game, state = new_game()
++        state["players"]["p0"]["reserved"] = [{"id": i, "blind": True} for i in (state["decks"]["1"].pop(),
++                                                                                   state["decks"]["1"].pop(),
++                                                                                   state["decks"]["1"].pop())]
++        self.assertFalse(any(a["action"] == "reserve" for a in game._legal_actions_for(state, "p0")))
++        self.assert_invalid(game, state, "p0", {"action": "reserve", "level": 1}, "已满")
++        state["players"]["p0"]["reserved"] = []
++        set_board(state, ["RRRUW", "PPWUK", "W.WPP", "KU.UK", "GUGG."])
++        self.assert_invalid(game, state, "p0", {"action": "reserve", "level": 1}, "没有金")
++        set_board(state, ["RRRUO", "PPWUK", "W.WPP", "KU.UK", "GUGG."])
++        self.assert_invalid(game, state, "p0", {"action": "reserve", "level": 1, "card_id": 1}, "二选一")
++        self.assert_invalid(game, state, "p0", {"action": "reserve", "gold": [0, 0], "level": 1}, "不是金")
++        play(game, state, "p0", {"action": "reserve", "level": 1})  # gold omitted → first gold
++        self.assertIsNone(state["board"][0][4])
++
++    def test_buy_uses_bonus_then_tokens_then_gold_and_refills_slot(self):
++        game, state = new_game()
++        put_in_pyramid(state, 4, index=2)
++        next_card = state["decks"]["1"][0]
++        state["players"]["p0"]["tokens"] = tokens(blue=1, green=3, gold=1, white=2)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 4})
++        me = state["players"]["p0"]
++        self.assertEqual(me["tokens"], tokens(white=2))
++        self.assertEqual(state["bag"], tokens(blue=1, green=3, gold=1))
++        self.assertEqual(me["cards"], [{"id": 4}])
++        self.assertEqual(state["pyramid"]["1"][2], next_card)
++        self.assertEqual(result.next_player_id, "p1")
++        public = game.public_state(state, seats())["players"]["p0"]
++        self.assertEqual((public["points"], public["bonuses"]["black"]), (1, 1))
++        # A black bonus now discounts card 1's cost? No black in card 1 cost; card 3 needs green/red only.
++        give_cards(state, "p0", 21)  # white bonus
++        put_in_pyramid(state, 31, index=0)
++        state["turn_player_id"] = "p0"
++        state["players"]["p0"]["tokens"] = tokens(white=2, green=2, gold=1)
++        self.assert_invalid(game, state, "p0", {"action": "buy", "card_id": 31}, "买不起")
++        state["players"]["p0"]["tokens"]["gold"] = 2
++        play(game, state, "p0", {"action": "buy", "card_id": 31})
++        self.assertEqual(state["players"]["p0"]["tokens"], tokens())
++        self.assert_invalid(game, state, "p1", {"action": "buy", "card_id": 999}, "不在场上")
++
++    def test_joker_needs_a_bonus_card_and_counts_as_chosen_color(self):
++        game, state = new_game()
++        put_in_pyramid(state, 27, index=0)
++        state["players"]["p0"]["tokens"] = tokens(black=4, pearl=1)
++        self.assert_invalid(game, state, "p0", {"action": "buy", "card_id": 27}, "百搭卡要压")
++        give_cards(state, "p0", 10, 15)
++        self.assert_invalid(game, state, "p0", {"action": "buy", "card_id": 27}, "joker_color")
++        self.assert_invalid(game, state, "p0", {"action": "buy", "card_id": 27, "joker_color": "blue"}, "joker_color")
++        legal = [a for a in game._legal_actions_for(state, "p0") if a["action"] == "buy" and a["card_id"] == 27]
++        self.assertEqual({a["joker_color"] for a in legal}, {"red", "green"})
++        play(game, state, "p0", {"action": "buy", "card_id": 27, "joker_color": "red"})
++        public = game.public_state(state, seats())["players"]["p0"]
++        self.assertEqual(public["bonuses"]["red"], 2)
++        self.assertEqual(public["color_points"]["red"], 1)
++        self.assertIn({"id": 27, "as": "red"}, public["purchased"])
++
++    def test_take_gem_ability_waits_only_when_there_is_a_choice(self):
++        game, state = new_game()
++        set_board(state, ["RKRUO", "PPWUK", "W.WPP", "GU.UG", "GUGG."])
++        put_in_pyramid(state, 3, index=0)
++        state["players"]["p0"]["tokens"] = tokens(green=2, red=2)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 3})
++        self.assertTrue(result.retain_turn)
++        self.assertEqual(state["flow"]["phase"], "resolve")
++        legal = game._legal_actions_for(state, "p0")
++        self.assertEqual(legal, [{"action": "take_bonus_gem", "cell": [0, 1]},
++                                 {"action": "take_bonus_gem", "cell": [1, 4]}])
++        self.assert_invalid(game, state, "p0", {"action": "take", "cells": [[0, 0]]}, "先完成结算")
++        self.assert_invalid(game, state, "p0", {"action": "take_bonus_gem", "cell": [0, 0]}, "不可用")
++        result = play(game, state, "p0", {"action": "take_bonus_gem", "cell": [1, 4]})
++        self.assertEqual(result.next_player_id, "p1")
++        self.assertEqual(state["players"]["p0"]["tokens"]["black"], 1)
++        # Single option resolves automatically inside the purchase.
++        game, state = new_game()
++        set_board(state, ["RKRUO", "PPWUW", "W.WPP", "GU.UG", "GUGG."])
++        put_in_pyramid(state, 3, index=0)
++        state["players"]["p0"]["tokens"] = tokens(green=2, red=2)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 3})
++        self.assertEqual(result.next_player_id, "p1")
++        self.assertIsNone(state["board"][0][1])
++
++    def test_steal_privilege_and_extra_turn_abilities(self):
++        game, state = new_game()
++        put_in_pyramid(state, 31, index=0)
++        state["players"]["p0"]["tokens"] = tokens(white=4, green=3)
++        state["players"]["p1"]["tokens"] = tokens(red=1, pearl=1, gold=2)
++        play(game, state, "p0", {"action": "buy", "card_id": 31})
++        self.assertEqual(game._legal_actions_for(state, "p0"),
++                         [{"action": "steal", "gem": "red"}, {"action": "steal", "gem": "pearl"}])
++        self.assert_invalid(game, state, "p0", {"action": "steal", "gem": "gold"}, "gem")
++        play(game, state, "p0", {"action": "steal", "gem": "pearl"})
++        self.assertEqual(state["players"]["p0"]["tokens"]["pearl"], 1)
++        self.assertEqual(state["players"]["p1"]["tokens"]["pearl"], 0)
++
++        game, state = new_game()
++        put_in_pyramid(state, 34, index=0)
++        state["players"]["p0"]["tokens"] = tokens(red=2, black=4, pearl=1)
++        play(game, state, "p0", {"action": "buy", "card_id": 34})
++        self.assertEqual(state["players"]["p0"]["privileges"], 1)
++
++        game, state = new_game()
++        put_in_pyramid(state, 2, index=0)
++        state["players"]["p0"]["tokens"] = tokens(white=2, blue=2, pearl=1)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 2})
++        self.assertTrue(result.retain_turn)
++        self.assertEqual(state["turn_player_id"], "p0")
++        self.assertEqual(state["flow"]["phase"], "optional")
++        self.assertEqual(state["flow"]["turn_number"], 1)
++
++    def test_third_crown_grants_a_royal_choice_and_royal_ability(self):
++        game, state = new_game()
++        give_cards(state, "p0", 5, 10)
++        put_in_pyramid(state, 15, index=0)
++        state["players"]["p0"]["tokens"] = tokens(red=3)
++        state["players"]["p1"]["tokens"] = tokens(blue=1, white=1)
++        play(game, state, "p0", {"action": "buy", "card_id": 15})
++        self.assertEqual(game.public_state(state, seats())["pending"], {"kind": "royal"})
++        self.assertEqual([a["royal_id"] for a in game._legal_actions_for(state, "p0")], [1, 2, 3, 4])
++        play(game, state, "p0", {"action": "choose_royal", "royal_id": 2})
++        self.assertEqual(state["royals"], [1, 3, 4])
++        self.assertEqual(game._legal_actions_for(state, "p0"),
++                         [{"action": "steal", "gem": "white"}, {"action": "steal", "gem": "blue"}])
++        result = play(game, state, "p0", {"action": "steal", "gem": "blue"})
++        self.assertEqual(result.next_player_id, "p1")
++        public = game.public_state(state, seats())["players"]["p0"]
++        self.assertEqual((public["points"], public["crowns"]), (2, 3))
++        self.assertEqual(public["royals"][0]["name"], "斗篷小偷")
++
++    def test_discard_one_at_a_time_down_to_ten(self):
++        game, state = new_game()
++        set_board(state, ["RRRUO", "PPWUK", "W.WPP", "KU.UK", "GUGG."])
++        state["players"]["p0"]["tokens"] = tokens(white=4, blue=3, gold=3)
++        result = play(game, state, "p0", {"action": "take", "cells": [[0, 0], [0, 1]]})
++        self.assertTrue(result.retain_turn)
++        self.assertEqual(game.public_state(state, seats())["pending"], {"kind": "discard", "count": 2})
++        self.assertEqual({a["gem"] for a in game._legal_actions_for(state, "p0")}, {"white", "blue", "red", "gold"})
++        play(game, state, "p0", {"action": "discard", "gem": "gold"})
++        self.assertEqual(state["flow"]["phase"], "resolve")
++        result = play(game, state, "p0", {"action": "discard", "gem": "white"})
++        self.assertEqual(result.next_player_id, "p1")
++        self.assertEqual(sum(state["players"]["p0"]["tokens"].values()), 10)
++        self.assertEqual(state["bag"]["gold"] + state["bag"]["white"], 2)
++
++    def test_three_victory_conditions(self):
++        _game, state = new_game()
++        me = state["players"]["p0"]
++        self.assertIsNone(win_reason(state, "p0"))
++        me["cards"], me["royals"] = [{"id": 65}, {"id": 51}, {"id": 26}], [1, 3]
++        self.assertIsNone(win_reason(state, "p0"))  # 6 + 5 + 3 + 3 + 2 = 19
++        me["royals"] = [1, 3, 4]
++        self.assertEqual(win_reason(state, "p0"), "声望 21 分")
++        me["royals"] = []
++        me["cards"] = [{"id": 66, "as": "red"}, {"id": 55}, {"id": 57}, {"id": 59}, {"id": 5}]
++        self.assertEqual(win_reason(state, "p0"), "10 顶皇冠")
++        me["cards"] = [{"id": 64}, {"id": 63}, {"id": 49}, {"id": 47}]
++        self.assertEqual(win_reason(state, "p0"), "白色卡共 10 分")
++        me["cards"] = [{"id": 65}, {"id": 64}]
++        self.assertIsNone(win_reason(state, "p0"), "纯分卡不算任何颜色")
++        me["cards"] = [{"id": 67, "as": "white"}, {"id": 64}, {"id": 63}]
++        self.assertEqual(win_reason(state, "p0"), "白色卡共 10 分")
++
++    def test_purchase_reaching_twenty_points_ends_the_game(self):
++        game, state = new_game()
++        give_cards(state, "p0", 65, 51, 26)
++        state["players"]["p0"]["royals"] = [1]
++        state["royals"] = [2, 3, 4]
++        put_in_pyramid(state, 4, index=0)
++        state["players"]["p0"]["tokens"] = tokens(blue=2, green=3)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 4})
++        self.assertIsNone(result.result)  # 6 + 5 + 3 + 3 + 1 = 18
++        state["turn_player_id"] = "p0"
++        give_cards(state, "p0", 34)
++        put_in_pyramid(state, 9, index=0)
++        state["players"]["p0"]["tokens"] = tokens(white=2, blue=3)
++        result = play(game, state, "p0", {"action": "buy", "card_id": 9})
++        self.assertEqual(result.result, {"winner_player_id": "p0", "draw": False, "reason": "声望 21 分"})
++        self.assertEqual(state["flow"]["phase"], "finished")
++        self.assertEqual(game._legal_actions_for(state, "p0"), [])
++        self.assertEqual(game._legal_actions_for(state, "p1"), [])
++
++    def test_must_refill_when_stuck_then_pass_and_double_pass_ends(self):
++        game, state = new_game()
++        set_board(state, [".....", ".....", ".....", ".....", "....."])
++        state["bag"] = tokens(red=2)
++        state["players"]["p0"]["privileges"] = 1
++        self.assertEqual(game._legal_actions_for(state, "p0"), [{"action": "refill"}])
++        self.assert_invalid(game, state, "p0", {"action": "pass"}, "先补盘")
++        state["bag"] = tokens()
++        self.assertEqual(game._legal_actions_for(state, "p0"), [{"action": "pass"}])
++        result = play(game, state, "p0", {"action": "pass"})
++        self.assertEqual(result.next_player_id, "p1")
++        give_cards(state, "p1", 4)
++        result = play(game, state, "p1", {"action": "pass"})
++        self.assertEqual(result.result["winner_player_id"], "p1")
++        self.assertIn("1", result.result["reason"])
++
++    def test_npc_assist_actions_skip_optional_steps(self):
++        game, state = new_game()
++        state["players"]["p0"]["privileges"] = 1
++        actions = game.npc_legal_actions(state, {"player_id": "p0"}, seats())
++        self.assertTrue(actions)
++        self.assertFalse(any(a["action"] in {"use_privilege", "refill"} for a in actions))
++
++
++class GemMerchantRandomPlayTests(unittest.TestCase):
++    def test_seeded_random_games_terminate_and_conserve_everything(self):
++        endings = Counter()
++        for seed in range(60):
++            rng = random.Random(seed)
++            game, state = new_game(seed=seed, opener="p0" if seed % 2 else "p1")
++            current = state["turn_player_id"]
++            for step in range(4000):
++                actions = game._legal_actions_for(state, current)
++                self.assertTrue(actions, (seed, step))
++                other = "p1" if current == "p0" else "p0"
++                self.assertEqual(game._legal_actions_for(state, other), [])
++                if step % 7 == 0:
++                    for candidate in rng.sample(actions, min(5, len(actions))):
++                        game.validate_action(state, candidate, {"player_id": current})
++                    bogus = {"action": "take", "cells": [[rng.randrange(5), rng.randrange(5)] for _ in range(4)]}
++                    before = deepcopy(state)
++                    with self.assertRaises(ValueError):
++                        game.apply_action(state, bogus, {"player_id": current})
++                    self.assertEqual(state, before)
++                move = rng.choice(actions)
++                result = play(game, state, current, move)
++                total, ids, privileges = conservation(state)
++                self.assertEqual(total, Counter(INITIAL_TOKENS), (seed, step))
++                self.assertEqual(ids, list(range(1, 68)))
++                self.assertEqual(privileges, 3)
++                self.assertTrue(all(len(p["reserved"]) <= 3 for p in state["players"].values()))
++                if result.result:
++                    break
++                if not result.retain_turn:
++                    # Over-limit tokens are discarded before the turn ends.
++                    self.assertLessEqual(sum(state["players"][current]["tokens"].values()), 10)
++                    self.assertEqual(result.next_player_id, other)
++                    current = other
++                self.assertEqual(state["turn_player_id"], current)
++            else:
++                self.fail(f"seed {seed} did not finish")
++            endings["draw" if state["result"].get("draw") else "win"] += 1
++        self.assertGreater(endings["win"], 50)
++
++    def test_validator_accepts_exactly_the_published_actions(self):
++        rng = random.Random(5)
++        for seed in range(12):
++            game, state = new_game(seed=seed)
++            current = state["turn_player_id"]
++            for _ in range(rng.randrange(5, 40)):
++                actions = game._legal_actions_for(state, current)
++                result = play(game, state, current, rng.choice(actions))
++                if result.result:
++                    break
++                current = state["turn_player_id"]
++            if state.get("result"):
++                continue
++            legal = game._legal_actions_for(state, current)
++            for _ in range(300):
++                kind = rng.choice(["take", "reserve", "buy", "use_privilege"])
++                if kind == "take":
++                    move = {"action": "take", "cells": sorted(
++                        [[rng.randrange(5), rng.randrange(5)] for _ in range(rng.randint(1, 3))])}
++                elif kind == "reserve":
++                    move = {"action": "reserve", "gold": [rng.randrange(5), rng.randrange(5)],
++                            **({"level": rng.randint(1, 3)} if rng.random() < .4 else {"card_id": rng.randint(1, 67)})}
++                elif kind == "buy":
++                    move = {"action": "buy", "card_id": rng.randint(1, 67)}
++                    if CARDS[move["card_id"]]["joker"]:
++                        move["joker_color"] = rng.choice(["white", "blue", "green", "red", "black"])
++                else:
++                    move = {"action": "use_privilege", "cell": [rng.randrange(5), rng.randrange(5)]}
++                try:
++                    game.validate_action(state, move, {"player_id": current})
++                    accepted = True
++                except ValueError:
++                    accepted = False
++                self.assertEqual(accepted, move in legal, move)
++
++
++class GemMerchantIntegrationTests(unittest.IsolatedAsyncioTestCase):
++    async def asyncSetUp(self):
++        self.temporary = tempfile.TemporaryDirectory(prefix="duel-gem-merchant-")
++        self.db_patch = patch.object(database, "DB_PATH", Path(self.temporary.name) / "test.db")
++        self.db_patch.start()
++        database.init_db()
++        self.original_events = main_module.revision_events
++        main_module.revision_events = main_module.RevisionEvents()
++        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=main_module.app),
++                                        base_url="http://duel.test")
++
++    async def asyncTearDown(self):
++        await self.client.aclose()
++        main_module.revision_events = self.original_events
++        self.db_patch.stop()
++        self.temporary.cleanup()
++
++    def assert_no_secret(self, payload, secret):
++        self.assertNotIn(secret, card_ids_in(payload))
++        self.assertIsNone(re.search(rf"#{secret}(?!\d)", json.dumps(payload, ensure_ascii=False)))
++
++    async def test_framework_room_plays_to_terminal_and_hides_blind_reserves(self):
++        rng = random.Random(3)
++        room = framework.create_room("gem_merchant", "human_first", "human", "h1", "a1",
++                                     require_confirmations=False)
++        roles = {p["player_id"]: p["role"] for p in room["participants"]}
++        blind_seen = 0
++        for _ in range(3000):
++            if room["status"] != "playing":
++                break
++            pid = room["current_player_id"]
++            other = next(p for p in roles if p != pid)
++            actions = framework.project_room_for_viewer(room, pid)["private_state"]["legal_actions"]
++            self.assertEqual(framework.project_room_for_viewer(room, other)["private_state"]["legal_actions"], [])
++            blind = [a for a in actions if a["action"] == "reserve" and "level" in a]
++            move = blind[0] if blind and rng.random() < .3 else rng.choice(actions)
++            room = framework.play_move(room["room_id"], roles[pid], pid, move,
++                                       expected_revision=room["revision"])
++            if "level" in move and move["action"] == "reserve":
++                secret = room["board_state"]["players"][pid]["reserved"][-1]["id"]
++                if secret in [c for row in room["board_state"]["pyramid"].values() for c in row]:
++                    continue
++                blind_seen += 1
++                if room["status"] == "playing":
++                    view = framework.project_room_for_viewer(room, other)
++                    self.assert_no_secret(view["board_state"], secret)
++                    self.assert_no_secret(view["private_state"], secret)
++                    timeline = framework.list_timeline(room["room_id"], viewer_player_id=other)
++                    self.assertIsNone(re.search(rf"#{secret}(?!\d)", json.dumps(timeline, ensure_ascii=False)))
++                    self.assert_no_secret(timeline, secret)
++        self.assertEqual(room["status"], "finished")
++        self.assertGreater(blind_seen, 0)
++        self.assertTrue(room["winner_player_id"] or (room["result"] or {}).get("draw"))
++        final = framework.project_room_for_viewer(room, "h1")["board_state"]
++        for player in final["players"].values():
++            self.assertTrue(all(not c.get("hidden") for c in player["reserved"]))
++
++    async def test_resignation_finishes_for_the_opponent(self):
++        room = framework.create_room("gem_merchant", "human_first", "human", "h1", "a1",
++                                     require_confirmations=False)
++        room = framework.resign(room["room_id"], "human", "h1")
++        self.assertEqual(room["status"], "finished")
++        self.assertEqual(room["winner_player_id"], "a1")
++
++    async def test_mcp_bootstrap_delta_and_blind_privacy(self):
++        response = await self.client.post("/mcp/play", json={
++            "action": "new", "player_id": "ai-1", "opponent_id": "human-1",
++            "game_type": "gem_merchant", "mode": "ai_first", "stake": 0})
++        self.assertEqual(response.status_code, 200, response.text)
++        boot = response.json()
++        self.assertTrue(boot["bootstrap"])
++        room = boot["room"]
++        self.assertTrue(room["rules_text"].startswith(get_game("gem_merchant").rules_text))
++        self.assertIn("legal_summary", room["private_state"])
++        self.assertNotIn("legal_actions", room["private_state"])
++        self.assertIn("delta_format", room["board_state"])
++        self.assertNotIn("decks", json.dumps(room["board_state"]))
++        board = room["board_state"]["board"]
++        self.assertEqual([len(row) for row in board], [5] * 5)
++        self.assertTrue(all(isinstance(card, str) for row in room["board_state"]["pyramid"].values() for card in row))
++        cell = next([r, c] for r, row in enumerate(board) for c, v in enumerate(row) if v not in ".O")
++        moved = (await self.client.post("/mcp/play", json={
++            "action": "move", "player_id": "ai-1", "room_id": room["room_id"],
++            "revision": room["revision"], "move": {"action": "take", "cells": [cell]}})).json()
++        delta = next(e["gem_merchant_delta"] for e in moved["events"] if "gem_merchant_delta" in e)
++        self.assertEqual(delta["board"][cell[0]][cell[1]], ".")
++        self.assertIn("ai-1", delta["players"])
++
++        current = framework.get_room(room["room_id"])
++        legal = framework.project_room_for_viewer(current, "human-1")["private_state"]["legal_actions"]
++        blind = next(a for a in legal if a["action"] == "reserve" and a.get("level") == 2)
++        current = framework.play_move(current["room_id"], "human", "human-1", blind,
++                                      expected_revision=current["revision"], message="盲抽")
++        secret = current["board_state"]["players"]["human-1"]["reserved"][0]["id"]
++        state = (await self.client.post("/mcp/play", json={
++            "action": "state", "player_id": "ai-1", "room_id": room["room_id"]})).json()
++        self.assertTrue(state["your_turn"])
++        self.assert_no_secret(state, secret)
++        self.assertIn({"name": "human-1", "move": blind, "message": "盲抽"},
++                      [e for e in state["events"] if "move" in e])
++        delta = next(e["gem_merchant_delta"] for e in state["events"] if "gem_merchant_delta" in e)
++        self.assertEqual(delta["players"]["human-1"]["reserved"], ["hidden L2"])
++        full = (await self.client.post("/mcp/play", json={
++            "action": "state", "player_id": "ai-1", "room_id": room["room_id"], "full_state": True})).json()
++        self.assertEqual(full["snapshot"]["rules_text"], get_game("gem_merchant").rules_text)
++        self.assert_no_secret(full, secret)
++        self.assertNotIn("action_history", full["snapshot"]["board_state"])
++        # The owner sees the blind card in its own private projection.
++        own = framework.project_mcp_snapshot_for_viewer(framework.get_room(room["room_id"]), "human-1")
++        self.assertTrue(own["private_state"]["reserved"][0].startswith(f"#{secret} L2 "))
++        self.assertTrue(own["private_state"]["reserved"][0].endswith(" blind"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_gem_merchant_frontend.py b/tests/test_gem_merchant_frontend.py
+new file mode 100644
+index 0000000..9740c27
+--- /dev/null
++++ b/tests/test_gem_merchant_frontend.py
+@@ -0,0 +1,257 @@
++import json
++import random
++import shutil
++import subprocess
++import unittest
++from pathlib import Path
++
++from app.games.gem_merchant import GemMerchant
++
++ROOT = Path(__file__).resolve().parents[1]
++SCRIPT = (ROOT / "app" / "static" / "games" / "gem_merchant.js").read_text(encoding="utf-8")
++STYLES = (ROOT / "app" / "static" / "games" / "gem_merchant.css").read_text(encoding="utf-8")
++APP_SCRIPT = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
++HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
++NODE = shutil.which("node")
++
++SEATS = [
++    {"player_id": "human", "seat_index": 0, "role": "human", "display_name": "南山"},
++    {"player_id": "machine", "seat_index": 1, "role": "ai", "display_name": "小机"},
++]
++
++
++class NoShuffle(random.Random):
++    def shuffle(self, x):
++        return None
++
++
++def fixture(kind="opening"):
++    """Real server projections for the renderer, never hand-written rules."""
++    game = GemMerchant(NoShuffle())
++    state = game.initialize(SEATS)
++    game.prepare_opening_state(state, "human", SEATS)
++    actor = {"player_id": "human"}
++    if kind in ("reserved", "steal", "terminal"):
++        visible = state["pyramid"]["1"][0]
++        game.apply_action(state, {"action": "reserve", "card_id": visible}, actor)
++        game.apply_action(state, {"action": "reserve", "level": 3}, {"player_id": "machine"})
++        if kind != "steal":
++            game.apply_action(state, {"action": "reserve", "level": 2}, actor)
++    if kind == "steal":
++        state["pyramid"]["2"][0] = 31
++        state["decks"]["2"] = [c for c in state["decks"]["2"] if c != 31]
++        state["players"]["human"]["tokens"].update(white=4, green=3)
++        state["players"]["machine"]["tokens"].update(red=1, pearl=1)
++        game.apply_action(state, {"action": "buy", "card_id": 31}, actor)
++    terminal = kind == "terminal"
++    public = (game.terminal_public_state if terminal else game.public_state)(state, SEATS)
++    privates = {s["player_id"]: game.private_state(state, s, SEATS) for s in SEATS}
++    return {"state": public, "private": privates, "current": state["turn_player_id"] or "human",
++            "terminal": terminal,
++            "secret": state["players"]["machine"]["reserved"][0]["id"] if state["players"]["machine"]["reserved"] else None}
++
++
++class GemMerchantFrontendContractTests(unittest.TestCase):
++    def test_registry_renderer_and_scoped_stylesheet(self):
++        self.assertIn('window.DuelGameUI.register("gem_merchant", {', SCRIPT)
++        self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
++        self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
++        self.assertIn("function renderBoard(context)", SCRIPT)
++        self.assertIn("function renderControls(context)", SCRIPT)
++        self.assertIn('const STYLE_HREF = "/static/games/gem_merchant.css?v=1";', SCRIPT)
++        self.assertIn('link.dataset.duelGameStyle = "gem_merchant";', SCRIPT)
++        self.assertIn('gem_merchant: "约300–900 token/轮",', APP_SCRIPT)
++        self.assertNotIn('register("gem_merchant"', APP_SCRIPT)
++        self.assertNotIn("gem_merchant", HTML)
++
++    def test_visuals_are_original_css_without_images_emoji_or_original_names(self):
++        self.assertNotIn("<img", SCRIPT.lower())
++        self.assertNotIn("url(", STYLES.lower())
++        self.assertNotIn("innerHTML", SCRIPT)
++        for original in ("Splendor", "璀璨", "皇室"):
++            self.assertNotIn(original, SCRIPT + STYLES)
++        for name in ("糖霜女王", "斗篷小偷", "风车旅人", "卷轴管家"):
++            self.assertNotIn(name, SCRIPT, "称号卡名称由服务端下发")
++        for emoji in ("💎", "👑", "📜", "⭐"):
++            self.assertNotIn(emoji, SCRIPT + STYLES)
++
++    def test_uses_duel_palette_and_mobile_touch_targets(self):
++        for token in ("var(--purple", "var(--pink", "var(--text"):
++            self.assertIn(token, STYLES)
++        self.assertIn("min-width: 44px;", STYLES)
++        self.assertIn("min-height: 44px;", STYLES)
++        self.assertIn("touch-action: manipulation;", STYLES)
++        self.assertIn("@media (max-width: 599px)", STYLES)
++        self.assertIn("@media (max-width: 359px)", STYLES)
++        board_rule = STYLES[STYLES.index(".board.gem_merchant {"):]
++        board_rule = board_rule[:board_rule.index("}")]
++        self.assertIn("max-width: 100%;", board_rule)
++        self.assertIn("min-width: 0;", board_rule)
++
++
++@unittest.skipUnless(NODE, "node is required for gem_merchant renderer DOM tests")
++class GemMerchantFrontendRuntimeTests(unittest.TestCase):
++    HARNESS = r'''
++const assert = require("node:assert/strict");
++const vm = require("node:vm");
++const fs = require("node:fs");
++class ClassList {
++  constructor() { this.names = new Set(); }
++  set(value) { this.names = new Set(String(value || "").split(/\s+/).filter(Boolean)); }
++  add(...names) { names.forEach((n) => this.names.add(n)); }
++  contains(name) { return this.names.has(name); }
++}
++class Element {
++  constructor(tag, doc) {
++    this.tag = tag; this.ownerDocument = doc; this.children = []; this.dataset = {};
++    this.attributes = {}; this.listeners = {}; this.disabled = false; this.textContent = "";
++    this.classList = new ClassList();
++    this.style = {values: {}, setProperty(n, v) { this.values[n] = String(v); }};
++  }
++  set className(v) { this.classList.set(v); }
++  get className() { return [...this.classList.names].join(" "); }
++  appendChild(c) { this.children.push(c); return c; }
++  append(...c) { this.children.push(...c); }
++  setAttribute(n, v) { this.attributes[n] = String(v); }
++  addEventListener(n, f) { this.listeners[n] = f; }
++}
++const styles = new Map();
++const document = {
++  head: {appendChild(node) { styles.set(node.id, node); }},
++  createElement(tag) { return new Element(tag, document); },
++  getElementById(id) { return styles.get(id) || null; },
++};
++let renderer = null;
++const window = {document, DuelGameUI: {register(type, r) { assert.equal(type, "gem_merchant"); renderer = r; }}};
++vm.runInNewContext(fs.readFileSync("app/static/games/gem_merchant.js", "utf8"),
++  {window, document, console, Math, Number, String, Boolean, Array, Object, Map, Set, Promise, JSON});
++assert.ok(renderer);
++const all = (root) => { const out = []; const v = (n) => { out.push(n); n.children.forEach(v); }; root.children.forEach(v); return out; };
++const cls = (n, c) => n.classList && n.classList.contains(c);
++const text = (n) => [n.textContent, ...n.children.map(text)].join("");
++function view(fx, viewer) {
++  const board = new Element("div", document), controls = new Element("div", document);
++  const submitted = [];
++  const priv = fx.private[viewer];
++  const context = {
++    board, controls, state: fx.state, privateState: priv, legalActions: priv.legal_actions,
++    uiState: {}, canMove: !fx.terminal && fx.current === viewer, isTerminal: fx.terminal,
++    room: {current_player_id: fx.current, status: fx.terminal ? "finished" : "playing"},
++    viewer: {player_id: viewer},
++    participants: [{player_id: "human", display_name: "南山"}, {player_id: "machine", display_name: "小机"}],
++    helpers: {
++      canMove() { return context.canMove; },
++      rerender() { board.children = []; controls.children = []; renderer.renderBoard(context); renderer.renderControls(context); },
++      submitMove(move) { submitted.push(move); return Promise.resolve(true); },
++    },
++  };
++  renderer.renderBoard(context); renderer.renderControls(context);
++  return {context, board, controls, submitted, nodes: () => all(board), ctl: () => all(controls)};
++}
++const FX = JSON.parse(process.env.GM_FIXTURES);
++'''
++
++    def run_node(self, body):
++        fixtures = {kind: fixture(kind) for kind in ("opening", "reserved", "steal", "terminal")}
++        completed = subprocess.run(
++            [NODE, "-e", self.HARNESS + body], cwd=ROOT, capture_output=True, text=True,
++            env={"GM_FIXTURES": json.dumps(fixtures, ensure_ascii=False), "PATH": "/usr/bin:/bin"},
++        )
++        self.assertEqual(completed.returncode, 0, completed.stderr)
++
++    def test_opening_table_renders_board_pyramid_royals_and_one_stylesheet(self):
++        self.run_node(r'''
++const v = view(FX.opening, "human");
++const nodes = v.nodes();
++assert.equal(nodes.filter((n) => cls(n, "gm-cell")).length, 25);
++assert.equal(nodes.filter((n) => cls(n, "gm-card") && n.dataset.cardId).length, 12);
++assert.equal(nodes.filter((n) => cls(n, "gm-deck")).length, 3);
++assert.equal(nodes.filter((n) => cls(n, "gm-royal")).length, 4);
++assert.ok(text(v.board).includes("糖霜女王"));
++assert.equal(nodes.filter((n) => cls(n, "gm-player")).length, 2);
++assert.ok(cls(v.context.board, "gem_merchant"));
++assert.equal(styles.get("duel-game-gem-merchant-styles").href, "/static/games/gem_merchant.css?v=1");
++view(FX.opening, "machine");
++assert.equal(styles.size, 1);
++// The opponent cannot press anything on the board.
++const waiting = view(FX.opening, "machine");
++assert.ok(waiting.nodes().filter((n) => cls(n, "gm-cell")).every((n) => n.disabled));
++''')
++
++    def test_take_selection_submits_the_exact_authoritative_action(self):
++        self.run_node(r'''
++(async () => {
++  const v = view(FX.opening, "human");
++  const legal = v.context.legalActions.filter((a) => a.action === "take" && a.cells.length === 2);
++  const target = legal[0].cells;
++  const cell = (rc) => v.nodes().find((n) => n.dataset.cell === "ABCDE"[rc[0]] + (rc[1] + 1));
++  cell(target[1]).listeners.click();
++  assert.ok(v.nodes().some((n) => cls(n, "is-option")), "extendable cells are highlighted");
++  cell(target[0]).listeners.click();
++  const take = v.ctl().find((n) => n.tag === "button" && n.textContent === "拿！");
++  assert.equal(take.disabled, false);
++  take.listeners.click();
++  await Promise.resolve();
++  assert.deepEqual(v.submitted, [legal[0]]);
++})().catch((e) => { console.error(e); process.exit(1); });
++''')
++
++    def test_reserved_cards_visible_or_hidden_by_rule(self):
++        self.run_node(r'''
++const fx = FX.reserved;
++const mine = view(fx, "machine");
++const opp = view(fx, "human");
++const reservedOf = (v, viewerSide) => v.nodes().filter((n) => cls(n, "gm-player") && cls(n, viewerSide))[0];
++// The machine sees the human's pyramid reservation face-up and the blind one as a back.
++const humanPanel = reservedOf(mine, "is-opponent");
++const faces = all(humanPanel).filter((n) => cls(n, "gm-card") && n.dataset.cardId);
++const backs = all(humanPanel).filter((n) => cls(n, "is-back"));
++assert.equal(faces.length, 1);
++assert.equal(backs.length, 1);
++// The human never sees the machine's blind card; the machine sees its own face-up.
++assert.ok(!opp.nodes().some((n) => n.dataset.cardId === String(fx.secret)));
++const machineOwn = reservedOf(mine, "is-viewer");
++assert.ok(all(machineOwn).some((n) => n.dataset.cardId === String(fx.secret) && cls(n, "is-blind-own")));
++''')
++
++    def test_card_detail_offers_buy_only_when_published(self):
++        self.run_node(r'''
++const v = view(FX.opening, "human");
++const card = v.nodes().find((n) => cls(n, "gm-card") && n.dataset.cardId);
++card.listeners.click();
++const buttons = v.ctl().filter((n) => n.tag === "button");
++const buy = buttons.find((n) => n.textContent === "买下");
++const reserve = buttons.find((n) => n.textContent === "拿金保留");
++assert.equal(buy.disabled, !v.context.legalActions.some((a) => a.action === "buy" && String(a.card_id) === card.dataset.cardId));
++assert.equal(reserve.disabled, false);
++assert.ok(v.ctl().some((n) => cls(n, "gm-detail")));
++''')
++
++    def test_pending_steal_choice_submits_selected_gem(self):
++        self.run_node(r'''
++(async () => {
++  const v = view(FX.steal, "human");
++  assert.deepEqual(v.context.legalActions.map((a) => a.gem), ["red", "pearl"]);
++  const choice = v.ctl().find((n) => cls(n, "gm-choice") && n.dataset.gem === "pearl");
++  choice.listeners.click();
++  const confirm = v.ctl().find((n) => n.tag === "button" && n.textContent === "拿这枚");
++  assert.equal(confirm.disabled, false);
++  confirm.listeners.click();
++  await Promise.resolve();
++  assert.deepEqual(v.submitted, [{action: "steal", gem: "pearl"}]);
++})().catch((e) => { console.error(e); process.exit(1); });
++''')
++
++    def test_terminal_review_reveals_blind_reservations(self):
++        self.run_node(r'''
++const v = view(FX.terminal, "human");
++const review = v.nodes().find((n) => cls(n, "gm-review"));
++assert.ok(review);
++assert.ok(all(review).some((n) => n.dataset.cardId === String(FX.terminal.secret)));
++assert.ok(v.nodes().some((n) => cls(n, "gm-status") && cls(n, "is-final")));
++assert.ok(!v.nodes().some((n) => cls(n, "gm-cell") && !n.disabled));
++''')
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_hidden_information_audit.py b/tests/test_hidden_information_audit.py
+index 319462a..c41ffe8 100644
+--- a/tests/test_hidden_information_audit.py
++++ b/tests/test_hidden_information_audit.py
+@@ -13,6 +13,7 @@ FULL_TERMINAL_REVIEW_REASONS = {
+     "banqi": "unflipped piece identities become reviewable only after the room is terminal",
+     "blackjack": "the dealer hole is hidden during play and revealed after settlement or room termination",
+     "doudizhu": "opponent hands stay private during play and remaining hands are shown at terminal",
++    "gem_merchant": "blind-reserved card faces stay private during play and are reviewable at terminal; deck order never leaves the server",
+     "gandengyan": "opponent hands stay private during play and remaining hands are shown at terminal",
+     "guandan": "opponent hands stay private during play and remaining hands are shown at terminal",
+     "junqi": "unrevealed ranks stay private during play and the terminal board is reviewable",
+diff --git a/tests/test_identity.py b/tests/test_identity.py
+index d0be340..fb56bf6 100644
+--- a/tests/test_identity.py
++++ b/tests/test_identity.py
+@@ -135,7 +135,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
+             ],
+         )
+         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
+-        self.assertEqual(len(payload["games"]), 29)
++        self.assertEqual(len(payload["games"]), 30)
+         self.assertIn("monopoly", {game["game_type"] for game in payload["games"]})
+         games = {game["game_type"]: game for game in payload["games"]}
+         self.assertEqual(
+@@ -145,6 +145,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
+                 "rummikub": "tabletop",
+                 "bomb_plane": "tabletop",
+                 "carcassonne": "tabletop",
++                "gem_merchant": "tabletop",
+                 "tictactoe": "board",
+                 "gomoku": "board",
+                 "go": "board",
+@@ -189,6 +190,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
+                 "rummikub": "拉密",
+                 "bomb_plane": "炸飞机",
+                 "carcassonne": "卡卡颂",
++                "gem_merchant": "宝石商人",
+                 "tictactoe": "井字棋",
+                 "gomoku": "五子棋",
+                 "go": "围棋",
+diff --git a/tests/test_local_gateway.py b/tests/test_local_gateway.py
+index 14de0b2..0e5ff1b 100644
+--- a/tests/test_local_gateway.py
++++ b/tests/test_local_gateway.py
+@@ -102,7 +102,7 @@ class LocalGatewayTests(unittest.IsolatedAsyncioTestCase):
+             },
+         )
+         self.assertEqual(catalog.status_code, 200, catalog.text)
+-        self.assertEqual(len(catalog.json()["games"]), 29)
++        self.assertEqual(len(catalog.json()["games"]), 30)
+         self.assertTrue({"rummikub", "monopoly", "bomb_plane", "carcassonne"} <= {g["game_type"] for g in catalog.json()["games"]})
+ 
+         room = await self.client.post(
+diff --git a/tests/test_multiplayer_phase1.py b/tests/test_multiplayer_phase1.py
+index 6ed5308..bd91c1a 100644
+--- a/tests/test_multiplayer_phase1.py
++++ b/tests/test_multiplayer_phase1.py
+@@ -257,7 +257,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
+             for item in game_catalog()
+             if not item["game_type"].startswith("dummy_")
+         }
+-        self.assertEqual(len(production), 29)
++        self.assertEqual(len(production), 30)
+         self.assertEqual(production["rummikub"]["allowed_player_counts"], [2, 3, 4])
+         self.assertEqual(production["rummikub"]["category"], "tabletop")
+         self.assertFalse(production["rummikub"]["supports_stakes"])
+diff --git a/tests/test_new_games.py b/tests/test_new_games.py
+index 1dcb59a..0050722 100644
+--- a/tests/test_new_games.py
++++ b/tests/test_new_games.py
+@@ -217,7 +217,7 @@ class JungleTests(unittest.TestCase):
+ 
+ class RegistryErrorTests(unittest.TestCase):
+     def test_every_plugin_has_shared_rules_and_move_format(self):
+-        self.assertEqual(len(GAMES), 29)
++        self.assertEqual(len(GAMES), 30)
+ 
+         for plugin in GAMES.values():
+             self.assertTrue(plugin.rules_text)
+@@ -231,7 +231,7 @@ class RegistryErrorTests(unittest.TestCase):
+                 self.assertIn(plugin.min_players, plugin.resolved_allowed_player_counts())
+ 
+     def test_all_move_formats_follow_shared_mcp_action_layering(self):
+-        self.assertEqual(len(GAMES), 29)
++        self.assertEqual(len(GAMES), 30)
+         for game_type, plugin in GAMES.items():
+             with self.subTest(game_type=game_type):
+                 self.assertNotIn('"revision":当前版本', plugin.move_format)
+-- 
+2.54.0 (Apple Git-157)
+
