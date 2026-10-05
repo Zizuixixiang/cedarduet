@@ -748,6 +748,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             for action in gandengyan["room"]["private_state"]["legal_actions"]
             if action["action"] == "play"
         )
+        gdy_room_id = gandengyan["room"]["room_id"]
+        framework.read_new_room_events(gdy_room_id, "human-gdy-delta", mcp=True)
         played = await self.client.post(
             "/mcp/play",
             json={
@@ -755,10 +757,31 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "room_id": gandengyan["room"]["room_id"], "move": play,
             },
         )
-        self.assertNotIn("events", played.json())
+        self.assertEqual(played.status_code, 200, played.text)
+        gdy_payload = played.json()
+        self.assert_compact_delta(gdy_payload)
+        # A deterministic play only acknowledges the move. No card-bearing
+        # fields belong here; short card IDs can occur in random room IDs.
+        self.assertEqual(set(gdy_payload), {
+            "ok", "status", "room_id", "revision", "current_actor", "your_turn",
+        })
+        self.assertFalse(gdy_payload["your_turn"])
+        self.assertEqual(gdy_payload["current_actor"], {
+            "player_id": "human-gdy-delta", "name": "human-gdy-delta",
+        })
         unplayed_ids = {card["id"] for card in hand} - set(play["card_ids"])
-        encoded_gdy = json.dumps(played.json(), ensure_ascii=False)
-        self.assertTrue(all(card_id not in encoded_gdy for card_id in unplayed_ids))
+        self.assertTrue(unplayed_ids)
+        # Check the opponent-visible MCP event, where played card IDs actually
+        # travel. Exact event equality also rejects extra hand/delta fields.
+        gdy_events = main_module._compact_events(framework.read_new_room_events(
+            gdy_room_id, "human-gdy-delta", mcp=True,
+        ))
+        public_card_ids = {
+            card_id for event in gdy_events
+            for card_id in event.get("move", {}).get("card_ids", [])
+        }
+        self.assertFalse(unplayed_ids & public_card_ids)
+        self.assertEqual(gdy_events, [{"name": "ai-gdy-delta", "move": play}])
 
         blackjack_game = GAMES["blackjack"]
         scripted = StackedShuffleRng(["9", "5", "10", "8", "6", "6", "2"])
