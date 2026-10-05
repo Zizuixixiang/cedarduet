@@ -85,7 +85,7 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
     await leave(); await enter(); await intro();
     await button('查看教程').click();
     for (let i = 1; i < 7; i++) { await step(i); await button('下一步').click(); }
-    await step(7); assert.ok((await modal.innerText()).includes('点卡后，下方会出现详情'));
+    await step(7); assert.ok((await modal.innerText()).includes('拿宝石 → 买卡 → 获得永久加成'));
     assert.equal(await page.locator('.gm-detail').count(), 0, 'no fabricated card');
     assert.equal(await stored(), null, 'only the final completion click persists');
     await button('完成').click(); assert.equal(await stored(), 'completed');
@@ -101,11 +101,22 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
       let previousScroll = 0, moved = false;
       for (let i = 1; i <= 7; i++) {
         await step(i);
+        const lesson = await modal.locator('.gm-tutorial-copy').innerText();
+        const essentials = [
+          ['20 分', '10 顶', '同一种颜色的卡累计 10 分'],
+          ['只选一个', '①拿宝石', '②保留一张卡', '③买一张卡'],
+          ['1–3', '非金色', '2–3', '横、竖或斜', '直线', '不能隔空格或金色', '中间隔空不行'],
+          ['圆点', '价格', '先拿宝石凑够', '买下', '赚分', '永久加成', '抵扣'],
+          ['金色宝石', '拿金保留', '拿 1 枚金', '以后买', '任意颜色', '最多保留 3 张'],
+          ['先不用全背', '高亮和按钮', '超过 10 枚', '弃到只剩 10 枚'],
+          ['拿宝石 → 买卡 → 获得永久加成 → 更容易买更贵的卡 → 达成胜利条件', '3 顶、6 顶'],
+        ];
+        for (const phrase of essentials[i - 1]) assert.ok(lesson.includes(phrase), `step ${i}: ${phrase}`);
         const metrics = await page.evaluate(() => {
           const dialog = document.querySelector('.gm-tutorial');
           const highlight = dialog.querySelector('.gm-tutorial-spotlight').getBoundingClientRect();
           const panel = dialog.querySelector('.gm-tutorial-panel').getBoundingClientRect();
-          const targetSelectors = ['.gm-player.is-opponent', '.gm-royals', '.gm-pyramid', '.gm-gem-board', '.gm-board-side', '.gm-player.is-viewer', '.gm-pyramid'];
+          const targetSelectors = ['.gm-player.is-opponent', '.gm-controls', '.gm-gem-board', '.gm-pyramid', '.gm-pyramid', '.gm-controls', '.gm-player.is-viewer'];
           const target = document.querySelector(targetSelectors[Number(dialog.dataset.step) - 1]).getBoundingClientRect();
           const overlap = Math.min(panel.right, target.right) > Math.max(panel.left, target.left)
             && Math.min(panel.bottom, target.bottom) > Math.max(panel.top, target.top);
@@ -120,7 +131,7 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
         assert.equal(metrics.width, width);
         moved ||= metrics.scroll !== previousScroll; previousScroll = metrics.scroll;
         await snap(`${width}-step-${i}`);
-        if (i === 4) {
+        if (i === 3) {
           const cell = page.locator('.gm-cell:not(:disabled)').first();
           const r = await cell.boundingBox();
           await page.touchscreen.tap(r.x + r.width / 2, r.y + r.height / 2);
@@ -132,7 +143,7 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
             return Math.abs(h.y - t.y + 4) < 1;
           }), 'highlight follows scrolling');
           await page.evaluate(() => { context.uiState = {}; context.room.revision++; context.helpers.rerender(); });
-          await frames(); await step(4);
+          await frames(); await step(3);
         }
         await button(i === 7 ? '完成' : '下一步').tap();
       }
@@ -144,7 +155,7 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
       console.log(`PASS ${width}px: all seven steps, no overlap/overflow, scrolling, refreshed targets, isolated touch, restored controls`);
     }
 
-    // A real, already-open detail is highlighted without altering the game draft.
+    // An existing detail remains intact; the buying lesson still highlights the cards.
     await page.setViewportSize({width: 360, height: 740});
     await page.locator('.gm-pyramid .gm-card[data-card-id]').first().click();
     const savedDraft = await page.evaluate(() => JSON.stringify(context.uiState.gm));
@@ -155,13 +166,13 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
       document.querySelector('.gm-detail-close').focus();
     }, key);
     await intro(); await button('查看教程').click();
-    for (let i = 1; i < 7; i++) await button('下一步').click();
-    await step(7);
-    assert.ok(!(await modal.innerText()).includes('点卡后，下方会出现详情'));
+    for (let i = 1; i < 4; i++) await button('下一步').click();
+    await step(4);
+    assert.ok((await modal.innerText()).includes('卡上彩色圆点里的数字就是价格'));
     await page.setViewportSize({width: 430, height: 740}); await frames();
     assert.ok(await page.evaluate(() => {
       const h = document.querySelector('.gm-tutorial-spotlight').getBoundingClientRect();
-      const t = document.querySelector('.gm-detail').getBoundingClientRect();
+      const t = document.querySelector('.gm-pyramid').getBoundingClientRect();
       const p = document.querySelector('.gm-tutorial-panel').getBoundingClientRect();
       return Math.abs(h.width - t.width - 8) < 1 && Math.abs(h.y - t.y + 4) < 1
         && (p.bottom <= t.top || p.top >= t.bottom);
@@ -180,9 +191,9 @@ const shell = `<!doctype html><html lang="zh-CN"><meta name="viewport" content="
       await page.setViewportSize({width: 360, height: 800});
       await leave(); await page.evaluate(key => localStorage.removeItem(key), key); await enter(kind, viewer);
       await intro(); await button('查看教程').click();
-      await page.evaluate(() => document.querySelector('.gm-royals').remove());
+      await page.evaluate(() => document.querySelector('.gm-controls').remove());
       await button('下一步').click(); await step(2);
-      await page.evaluate(() => { document.querySelector('.gm-pyramid').remove(); });
+      await page.evaluate(() => { document.querySelector('.gm-board-zone').remove(); });
       await button('下一步').click(); await step(3);
       assert.ok(await page.locator('.gm-tutorial-spotlight').isHidden());
       await button('下一步').click(); await step(4);

@@ -570,19 +570,18 @@
   const TUTORIAL_STEPS = [
     {title: "先看胜利目标", targets: [".gm-player.is-opponent", ".gm-player", ".gm-status"],
       text: "回合结束时，满足任一项就获胜：总分 20 分、皇冠 10 顶，或同一种颜色的卡累计 10 分。双方玩家面板都会显示进度。"},
-    {title: "皇冠换称号", targets: [".gm-royals", ".gm-player"],
-      text: "皇冠累计到 3 顶、6 顶时，各选一张称号卡。称号带来分数，有些还带有额外能力。"},
-    {title: "挑选发展卡", targets: [".gm-pyramid"],
-      text: "发展卡分三层，卡面显示分数、加成、能力和成本。点一张卡，下方就会展开详情和购买信息。"},
+    {title: "轮到你，三选一", targets: [".gm-controls", ".gm-player.is-viewer"],
+      text: "轮到你，主要行动只选一个：①拿宝石 ②保留一张卡 ③买一张卡。先记住这三个，不用一回合全做。"},
     {title: "沿一条线拿宝石", targets: [".gm-gem-board", ".gm-board-zone"],
-      text: "一次拿 1–3 枚非金宝石。拿多枚时，必须横、竖或斜向连成一条线，中间不能隔空格或金。金色宝石用于保留卡，支付时也能代替其他宝石。"},
-    {title: "特权券与袋中宝石", targets: [".gm-board-side", ".gm-board-zone"],
-      text: "每用一张特权券，可从盘上另拿一枚非金宝石。“桌上券”是公共余量，“袋中”是可补回空格的宝石数。补盘后，对手会拿一张特权券。"},
-    {title: "你的收藏与进度", targets: [".gm-player.is-viewer", ".gm-player"],
-      text: "这里放着你的宝石、特权券、永久加成和保留卡，也显示胜利进度。购买时，同色加成能抵扣成本；回合结束时最多留 10 枚宝石。"},
-    {title: "看清信息再行动", targets: [".gm-detail", ".gm-pyramid", ".gm-controls"],
-      text: "详情会列出成本和还缺多少宝石。实际可做的动作，以当前按钮和高亮为准。教程只作介绍，不会替你出手。",
-      fallbackText: "点卡后，下方会出现详情，告诉你成本和还缺多少宝石。实际可做的动作，以当前按钮和高亮为准。教程不会替你出手。"},
+      text: "先点 1–3 颗非金色宝石，再按“拿！”。拿 2–3 颗时，必须横、竖或斜着连成直线，中间不能隔空格或金色。例：连着三颗可以，中间隔空不行。"},
+    {title: "拿宝石，是为了买卡", targets: [".gm-pyramid", ".gm-detail"],
+      text: "卡上彩色圆点里的数字就是价格。先拿宝石凑够，再点卡看详情、按“买下”。买卡能赚分，也能积累永久加成：蓝色加成能抵扣以后买卡的蓝色价格。"},
+    {title: "买不起？先留给自己", targets: [".gm-pyramid", ".gm-gem-board"],
+      text: "很想要一张卡，宝石却不够？盘上有金色宝石时，点卡选“拿金保留”：拿 1 枚金，把卡留给自己以后买。金能代任意颜色付款。最多保留 3 张。"},
+    {title: "额外规则，遇到再看", targets: [".gm-controls", ".gm-player.is-viewer"],
+      text: "特权券、补盘、偷宝石、再来一次，先不用全背。遇到额外选择，看界面高亮和按钮跟着选就好。回合结束时，宝石超过 10 枚，要弃到只剩 10 枚。"},
+    {title: "记住这个循环就能开玩", targets: [".gm-player.is-viewer", ".gm-pyramid", ".gm-player"],
+      text: "拿宝石 → 买卡 → 获得永久加成 → 更容易买更贵的卡 → 达成胜利条件。开局先挑一张想买的卡，照着价格拿宝石吧！皇冠到 3 顶、6 顶时，还会各选一张称号卡。"},
   ];
   let tutorialContext = null;
   let tutorialVisit = null;
@@ -689,8 +688,8 @@
     const close = actionButton(doc, "×", false, false, () => closeTutorial());
     close.classList.add("gm-tutorial-close");
     close.setAttribute("aria-label", "关闭本次教程");
-    const progress = el(doc, "span", "gm-tutorial-progress", "7 步认识桌面");
-    const copy = el(doc, "p", "gm-tutorial-copy", "要看看怎么玩吗？跟着高亮认识牌桌，不会替你操作。这次先关掉也没关系，下次进入还会提示。");
+    const progress = el(doc, "span", "gm-tutorial-progress", "7 步学会怎么打一回合");
+    const copy = el(doc, "p", "gm-tutorial-copy", "轮到你时该做什么？花一点时间，学会拿宝石、保留卡和买卡。教程不会替你操作；这次先关掉，下次进入还会提示。");
     copy.id = "gm-tutorial-copy";
     copy.setAttribute("aria-live", "polite");
     const actions = el(doc, "div", "gm-actions");
