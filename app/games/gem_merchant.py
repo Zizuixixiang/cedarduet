@@ -529,6 +529,14 @@ class GemMerchant(GamePlugin):
         '轮到你时 private_state 给出 legal_actions（可选阶段为 legal_summary 摘要）；'
         '对局中每个动作后 gem_merchant_delta 给出变化的公开字段。'
     )
+    mcp_move_format = move_format + (
+        '普通轮次 legal_summary.take 为合法取法数，use_privilege=true 表示可用券；'
+        '取宝石仍按上述坐标格式及相邻直线规则提交，空格和金不能跨过。'
+        'legal_summary 每次整体替换，未列出的动作不可用。reserve 的 gold/card_ids/levels 分别列出'
+        '可选金格/场上卡号/盲抽等级；buy 中数字即 card_id，对象则列出 card_id 与可选 joker_color。'
+        '普通轮次 private_state.blind_reserved 是自己当前全部盲抽保留卡（空数组表示没有），'
+        '场上保留卡从公开 players 中读取；bootstrap/full_state 的 reserved 仍给全部保留卡。'
+    )
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self._rng = rng or random.SystemRandom()
@@ -1208,6 +1216,14 @@ class GemMerchant(GamePlugin):
         for key in self.DELTA_KEYS:
             if before[key] != after[key]:
                 delta[key] = after[key]
+        if "board" in delta:
+            cells = [[r, c, after["board"][r][c]] for r in range(5) for c in range(5)
+                     if before["board"][r][c] != after["board"][r][c]]
+            # One/two cells are shorter than repeating five rows. Refill and
+            # larger changes retain the readily readable complete board.
+            if len(cells) <= 2:
+                delta.pop("board")
+                delta["board_set"] = cells
         slots = [
             [int(level), index, card]
             for level in ("1", "2", "3")
@@ -1220,6 +1236,10 @@ class GemMerchant(GamePlugin):
         for pid, value in after["players"].items():
             old = before["players"].get(pid, {})
             changed = {k: v for k, v in value.items() if old.get(k) != v}
+            if "purchased" in changed:
+                previous = old.get("purchased", [])
+                if value["purchased"][:len(previous)] == previous:
+                    changed["purchased_add"] = changed.pop("purchased")[len(previous):]
             if changed:
                 players[pid] = changed
         if players:
@@ -1360,7 +1380,9 @@ class GemMerchant(GamePlugin):
         "卡牌形如 \"#59 L3 green+1 3pt 2crown steal =W5 U3 R3 P1\"：编号、等级、加成颜色+加成数"
         "（joker 为百搭，points-only 为纯分卡，joker-as-red 为压在红色上的百搭）、声望、皇冠、能力、成本；"
         "hidden L3 为对手盲抽的三级卡。gem_merchant_delta 只给本动作改变的字段："
-        "players 按玩家 ID 与字段合并，pyramid_set=[[level,index,card|null]] 替换金字塔对应格，其余键整体替换。"
+        "players 按玩家 ID 与字段合并，purchased_add 将卡号追加到该玩家 purchased；"
+        "board_set=[[row,col,字符]] 替换宝石盘对应格（. 清空），board 则整体替换；"
+        "pyramid_set=[[level,index,card|null]] 替换金字塔对应格，其余键整体替换。"
     )
 
     def mcp_snapshot_state(self, public_state, viewer, participants):
@@ -1388,6 +1410,24 @@ class GemMerchant(GamePlugin):
         else:
             private["legal_actions"] = deepcopy(actions)
         return private
+
+    def mcp_turn_private_state(self, private, public):
+        """Ordinary-only projection; all hidden faces remain viewer-private.
+
+        Face-up reserves already live in the public snapshot/deltas. Keep the
+        blind list authoritative, including an explicit empty list after buying
+        the last blind card. Full recovery continues to return every card.
+        """
+        del public
+        result = deepcopy(private)
+        result["blind_reserved"] = [card for card in result.pop("reserved", [])
+                                    if card.endswith(" blind")]
+        summary = result.get("legal_summary", {})
+        if "take" in summary:
+            summary["take"] = int(summary["take"].split(" ", 1)[0])
+        if "use_privilege" in summary:
+            summary["use_privilege"] = True
+        return result
 
     @staticmethod
     def _legal_summary(actions: list[dict[str, Any]]) -> dict[str, Any]:

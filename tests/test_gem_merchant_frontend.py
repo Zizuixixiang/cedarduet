@@ -61,7 +61,7 @@ class GemMerchantFrontendContractTests(unittest.TestCase):
         self.assertIn("function renderControls(context)", SCRIPT)
         self.assertIn('const STYLE_HREF = "/static/games/gem_merchant.css?v=1";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "gem_merchant";', SCRIPT)
-        self.assertIn('gem_merchant: "约300–900 token/轮",', APP_SCRIPT)
+        self.assertIn('gem_merchant: "约300–600 token/轮",', APP_SCRIPT)
         self.assertNotIn('register("gem_merchant"', APP_SCRIPT)
         self.assertNotIn("gem_merchant", HTML)
 

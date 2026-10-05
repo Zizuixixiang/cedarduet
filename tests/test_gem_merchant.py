@@ -709,7 +709,7 @@ class GemMerchantIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "action": "move", "player_id": "ai-1", "room_id": room["room_id"],
             "revision": room["revision"], "move": {"action": "take", "cells": [cell]}})).json()
         delta = next(e["gem_merchant_delta"] for e in moved["events"] if "gem_merchant_delta" in e)
-        self.assertEqual(delta["board"][cell[0]][cell[1]], ".")
+        self.assertEqual(delta["board_set"], [[*cell, "."]])
         self.assertIn("ai-1", delta["players"])
 
         current = framework.get_room(room["room_id"])
