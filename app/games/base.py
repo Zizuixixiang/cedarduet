@@ -23,6 +23,11 @@ class MoveResult:
     # action. Plugins must include only information already revealed to every
     # participant; private state belongs in ``private_state`` projections.
     public_event: dict[str, Any] | None = None
+    # None preserves legacy semantics: retain_turn / explicit self-next continue
+    # the turn; other accepted moves complete it. Multi-stage games MUST set
+    # this explicitly when passing temporary action rights (auction/response).
+    # True marks ONE completed outer player turn, even if its owner stays next.
+    turn_completed: bool | None = None
 
 
 class GamePlugin(ABC):
@@ -58,6 +63,22 @@ class GamePlugin(ABC):
     # consequence need that system delta in the moving MCP caller's immediate
     # response even when the action ends its turn.
     mcp_immediate_public_events: bool = False
+
+    def accepts_out_of_turn_action(
+        self,
+        state: dict[str, Any],
+        move: dict[str, Any],
+        player_id: str,
+    ) -> bool:
+        """Opt-in side actions by a participant who does not hold the turn.
+
+        The framework still serializes the action under the room revision and
+        the plugin's own ``validate_action`` remains authoritative. A plugin
+        accepting one must return ``MoveResult.next_player_id`` equal to the
+        unchanged turn holder. Every existing game keeps the default ``False``.
+        """
+        del state, move, player_id
+        return False
 
     def accepts_active_count_after_resignation(self, count: int) -> bool:
         """Whether a room can continue with ``count`` active participants.

@@ -870,6 +870,15 @@ class Mahjong(GamePlugin):
         return MoveResult(
             state=next_state,
             next_player_id=next_player_id,
+            # Response seats are temporary actors. Close the discarder’s turn
+            # only when its response window resolves; rob-kong passes resume
+            # the same outer turn and do not spend another unattended turn.
+            turn_completed=result is not None or (
+                next_state["phase"] != "response" and (
+                    kind == "discard" or
+                    (state.get("response_window") or {}).get("source_kind") == "discard"
+                )
+            ),
             note=note,
             result=result,
         )

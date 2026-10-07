@@ -543,6 +543,7 @@ class Uno(GamePlugin):
             return MoveResult(
                 state=state,
                 next_player_id=next_player,
+                turn_completed=False,
                 note=(
                     f"打出 {self._card_label(card)}，指定{COLOR_LABELS[state['current_color']]}；"
                     "等待下一位选择是否质疑。"
@@ -560,6 +561,7 @@ class Uno(GamePlugin):
         return MoveResult(
             state=state,
             next_player_id=next_player,
+            turn_completed=True,
             note=f"打出 {self._card_label(card)}{suffix}。",
         )
 
@@ -629,6 +631,7 @@ class Uno(GamePlugin):
         return MoveResult(
             state=state,
             retain_turn=retain_turn,
+            turn_completed=True,
             next_player_id=None if retain_turn else next_player,
             note=note,
         )

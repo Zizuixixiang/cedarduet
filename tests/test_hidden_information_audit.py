@@ -26,6 +26,7 @@ FULL_TERMINAL_REVIEW_REASONS = {
 RULE_SCOPED_REVEAL_REASONS = {
     "carcassonne": "placed/current terrain is public; the server deck order stays hidden even after resignation or terminal scoring",
     "monopoly": "cash, assets and revealed events are public; future decks, internal continuations and held jail-card sources stay hidden even at terminal",
+    "monopoly_plus": "cash, assets, bets, loans and revealed events are public; held item cards show only a count and, like future decks and bus tickets order, stay hidden even at terminal",
     "rummikub": "only played tiles and terminal numeric scores are public; opponent racks and pool order remain private",
     "texas_holdem": "showdown holes are public, but fold/muck endings must not force a reveal",
     "zhajinhua": "forced showdown hands are public, but folded or unshown hands must stay hidden",

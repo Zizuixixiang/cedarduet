@@ -19,6 +19,7 @@ from .junqi import Junqi
 from .liars_dice import LiarsDice
 from .mahjong import Mahjong
 from .monopoly import Monopoly
+from .monopoly_plus import MonopolyPlus
 from .othello import Othello
 from .rummikub import Rummikub
 from .tictactoe import TicTacToe
@@ -69,6 +70,7 @@ GAMES = {
     LiarsDice.game_type: LiarsDice(),
     Mahjong.game_type: Mahjong(),
     Monopoly.game_type: Monopoly(),
+    MonopolyPlus.game_type: MonopolyPlus(),
     Yahtzee.game_type: Yahtzee(),
     Uno.game_type: Uno(),
     Jungle.game_type: Jungle(),

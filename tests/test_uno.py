@@ -262,6 +262,7 @@ class UnoRulesTests(unittest.TestCase):
         played = self.game.progress_after_action(
             before, play, self.actor(0), self.players, played
         )
+        self.assertFalse(played.turn_completed)
         self.assertFalse(state["pending_wild_draw_four"]["was_legal"])
         public = self.game.public_state(state, self.players)
         self.assertNotIn("was_legal", public["penalty_state"]["pending_wild_draw_four"])
@@ -271,6 +272,7 @@ class UnoRulesTests(unittest.TestCase):
         challenge = {"action": "challenge_wild_draw_four"}
         before = deepcopy(state)
         result = self.game.apply_action(state, challenge, self.actor(1))
+        self.assertTrue(result.turn_completed)
         result = self.game.progress_after_action(
             before, challenge, self.actor(1), self.players, result
         )

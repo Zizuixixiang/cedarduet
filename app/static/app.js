@@ -536,6 +536,12 @@ function isMultiplayerRoom(targetRoom) {
 }
 
 function participantPresentationFor(targetRoom) {
+  // Renderers may ask for the multiplayer table even at two seats.
+  const tableRenderer = registeredGameUIRenderer(targetRoom.game_type);
+  if (!isMultiplayerRoom(targetRoom) && tableRenderer && tableRenderer.multiplayerTable === true) {
+    return PARTICIPANT_PRESENTATIONS.has(tableRenderer.participantPresentation)
+      ? tableRenderer.participantPresentation : "generic";
+  }
   if (!isMultiplayerRoom(targetRoom) && !["monopoly", "carcassonne"].includes(targetRoom.game_type)) return "duel";
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   const presentation = renderer && renderer.participantPresentation;
@@ -1329,6 +1335,7 @@ function gameTokenEstimateLabel(gameType) {
     // bomb_plane 27–150, carcassonne 44–1394. Not billing caps.
     carcassonne: "约100–260 token/轮",
     monopoly: "约50–600 token/轮",
+    monopoly_plus: "约150–700 token/轮",
     rummikub: "约80–300 token/轮",
     gem_merchant: "约300–600 token/轮",
     bomb_plane: "约30–50 token/轮",
@@ -2941,6 +2948,10 @@ function createGameUIContext(board, controls, timeline = currentTimeline) {
     submitMove: (movePayload) => (
       contextIsCurrent() ? submitMove(movePayload) : Promise.resolve(false)
     ),
+    submitSideMove: (movePayload) => (
+      contextIsCurrent() && room && room.status === "playing"
+        ? submitMove(movePayload, {sideAction: true}) : Promise.resolve(false)
+    ),
     rerender,
     isMoveSelected: (movePayload) => movesEqual(pendingMove, movePayload),
     canMove: () => contextIsCurrent() && canHumanMove(),
@@ -3232,7 +3243,9 @@ function renderRecentChat(timeline = []) {
 }
 
 function renderPlayers(timeline = []) {
-  const multiplayer = isMultiplayerRoom(room) || ["monopoly", "carcassonne"].includes(room.game_type);
+  const multiplayer = isMultiplayerRoom(room) || ["monopoly", "carcassonne"].includes(room.game_type)
+    || (typeof registeredGameUIRenderer === "function"
+      && registeredGameUIRenderer(room.game_type)?.multiplayerTable === true);
   const viewerPlayerId = viewerPlayerIdFor(room);
   const viewerParticipant = viewerParticipantFor(room);
   const viewerSpeechEvent = viewerPlayerId
@@ -3850,8 +3863,10 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
   }
 }
 
-async function submitMove(movePayload) {
-  if (!movePayload || !canHumanMove()) return false;
+async function submitMove(movePayload, {sideAction = false} = {}) {
+  // Side actions (e.g. spectator bets) are validated by the plugin/server;
+  // they never require or change the turn holder.
+  if (!movePayload || (!sideAction && !canHumanMove())) return false;
   const targetRoomId = room.room_id;
   stopPolling();
   const generation = roomSyncGeneration;

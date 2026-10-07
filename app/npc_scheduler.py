@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from .framework import DuelError, _room_id, get_room
 from .npc_controller import NpcTurnResult, run_current_npc_turn
+from .npc_limits import MAX_NPC_ACTIONS_PER_TURN, npc_budget_exhausted
 from .npc_runtime import (
     NPC_DECISION_LEASE_SECONDS,
     list_active_npc_turn_room_ids,
@@ -17,7 +18,6 @@ from .npc_runtime import (
 
 logger = logging.getLogger(__name__)
 
-MAX_CONSECUTIVE_NPC_TURNS = 16
 NPC_IN_PROGRESS_RETRY_SECONDS = NPC_DECISION_LEASE_SECONDS + 1
 NPC_VISIBLE_ACTION_DELAY_SECONDS = 2.0
 NPC_VISIBLE_ACTION_DELAY_EXEMPT_GAME_TYPES = frozenset({"liars_dice"})
@@ -84,18 +84,18 @@ class NpcTurnScheduler:
         *,
         turn_runner: TurnRunner = run_current_npc_turn,
         room_changed: RoomChangedCallback | None = None,
-        max_consecutive_turns: int = MAX_CONSECUTIVE_NPC_TURNS,
+        max_actions_per_turn: int = MAX_NPC_ACTIONS_PER_TURN,
         in_progress_retry_seconds: float = NPC_IN_PROGRESS_RETRY_SECONDS,
         visible_action_delay_seconds: float = NPC_VISIBLE_ACTION_DELAY_SECONDS,
         action_sleeper: ActionSleeper = asyncio.sleep,
     ) -> None:
-        if max_consecutive_turns < 1:
-            raise ValueError("max_consecutive_turns must be positive")
+        if max_actions_per_turn < 1:
+            raise ValueError("max_actions_per_turn must be positive")
         if visible_action_delay_seconds < 0:
             raise ValueError("visible_action_delay_seconds must not be negative")
         self._turn_runner = turn_runner
         self._room_changed = room_changed
-        self._max_consecutive_turns = max_consecutive_turns
+        self._max_actions_per_turn = max_actions_per_turn
         self._in_progress_retry_seconds = in_progress_retry_seconds
         self._visible_action_delay_seconds = visible_action_delay_seconds
         self._action_sleeper = action_sleeper
@@ -167,7 +167,7 @@ class NpcTurnScheduler:
                 self._requested_again.discard(room_id)
                 restart = (
                     requested_again
-                    and outcome not in {"in_progress", "limit"}
+                    and outcome != "in_progress"
                     and self._started
                     and not self._closed
                 )
@@ -179,7 +179,7 @@ class NpcTurnScheduler:
                 await self.schedule(room_id)
 
     async def _drain_room(self, room_id: str) -> str:
-        for _turn_index in range(self._max_consecutive_turns):
+        while True:
             try:
                 room = get_room(room_id)
             except DuelError as exc:
@@ -188,6 +188,8 @@ class NpcTurnScheduler:
                 raise
             if not is_system_npc_turn(room):
                 return "idle"
+            if npc_budget_exhausted(room, max_actions=self._max_actions_per_turn):
+                return "limit"
             revision = room["revision"]
             visible_delay = npc_visible_action_delay_seconds(
                 room, self._visible_action_delay_seconds
@@ -215,7 +217,6 @@ class NpcTurnScheduler:
                         changed_room_id, task
                     )
                 )
-        return "limit"
 
     def _notify_room_changed(self, room_id: str) -> None:
         if self._room_changed is None:

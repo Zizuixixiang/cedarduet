@@ -213,6 +213,7 @@ class MahjongRulesTests(unittest.TestCase):
             if item["kind"] == "discard" and item["tile_id"] == state["hands"]["p0"][0]["id"]
         )
         opened = self.game.apply_action(state, self.submit(discard), self.players[0])
+        self.assertFalse(opened.turn_completed)
         queue = opened.state["response_window"]["queue"]
         self.assertEqual(queue[0]["player_id"], "p2")
         self.assertEqual(queue[0]["priority"], "peng_gang")
@@ -223,17 +224,20 @@ class MahjongRulesTests(unittest.TestCase):
         penged = self.game.apply_action(opened.state, self.submit(peng), self.players[2])
         self.assertEqual(penged.state["melds"]["p2"][0]["kind"], "peng")
         self.assertEqual(penged.next_player_id, "p2")
+        self.assertTrue(penged.turn_completed)
 
         passed = self.game.apply_action(
             opened.state,
             self.submit(self.action(self.game, opened.state, "p2", "pass")),
             self.players[2],
         )
+        self.assertFalse(passed.turn_completed)
         chi = self.action(self.game, passed.state, "p1", "chi")
         eaten = self.game.apply_action(passed.state, self.submit(chi), self.players[1])
         self.assertEqual(eaten.state["melds"]["p1"][0]["kind"], "chi")
         self.assertEqual(eaten.state["melds"]["p1"][0]["source_player_id"], "p0")
         self.assertEqual(eaten.next_player_id, "p1")
+        self.assertTrue(eaten.turn_completed)
 
         wall_before = len(opened.state["wall"])
         gang = self.action(self.game, opened.state, "p2", "ming_gang")
@@ -397,6 +401,7 @@ class MahjongRulesTests(unittest.TestCase):
         announced = self.game.apply_action(rob, self.submit(add), self.players[0])
         self.assertEqual(announced.state["phase"], "response")
         self.assertEqual(announced.next_player_id, "p1")
+        self.assertFalse(announced.turn_completed)
         passed = self.game.apply_action(
             announced.state,
             self.submit(self.action(self.game, announced.state, "p1", "pass")),
@@ -405,6 +410,7 @@ class MahjongRulesTests(unittest.TestCase):
         self.assertEqual(passed.state["melds"]["p0"][0]["kind"], "added_gang")
         self.assertEqual(len(passed.state["melds"]["p0"][0]["tiles"]), 4)
         self.assertEqual(passed.next_player_id, "p0")
+        self.assertFalse(passed.turn_completed)
         self.assertIsNotNone(passed.state["drawn_tile_id"])
         hu = self.action(self.game, announced.state, "p1", "hu")
         won = self.game.apply_action(announced.state, self.submit(hu), self.players[1])

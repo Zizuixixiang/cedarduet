@@ -16,7 +16,7 @@ from .games.tools import public_card_state
 LEGACY_GAMES = frozenset('''aeroplane_chess banqi blackjack tictactoe texas_holdem
 train_cards gomoku go gandengyan guandan othello connect4 checkers chess
 chinese_checkers dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi
-xiangqi zhajinhua gem_merchant'''.split())
+xiangqi zhajinhua gem_merchant monopoly_plus'''.split())
 
 # No static/roster deletion has a verified repeatable mid-game query contract.
 # Retain the empty audit list so tests reject new omissions without review.

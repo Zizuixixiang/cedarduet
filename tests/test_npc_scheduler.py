@@ -77,6 +77,7 @@ class NpcVisibleActionPacingTests(unittest.IsolatedAsyncioTestCase):
         "liars_dice",
         "mahjong",
         "monopoly",
+        "monopoly_plus",
         "rummikub",
         "texas_holdem",
         "train_cards",
@@ -586,7 +587,7 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
 
         room = self.create_room(first_player_id="npc:bright")
         capped = NpcTurnScheduler(
-            max_consecutive_turns=3,
+            max_actions_per_turn=3,
             visible_action_delay_seconds=0,
         )
         with patch.object(plugin, "apply_action", side_effect=retain_npc_turn):
@@ -602,6 +603,177 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(framework.get_room(room["room_id"])["revision"], 3)
         self.assertEqual(len(self.provider.requests), 3)
         self.assertEqual(self.decision_count(room["room_id"]), 3)
+
+    async def drain_with_framework(self, room_id):
+        async def step(rid):
+            room = framework.get_room(rid)
+            updated = framework.play_move(
+                rid, 'ai', room['current_player_id'], {'action': 'step'},
+                expected_revision=room['revision'],
+            )
+            return NpcTurnResult('applied', 'local', None, None, updated)
+        # Each call deliberately uses a new worker: budget belongs to the room.
+        return await NpcTurnScheduler(
+            turn_runner=step, visible_action_delay_seconds=0,
+        )._drain_room(room_id)
+
+    @staticmethod
+    def multi_action_turn(state, move, actor):
+        state['actions'].append(actor['player_id'])
+        completed = len(state['actions']) % 3 == 0
+        # Temporary actors alternate even INSIDE one outer turn.
+        other = 'npc:quiet' if actor['player_id'] == 'npc:bright' else 'npc:bright'
+        return MoveResult(state, next_player_id=other, turn_completed=completed)
+
+    async def test_two_laps_count_completed_turns_not_actions_or_temporary_actors(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        for active_count in (2, 3, 4):
+            with self.subTest(active_count=active_count):
+                room = self.create_room(first_player_id='npc:bright')
+                rid = room['room_id']
+                with database.write_transaction() as conn:
+                    for pid in ('human-1', 'ai-1')[:4-active_count]:
+                        conn.execute("UPDATE room_participants SET active=0, activity_state='eliminated' WHERE room_id=? AND player_id=?", (rid, pid))
+                with patch.object(plugin, 'apply_action', side_effect=self.multi_action_turn):
+                    self.assertEqual(await self.drain_with_framework(rid), 'limit')
+                    latest = framework.get_room(rid)
+                    self.assertEqual(latest['revision'], 3 * 2 * active_count)
+                    self.assertEqual(latest['npc_unattended_turns'], 2 * active_count)
+                    self.assertEqual(latest['npc_turn_actions'], 0)
+                    # Refresh, a new worker and DB initialization never replenish.
+                    database.init_db()
+                    self.assertEqual(await self.drain_with_framework(rid), 'limit')
+                    self.assertEqual(framework.get_room(rid)['revision'], latest['revision'])
+                    with self.assertRaises(framework.DuelError):
+                        framework.play_move(rid, 'ai', latest['current_player_id'], {'action': 'step'})
+
+    async def test_valid_human_and_bound_machine_side_actions_reset_budget(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        room = self.create_room(first_player_id='npc:bright')
+        rid = room['room_id']
+        with patch.object(plugin, 'apply_action', side_effect=self.multi_action_turn), patch.object(
+            plugin, 'accepts_out_of_turn_action', return_value=True,
+        ):
+            for role, pid in (('human', 'human-1'), ('ai', 'ai-1')):
+                self.assertEqual(await self.drain_with_framework(rid), 'limit')
+                before = framework.get_room(rid)
+                framework.post_message(rid, role, pid, '仅聊天不恢复自动推进')
+                self.assertEqual(framework.get_room(rid)['npc_unattended_turns'], 8)
+                with self.assertRaises(framework.DuelError):
+                    framework.play_move(rid, role, pid, {'action': 'invalid'})
+                self.assertEqual(framework.get_room(rid)['npc_unattended_turns'], 8)
+                # Side action is not allowed to transfer ownership, even if the
+                # plugin returns an explicit next player / completed marker.
+                with patch.object(plugin, 'apply_action', return_value=MoveResult(
+                    before['board_state'], next_player_id=pid, turn_completed=True,
+                )):
+                    updated = framework.play_move(rid, role, pid, {'action': 'step'})
+                self.assertEqual(updated['current_player_id'], before['current_player_id'])
+                self.assertEqual(updated['npc_unattended_turns'], 0)
+                self.assertEqual(updated['npc_turn_actions'], 0)
+                self.assertEqual(await self.drain_with_framework(rid), 'limit')
+                latest = framework.get_room(rid)
+                self.assertEqual(latest['revision'] - updated['revision'], 24)
+                self.assertEqual(latest['npc_unattended_turns'], 8)
+
+    async def test_http_reclaim_does_not_replenish_unattended_budget(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        room = self.create_room(first_player_id='npc:bright')
+        rid = room['room_id']
+        with patch.object(plugin, 'apply_action', side_effect=self.multi_action_turn):
+            self.assertEqual(await self.drain_with_framework(rid), 'limit')
+            before = framework.get_room(rid)['revision']
+            response = await self.client.post(f'/api/rooms/{rid}/reclaim', headers=self.headers())
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(await self.drain_with_framework(rid), 'limit')
+            latest = framework.get_room(rid)
+            self.assertEqual(latest['revision'], before)
+            self.assertEqual(latest['npc_unattended_turns'], 8)
+
+    def test_budget_schema_migration_preserves_existing_rooms(self):
+        room = self.create_room(first_player_id='npc:bright')
+        with database.write_transaction() as conn:
+            conn.execute('ALTER TABLE rooms DROP COLUMN npc_unattended_turns')
+            conn.execute('ALTER TABLE rooms DROP COLUMN npc_turn_actions')
+        database.init_db()
+        database.init_db()
+        restored = framework.get_room(room['room_id'])
+        self.assertEqual(restored['board_state'], room['board_state'])
+        self.assertEqual(restored['revision'], room['revision'])
+        self.assertEqual((restored['npc_unattended_turns'], restored['npc_turn_actions']), (0, 0))
+
+    async def test_legacy_single_move_turns_and_retained_actions(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        room = self.create_room(first_player_id='npc:bright')
+        rid = room['room_id']
+        def apply(state, move, actor):
+            state['actions'].append(actor['player_id'])
+            return MoveResult(state, retain_turn=len(state['actions']) % 3 != 0,
+                              skipped_player_ids=['human-1', 'ai-1'])
+        with patch.object(plugin, 'apply_action', side_effect=apply):
+            self.assertEqual(await self.drain_with_framework(rid), 'limit')
+        self.assertEqual(framework.get_room(rid)['revision'], 24)
+        room = self.create_room(first_player_id='npc:bright')
+        def single(state, move, actor):
+            return MoveResult(state, skipped_player_ids=['human-1', 'ai-1'])
+        with patch.object(plugin, 'apply_action', side_effect=single):
+            self.assertEqual(await self.drain_with_framework(room['room_id']), 'limit')
+        self.assertEqual(framework.get_room(room['room_id'])['revision'], 8)
+
+    async def test_default_action_fuse_survives_restart_and_valid_action_resets(self):
+        from app.invites import reclaim
+        from app.npc_limits import MAX_NPC_ACTIONS_PER_TURN
+        self.assertEqual(MAX_NPC_ACTIONS_PER_TURN, 512)
+        room = self.create_room(first_player_id='npc:bright')
+        rid = room['room_id']
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        # Exercise the real transaction at the fuse boundary without 512 DB moves.
+        with database.write_transaction() as conn:
+            conn.execute('UPDATE rooms SET npc_turn_actions=? WHERE room_id=?', (511, rid))
+        with patch.object(plugin, 'apply_action', side_effect=lambda state, move, actor: MoveResult(state, retain_turn=True)):
+            self.assertEqual(await self.drain_with_framework(rid), 'limit')
+            latest = framework.get_room(rid)
+            self.assertEqual((latest['revision'], latest['npc_unattended_turns'], latest['npc_turn_actions']), (1, 0, 512))
+            self.assertEqual(await self.drain_with_framework(rid), 'limit')
+            with self.assertRaises(framework.DuelError):
+                framework.play_move(rid, 'ai', 'npc:bright', {'action': 'step'})
+            for role, pid in (('human', 'human-1'), ('ai', 'ai-1')):
+                before = framework.get_room(rid)
+                reclaimed = reclaim(rid, role, pid)
+                self.assertEqual(reclaimed['npc_turn_actions'], before['npc_turn_actions'])
+                self.assertEqual(reclaimed['npc_unattended_turns'], before['npc_unattended_turns'])
+                with patch.object(plugin, 'accepts_out_of_turn_action', return_value=True):
+                    reset = framework.play_move(rid, role, pid, {'action': 'step'})
+                self.assertEqual((reset['npc_unattended_turns'], reset['npc_turn_actions']), (0, 0))
+                # An accepted side action clears both independent budgets.
+                with database.write_transaction() as conn:
+                    conn.execute('UPDATE rooms SET npc_unattended_turns=8, npc_turn_actions=5 WHERE room_id=?', (rid,))
+
+    async def test_current_human_and_bound_machine_moves_reset_but_takeover_does_not(self):
+        plugin = GAMES[DummyNpcMultiplayer.game_type]
+        for role, pid in (('human', 'human-1'), ('ai', 'ai-1')):
+            room = self.create_room(first_player_id=pid)
+            rid = room['room_id']
+            with database.write_transaction() as conn:
+                conn.execute('UPDATE rooms SET npc_unattended_turns=7, npc_turn_actions=5 WHERE room_id=?', (rid,))
+                conn.execute('INSERT INTO room_invites (room_id, target_player_count, timeout_takeover) VALUES (?, 4, 1)', (rid,))
+            framework.touch_room_presence(rid, pid)
+            with patch.object(plugin, 'apply_action', side_effect=lambda state, move, actor: MoveResult(state, retain_turn=True)):
+                automatic = framework.play_move(rid, role, pid, {'action': 'step'},
+                                                expected_revision=room['revision'], takeover=True)
+                self.assertEqual(automatic['npc_unattended_turns'], 7)
+                with self.assertRaises(framework.DuelError):
+                    framework.play_move(rid, role, pid, {'action': 'step'}, expected_revision=0)
+                self.assertEqual(framework.get_room(rid)['npc_unattended_turns'], 7)
+            with patch.object(plugin, 'apply_action', return_value=MoveResult(
+                automatic['board_state'], next_player_id='npc:bright', turn_completed=True,
+            )):
+                attended = framework.play_move(rid, role, pid, {'action': 'step'},
+                                               expected_revision=automatic['revision'])
+            self.assertEqual((attended['npc_unattended_turns'], attended['npc_turn_actions']), (0, 0))
+            with patch.object(plugin, 'apply_action', side_effect=self.multi_action_turn):
+                self.assertEqual(await self.drain_with_framework(rid), 'limit')
+            self.assertEqual(framework.get_room(rid)['revision'] - attended['revision'], 24)
 
     async def test_failed_turn_releases_room_for_later_retry(self):
         (self.persona_dir / "quiet.json").unlink()

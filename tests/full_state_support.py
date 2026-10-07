@@ -4,7 +4,7 @@ from copy import deepcopy
 LEGACY = '''aeroplane_chess banqi blackjack tictactoe texas_holdem train_cards
 gomoku go gandengyan guandan othello connect4 checkers chess chinese_checkers
 dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua
-gem_merchant'''.split()
+gem_merchant monopoly_plus'''.split()
 
 
 def choose(snapshot, step=0):

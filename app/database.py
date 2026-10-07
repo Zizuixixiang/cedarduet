@@ -26,6 +26,8 @@ CREATE TABLE rooms (
     turn TEXT NOT NULL CHECK (turn IN ('human', 'ai')),
     current_player_id TEXT,
     revision INTEGER NOT NULL DEFAULT 0,
+    npc_unattended_turns INTEGER NOT NULL DEFAULT 0,
+    npc_turn_actions INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK (
         status IN ('pending', 'waiting', 'playing', 'finished', 'archived')
     ),
@@ -242,6 +244,9 @@ def init_db() -> None:
         room_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(rooms)")
         }
+        for column in ("npc_unattended_turns", "npc_turn_actions"):
+            if column not in room_columns:
+                conn.execute(f"ALTER TABLE rooms ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         if "preserved" not in room_columns:
             conn.execute(
                 """

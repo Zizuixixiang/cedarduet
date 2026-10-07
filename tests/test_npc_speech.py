@@ -499,7 +499,7 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(
             local_games,
-            {"go", "junqi", "train_cards", "texas_holdem", "mahjong", "monopoly", "rummikub", "bomb_plane", "carcassonne"},
+            {"go", "junqi", "train_cards", "texas_holdem", "mahjong", "monopoly", "monopoly_plus", "rummikub", "bomb_plane", "carcassonne"},
         )
         provider_games = {
             game_type for game_type, plugin in GAMES.items()

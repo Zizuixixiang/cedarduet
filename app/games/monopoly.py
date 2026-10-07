@@ -611,6 +611,7 @@ class Monopoly(GamePlugin):
 
     def apply_action(self, state, move, actor):
         self.validate_action(state, move, actor)
+        previous_turn = state['turn_number']
         state = deepcopy(state)
         self._migrate_trades(state)
         state['last_action_note'] = ''
@@ -695,6 +696,7 @@ class Monopoly(GamePlugin):
         state['action_seq'] += 1
         result = self._terminal(state)
         return MoveResult(state=state, next_player_id=state['turn_player_id'], result=result,
+                          turn_completed=result is not None or state['turn_number'] != previous_turn,
                           participant_activity={p['player_id']: 'eliminated' for p in state['players'] if p['bankrupt']},
                           note=state['last_action_note'], public_event=self._public_delta(state))
 

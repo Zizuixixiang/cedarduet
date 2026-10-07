@@ -715,3 +715,9 @@ full_state 的 `board_state.shots` 按攻击者及 miss/hit/head 分组保存全
 制作：顾屿、相顾｜小红书：苏苏脆脆
 
 固定双人，原协议（非 v2）。一回合拆成多个服务端权威动作：可选的 `use_privilege`（可多次）与 `refill`（每回合一次，且之后不能再用特权券）保留行动权；必选 `take/reserve/buy`（或无事可做时的 `pass`）之后，若卡牌能力、称号卡或超过 10 枚宝石需要选择，仍由本人继续提交 `take_bonus_gem/steal/choose_royal/discard`，只有一个选项时服务端自动结算。可选阶段 MCP `private_state` 给 `legal_summary` 摘要（取法数、可保留的金格/卡号/等级、可买卡号及百搭可选颜色），结算阶段给完整 `legal_actions`。bootstrap/full_state 的 `board_state` 用紧凑编码：`board` 为 5 个字符串（W/U/G/R/K/P/O，`.` 为空），卡牌为 `"#59 L3 green+1 3pt 2crown =W5 U3 R3 P1"` 形式，编码说明在 `delta_format`。每个动作后裁判 `gem_merchant_delta` 只发变化字段：`players` 按玩家与字段合并（`purchased_add` 追加新购卡号），`board_set=[[row,col,字符]]` 更新少量宝石格（`.` 清空，`board` 则整体替换），`pyramid_set` 替换金字塔格，其余键整体替换。普通轮次 `legal_summary.take` 为取法数、`use_privilege=true` 表示可用券，完整规则和提交格式在 bootstrap/full_state 的 `move_format`；摘要每次整体替换，未列动作不可用。普通轮次私有保留卡只给完整 `blind_reserved` 列表（空数组清空），场上保留卡继承公开快照和增量；bootstrap/full_state 的 `reserved` 仍给全部保留卡。牌堆顺序永不公开；盲抽保留的卡对手只看到 `hidden L<等级>`，真实终局复盘公开；从场上保留的卡双方可见。带 stake 时为双人 ±stake，平局 0。详见 [GEM_MERCHANT.md](GEM_MERCHANT.md)。
+
+## 大富翁·改 `monopoly_plus`
+
+制作：顾屿、相顾｜小红书：苏苏脆脆
+
+原协议（非 v2），同宝石商人。开局先由先手 `choose_edition`。bootstrap 的 `board_state.map` 是 40 行紧凑地图字符串，`players`/`owned` 是行数组（列含义见 `delta_format`）；每个动作后裁判事件 `monopoly_plus_delta` 只给变化：`p`/`t` 行按主键覆盖，`log` 是本动作新增的事件文字，`next` 为下一位决策者，其余键整体替换。轮到你时 `private_state` 给合法动作，重复的地块动作压成 `tile_actions`，借款写成区间；道具手牌只在你自己的 `items`。不是你的回合时也可以押注：`{"action":"bet","choice":"big|small|seven","action_seq":当前值}`（`side_actions` 列出可押项）。完整地图和租金表用 `state(full_state=true)`。详见 [MONOPOLY_PLUS.md](MONOPOLY_PLUS.md)。

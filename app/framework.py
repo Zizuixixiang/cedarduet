@@ -11,6 +11,7 @@ from .games import get_game, stake_presentation
 from .games.base import MoveResult
 from .notifications import create_notification, mark_notifications_read
 from .npc_personas import PersonaConfigError, load_personas
+from .npc_limits import npc_budget_exhausted, reset_npc_budget
 
 Role = Literal["human", "ai"]
 ROOM_ID_RE = re.compile(r"^[A-Z0-9]{8}$")
@@ -287,6 +288,8 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     participants = deepcopy(room.get("participants", []))
     if room.get("room_kind") == "invite" and not room["board_state"]:
         projected = deepcopy(room)
+        projected.pop("npc_unattended_turns", None)
+        projected.pop("npc_turn_actions", None)
         projected["board_state"] = {}
         projected["private_state"] = {}
         projected["viewer"] = {"player_id": viewer_player_id, "role": viewer["role"],
@@ -308,6 +311,8 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
     if not isinstance(public_state, dict) or not isinstance(private_state, dict):
         raise DuelError("游戏插件 public_state/private_state 必须返回对象")
     projected = deepcopy(room)
+    projected.pop("npc_unattended_turns", None)
+    projected.pop("npc_turn_actions", None)
     # Unlocks can include several participants because evaluation is atomic.
     # Callers project only the authenticated viewer's compact list at top level.
     projected.pop("achievement_unlocks", None)
@@ -2643,6 +2648,7 @@ def acknowledge_liars_dice_round(
                 room_id,
             ),
         )
+        reset_npc_budget(conn, room_id)
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
@@ -2709,13 +2715,24 @@ def play_move(
         _assert_opponent(room, role, opponent_id)
         if room["status"] != "playing":
             raise DuelError("当前房间不在对局中", 409)
-        if not is_bomb_plane_setup(room) and room.get("current_player_id") != player_id:
-            raise DuelError("还没轮到你落子", 409)
         game = get_game(room["game_type"])
+        # A plugin may accept narrow side actions (e.g. spectator bets) from a
+        # seat without the turn; the turn holder never changes for those.
+        side_action = (
+            room.get("current_player_id") != player_id
+            and not takeover
+            and game.accepts_out_of_turn_action(room["board_state"], move, player_id)
+        )
+        if (not is_bomb_plane_setup(room) and room.get("current_player_id") != player_id
+                and not side_action):
+            raise DuelError("还没轮到你落子", 409)
         actor = _participant_by_id(room, player_id)
         if actor is None or not actor.get("active", True):
             raise DuelError("当前参与者已不可行动", 409)
-        if (takeover and room["game_type"] == "monopoly" and isinstance(move, dict) and
+        system_npc = actor.get("participant_kind") == "system_npc"
+        if system_npc and npc_budget_exhausted(room):
+            raise DuelError("系统 NPC 自动推进已暂停，请真人或绑定小机操作后继续", 409)
+        if (takeover and room["game_type"] in ("monopoly", "monopoly_plus") and isinstance(move, dict) and
                 (move.get("action") == "propose_trade" or
                  (move.get("action") == "respond_trade" and move.get("accept") is True))):
             raise DuelError("临时接管不能代玩家确认资产交易；可由本人确认或拒绝", 409)
@@ -2871,6 +2888,33 @@ def play_move(
                 if next_participant is None:
                     raise DuelError("下一行动者不属于房间")
                 next_turn = next_participant["role"]
+        if side_action and status == "playing":
+            # Opt-in authorizes only a side action, never a turn/timer transfer.
+            next_player_id = room["current_player_id"]
+            next_turn = room["turn"]
+        completed = applied.turn_completed if isinstance(applied, MoveResult) else None
+        if completed is not None and not isinstance(completed, bool):
+            raise DuelError("turn_completed 必须是布尔值或 None")
+        if completed is None:
+            completed = status == "finished" or (
+                not retain_turn and explicit_next_player_id != player_id
+            )
+        if side_action:
+            completed = False
+        # Budget accounting commits atomically with the move. GET, retry,
+        # worker restart and duplicate revisions cannot replenish it.
+        if system_npc:
+            conn.execute(
+                """UPDATE rooms SET npc_unattended_turns = npc_unattended_turns + ?,
+                   npc_turn_actions = CASE WHEN ? THEN 0 ELSE npc_turn_actions + 1 END
+                   WHERE room_id = ?""", (int(completed), int(completed), room_id),
+            )
+        elif not takeover:
+            reset_npc_budget(conn, room_id)
+        elif completed:
+            # Automatic takeover is not human presence, but it can finish the
+            # outer turn whose NPC actions the independent fuse was tracking.
+            conn.execute("UPDATE rooms SET npc_turn_actions = 0 WHERE room_id = ?", (room_id,))
         timestamp = _now()
         conn.execute(
             """
@@ -2932,9 +2976,14 @@ def play_move(
         takeover_revision = room["revision"] if takeover else None
         if not takeover:
             _touch_room_presence(conn, room_id, player_id)
-        conn.execute("""UPDATE room_invites SET turn_revision = ?, turn_started_at = ?,
-                     reclaim_revision = NULL, takeover_revision = ? WHERE room_id = ?""",
-                     (updated["revision"], timestamp, takeover_revision, room_id))
+        if side_action:
+            # The turn holder keeps its timer; only the revision cursor moves.
+            conn.execute("""UPDATE room_invites SET turn_revision = ? WHERE room_id = ?""",
+                         (updated["revision"], room_id))
+        else:
+            conn.execute("""UPDATE room_invites SET turn_revision = ?, turn_started_at = ?,
+                         reclaim_revision = NULL, takeover_revision = ? WHERE room_id = ?""",
+                         (updated["revision"], timestamp, takeover_revision, room_id))
         result = decode_room(updated, conn)
         achievement_unlocks: list[dict] = []
         if result["status"] == "finished":
@@ -2991,6 +3040,9 @@ def _forfeit_active_participant(
         or not participant.get("active", True)
     ):
         raise DuelError("当前参与者已经退出或不可行动", 409)
+
+    if participant.get("participant_kind") != "system_npc":
+        reset_npc_budget(conn, room["room_id"])
 
     if leave:
         conn.execute(
