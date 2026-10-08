@@ -635,6 +635,15 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
                     for pid in ('human-1', 'ai-1')[:4-active_count]:
                         conn.execute("UPDATE room_participants SET active=0, activity_state='eliminated' WHERE room_id=? AND player_id=?", (rid, pid))
                 with patch.object(plugin, 'apply_action', side_effect=self.multi_action_turn):
+                    if active_count == 2:
+                        # NPC-only remainders finish on the next applied action,
+                        # even inside an incomplete multi-action turn.
+                        self.assertEqual(await self.drain_with_framework(rid), 'idle')
+                        latest = framework.get_room(rid)
+                        self.assertEqual(latest['status'], 'finished')
+                        self.assertEqual(latest['revision'], 1)
+                        self.assertEqual(latest['terminal_reason'], 'only_system_npcs_remaining')
+                        continue
                     self.assertEqual(await self.drain_with_framework(rid), 'limit')
                     latest = framework.get_room(rid)
                     self.assertEqual(latest['revision'], 3 * 2 * active_count)

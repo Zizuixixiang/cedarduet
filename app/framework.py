@@ -2849,6 +2849,31 @@ def play_move(
                 game_result = game.result_for(state, room["participants"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise DuelError(f"游戏插件终局结果无效：{exc}") from exc
+        terminal_reason = "game_result"
+        remaining = [
+            item for item in room["participants"]
+            if item.get("join_status") == "joined" and item.get("active", True)
+        ]
+        if game_result is None and remaining and all(
+            item.get("participant_kind") == "system_npc" for item in remaining
+        ):
+            # Natural elimination must stop unattended NPC-only remainders just
+            # like leave/resign. Preserve any authoritative game result above.
+            terminal_reason = "only_system_npcs_remaining"
+            game_result = {
+                "draw": True,
+                "reason": terminal_reason,
+                "remaining_player_ids": [item["player_id"] for item in remaining],
+            }
+            if room.get("stake", 0) > 0:
+                # This framework termination has no game-defined winner/payout.
+                game_result["settlement_deltas"] = {
+                    item["player_id"]: 0 for item in room["participants"]
+                }
+            if isinstance(state.get("flow"), dict):
+                state["flow"]["phase"] = "finished"
+            if "turn_player_id" in state:
+                state["turn_player_id"] = None
         status = "finished" if game_result is not None else "playing"
         if status == "finished":
             game_result = _attach_multiplayer_settlement(
@@ -2924,7 +2949,7 @@ def play_move(
                 winner_player_id = ?, result_json = ?,
                 updated_at = ?, last_move_at = ?,
                 terminal_at = CASE WHEN ? = 'finished' THEN ? ELSE terminal_at END,
-                terminal_reason = CASE WHEN ? = 'finished' THEN 'game_result' ELSE terminal_reason END
+                terminal_reason = CASE WHEN ? = 'finished' THEN ? ELSE terminal_reason END
             WHERE room_id = ?
             """,
             (
@@ -2943,6 +2968,7 @@ def play_move(
                 status,
                 timestamp,
                 status,
+                terminal_reason,
                 room_id,
             ),
         )
@@ -2992,7 +3018,10 @@ def play_move(
             from .achievements import record_terminal_room
 
             achievement_unlocks.extend(
-                record_terminal_room(conn, result, "game_result", normal=True)
+                record_terminal_room(
+                    conn, result, terminal_reason,
+                    normal=terminal_reason == "game_result",
+                )
                 if room.get("room_kind") != "invite" else []
             )
         from .achievements import record_special_move

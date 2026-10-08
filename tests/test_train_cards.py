@@ -5,7 +5,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -19,6 +19,7 @@ from app.games.train_cards import (
     matching_rank,
 )
 from app.npc_controller import run_current_npc_turn
+from app.npc_scheduler import NpcTurnScheduler
 
 
 DECK_BY_ID = {card["id"]: card for card in build_train_deck()}
@@ -344,6 +345,108 @@ class TrainCardsFrameworkTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.db_patch.stop()
         self.temporary.cleanup()
+
+    def elimination_room(self, *, npc_count=3, stake=0, actor_id="human-1"):
+        participants = seats(2) + [
+            {
+                "player_id": f"npc:{index}", "role": "ai",
+                "participant_kind": "system_npc",
+                "npc_persona_id": "local-train",
+            }
+            for index in range(npc_count)
+        ]
+        room = framework.create_room(
+            "train_cards", "human_first", "human", "human-1", "ai-1",
+            ordered_participants=participants, first_player_id=actor_id,
+            stake=stake,
+        )
+        if room["status"] == "pending":
+            room = framework.respond_to_invitation(
+                room["room_id"], "ai", "ai-1", "accept"
+            )
+        self.assertEqual(room["status"], "playing")
+        # A single non-matching flip naturally eliminates this participant.
+        state = room["board_state"]
+        hands = state["cards"]["hands"]
+        hands["npc:0"].extend(hands[actor_id][1:])
+        hands[actor_id] = hands[actor_id][:1]
+        self.save_board(room)
+        return room
+
+    @staticmethod
+    def save_board(room):
+        with database.write_transaction() as conn:
+            conn.execute(
+                "UPDATE rooms SET board_state = ? WHERE room_id = ?",
+                (json.dumps(room["board_state"]), room["room_id"]),
+            )
+
+    async def test_natural_elimination_after_machine_leaves_stops_npc_remainder(self):
+        for stake in (0, 3):
+            with self.subTest(stake=stake):
+                room = self.elimination_room(stake=stake)
+                rid = room["room_id"]
+                left = framework.leave_room(rid, "ai", "ai-1")
+                self.assertEqual(left["status"], "playing")
+                self.assertEqual(left["current_player_id"], "human-1")
+
+                finished = framework.play_move(rid, "human", "human-1", {"action": "flip"})
+                self.assertEqual(finished["status"], "finished")
+                self.assertIsNone(finished["current_player_id"])
+                self.assertIsNone(finished["winner_player_id"])
+                self.assertEqual(finished["board_state"]["flow"]["phase"], "finished")
+                self.assertIsNone(finished["board_state"]["turn_player_id"])
+                self.assertEqual(finished["result"]["reason"], "only_system_npcs_remaining")
+                self.assertTrue(finished["result"]["draw"])
+                self.assertEqual(finished["active_player_ids"], ["npc:0", "npc:1", "npc:2"])
+                human = next(p for p in finished["participants"] if p["player_id"] == "human-1")
+                self.assertEqual(human["activity_state"], "eliminated")
+                if stake:
+                    self.assertEqual(finished["result"]["settlement_deltas"], {
+                        p["player_id"]: 0 for p in finished["participants"]
+                    })
+                with database.write_transaction() as conn:
+                    match = conn.execute(
+                        "SELECT normal_outcome, terminal_reason FROM achievement_matches WHERE room_id = ?",
+                        (rid,),
+                    ).fetchone()
+                self.assertEqual(tuple(match), (0, "only_system_npcs_remaining"))
+                runner = AsyncMock(side_effect=AssertionError("NPC remainder must not run"))
+                scheduler = NpcTurnScheduler(turn_runner=runner, visible_action_delay_seconds=0)
+                self.assertEqual(await scheduler._drain_room(rid), "idle")
+                runner.assert_not_awaited()
+                self.assertEqual(framework.get_room(rid)["revision"], finished["revision"])
+                with self.assertRaises(framework.DuelError):
+                    framework.play_move(rid, "ai", "npc:0", {"action": "flip"})
+
+    async def test_natural_elimination_continues_with_non_system_participant(self):
+        for role, actor_id, next_id in (
+            ("human", "human-1", "ai-1"),
+            ("ai", "ai-1", "npc:0"),
+        ):
+            with self.subTest(actor_id=actor_id):
+                room = self.elimination_room(actor_id=actor_id)
+                updated = framework.play_move(room["room_id"], role, actor_id, {"action": "flip"})
+                self.assertEqual(updated["status"], "playing")
+                self.assertIsNone(updated["result"])
+                self.assertEqual(updated["current_player_id"], next_id)
+                self.assertEqual(updated["board_state"]["flow"]["phase"], "playing")
+                self.assertNotIn(actor_id, updated["active_player_ids"])
+
+    async def test_game_result_takes_precedence_over_npc_only_termination(self):
+        for npc_count, reason in ((1, "last_player_with_cards"), (3, "action_limit")):
+            with self.subTest(reason=reason):
+                room = self.elimination_room(npc_count=npc_count, stake=3)
+                room = framework.leave_room(room["room_id"], "ai", "ai-1")
+                if npc_count > 1:
+                    room["board_state"]["flow"]["turn_number"] = MAX_ACTIONS - 1
+                    self.save_board(room)
+                finished = framework.play_move(room["room_id"], "human", "human-1", {"action": "flip"})
+                self.assertEqual(finished["status"], "finished")
+                self.assertEqual(finished["result"]["reason"], reason)
+                self.assertEqual(finished["terminal_reason"], "game_result")
+                self.assertEqual(finished["winner_player_id"], "npc:0" if npc_count == 1 else None)
+                self.assertEqual(finished["result"]["settlement_deltas"]["human-1"], -3 if npc_count == 1 else 0)
 
     async def test_system_npc_uses_local_authoritative_action_without_provider(self):
         room = framework.create_room(
