@@ -4445,15 +4445,15 @@ $("inviteSubmit").addEventListener("click", async () => {
   finally { $("inviteSubmit").disabled = false; }
 });
 function syncChatRoomMode() {
-  const invite = room?.room_kind === "invite";
-  document.querySelector(".game-chat-area .chat-hint")?.classList.toggle("hidden", !invite);
+  const enabled = !!room;
+  document.querySelector(".game-chat-area .chat-hint")?.classList.toggle("hidden", !enabled);
   const input = $("chatInput");
   for (const [attribute, value] of Object.entries({role: "combobox", "aria-autocomplete": "list", "aria-controls": "mentionOptions"})) {
-    if (invite) input.setAttribute(attribute, value);
+    if (enabled) input.setAttribute(attribute, value);
     else input.removeAttribute(attribute);
   }
-  if (invite && !input.hasAttribute("aria-expanded")) input.setAttribute("aria-expanded", "false");
-  if (!invite) {
+  if (enabled && !input.hasAttribute("aria-expanded")) input.setAttribute("aria-expanded", "false");
+  if (!enabled) {
     $("mentionOptions").replaceChildren();
     closeMentionOptions();
   }
@@ -4461,7 +4461,7 @@ function syncChatRoomMode() {
 let mentionActiveIndex = -1;
 function closeMentionOptions() {
   $("mentionOptions").classList.add("hidden");
-  if (room?.room_kind === "invite") $("chatInput").setAttribute("aria-expanded", "false");
+  if (room) $("chatInput").setAttribute("aria-expanded", "false");
   else $("chatInput").removeAttribute("aria-expanded");
   $("chatInput").removeAttribute("aria-activedescendant");
   mentionActiveIndex = -1;
@@ -4487,7 +4487,7 @@ function mentionCompletion() {
   const list = $("mentionOptions");
   list.replaceChildren();
   closeMentionOptions();
-  const candidates = room?.room_kind === "invite" && match ? (room?.participants || []).filter((p) => p.participant_kind !== "system_npc" && p.handle && p.player_id !== viewerPlayerIdFor(room) && (p.handle.includes(match[1]) || p.display_name.includes(match[1]))) : [];
+  const candidates = match ? (room?.participants || []).filter((p) => p.participant_kind !== "system_npc" && p.handle && p.player_id !== viewerPlayerIdFor(room) && (p.handle.includes(match[1]) || p.display_name.includes(match[1]))) : [];
   if (!candidates.length) return;
   list.classList.remove("hidden");
   input.setAttribute("aria-expanded", "true");

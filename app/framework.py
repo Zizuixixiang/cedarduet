@@ -1072,9 +1072,8 @@ def post_message(
             if unknown:
                 raise DuelError("消息可见参与者不属于该房间")
         targets = set()
-        # Targeted reminders belong to invite rooms; ordinary speech remains
-        # a normal room event, including text containing a literal @handle.
-        for member in (room["participants"] if room.get("room_kind") == "invite" else []):
+        # Resolve canonical handles against this room, regardless of room kind.
+        for member in room["participants"]:
             if member["participant_kind"] != "bound_machine" or member["player_id"] == player_id:
                 continue
             handle = participant_handle(member)

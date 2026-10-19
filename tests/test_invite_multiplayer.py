@@ -564,6 +564,16 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
         with patch.object(invites.secrets,"SystemRandom") as random:
             random.return_value.shuffle.side_effect=lambda members: None
             room=invites.start_invite(room["room_id"],"human","owner")
+        await self.check_targeted_chat_wait(room)
+
+    async def test_ordinary_chat_only_target_wakes_and_offline_persistence(self):
+        room = framework.create_room("train_cards", "human_first", "human", "owner",
+            ordered_participants=[{"player_id": pid, "role": role, "display_name": "同名"}
+                                  for pid, role in (("owner", "human"), ("ai1", "ai"), ("ai2", "ai"))],
+            require_confirmations=False)
+        await self.check_targeted_chat_wait(room)
+
+    async def check_targeted_chat_wait(self, room):
         for ai in ("ai1","ai2"):
             framework.claim_mcp_bootstrap(room["room_id"],ai)
             framework.read_new_room_events(room["room_id"],ai)
@@ -572,10 +582,12 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
         waits=[asyncio.create_task(wait(ai)) for ai in ("ai1","ai2")]
         try:
             await asyncio.sleep(.03)
-            framework.post_message(room["room_id"],"human","owner","普通聊天 @同名")
-            main_module.revision_events.notify(room["room_id"])
-            await asyncio.sleep(.03)
-            self.assertFalse(any(t.done() for t in waits))
+            for text in ("普通聊天", "@同名", "@不存在"):
+                sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
+                    json={"player_id": "owner", "message": text})
+                self.assertEqual(sent.status_code, 200, sent.text)
+                await asyncio.sleep(.03)
+                self.assertFalse(any(t.done() for t in waits))
             member=next(p for p in room["participants"] if p["player_id"]=="ai1")
             self.assertEqual(member["participant_kind"], "bound_machine")
             sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
@@ -587,47 +599,69 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
             self.assertFalse(invites.has_targeted_chat(room["room_id"],"ai1"))
             chat=await self.client.post('/mcp/play',json={"action":"chat","room_id":room["room_id"],"player_id":"ai1","message":"没轮到我也能聊"})
             self.assertEqual(chat.status_code,200,chat.text)
-            self.assertEqual(framework.get_room(room["room_id"])["revision"],room["revision"])
-            framework.post_message(room["room_id"],"human","owner",f'@{member["handle"]} 离线提醒')
+            after = framework.get_room(room["room_id"])
+            self.assertEqual(after["revision"], room["revision"])
+            self.assertEqual(after["current_player_id"], room["current_player_id"])
+            self.assertFalse(framework.participant_can_act(after, "ai1"))
+            # Cancel the remaining poll; sending @ only persists unread state.
+            waits[1].cancel()
+            await asyncio.gather(waits[1], return_exceptions=True)
+            self.assertEqual(main_module.revision_events._waiting_count, 0)
+            cancelled_member = next(p for p in room["participants"] if p["player_id"] == "ai2")
+            sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
+                json={"player_id": "owner", "message": f'@{member["handle"]} @{cancelled_member["handle"]} 离线提醒'})
+            self.assertEqual(sent.status_code, 200, sent.text)
+            self.assertEqual(main_module.revision_events._waiting_count, 0)
+            self.assertTrue(waits[1].cancelled())
             self.assertTrue(invites.has_targeted_chat(room["room_id"],"ai1"))
             offline = await self.client.post('/mcp/play', json={"action":"state", "room_id":room["room_id"], "player_id":"ai1"})
             self.assertEqual(offline.status_code, 200, offline.text)
             self.assertIn("离线提醒", json.dumps(offline.json(), ensure_ascii=False))
             self.assertFalse(invites.has_targeted_chat(room["room_id"],"ai1"))
+            self.assertTrue(invites.has_targeted_chat(room["room_id"],"ai2"))
         finally:
             for task in waits: task.cancel()
             await asyncio.gather(*waits,return_exceptions=True)
 
-    async def test_ordinary_chat_has_no_invite_mentions_and_stays_deliverable(self):
-        room = framework.create_room("tictactoe", "human_first", "human", "owner", "ai1", require_confirmations=False)
-        framework.claim_mcp_bootstrap(room["room_id"], "ai1")
-        framework.read_new_room_events(room["room_id"], "ai1")
-        member = next(p for p in room["participants"] if p["player_id"] == "ai1")
-        text = f"普通留言 @{member['handle']} 保留原文"
-        response = await self.client.post(f"/api/rooms/{room['room_id']}/messages",
-                                          json={"player_id": "owner", "message": text})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(framework.get_room(room["room_id"])["revision"], room["revision"])
-        self.assertFalse(invites.has_targeted_chat(room["room_id"], "ai1"))
-        self.assertFalse(main_module._participant_response_due(room, "ai1"))
+    async def test_ordinary_chat_target_registration_visibility_and_cursor(self):
+        room = framework.create_room("tictactoe", "human_first", "human", "owner", "123:2", require_confirmations=False)
+        rid, ai = room["room_id"], "123:2"
+        framework.claim_mcp_bootstrap(rid, ai)
+        framework.read_new_room_events(rid, ai)
+        for text in ("普通聊天", "@不存在", "@1234", "@123~forged", "@123-fake", "@123abc", "@@123", "@owner"):
+            framework.post_message(rid, "human", "owner", text)
+        framework.post_message(rid, "human", "owner", "@123 私聊", visible_to_player_ids={"owner"})
+        framework.post_message(rid, "ai", ai, "@123 自己")
+        with self.assertRaises(framework.DuelError):
+            framework.post_message(rid, "human", "stranger", "@123 越权")
+        self.assertFalse(invites.has_targeted_chat(rid, ai))
+        self.assertFalse(main_module._participant_response_due(room, ai))
         with database.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM room_mentions").fetchone()[0], 0)
-        # Historic ordinary-room mention rows must not revive invite semantics.
-        with database.write_transaction() as conn:
-            event_id = conn.execute("SELECT MAX(id) FROM room_messages WHERE room_id=?", (room["room_id"],)).fetchone()[0]
-            conn.execute("INSERT INTO room_mentions VALUES (?, ?)", (event_id, "ai1"))
-        self.assertFalse(invites.has_targeted_chat(room["room_id"], "ai1"))
-        self.assertFalse(main_module._participant_response_due(room, "ai1"))
-        framework.play_move(room["room_id"], "human", "owner", {"row": 0, "col": 0}, expected_revision=room["revision"])
-        reply = await self.client.post("/mcp/play", json={"action": "state", "room_id": room["room_id"], "player_id": "ai1"})
+        response = await self.client.post(f"/api/rooms/{rid}/messages",
+                                          json={"player_id": "owner", "message": "@123 @123 来看看"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(invites.has_targeted_chat(rid, ai))
+        self.assertTrue(main_module._participant_response_due(room, ai))
+        with database.connect() as conn:
+            self.assertEqual([row[0] for row in conn.execute("SELECT player_id FROM room_mentions")], [ai])
+        after = framework.get_room(rid)
+        for field in ("revision", "current_player_id", "board_state", "participants"):
+            self.assertEqual(after[field], room[field])
+        reply = await self.client.post("/mcp/play", json={"action": "state", "room_id": rid, "player_id": ai})
         self.assertEqual(reply.status_code, 200, reply.text)
-        self.assertIn(text, json.dumps(reply.json(), ensure_ascii=False))
-        # Same recipient in another room cannot inherit this room's reminder.
+        self.assertIn("来看看", json.dumps(reply.json(), ensure_ascii=False))
+        self.assertNotIn("私聊", json.dumps(reply.json(), ensure_ascii=False))
+        self.assertFalse(invites.has_targeted_chat(rid, ai))
+        self.assertFalse(main_module._participant_response_due(after, ai))
+        again = await self.client.post("/mcp/play", json={"action": "state", "room_id": rid, "player_id": ai})
+        self.assertNotIn("来看看", json.dumps(again.json(), ensure_ascii=False))
+        # The same account in another room must not inherit this room's cursor.
         invite = invites.create_invite("tictactoe", "human", "owner", target_player_count=2)
-        invite = invites.join_invite(invite["invite_code"], "ai", "ai1")
-        framework.post_message(invite["room_id"], "human", "owner", f"@{member['handle']} 邀请房离线留言")
-        self.assertTrue(invites.has_targeted_chat(invite["room_id"], "ai1"))
-        self.assertFalse(invites.has_targeted_chat(room["room_id"], "ai1"))
+        invites.join_invite(invite["invite_code"], "ai", ai)
+        framework.post_message(invite["room_id"], "human", "owner", "@123 邀请房留言")
+        self.assertTrue(invites.has_targeted_chat(invite["room_id"], ai))
+        self.assertFalse(invites.has_targeted_chat(rid, ai))
 
     def test_additive_migration_and_invite_stakes_follow_game_capabilities(self):
         room=self.ready()

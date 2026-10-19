@@ -225,7 +225,6 @@ def has_targeted_chat(room_id, player_id):
     with closing(connect()) as conn:
         return conn.execute("""SELECT 1 FROM room_mentions m
             JOIN room_messages e ON e.id=m.event_id
-            JOIN room_invites i ON i.room_id=e.room_id
             JOIN room_event_cursors c ON c.room_id=e.room_id AND c.player_id=m.player_id
             WHERE e.room_id=? AND m.player_id=? AND m.event_id>c.last_event_id LIMIT 1""",
             (room_id, player_id)).fetchone() is not None
