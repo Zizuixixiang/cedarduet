@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.4";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.5";', SCRIPT)
         self.assertNotIn('global.DuelGameUI.register("mahjong"', APP_SCRIPT)
         self.assertNotIn("function renderMahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
@@ -77,6 +77,11 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("touch-action: pan-x;", STYLES)
         self.assertIn("@media (max-width: 375px)", STYLES)
         self.assertIn("@media (max-width: 600px)", STYLES)
+        # The finished-hand preview is compact only on phones; public in-play tiles are untouched.
+        mobile_review = STYLES.split("@media (max-width: 600px)", 1)[1].split("@media (max-width: 375px)", 1)[0]
+        self.assertIn(".mahjong-terminal-review .mahjong-tile { width: 24px; height: 35px; }", mobile_review)
+        self.assertIn(".mahjong-terminal-review .mahjong-tile .mahjong-tile-face { font-size: 27px; }", mobile_review)
+        self.assertIn(".mahjong-terminal-row { gap: 2px; padding: 5px 6px; }", mobile_review)
         self.assertIn("@media (max-width: 340px)", STYLES)
         self.assertIn("min-width: 0;", STYLES)
         self.assertIn("overflow: hidden;", STYLES)
@@ -496,7 +501,7 @@ assert.equal(handW2.attributes["aria-label"],"2万");
 assert.equal(descendants(handJ1).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀄");
 assert.equal(handJ1.attributes["aria-label"],"中");
 assert.equal(styles.size,1);
-assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.4");
+assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.5");
 ''')
 
     def test_all_tile_codes_map_to_unicode_without_replacing_aria_labels(self):

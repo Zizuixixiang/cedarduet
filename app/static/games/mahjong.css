@@ -502,6 +502,23 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 .mahjong-confirm-submit { color: #fff; background: #b74f48; }
 
 @media (max-width: 600px) {
+  /* The compact review must not make its fit-content board frame shrink on wider phones. */
+  .board-frame:has(> .mahjong-board-layout .mahjong-terminal-review) { width: 100%; }
+  /* Compact terminal-only review for phone screens; live Mahjong board stays unchanged. */
+  .mahjong-terminal-review { margin-top: 8px; padding: 7px 8px; line-height: 1.35; }
+  .mahjong-terminal-summary { margin: 3px 0; }
+  .mahjong-fans { margin: 4px 0; }
+  .mahjong-fan-row { gap: 1px 8px; padding: 2px 0; }
+  .mahjong-terminal-rows { gap: 5px; margin-top: 6px; }
+  .mahjong-terminal-row { gap: 2px; padding: 5px 6px; }
+  .mahjong-terminal-player { gap: 2px 5px; }
+  .mahjong-terminal-hand, .mahjong-terminal-melds { gap: 2px; padding: 2px 1px 3px; }
+  .mahjong-terminal-melds { gap: 6px; }
+  .mahjong-terminal-meld-group { gap: 2px; }
+  .mahjong-terminal-review .mahjong-tile { width: 24px; height: 35px; }
+  .mahjong-terminal-review .mahjong-tile .mahjong-tile-face { font-size: 27px; }
+  .mahjong-terminal-review .mahjong-meld { padding: 1px; }
+  .mahjong-winning-label { font-size: 9px; }
   .mahjong-table {
     --mj-side: clamp(54px, 14vw, 64px);
     --mj-tile-w: clamp(15.5px, 4vw, 18px);
