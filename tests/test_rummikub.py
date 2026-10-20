@@ -279,7 +279,7 @@ class RummikubRuleTests(unittest.TestCase):
         out=g.apply_action(s,meld([group(10)]),players()[0]).state
         self.assertEqual(out['result']['tile_scores'],{'p0':36,'p1':-36})
 
-    def test_private_state_no_opponent_or_pool_even_terminal(self):
+    def test_ordinary_public_private_never_expose_opponents_or_pool(self):
         g,s=fixture(group(10),opened=False,other=['joker-1','blue-6-1'])
         for terminal in (False,True):
             if terminal: s=g.apply_action(s,meld([group(10)]),players()[0]).state
@@ -288,6 +288,44 @@ class RummikubRuleTests(unittest.TestCase):
             text=json.dumps([public,private])
             for hidden in ['joker-1','blue-6-1',s['pool'][0]]: self.assertNotIn(hidden,text)
             self.assertNotIn('hands',public); self.assertNotIn('pool',public)
+            self.assertNotIn('terminal_hands', public)
+            self.assertNotIn('terminal_hands', private)
+
+    def test_framework_only_terminal_projection_reveals_racks_never_pool(self):
+        ps=players(4)
+        g=Rummikub(random.Random(5)); state=g.initialize(ps)
+        original=deepcopy(state)
+        room={'game_type':'rummikub','participants':ps,'board_state':state}
+        for status in ('waiting','playing','pending'):
+            room['status']=status
+            view=framework.project_room_for_viewer(room,'p0')
+            self.assertNotIn('terminal_hands',view['board_state'])
+            for pid, hand in state['hands'].items():
+                if pid!='p0':
+                    for tid in hand:
+                        self.assertNotIn('"'+tid+'"',json.dumps(view))
+        # Archived legacy rooms can have no plugin result (e.g. stale archive).
+        # The framework status, not a result guessed by the game, is authority.
+        for status in ('finished','archived'):
+            room['status']=status
+            view=framework.project_room_for_viewer(room,'p0')
+            public=view['board_state']
+            self.assertEqual(public['terminal_hands'],{
+                p:[TILES[t] for t in hand] for p,hand in state['hands'].items()})
+            self.assertNotIn('hands',public); self.assertNotIn('pool',public)
+            self.assertNotIn('terminal_hands',view['private_state'])
+            for tid in state['pool']:
+                self.assertNotIn('"'+tid+'"',json.dumps(view))
+            public['terminal_hands']['p1'][0]['number']=999
+            self.assertEqual(state,original)
+            with self.assertRaises(framework.DuelError):
+                framework.project_room_for_viewer(room,'outsider')
+        # Empty rack and joker are entity objects, not invented score cards.
+        g,s=fixture(group(10),opened=False,other=['joker-1','blue-6-1'])
+        s=g.apply_action(s,meld([group(10)]),players()[0]).state
+        public=g.terminal_public_state(s,players())
+        self.assertEqual(public['terminal_hands']['p0'],[])
+        self.assertEqual(public['terminal_hands']['p1'][0],TILES['joker-1'])
 
     def test_resignation_frozen_hand_no_recycle_and_terminal(self):
         g=Rummikub(random.Random(1)); s=g.initialize(players(4)); before=deepcopy(s)

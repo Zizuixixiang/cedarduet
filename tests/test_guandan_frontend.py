@@ -267,11 +267,19 @@ const value=makeContext([]);value.context.canMove=false;value.context.room.statu
 renderer.renderBoard(value.context);
 const review=descendants(value.board).find(n=>hasClass(n,"guandan-terminal-review"));
 assert.ok(review);
+assert.equal(review.open,true);
+review.open=false;assert.equal(review.open,false);
 assert.match(review.children[0].textContent,/终局剩余手牌 · 2 家有牌/);
 const reviewNodes=descendants(review);
 assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-terminal-row")).length,4);
 assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-card")&&n.tag==="span").length,3);
 assert.equal(reviewNodes.filter(n=>hasClass(n,"guandan-terminal-empty")).length,2);
+''')
+
+    def test_live_without_terminal_data_has_no_review(self):
+        self.run_node(r'''
+const value=makeContext();renderer.renderBoard(value.context);
+assert.equal(descendants(value.board).some(n=>hasClass(n,"guandan-terminal-review")),false);
 ''')
 
     def test_source_is_valid_javascript(self):

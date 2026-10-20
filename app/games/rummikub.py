@@ -327,6 +327,17 @@ class Rummikub(GamePlugin):
                 **{k: deepcopy(state[k]) for k in ("opened", "active_player_ids", "turn_player_id",
                     "blocked_player_ids", "resigned_player_ids", "last_action", "result")}}
 
+    def terminal_public_state(self, state, participants):
+        # Only the framework's finished/archived projection calls this hook.
+        # Keep ordinary public/private projections private even after a result.
+        public = self.public_state(state, participants)
+        public["terminal_hands"] = {
+            str(p["player_id"]): [deepcopy(TILES[t]) for t in
+                                  state["hands"].get(str(p["player_id"]), [])]
+            for p in participants
+        }
+        return public
+
     def private_state(self, state, viewer, participants):
         pid = str(viewer["player_id"])
         active = (state["flow"]["phase"] == "playing" and not state["result"]

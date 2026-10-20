@@ -48,6 +48,7 @@
     if (!diceByPlayer || typeof diceByPlayer !== "object") return;
     const documentRef = context.board.ownerDocument || global.document;
     const review = element(documentRef, "details", "liars-terminal-review");
+    review.open = true;
     review.appendChild(element(
       documentRef,
       "summary",

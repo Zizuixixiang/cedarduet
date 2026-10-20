@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.3.3";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.3.4";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -16,12 +16,14 @@
   });
 
   function ensureStyle() {
-    if (global.document.getElementById(STYLE_ID)) return;
+    const existing = global.document.getElementById(STYLE_ID);
+    if (existing) return existing;
     const link = global.document.createElement("link");
     link.id = STYLE_ID;
     link.rel = "stylesheet";
     link.href = STYLE_HREF;
     global.document.head.appendChild(link);
+    return link;
   }
 
   function el(tag, className = "", text = "") {
@@ -154,7 +156,11 @@
     const visibleMelds = isViewer && Array.isArray(ownMelds)
       ? ownMelds
       : state.melds && state.melds[participant.player_id] || [];
-    visibleMelds.forEach((meld) => melds.appendChild(meldNode(meld)));
+    visibleMelds.forEach((meld) => {
+      const hideConcealed = !isTerminalState(context) && !isViewer && meld.kind === "concealed_gang";
+      melds.appendChild(meldNode(hideConcealed
+        ? {...meld, tiles: (meld.tiles || []).map(() => ({back: true}))} : meld));
+    });
     seat.append(identity, backs, melds);
     if (turnIndicator) seat.appendChild(turnIndicator);
     return seat;
@@ -204,13 +210,6 @@
     }
     const action = el("span", "mahjong-current-action", actionText);
     status.append(primary, wall, action);
-    if (state.game_result) {
-      const result = state.game_result;
-      const resultText = result.draw
-        ? "荒牌，本手结束"
-        : `${result.seat_wind || ""}家和牌 · ${result.total_fan || 0} 番`;
-      status.appendChild(el("strong", "mahjong-result", resultText));
-    }
     return status;
   }
 
@@ -269,37 +268,117 @@
       scroll.appendChild(node);
     });
     wrap.append(head, scroll);
-    const terminalHands = context.state && context.state.terminal_hands;
-    if (terminalHands && typeof terminalHands === "object") {
-      const review = el("details", "mahjong-terminal-review");
-      review.appendChild(el("summary", "mahjong-terminal-summary", "终局手牌复盘 · 展开查看四家牌面"));
-      const rows = el("div", "mahjong-terminal-rows");
-      Object.entries(terminalHands).forEach(([playerId, tiles]) => {
-        const participant = (context.participants || []).find(
-          (item) => item.player_id === playerId
-        );
-        const row = el("section", "mahjong-terminal-row");
-        row.dataset.playerId = playerId;
-        row.appendChild(el(
-          "strong",
-          "mahjong-terminal-name",
-          `${participant && (participant.display_name || participant.player_id) || playerId} · ${Array.isArray(tiles) ? tiles.length : 0} 张`
-        ));
-        const faces = el("div", "mahjong-terminal-hand");
-        (Array.isArray(tiles) ? tiles : []).forEach(
-          (tile) => faces.appendChild(publicTile(tile))
-        );
-        row.appendChild(faces);
-        rows.appendChild(row);
-      });
-      review.appendChild(rows);
-      wrap.appendChild(review);
-    }
     return {wrap, scroll};
   }
 
+  function winningResult(context) {
+    if (!isTerminalState(context)) return null;
+    const result = (context.state || {}).game_result;
+    return result && !result.draw && result.winner_player_id
+      && ["self_draw", "discard", "rob_kong"].includes(result.win_type)
+      ? result : null;
+  }
+
+  function terminalSummary(context) {
+    const result = winningResult(context);
+    const nameFor = (id) => ((context.participants || []).find(
+      (item) => item.player_id === id
+    ) || {}).display_name || "玩家";
+    if (!result) {
+      return (context.state || {}).game_result?.draw
+        ? "流局 · 本手无人和牌"
+        : "本手已结束 · 未产生和牌结算";
+    }
+    const kind = {self_draw: "自摸", discard: "点炮和", rob_kong: "抢杠和"}[result.win_type];
+    const source = result.win_type !== "self_draw" && result.source_player_id
+      ? ` · ${nameFor(result.source_player_id)}${result.win_type === "rob_kong" ? "被抢杠" : "点炮"}` : "";
+    const total = Number.isFinite(result.total_fan) ? ` · 总计 ${result.total_fan} 番` : "";
+    return `${nameFor(result.winner_player_id)} 和牌 · ${kind}${source}${total}`;
+  }
+
+  function terminalReview(context, participants) {
+    const review = el("section", "mahjong-terminal-review");
+    review.id = "mahjongTerminalReview";
+    review.tabIndex = -1;
+    review.setAttribute("aria-labelledby", "mahjongTerminalTitle");
+    const demo = context.room?.terminal_reason === "mahjong_review_demo";
+    const title = el("h3", "mahjong-terminal-title", demo ? "演示房 · 终局复盘" : "终局复盘");
+    title.id = "mahjongTerminalTitle";
+    review.appendChild(title);
+    if (demo) review.appendChild(el("p", "mahjong-terminal-note", "人工构造牌局 · 不计真实战绩、筹码或成就"));
+    review.appendChild(el("p", "mahjong-terminal-summary", terminalSummary(context)));
+    const result = winningResult(context);
+    const fans = result && Array.isArray(result.fans) ? result.fans : [];
+    if (fans.length) {
+      const list = el("ul", "mahjong-fans");
+      list.setAttribute("aria-label", "番型明细");
+      fans.forEach((fan) => {
+        const row = el("li", "mahjong-fan-row");
+        row.appendChild(el("span", "", fan.name || fan.name_en || "未命名番型"));
+        const multiplier = Number.isFinite(fan.points) && Number.isFinite(fan.count)
+          ? `${fan.points} 番 × ${fan.count}` : "倍率未记录";
+        row.appendChild(el("span", "", `${multiplier} · ${Number.isFinite(fan.fan) ? `${fan.fan} 番` : "番数未记录"}`));
+        list.appendChild(row);
+      });
+      review.appendChild(list);
+    } else if (result) {
+      review.appendChild(el("p", "mahjong-terminal-note", "本局未记录番型明细"));
+    }
+    const state = context.state || {};
+    const hands = state.terminal_hands || {};
+    const rows = el("div", "mahjong-terminal-rows");
+    participants.forEach((participant) => {
+      const playerId = participant.player_id;
+      const winner = result && result.winner_player_id === playerId;
+      const row = el("section", "mahjong-terminal-row");
+      row.dataset.playerId = playerId;
+      row.classList.toggle("winner", Boolean(winner));
+      const heading = el("div", "mahjong-terminal-player");
+      heading.appendChild(el("strong", "mahjong-terminal-name", participant.display_name || "玩家"));
+      heading.appendChild(el("span", "mahjong-terminal-seat", `座位 ${Number(participant.seat_index) + 1} · ${(state.seat_winds || {})[playerId] || "?"}风`));
+      if (winner) heading.appendChild(el("span", "mahjong-winner-badge", "和牌"));
+      row.appendChild(heading);
+      const tiles = Array.isArray(hands[playerId]) ? hands[playerId] : [];
+      row.appendChild(el("span", "mahjong-terminal-note", `手牌 · ${tiles.length} 张`));
+      const hand = el("div", "mahjong-terminal-hand");
+      hand.tabIndex = 0;
+      hand.setAttribute("aria-label", `${participant.display_name || "玩家"}终局手牌，可横向滚动`);
+      let highlighted = false;
+      tiles.forEach((tile) => {
+        const node = publicTile(tile);
+        if (winner && !highlighted && result.winning_tile?.id != null
+            && String(tile.id) === String(result.winning_tile.id)) {
+          highlighted = true;
+          node.classList.add("winning-tile");
+          node.setAttribute("aria-label", `${tile.label || tile.code} · 和牌张`);
+          node.appendChild(el("span", "mahjong-winning-label", "和"));
+        }
+        hand.appendChild(node);
+      });
+      if (!tiles.length) hand.appendChild(el("span", "mahjong-terminal-note", "未记录手牌"));
+      row.appendChild(hand);
+      const melds = Array.isArray(state.melds?.[playerId]) ? state.melds[playerId] : [];
+      const groups = el("div", "mahjong-terminal-melds");
+      groups.tabIndex = 0;
+      groups.setAttribute("aria-label", `${participant.display_name || "玩家"}副露，可横向滚动`);
+      melds.forEach((meld) => {
+        const group = el("div", "mahjong-terminal-meld-group");
+        group.appendChild(el("span", "mahjong-terminal-note", {
+          chi: "吃", peng: "碰", ming_gang: "明杠", added_gang: "加杠", concealed_gang: "暗杠（已翻开）",
+        }[meld.kind] || "副露"));
+        group.appendChild(meldNode(meld));
+        groups.appendChild(group);
+      });
+      if (melds.length) row.appendChild(groups);
+      else row.appendChild(el("span", "mahjong-terminal-note", "无副露"));
+      rows.appendChild(row);
+    });
+    review.appendChild(rows);
+    return review;
+  }
+
   function renderBoard(context) {
-    ensureStyle();
+    const styleLink = ensureStyle();
     context.helpers.setBoardLayout({
       ariaLabel: "四人国标麻将桌",
     });
@@ -315,10 +394,32 @@
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
     center.appendChild(discardTable);
     table.appendChild(center);
-    const ownHand = ownHandNode(context);
-    table.appendChild(ownHand.wrap);
-    context.board.replaceChildren(table);
-    restoreHandScroll(context, ownHand.scroll);
+    if (isTerminalState(context)) {
+      delete context.uiState.mahjongSelectedTileId;
+      const review = terminalReview(context, participants);
+      context.board.replaceChildren(table, review);
+      // On first entry Mahjong CSS loads asynchronously; scroll the winning
+      // hand after its dimensions settle without scrolling the whole page.
+      const winningTile = review.querySelector(".winning-tile");
+      if (winningTile) {
+        const revealWinningTile = () => {
+          if (winningTile.isConnected === false) return;
+          const hand = winningTile.parentElement;
+          if (!hand || !hand.clientWidth) return;
+          const right = winningTile.offsetLeft + winningTile.offsetWidth;
+          const viewportRight = hand.scrollLeft + hand.clientWidth;
+          if (right > viewportRight - 4) hand.scrollLeft = Math.max(0, right - hand.clientWidth + 4);
+        };
+        revealWinningTile();
+        if (styleLink && !styleLink.sheet) styleLink.addEventListener("load", revealWinningTile, {once: true});
+        if (typeof global.requestAnimationFrame === "function") global.requestAnimationFrame(revealWinningTile);
+      }
+    } else {
+      const ownHand = ownHandNode(context);
+      table.appendChild(ownHand.wrap);
+      context.board.replaceChildren(table);
+      restoreHandScroll(context, ownHand.scroll);
+    }
   }
 
   const CONFIRMED_ACTION_KINDS = new Set([
@@ -483,6 +584,7 @@
     participantPresentation: "board-edge",
     ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false,
+    terminalSummary,
     renderBoard,
     renderControls,
   });

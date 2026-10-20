@@ -16,7 +16,7 @@
       const link = element(doc, "link");
       link.id = "rummikub-styles";
       link.rel = "stylesheet";
-      link.href = "/static/games/rummikub.css?v=6";
+      link.href = "/static/games/rummikub.css?v=7";
       doc.head.appendChild(link);
     }
     const ui = context.uiState;
@@ -132,6 +132,57 @@
     if (opening && points < 30) return {ready: false, text: `首次出牌 ${points} / 30 分，还差 ${30 - points} 分`, points};
     return {ready: true, text: `草稿已整理 · 打出 ${used.length} 张，可提交校验`, points};
   }
+  function terminalReview(context) {
+    const hands = context.state.terminal_hands;
+    if (!context.isTerminal || !hands || typeof hands !== "object") return null;
+    const doc = context.board.ownerDocument;
+    const result = context.state.result || context.room.result || {};
+    const winners = result.winning_player_ids || (result.winner_player_id ? [result.winner_player_id] : []);
+    const resigned = context.state.resigned_player_ids || [];
+    const review = element(doc, "section", "rk-terminal-review");
+    review.setAttribute("aria-label", "终局剩余手牌");
+    const header = element(doc, "div", "rk-header");
+    header.append(element(doc, "strong", "", "终局剩余手牌"));
+    const reason = {
+      empty_rack: "出完手牌", blocked: "堵局结算",
+      resignation: "弃权终局", only_system_npcs_remaining: "离场终局",
+    }[result.reason] || (result.draw ? "流局" : "本局已结束");
+    header.append(element(doc, "span", "rk-meta", reason));
+    review.append(header);
+    [...context.participants].sort((a, b) => a.seat_index - b.seat_index).forEach(p => {
+      const hand = hands[p.player_id];
+      if (!Array.isArray(hand)) return;
+      const row = element(doc, "section", "rk-terminal-row");
+      row.dataset.playerId = p.player_id;
+      const outcome = resigned.includes(p.player_id) ? "弃权"
+        : winners.includes(p.player_id) ? (winners.length > 1 ? "并列获胜" : "获胜")
+        : winners.length ? "未获胜" : result.draw ? "流局" : "已结束";
+      const heading = element(doc, "div", "rk-header");
+      heading.append(element(doc, "strong", "rk-terminal-name",
+        `${p.seat_index + 1} 号位 · ${p.display_name || "玩家"} · ${outcome}`));
+      // Face values, including frozen resigned racks, are not settlement scores.
+      const remaining = hand.reduce((sum, t) => sum + (t.color === "joker" ? 30 : t.number), 0);
+      heading.append(element(doc, "span", "rk-meta", `${hand.length} 张 · 剩余 ${remaining} 点`));
+      const faces = element(doc, "div", "rk-tiles rk-terminal-tiles");
+      faces.tabIndex = 0;
+      faces.setAttribute("role", "group");
+      faces.setAttribute("aria-label", `${p.display_name || "玩家"}的剩余手牌，可横向滚动`);
+      hand.forEach(t => {
+        // Static faces deliberately have no selection, drag or draft handlers.
+        const face = element(doc, "span", `rk-tile rk-${t.color}`);
+        face.dataset.tileId = t.id;
+        face.setAttribute("role", "img");
+        face.setAttribute("aria-label", `${LABELS[t.color]}${t.number || ""}${t.id.endsWith("-2") ? "（第二张）" : "（第一张）"}`);
+        face.append(element(doc, "strong", "rk-number", t.number || "★"),
+          element(doc, "span", "rk-color", LABELS[t.color]));
+        faces.append(face);
+      });
+      if (!hand.length) faces.append(element(doc, "span", "rk-meta", "无剩余手牌"));
+      row.append(heading, faces);
+      review.append(row);
+    });
+    return review;
+  }
   function renderBoard(context) {
     const ui = setup(context), doc = context.board.ownerDocument, tiles = tileMap(context);
     const editable = canEdit(context, ui), opened = Boolean(context.privateState?.opened);
@@ -214,6 +265,13 @@
         scores.append(element(doc, "span", "", `${name}：${value > 0 ? "+" : ""}${value} 分`));
       });
       if (scores.children.length) root.append(scores, element(doc, "small", "rk-meta", "牌面局分 · 不影响平台筹码"));
+    }
+    const review = terminalReview(context);
+    if (review) {
+      root.append(review);
+      context.board.append(root);
+      table.scrollTop = ui.scroll;
+      return;
     }
     const rack = element(doc, "section", "rk-rack");
     rack.setAttribute("aria-label", "自己的手牌");

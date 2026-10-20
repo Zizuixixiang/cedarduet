@@ -19,6 +19,7 @@ FULL_TERMINAL_REVIEW_REASONS = {
     "junqi": "unrevealed ranks stay private during play and the terminal board is reviewable",
     "liars_dice": "current dice stay private during bidding and terminal dice are reviewable",
     "mahjong": "concealed hands and concealed-kong faces become reviewable only at terminal",
+    "rummikub": "remaining entity racks are revealed only by terminal projection; ordinary public/private views and pool order stay private",
     "train_cards": "future personal pile order stays private during play and is reviewable at terminal",
     "uno": "opponent hands stay private during play and remaining hands are shown at terminal",
 }
@@ -27,7 +28,6 @@ RULE_SCOPED_REVEAL_REASONS = {
     "carcassonne": "placed/current terrain is public; the server deck order stays hidden even after resignation or terminal scoring",
     "monopoly": "cash, assets and revealed events are public; future decks, internal continuations and held jail-card sources stay hidden even at terminal",
     "monopoly_plus": "cash, assets, bets, loans and revealed events are public; held item cards show only a count and, like future decks and bus tickets order, stay hidden even at terminal",
-    "rummikub": "only played tiles and terminal numeric scores are public; opponent racks and pool order remain private",
     "texas_holdem": "showdown holes are public, but fold/muck endings must not force a reveal",
     "zhajinhua": "forced showdown hands are public, but folded or unshown hands must stay hidden",
 }
@@ -78,8 +78,8 @@ class HiddenInformationCatalogAuditTests(unittest.TestCase):
                     GamePlugin.terminal_public_state,
                 )
 
-    def test_poker_and_rummikub_keep_safe_default_terminal_projection(self):
-        for game_type in ("texas_holdem", "zhajinhua", "rummikub"):
+    def test_poker_keeps_safe_default_terminal_projection(self):
+        for game_type in ("texas_holdem", "zhajinhua"):
             with self.subTest(game_type=game_type):
                 self.assertIs(
                     type(GAMES[game_type]).terminal_public_state,

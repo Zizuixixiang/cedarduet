@@ -404,6 +404,7 @@
     const terminalHands = context.state && context.state.terminal_hands;
     if (terminalHands && typeof terminalHands === "object") {
       const review = element(documentRef, "details", "guandan-terminal-review");
+      review.open = true;
       const populated = Object.entries(terminalHands).filter(
         ([, cards]) => Array.isArray(cards) && cards.length
       );

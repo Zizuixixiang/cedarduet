@@ -50,6 +50,8 @@ let board=render({flow:{phase:"bidding"}});assert.equal(board.children.length,1)
 board=render({flow:{phase:"finished"},terminal_dice:{human:[1,2,3],ai:[6,6]}});
 assert.equal(legacyCalls,2);assert.equal(board.children.length,2);
 const review=board.children[1];assert.equal(review.className,"liars-terminal-review");
+assert.equal(review.open,true);
+review.open=false;assert.equal(review.open,false);
 assert.equal(review.children[0].textContent,"终局骰子复盘 · 2 家");
 const rows=review.children[1].children;
 assert.equal(rows[0].children[0].textContent,"南山：");
