@@ -223,3 +223,36 @@ Playwright以原有临时SQLite fixture运行三规则×360／430／1280，检�
 
 剩余验证边界：未用实体手机或屏幕阅读器实测；不同系统的中文字体笔画有差异，尺寸和命中区域不依赖字体下载。
 若临时MCP客户端曾读取快照顶层rules_version，应改读board_state.rules_version。主助手仍需独立验收，线上未部署。
+
+## 上线后展示修正：Token 提示、席位牌数与公共桌面（2026-10-22）
+
+本节对应用户确认已上线后的展示修正；前面“未部署”描述的是各轮开发交付时状态。本次仍只修改和测试，不部署／重启／commit／push。
+
+- 大厅三规则切换沿用既有 `change` 链更新 Token 提示，分别为十胡约100–850、九支约100–750、群胡约100–700 token/轮；详细口径放原提示的title，不新增控件。
+- 牌数来自公开 `hand_counts`，在现有上方对手／下方本人席位卡展示；九支扣置数量、群胡已听与各家结算分数也在席位卡。原有行动／离场状态保留，十胡两人桌采用同样席位布局。
+- 删除空的逐人姓名＋手牌列表。公共桌面集中牌库、当前公开翻牌／弃牌、实际公开组／断张／听牌展示和可展开弃牌；没有公开牌时只显示简短空态，不用私牌或假牌装饰。手机右侧避开规则浮签。
+- 主仓首页仅双弈 `metric` 改为00032，`desc`／`logs` 两处改32款。
+
+### Token 采样口径
+
+使用现有tiktoken 0.12.0的 `cl100k_base`（没有添加项目依赖），临时SQLite＋httpx ASGITransport调用真实 `/mcp/play`。
+每模式四席、种子9／37，现有NPC策略各打完两局；预先消费每席bootstrap，统计正常轮次一次state增量＋对应move回复的紧凑JSON响应（`ensure_ascii=False,separators=(',',':')`）。排除bootstrap、guide、完整恢复、请求和模型思考，不是字符数换算。
+
+| 模式 | 样本轮数 | 最小 | 中位数 | P95 | 最大 | UI估计范围 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 十胡 | 140 | 100 | 251 | 829 | 1741 | 100–850 |
+| 九支 | 73 | 105 | 226 | 735 | 822 | 100–750 |
+| 群胡 | 83 | 105 | 200 | 657 | 1228 | 100–700 |
+
+UI为样本最小值到P95向外取整，**不是全范围或计费上限**。多人累计公开事件、合法选择及结算可超出；其他人数／模型tokenizer／客户端包装未采样。
+复现脚本 `sample.py`／`count.py`、原始 `responses.jsonl.gz`、统计 `token-counts.json` 保存在 `/tmp/cedartoy-four-color-table-review/`。
+所有规则、动作、服务端与MCP增量代码未改。
+
+### 本次验证与边界
+
+- 原临时SQLite浏览器fixture：三模式×360／430／1280，九组全部完成并输出passed；新增断言覆盖Token规则切换、每席牌数／结算分数、仅公开牌ID、无逐人重复牌数、空桌高度；兼跑选牌／触摸滑动、公开牌、听牌、胡牌／流局、断线重试、邀请房与十胡两人桌。每组无页面脚本错误。
+- 已逐图查看九组布局，并查看两人十胡、群胡听牌、九支／十胡结算；手机公共桌面避让规则浮签。首页360／430／1280渲染断言通过，手机与桌面图片实际查看，00032及32款一致。
+- 四项Python专项通过：`tests.test_four_color_presentation`两项，加共享UI的 `test_game_styles_preserve_shared_chat_scrolling_and_autocomplete`、`test_desktop_chat_rail_is_multiplayer_only_at_every_width`；没有运行全量或改游戏裁判。
+- JS语法、主仓与Duel的 `git diff --check` 通过。
+- 全部产物保留在 `/tmp/cedartoy-four-color-table-review/`：最终截图 `final/<模式>-<宽度>/`；逐组 `final-*.log`；汇总 `final-measurements.json`；首页 `homepage-*.png`／`homepage.log`；Python `python-tests.log`。部分浏览器进程在打印完整passed、写出测量后工具返回退出143；缺失的群胡430／1280已单独补跑完成全部断言，不能将上述结果等同于所有浏览器进程均正常退出。
+- 未验证实体手机／屏幕阅读器、所有其他游戏整局，也未测其他人数或模型tokenizer的Token分布。本次没有操作生产房间，没有新增依赖，保留主仓无关修改。

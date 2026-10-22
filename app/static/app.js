@@ -1327,6 +1327,10 @@ function compareGameDisplayNames(left, right) {
   );
 }
 
+function isFourColorGame(gameType) {
+  return ["four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"].includes(gameType);
+}
+
 function gameTokenEstimateLabel(gameType) {
   return ({
     // Final MCP v2 normal-round samples; cl100k_base, minified JSON responses.
@@ -1364,6 +1368,11 @@ function gameTokenEstimateLabel(gameType) {
     junqi: "约300–450 token/轮",
     xiangqi: "约30–150 token/轮",
     zhajinhua: "约120–250 token/轮",
+    // Four-color: 4 seats, seeds 9/37, actual /mcp/play responses; rounded min–p95.
+    // 140/73/83 rounds; p95 829/735/657, observed maxima 1741/822/1228.
+    four_color_tenhu: "约100–850 token/轮",
+    four_color_jiuzhi: "约100–750 token/轮",
+    four_color_qunhu: "约100–700 token/轮",
   })[gameType] || "";
 }
 
@@ -1372,7 +1381,7 @@ function updateGameTokenEstimate() {
   if (!label) return;
   const estimate = gameTokenEstimateLabel(selectedGameType($("gameType")));
   label.textContent = estimate ? `（${estimate}）` : "";
-  label.title = ["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes(selectedGameType($("gameType")))
+  label.title = (["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes(selectedGameType($("gameType"))) || isFourColorGame(selectedGameType($("gameType"))))
     ? "正常轮次MCP增量估算，首次进入/手动完整同步另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复；多人连续行动、合法选择与终局结算会影响长度，不是计费上限。"
     : "";
 }
@@ -3322,7 +3331,7 @@ function participantLayoutClass(playerCount) {
 function applyParticipantLayout(targetRoom) {
   const playerCount = actualPlayerCount(targetRoom);
   const presentation = participantPresentationFor(targetRoom);
-  const layoutClass = participantLayoutClass(playerCount);
+  const layoutClass = participantLayoutClass(isFourColorGame(targetRoom.game_type) ? Math.max(3, playerCount) : playerCount);
   const table = $("tableLayout");
   table.className = `table-layout ${layoutClass} count-${playerCount}`;
   table.dataset.playerCount = String(playerCount);
@@ -3437,7 +3446,7 @@ function tableParticipantsFor(targetRoom) {
     ? targetRoom.participants
     : [];
   const viewer = viewerParticipantFor(targetRoom);
-  if (!viewer || (participants.length <= 2 && targetRoom.game_type !== "carcassonne")) return participants;
+  if (!viewer || (participants.length <= 2 && targetRoom.game_type !== "carcassonne" && !isFourColorGame(targetRoom.game_type))) return participants;
   const ordered = [...participants].sort((a, b) => a.seat_index - b.seat_index);
   const start = ordered.findIndex((p) => p.player_id === viewer.player_id);
   return [...ordered.slice(start + 1), ...ordered.slice(0, start)].filter(
@@ -3504,7 +3513,21 @@ function createParticipantBadge(participant, targetRoom) {
   }
   detail.textContent = fragments.join(" · ");
   detail.classList.toggle("hidden", !fragments.length);
-  badge.append(avatarWrap, copy, detail);
+  badge.append(avatarWrap, copy);
+  if (isFourColorGame(targetRoom.game_type)) {
+    const state = targetRoom.board_state || {}, pid = participant.player_id;
+    const stats = document.createElement("span");
+    stats.className = "fc-seat-stats";
+    const info = [];
+    if (Number.isInteger(state.hand_counts?.[pid])) info.push(`手牌 ${state.hand_counts[pid]}`);
+    if (Number.isInteger(state.closed_pair_counts?.[pid])) info.push(`扣置 ${state.closed_pair_counts[pid]} 对`);
+    if (state.listening?.[pid]) info.push("已听牌");
+    const points = state.result?.point_deltas?.[pid];
+    if (Number.isInteger(points)) info.push(`${points > 0 ? "+" : ""}${points} 分`);
+    stats.textContent = info.join(" · ");
+    if (info.length) badge.append(stats);
+  }
+  badge.append(detail);
   return badge;
 }
 
@@ -3515,7 +3538,7 @@ function renderParticipantRoster(targetRoom) {
     ? targetRoom.participants
     : [];
   const presentation = participantPresentationFor(targetRoom);
-  const showGenericRoster = (participants.length > 2 || targetRoom.game_type === "carcassonne") && presentation === "generic";
+  const showGenericRoster = (participants.length > 2 || targetRoom.game_type === "carcassonne" || isFourColorGame(targetRoom.game_type)) && presentation === "generic";
   const viewer = viewerParticipantFor(targetRoom);
   const tableParticipants = tableParticipantsFor(targetRoom);
   roster.replaceChildren();

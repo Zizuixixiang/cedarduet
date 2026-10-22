@@ -15,8 +15,39 @@
 .fc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .fc-head strong { font-size: 14px; }
 .fc-meta { color: #6a6075; font-size: 11px; }
-.fc-table { display: grid; gap: 8px; padding: 10px; border: 2px solid var(--purple); background: #f3eef7; }
+.fc-table {
+  display: grid; gap: 8px; padding: 10px; border: 3px solid var(--purple);
+  color: #394c45; background-color: #d9e4df;
+  background-image: repeating-linear-gradient(45deg, #4c685b06 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, #ffffff19 0 1px, transparent 1px 4px);
+  box-shadow: inset 0 0 0 2px #edf2ef, inset 0 0 0 3px #a3b5ab, 3px 3px 0 var(--purple-light);
+}
+.fc-table > .fc-head strong { font-size: 12px; }
+.fc-table .fc-meta { color: #4f6359; }
+.fc-table-center { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.fc-stock { display: flex; align-items: center; gap: 10px; padding: 0 6px 4px 0; }
+.fc-stock-copy { display: grid; gap: 2px; white-space: nowrap; }
+.fc-stock-copy strong { font-size: 13px; }
+.fc-card-back {
+  display: block; flex: 0 0 24px; width: 24px; height: 62px; box-sizing: border-box;
+  border: 1px solid #675777; background-color: #8b7b9b;
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, #e8dfef50 3px 4px),
+    repeating-linear-gradient(-45deg, transparent 0 3px, #e8dfef50 3px 4px);
+  box-shadow: inset 0 0 0 3px #e6ddec;
+}
+.fc-stock[data-depth="2"] .fc-card-back { box-shadow: inset 0 0 0 3px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e; }
+.fc-stock[data-depth="3"] .fc-card-back { box-shadow: inset 0 0 0 3px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e, 4px 4px 0 #e6ddec, 5px 5px 0 #81718e; }
+.fc-play-zone {
+  display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 2px 6px;
+  border-inline: 1px solid #a3b5ab; background: #eef3ef40;
+}
+.fc-exposed { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; border-top: 1px solid #a3b5ab; }
+.fc-table .fc-groups .fc-cards { padding: 4px 4px 6px; border: 0; border-bottom: 2px solid #a3b5ab; border-radius: 0; background: transparent; }
+.fc-table > .fc-discards { border-top: 1px solid #a3b5ab; padding-top: 4px; }
 .fc-seat { display: grid; gap: 4px; }
+#battleStage[data-game-type^="four_color_"] .room-participant { height: auto; grid-template-rows: 26px auto auto; }
+#battleStage[data-game-type^="four_color_"] .room-participant-detail { white-space: normal; }
+.fc-seat-stats { grid-column: 1 / -1; font: 11px/1.35 system-ui, sans-serif; }
 .fc-groups, .fc-cards { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .fc-groups { gap: 8px; }
 .fc-groups .fc-cards { padding: 4px; background: white; border: 1px solid var(--purple-light); border-radius: 5px; }
@@ -81,5 +112,5 @@
   .fc-controls .pixel-btn { min-height: 44px; }
   .fc-hand { max-width: calc(100% - 16px); } /* Clear Duel's existing floating rules tab. */
   .fc-cards { gap: 6px; }
-  .fc-table { padding: 8px; }
+  .fc-table { padding: 8px; margin-right: 16px; } /* Keep public counts clear of the rules tab too. */
 }

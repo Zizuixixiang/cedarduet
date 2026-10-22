@@ -65,32 +65,52 @@
     context.helpers.setBoardLayout({rows: 1, cols: 1, large: true, ariaLabel: "四色牌桌与本人手牌"});
     context.board.classList.add("four_color_tenhu");
     const root = el(doc, "div", "fc-game"), head = el(doc, "div", "fc-head");
-    head.append(el(doc, "strong", "", TITLES[state.board_kind]), el(doc, "span", "fc-meta", `牌库 ${state.wall_count} 张`));
+    head.append(el(doc, "strong", "", TITLES[state.board_kind]));
     root.append(head);
-    const table = el(doc, "div", "fc-table");
-    (state.participant_order || []).forEach(pid => {
-      const p = context.participants.find(p => p.player_id === pid), section = el(doc, "section", "fc-seat");
-      const points = state.result?.point_deltas?.[pid];
-      section.append(el(doc, "div", "fc-meta", `${p?.display_name || "玩家"} · 手牌 ${state.hand_counts[pid]}${points !== undefined ? ` · ${points > 0 ? "+" : ""}${points} 分` : ""}`));
-      const groups = el(doc, "div", "fc-groups");
-      (state.melds[pid] || []).forEach(group => groups.append(rows(doc, group.cards)));
-      if (state.closed_pair_counts) section.append(el(doc, "span", "fc-meta", `扣置 ${state.closed_pair_counts[pid]} 对`));
-      if (state.broken?.[pid]?.length) { section.append(el(doc,"span","fc-meta","断张（待弃）")); section.append(rows(doc,state.broken[pid])); }
-      if (state.listening?.[pid]) { section.append(el(doc,"strong","fc-meta","已听牌 · 展示")); section.append(rows(doc,state.listening[pid])); }
-      if (groups.children.length) section.append(groups);
-      table.append(section);
-    });
-    root.append(table);
+    const table = el(doc, "section", "fc-table");
+    table.setAttribute("aria-label", "公共牌桌");
+    const tableHead = el(doc, "div", "fc-head");
+    tableHead.append(el(doc, "strong", "", "公共牌桌"));
+    if (!state.discards.length) tableHead.append(el(doc, "span", "fc-meta", "弃牌 0 张"));
+    table.append(tableHead);
+    const center = el(doc, "div", "fc-table-center"), stock = el(doc, "div", "fc-stock");
+    stock.dataset.depth = String(Math.min(3, state.wall_count));
+    if (state.wall_count > 0) {
+      const back = el(doc, "span", "fc-card-back");
+      back.setAttribute("aria-hidden", "true"); stock.append(back);
+    }
+    const stockCopy = el(doc, "span", "fc-stock-copy");
+    stockCopy.append(el(doc, "span", "fc-meta", "牌库"), el(doc, "strong", "", `${state.wall_count} 张`));
+    stock.append(stockCopy); center.append(stock);
+    const playZone = el(doc, "div", "fc-play-zone");
     if (state.offer) {
       const offer = el(doc, "div", "fc-offer");
       offer.append(el(doc, "span", "", state.offer.from_deck ? "公开翻牌" : "当前弃牌"), card(doc, state.offer.card));
-      root.append(offer);
-    }
+      playZone.append(offer);
+    } else playZone.append(el(doc, "span", "fc-meta", "出牌／翻牌区"));
+    center.append(playZone); table.append(center);
+    const exposed = el(doc, "div", "fc-exposed");
+    (state.participant_order || []).forEach(pid => {
+      const melds = state.melds[pid] || [], broken = state.broken?.[pid] || [], listening = state.listening?.[pid] || [];
+      if (!melds.length && !broken.length && !listening.length) return;
+      const p = context.participants.find(p => p.player_id === pid), section = el(doc, "section", "fc-seat");
+      section.append(el(doc, "div", "fc-meta", `${p?.display_name || "玩家"} · 已亮牌`));
+      if (melds.length) {
+        const groups = el(doc, "div", "fc-groups");
+        melds.forEach(group => groups.append(rows(doc, group.cards)));
+        section.append(groups);
+      }
+      if (broken.length) { section.append(el(doc,"span","fc-meta","断张（待弃）"), rows(doc,broken)); }
+      if (listening.length) { section.append(el(doc,"strong","fc-meta","已听牌 · 展示"), rows(doc,listening)); }
+      exposed.append(section);
+    });
+    if (exposed.children.length) table.append(exposed);
     if (state.discards.length) {
       const discards = el(doc, "details", "fc-discards");
       discards.append(el(doc, "summary", "", `弃牌 ${state.discards.length} 张`), rows(doc, state.discards));
-      root.append(discards);
+      table.append(discards);
     }
+    root.append(table);
     const rack = el(doc, "section", "fc-rack");
     rack.append(el(doc, "strong", "", "我的手牌"));
     const hand = el(doc, "div", "fc-hand");
@@ -185,7 +205,7 @@
     context.controls.append(panel);
   }
   Object.keys(TITLES).forEach(type => window.DuelGameUI.register(type, {
-    participantPresentation: "generic", ownsPrivateStatePresentation: true,
+    participantPresentation: "generic", multiplayerTable: true, ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false, renderBoard, renderControls, renderRulePicker,
   }));
 }());

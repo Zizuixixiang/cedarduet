@@ -65,10 +65,28 @@ function backend(input) {
       }
       async function screenshot(name, target) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width}/${name} overflow`);
+        if (await page.locator('.fc-table').isVisible()) {
+          const state = fixture.room.board_state;
+          for (const p of fixture.room.participants) {
+            const badge = page.locator(`#roomParticipants .seat-${p.seat_index}, #viewerParticipant .seat-${p.seat_index}`);
+            assert.equal(await badge.count(),1,'one existing avatar card per seat');
+            assert.ok((await badge.locator('.fc-seat-stats').innerText()).includes(`手牌 ${state.hand_counts[p.player_id]}`));
+            const points = state.result?.point_deltas?.[p.player_id];
+            if (points !== undefined) assert.ok((await badge.innerText()).includes(`${points > 0 ? '+' : ''}${points} 分`));
+          }
+          assert.doesNotMatch(await page.locator('.fc-table').innerText(),/手牌/);
+          const publicIds = [...state.discards, ...(state.offer ? [state.offer.card] : [])];
+          for (const pid of state.participant_order) {
+            publicIds.push(...(state.melds[pid] || []).flatMap(g=>g.cards), ...(state.broken?.[pid] || []), ...(state.listening?.[pid] || []));
+          }
+          const rendered = await page.locator('.fc-table [data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
+          assert.deepEqual(rendered.sort(),publicIds.sort(),'table only renders server-public cards');
+          if (!publicIds.length) assert.ok((await page.locator('.fc-table').boundingBox()).height<125,'empty table stays compact');
+        }
         await (target || page).screenshot({path:path.join(out,`${mode}-${name}-${width}.png`),...(target?{}:{fullPage:true})});
       }
-      async function open(kind, invited = false) {
-        fixture = backend({action:'seed',game_type:gameType,fixture:kind,count:4,invited});
+      async function open(kind, invited = false, count = 4) {
+        fixture = backend({action:'seed',game_type:gameType,fixture:kind,count,invited});
         await page.goto(`http://four-color.test/?room=${fixture.room.room_id}`);
         await page.locator('.fc-hand').waitFor(); await dismiss();
       }
@@ -82,6 +100,11 @@ function backend(input) {
       assert.equal(rects.length,3);
       rects.forEach((r,i) => {assert.equal(r.x,rects[0].x);assert.equal(r.width,rects[0].width);if(i)assert.ok(r.y>=rects[i-1].y+rects[i-1].height);});
       assert.equal(await page.locator('#gameTypeRulePicker input:disabled').count(),0);
+      for (const [rule, upper] of [['tenhu',850],['jiuzhi',750],['qunhu',700]]) {
+        await page.locator(`#gameTypeRulePicker input[value="${rule}"]`).check();
+        assert.equal(await page.locator('#gameTokenEstimate').innerText(),`（约100–${upper} token/轮）`);
+        assert.match(await page.locator('#gameTokenEstimate').getAttribute('title'),/cl100k_base/);
+      }
       await page.locator(`#gameTypeRulePicker input[value="${mode}"]`).check();
       await screenshot('rules', page.locator('.create-panel'));
       const overlaps = await page.locator('.create-form').evaluate(form => {
@@ -206,6 +229,12 @@ function backend(input) {
       await pile.locator('summary').click();
       assert.ok((await pile.locator('.fc-cards').boundingBox()).height<=220);
       await screenshot('discards',pile);
+      if (mode === 'tenhu') {
+        await open('opening',false,2);
+        await screenshot('two-seats');
+        assert.equal(await page.locator('#roomParticipants .room-participant').count(),1);
+        assert.equal(await page.locator('#viewerParticipant .room-participant').count(),1);
+      }
       assert.deepEqual(errors,[]);
       metrics.push({mode,width,ruleCards:rects,hand:geometry,submitHeight:buttonBox.height,consoleErrors:errors});
       fs.writeFileSync(path.join(out,'measurements.json'),JSON.stringify(metrics,null,2));
