@@ -2705,6 +2705,8 @@ def play_move(
             raise DuelError("炸飞机行动必须携带 revision", 409)
         if room["game_type"] == "carcassonne" and expected_revision is None:
             raise DuelError("卡卡颂整回合行动必须携带 revision", 409)
+        if room["game_type"] in ("four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu") and expected_revision is None:
+            raise DuelError("四色牌行动必须携带 revision", 409)
         _assert_expected_revision(room, expected_revision)
         if takeover and (not room.get("timeout_takeover") or
                          not has_live_room_participant(room, conn) or

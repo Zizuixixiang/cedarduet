@@ -1,0 +1,85 @@
+/* Duel type, controls and spacing; Taiwanese paper faces stay game-scoped. */
+.fc-rule-picker { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
+.fc-rule-card { display: flex; align-items: center; gap: 10px; padding: 12px; border: 2px solid var(--purple-light); background: #fff; cursor: pointer; }
+.fc-rule-card:has(:checked) { border-color: var(--purple); background: #f3eef7; }
+.fc-rule-card:has(:disabled) { cursor: default; }
+.fc-rule-card input { width: 16px; height: 16px; margin: 0; accent-color: #665776; }
+.fc-rule-copy { display: grid; gap: 3px; color: var(--text); font: 13px/1.5 system-ui, sans-serif; }
+.fc-rule-copy strong { font-size: 14px; }
+.fc-rule-copy > span { color: #6a6075; font-size: 12px; }
+.board.four_color_tenhu { display: block; width: min(100%, 880px); max-width: 100%; min-width: 0; height: auto; aspect-ratio: auto; border: 0; padding: 0; background: transparent; box-shadow: none; touch-action: manipulation; }
+#battleStage[data-game-type^="four_color_"] :is(.board-zone, .board-frame, .game-controls) { width: min(100%, 880px); max-width: 100%; min-width: 0; }
+.fc-game, .fc-controls { width: 100%; min-width: 0; color: var(--text); text-align: left; font: 13px/1.5 system-ui, sans-serif; }
+.fc-game { display: grid; gap: 10px; }
+.fc-game p { margin: 0; }
+.fc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.fc-head strong { font-size: 14px; }
+.fc-meta { color: #6a6075; font-size: 11px; }
+.fc-table { display: grid; gap: 8px; padding: 10px; border: 2px solid var(--purple); background: #f3eef7; }
+.fc-seat { display: grid; gap: 4px; }
+.fc-groups, .fc-cards { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fc-groups { gap: 8px; }
+.fc-groups .fc-cards { padding: 4px; background: white; border: 1px solid var(--purple-light); border-radius: 5px; }
+/* The paper face is narrow; only the separate hand target is 44px wide. */
+.fc-card {
+  --fc-width: 26px; --fc-height: 68px; --fc-glyph: 18px;
+  position: relative; box-sizing: border-box; flex: 0 0 var(--fc-width);
+  width: var(--fc-width); height: var(--fc-height);
+  display: grid; grid-template-rows: 1fr auto 1fr; justify-items: center; align-items: center;
+  padding: 6px 2px; gap: 1px; border: 1px solid #66513b; border-radius: 1px;
+  color: var(--fc-ink); background-color: var(--fc-paper);
+  background-image: repeating-linear-gradient(0deg, #ffffff08 0 1px, transparent 1px 3px);
+  box-shadow: 0 1px 2px #4a3c2926; font-family: "Noto Serif TC", "Songti TC", PMingLiU, serif;
+}
+.fc-card::before { content: ""; position: absolute; inset: 3px; border-inline: 1px solid currentColor; border-block: 3px solid currentColor; opacity: .5; pointer-events: none; }
+.fc-card strong { font-size: var(--fc-glyph); line-height: 1; font-weight: 600; }
+.fc-card small { font: 9px/1.2 system-ui, sans-serif; }
+.fc-R { --fc-paper: #e77c55; --fc-ink: #3d1c16; }
+.fc-Y { --fc-paper: #f3d878; --fc-ink: #8e2722; }
+.fc-G { --fc-paper: #58a576; --fc-ink: #102b1c; }
+.fc-W { --fc-paper: #f7f1df; --fc-ink: #28343b; }
+.fc-hand {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 44px; grid-template-rows: 100px;
+  justify-content: start; gap: 4px; max-width: 100%; min-width: 0;
+  padding: 4px; overflow-x: auto; overscroll-behavior-x: contain;
+  scrollbar-width: thin; scrollbar-color: #8678a0 #f3eef7; touch-action: pan-x pan-y;
+}
+.fc-hand-many { grid-template-rows: repeat(2, 100px); }
+.fc-hand:empty { grid-template-rows: none; padding: 0; }
+.fc-hand .fc-card { --fc-width: 34px; --fc-height: 88px; --fc-glyph: 23px; }
+.fc-card-target {
+  position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+  width: 44px; min-width: 44px; height: 100px; padding: 6px 5px; margin: 0;
+  border: 0; border-radius: 2px; background: transparent; box-shadow: none; cursor: pointer;
+  touch-action: pan-x pan-y;
+}
+.fc-card-target:disabled { opacity: 1; cursor: default; }
+.fc-card-target[data-unavailable="true"] .fc-card { filter: saturate(.65); }
+.fc-card-target[aria-pressed="true"] { outline: 2px solid #665776; outline-offset: -2px; background: #f3eef7; }
+.fc-card-target[aria-pressed="true"] .fc-card { transform: translateY(-3px); }
+.fc-card-target[aria-pressed="true"]::after, .fc-card-target[data-unavailable="true"]::after {
+  position: absolute; top: 1px; right: 0; width: 13px; height: 13px; text-align: center;
+  font: 10px/13px system-ui, sans-serif; pointer-events: none;
+}
+.fc-card-target[aria-pressed="true"]::after { content: "✓"; color: #fff; background: #665776; }
+.fc-card-target[data-unavailable="true"]::after { content: "−"; color: #6a6075; background: #f3eef7; }
+.fc-card-target:focus-visible, .fc-hand:focus-visible, .fc-rule-card:focus-within { outline: 2px solid #665776; outline-offset: 2px; }
+.fc-rack { display: grid; gap: 8px; }
+.fc-offer { display: flex; gap: 10px; align-items: center; }
+.fc-discards summary { cursor: pointer; min-height: 32px; display: list-item; }
+.fc-discards > .fc-cards { margin: 6px 0; max-height: 220px; overflow-y: auto; overscroll-behavior-y: contain; }
+.fc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fc-controls .pixel-btn { min-height: 40px; font: 13px/1.5 system-ui, sans-serif; white-space: normal; }
+.fc-action-cards { display: block; font-size: 11px; }
+.fc-result { font-weight: 600; }
+@media (min-width: 1101px) {
+  .create-form:has(> .fc-rule-picker) > .participant-picker { grid-column: 1 / 4; }
+  .create-form:has(> .fc-rule-picker) > .pixel-field:has(#gameType) { grid-column: 4 / -1; }
+  .create-form:has(> .fc-rule-picker) > .multiplayer-options { grid-column: 3 / 6; }
+}
+@media (max-width: 600px) {
+  .fc-controls .pixel-btn { min-height: 44px; }
+  .fc-hand { max-width: calc(100% - 16px); } /* Clear Duel's existing floating rules tab. */
+  .fc-cards { gap: 6px; }
+  .fc-table { padding: 8px; }
+}

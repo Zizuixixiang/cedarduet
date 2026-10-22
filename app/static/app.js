@@ -141,7 +141,7 @@ async function loadCatalogGameRenderers(games) {
   ) return;
   const gameTypes = [...new Set(
     (Array.isArray(games) ? games : [])
-      .map((game) => game && game.game_type)
+      .map((game) => game?.game_type?.startsWith("four_color_") ? "four_color_tenhu" : game && game.game_type)
       .filter((gameType) => (
         typeof gameType === "string"
         && !LEGACY_GAME_UI_TYPES.has(gameType)
@@ -1370,16 +1370,20 @@ function gameTokenEstimateLabel(gameType) {
 function updateGameTokenEstimate() {
   const label = $("gameTokenEstimate");
   if (!label) return;
-  const estimate = gameTokenEstimateLabel($("gameType").value);
+  const estimate = gameTokenEstimateLabel(selectedGameType($("gameType")));
   label.textContent = estimate ? `（${estimate}）` : "";
-  label.title = ["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes($("gameType").value)
+  label.title = ["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes(selectedGameType($("gameType")))
     ? "正常轮次MCP增量估算，首次进入/手动完整同步另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复；多人连续行动、合法选择与终局结算会影响长度，不是计费上限。"
     : "";
 }
 
+function selectedGameType(select) {
+  return select.value === "four_color_tenhu" ? (select.dataset.fourColorMode || select.value) : select.value;
+}
+
 function sortedGamesForCategory(games, category) {
   return (Array.isArray(games) ? games : [])
-    .filter((game) => game && game.game_type && gameCategoryFor(game) === category)
+    .filter((game) => game && game.game_type && !["four_color_jiuzhi", "four_color_qunhu"].includes(game.game_type) && gameCategoryFor(game) === category)
     .map((game, index) => ({game, index}))
     .sort((left, right) => (
       compareGamePlayerCounts(left.game, right.game)
@@ -1398,7 +1402,7 @@ function syncGameTypeOptions(games, {preserveSelection = true} = {}) {
   categorizedGames.forEach((game) => {
     const option = document.createElement("option");
     option.value = game.game_type;
-    option.textContent = `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    option.textContent = game.game_type === "four_color_tenhu" ? "四色牌" : `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
     select.appendChild(option);
   });
   if (!categorizedGames.length) {
@@ -1411,12 +1415,27 @@ function syncGameTypeOptions(games, {preserveSelection = true} = {}) {
     select.value = "";
     select.disabled = true;
     updateGameTokenEstimate();
+    renderGameRulePicker(select);
     return;
   }
   select.disabled = false;
   const values = [...select.options].map((option) => option.value);
   select.value = preserveSelection && values.includes(previousValue) ? previousValue : values[0];
   updateGameTokenEstimate();
+  renderGameRulePicker(select);
+}
+
+// Optional game-owned precreation choices. No live catalog entry is added here.
+function renderGameRulePicker(select) {
+  const id = `${select.id}RulePicker`;
+  document.getElementById(id)?.remove();
+  if (select.value !== "four_color_tenhu") delete select.dataset.fourColorMode;
+  const renderer = registeredGameUIRenderer(selectedGameType(select));
+  if (!renderer?.renderRulePicker) return;
+  const target = document.createElement("div");
+  target.id = id;
+  select.closest(".pixel-field").after(target);
+  renderer.renderRulePicker(target, select);
 }
 
 function gameCategoryChanged() {
@@ -1426,7 +1445,7 @@ function gameCategoryChanged() {
 }
 
 function selectedGameRequirement() {
-  const gameType = $("gameType").value;
+  const gameType = selectedGameType($("gameType"));
   const declared = identity && Array.isArray(identity.games)
     ? identity.games.find((game) => game.game_type === gameType)
     : null;
@@ -1453,7 +1472,7 @@ function resolvedStakeMetadata(game, stake) {
 }
 
 function renderSelectedStakeHint() {
-  const gameType = $("gameType").value;
+  const gameType = selectedGameType($("gameType"));
   const game = identity && Array.isArray(identity.games)
     ? identity.games.find((item) => item.game_type === gameType)
     : null;
@@ -1551,7 +1570,7 @@ function updateCreateButtonState() {
   const validStake = Number.isInteger(stakeValue) && stakeValue >= 0;
   const ready = Boolean(
     identity
-    && $("gameType").value
+    && selectedGameType($("gameType"))
     && $("mode").value
     && selectedMachineCount >= 1
     && allowedPlayerCounts.includes(targetCount)
@@ -1775,7 +1794,7 @@ async function createRoom() {
       body: JSON.stringify({
         ai_player: aiPlayer,
         ai_players: participantIds,
-        game_type: $("gameType").value,
+        game_type: selectedGameType($("gameType")),
         mode: $("mode").value,
         stake,
         target_player_count: selectedTargetPlayerCount(),
@@ -3720,7 +3739,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     return;
   }
   syncMoveConfirmationVisibility();
-  $("gameBadge").textContent = room.game_type.toUpperCase();
+  $("gameBadge").textContent = room.game_type.startsWith("four_color_") ? "四色牌" : room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
   $("roomId").textContent = room.room_id;
   $("copyRoomButton").setAttribute("aria-label", `复制房间号 ${room.room_id}`);
@@ -4193,7 +4212,7 @@ function renderInviteMachinePicker(focusPlayerId = null) {
   }
 }
 function updateInviteStakeAvailability() {
-  const game = (identity?.games || []).find((g) => g.game_type === $("inviteGame").value);
+  const game = (identity?.games || []).find((g) => g.game_type === selectedGameType($("inviteGame")));
   const target = Number($("inviteCount").value || 2);
   const supportsStake = Boolean(game?.supports_stakes);
   const supportsTable = target === 2 || Boolean(game?.supports_multiplayer_stakes);
@@ -4205,7 +4224,8 @@ function updateInviteStakeAvailability() {
     : "当前桌型仅支持 0 筹码娱乐局。";
 }
 function inviteCounts() {
-  const game = (identity?.games || []).find((g) => g.game_type === $("inviteGame").value);
+  renderGameRulePicker($("inviteGame"));
+  const game = (identity?.games || []).find((g) => g.game_type === selectedGameType($("inviteGame")));
   $("inviteCount").replaceChildren(...allowedPlayerCountsForGame(game).map((n) => new Option(String(n), String(n))));
   $("inviteTimeout").disabled = false;
   $("inviteTimeoutHint").textContent = "超时由 NPC 临时代操作，可随时接回。";
@@ -4222,7 +4242,7 @@ function syncInviteGameOptions({preserveSelection = true} = {}) {
   categorizedGames.forEach((game) => {
     const option = document.createElement("option");
     option.value = game.game_type;
-    option.textContent = `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    option.textContent = game.game_type === "four_color_tenhu" ? "四色牌" : `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
     select.appendChild(option);
   });
   if (!categorizedGames.length) {
@@ -4434,7 +4454,7 @@ $("inviteSubmit").addEventListener("click", async () => {
   try {
     if (inviteMode === "create") renderInviteMachinePicker();
     const body = inviteMode === "create"
-      ? {game_type: $("inviteGame").value, target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}
+      ? {game_type: selectedGameType($("inviteGame")), target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}
       : {invite_code: $("inviteCodeInput").value.trim().toUpperCase()};
     const data = await request(inviteMode === "create" ? "/api/invites" : "/api/invites/join", {method: "POST", body: JSON.stringify(body)});
     $("inviteDialog").close();
@@ -4564,6 +4584,7 @@ $("targetPlayerCount").addEventListener("change", () => {
 $("fillWithNpcs").addEventListener("change", renderCreateSeatPreview);
 $("gameCategory").addEventListener("change", gameCategoryChanged);
 $("gameType").addEventListener("change", () => {
+  renderGameRulePicker($("gameType"));
   updateGameTokenEstimate();
   configureParticipantPicker();
   renderSelectedStakeHint();

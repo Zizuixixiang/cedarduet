@@ -1522,6 +1522,13 @@ async def human_state(
 
 @app.post("/api/rooms/{room_id}/move")
 async def human_move(room_id: str, request: Request, body: MoveBody):
+    if get_room(room_id)["game_type"] in (
+        "four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"
+    ):
+        # The main proxy already overwrites body identity. Keep this game's
+        # hidden-hand boundary enforced at the internal HTTP route as well.
+        if body.player_id != trusted_human_player(request):
+            raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
     move = body.move
     if move is None:
         move = {

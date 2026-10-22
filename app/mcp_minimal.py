@@ -10,8 +10,10 @@ from .database import write_transaction
 from .framework import DuelError
 from .games import get_game
 from .games.mcp_incremental import changed, table_patch
+from .games.four_color_cards.mcp import FORMAT as FOUR_COLOR_FORMAT
+from .games.four_color_cards.common import GAME_TYPES as FOUR_COLOR_GAMES
 
-GAMES = frozenset(('monopoly', 'rummikub', 'bomb_plane', 'carcassonne'))
+GAMES = frozenset(('monopoly', 'rummikub', 'bomb_plane', 'carcassonne')) | FOUR_COLOR_GAMES
 VERSION = 2
 
 
@@ -22,6 +24,8 @@ def enabled(room):
 
 
 def baseline(game, state):
+    if game.game_type in FOUR_COLOR_GAMES:
+        return {'four_color_state': game.public_state(state, [])}
     if game.game_type == 'monopoly':
         return game._public_delta(state)
     if game.game_type == 'rummikub':
@@ -34,6 +38,9 @@ def baseline(game, state):
 
 
 def private_baseline(name, state, pid):
+    if name in FOUR_COLOR_GAMES:
+        from .games.four_color_cards.mcp import private
+        return private(get_game(name), state, pid)
     if name == 'rummikub':
         return {'hand': state['hands'][pid]}
     if name == 'bomb_plane':
@@ -54,6 +61,7 @@ COMMON = ('MCP v2: retain context. Ordinary reply r is the authoritative revisio
           'Unknown/v1 contexts automatically get this v2 bootstrap. '
           'private is only your delta. Notifications appear once when new; rooms/chips retain unread access.')
 FORMATS = {
+    **{name: FOUR_COLOR_FORMAT for name in FOUR_COLOR_GAMES},
     'monopoly': ('events=[actor,action,delta?]. Increment action_seq once per action (including resign/leave). '
         'delta: p=[id,cash,position,bankrupt,jailed,jail_turns] rows; t=[id,owner,level,mortgaged] rows; '
         'next=turn_player_id; other fields replace. Static tiles/rents are in bootstrap. '
@@ -86,6 +94,9 @@ FORMATS = {
 
 
 def snapshot(room, pid, full):
+    if room['game_type'] in FOUR_COLOR_GAMES:
+        from .games.four_color_cards.mcp import snapshot as four_color_snapshot
+        return four_color_snapshot(get_game(room['game_type']), room, pid, full)
     from . import framework as f
     room = f._decorate(room)
     value = (f.project_mcp_snapshot_for_viewer(room, pid) if full
@@ -121,6 +132,9 @@ def snapshot(room, pid, full):
 
 def encode_result(name, raw, prior, actor, action):
     """Encode canonical public results; no hidden state is accepted here."""
+    if name in FOUR_COLOR_GAMES:
+        from .games.four_color_cards.mcp import delta
+        return [actor, action, delta(raw['four_color_state'], prior.get('four_color_state', {}))]
     if name == 'bomb_plane':
         s = raw['bomb_plane_shot']
         return [s['player_id'], s['cell'], s['result']]
@@ -179,10 +193,13 @@ def response(room_id, pid, *, consume=False, full=False, submitted=None, source_
             return {'r':room['revision'], 'status':'left'}
         saved = conn.execute('SELECT context FROM mcp_minimal_contexts WHERE room_id=? AND player_id=?',(room_id,pid)).fetchone()
         ctx = json.loads(saved[0]) if saved else {}
-        boot = ctx.get('v') != VERSION
+        boot = ctx.get('v') != VERSION or (name in FOUR_COLOR_GAMES and 'revision' not in ctx)
         covered = ctx.get('snapshot_event_id', 0)
         consume = consume or full or boot or bool(covered) or _participant_response_due(room,pid)
         out = {'r':room['revision']}
+        if name in FOUR_COLOR_GAMES:
+            consume = True
+            if not boot and not full: out['from_revision'] = ctx['revision']
         events = []
         if consume:
             cursor = conn.execute('SELECT last_event_id FROM room_event_cursors WHERE room_id=? AND player_id=?',(room_id,pid)).fetchone()
@@ -242,10 +259,10 @@ def response(room_id, pid, *, consume=False, full=False, submitted=None, source_
                 out['snapshot'] = snapshot(room,pid,True)
             else:
                 private = changed(now_private,ctx.get('private',{}))
-                if name == 'rummikub':
+                if name == 'rummikub' or name in FOUR_COLOR_GAMES:
                     before = ctx.get('private',{}).get('hand',[]); after = now_private['hand']
                     added = [t for t in after if t not in before]; removed = [t for t in before if t not in after]
-                    private = {}
+                    private.pop('hand', None)
                     if submitted and submitted.get('action')=='meld':
                         used = {t for m in submitted['melds'] for t in m}
                         removed = [t for t in removed if t not in used]
@@ -262,6 +279,7 @@ def response(room_id, pid, *, consume=False, full=False, submitted=None, source_
                 VALUES(?,?,?,'1970-01-01T00:00:00+00:00',1) ON CONFLICT(room_id,player_id)
                 DO UPDATE SET last_event_id=excluded.last_event_id,mcp_bootstrapped=1''',(room_id,pid,last_delivered))
             ctx = dict(v=VERSION,public=baseline(game,state),private=now_private)
+            if name in FOUR_COLOR_GAMES: ctx['revision'] = room['revision']
             if first_unread_text is not None:
                 ctx['snapshot_event_id'] = newest
             conn.execute('INSERT OR REPLACE INTO mcp_minimal_contexts VALUES(?,?,?)',(room_id,pid,json.dumps(ctx)))

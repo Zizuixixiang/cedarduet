@@ -29,6 +29,9 @@ from .uno import Uno
 from .xiangqi import Xiangqi
 from .yahtzee import Yahtzee
 from .zhajinhua import Zhajinhua
+from .four_color_cards.tenhu import BgaTenHu
+from .four_color_cards.jiuzhi import Jiuzhi
+from .four_color_cards.qunhu import Qunhu
 
 GAME_CATEGORIES = frozenset({"board", "card", "dice", "tabletop"})
 
@@ -46,6 +49,9 @@ STAKE_PRESENTATIONS = {
 DEFAULT_STAKE_PRESENTATION = ("🪙X/人", "")
 
 GAMES = {
+    BgaTenHu.game_type: BgaTenHu(),
+    Jiuzhi.game_type: Jiuzhi(),
+    Qunhu.game_type: Qunhu(),
     Carcassonne.game_type: Carcassonne(),
     BombPlane.game_type: BombPlane(),
     Rummikub.game_type: Rummikub(),
