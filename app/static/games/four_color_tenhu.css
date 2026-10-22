@@ -15,16 +15,24 @@
 .fc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .fc-head strong { font-size: 14px; }
 .fc-meta { color: #6a6075; font-size: 11px; }
+/* Seats follow the viewer around the paper table; only five players use the north edge. */
 .fc-table {
-  display: grid; gap: 8px; padding: 10px; border: 3px solid var(--purple);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "north north" "nw ne" "center center" "sw se" "south south";
+  gap: 10px 18px; padding: 12px; border: 3px solid var(--purple);
   color: #394c45; background-color: #d9e4df;
   background-image: repeating-linear-gradient(45deg, #4c685b06 0 1px, transparent 1px 4px),
     repeating-linear-gradient(-45deg, #ffffff19 0 1px, transparent 1px 4px);
   box-shadow: inset 0 0 0 2px #edf2ef, inset 0 0 0 3px #a3b5ab, 3px 3px 0 var(--purple-light);
 }
-.fc-table > .fc-head strong { font-size: 12px; }
 .fc-table .fc-meta { color: #4f6359; }
-.fc-table-center { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.fc-table-center {
+  grid-area: center; display: grid; grid-template-columns: 1fr 1fr;
+  align-items: center; gap: 8px 12px; min-width: 0; padding: 12px 8px;
+  border-block: 1px solid #a3b5ab;
+}
+.fc-turn { grid-column: 1 / -1; display: grid; justify-items: center; gap: 2px; text-align: center; overflow-wrap: anywhere; }
+.fc-turn strong { font-size: 13px; }
 .fc-stock { display: flex; align-items: center; gap: 10px; padding: 0 6px 4px 0; }
 .fc-stock-copy { display: grid; gap: 2px; white-space: nowrap; }
 .fc-stock-copy strong { font-size: 13px; }
@@ -41,17 +49,34 @@
   display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 2px 6px;
   border-inline: 1px solid #a3b5ab; background: #eef3ef40;
 }
-.fc-exposed { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; border-top: 1px solid #a3b5ab; }
-.fc-table .fc-groups .fc-cards { padding: 4px 4px 6px; border: 0; border-bottom: 2px solid #a3b5ab; border-radius: 0; background: transparent; }
-.fc-table > .fc-discards { border-top: 1px solid #a3b5ab; padding-top: 4px; }
-.fc-seat { display: grid; gap: 4px; }
-#battleStage[data-game-type^="four_color_"] .room-participant { height: auto; grid-template-rows: 26px auto auto; }
-#battleStage[data-game-type^="four_color_"] .room-participant-detail { white-space: normal; }
-.fc-seat-stats { grid-column: 1 / -1; font: 11px/1.35 system-ui, sans-serif; }
-.fc-groups, .fc-cards { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fc-seat { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; padding: 5px; border-top: 2px solid var(--seat-color); }
+.fc-position-nw { grid-area: nw; }
+.fc-position-ne { grid-area: ne; }
+.fc-position-sw { grid-area: sw; }
+.fc-position-se { grid-area: se; }
+.fc-position-north { grid-area: north; justify-self: center; width: min(100%, 240px); }
+.fc-position-south { grid-area: south; justify-self: center; width: min(100%, 240px); }
+.fc-position-ne, .fc-position-se { align-items: flex-end; text-align: right; }
+.fc-position-ne .fc-seat-header, .fc-position-se .fc-seat-header { flex-direction: row-reverse; }
+.fc-position-ne .fc-seat-groups, .fc-position-se .fc-seat-groups { justify-content: flex-end; }
+.fc-seat-current { border-top-color: var(--seat-ink); background: #ffffff60; }
+.fc-seat-header { display: flex; align-items: center; gap: 6px; max-width: 100%; }
+.fc-seat-copy { display: grid; min-width: 0; gap: 1px; }
+.fc-seat-name { font-size: 12px; overflow-wrap: anywhere; line-height: 1.4; }
+.fc-groups, .fc-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px; }
 .fc-groups { gap: 8px; }
-.fc-groups .fc-cards { padding: 4px; background: white; border: 1px solid var(--purple-light); border-radius: 5px; }
-/* The paper face is narrow; only the separate hand target is 44px wide. */
+.fc-groups .fc-cards { padding: 4px; background: white; border: 1px solid var(--purple-light); border-radius: 2px; }
+/* Each stack is one public combination. The top character of every paper card stays exposed. */
+.fc-seat-groups { width: 100%; gap: 8px; }
+.fc-seat-groups .fc-meld {
+  position: relative; display: block; flex: 0 0 auto;
+  width: calc(26px + (var(--fc-count) - 1) * 2px);
+  height: calc(68px + (var(--fc-count) - 1) * 27px);
+  padding: 0; border: 0; border-radius: 0; background: transparent;
+}
+.fc-meld .fc-card { position: absolute; top: calc(var(--fc-index) * 27px); left: calc(var(--fc-index) * 2px); }
+.fc-reveal { display: grid; grid-template-columns: repeat(auto-fit, 26px); grid-auto-rows: 27px; gap: 0 3px; width: 100%; padding-bottom: 41px; }
+/* Narrow paper faces, with separate keyboard/touch targets in the hand. */
 .fc-card {
   --fc-width: 26px; --fc-height: 68px; --fc-glyph: 18px;
   position: relative; box-sizing: border-box; flex: 0 0 var(--fc-width);
@@ -70,17 +95,16 @@
 .fc-G { --fc-paper: #58a576; --fc-ink: #102b1c; }
 .fc-W { --fc-paper: #f7f1df; --fc-ink: #28343b; }
 .fc-hand {
-  display: grid; grid-auto-flow: column; grid-auto-columns: 44px; grid-template-rows: 100px;
-  justify-content: start; gap: 4px; max-width: 100%; min-width: 0;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 34px; grid-template-rows: 80px;
+  justify-content: start; gap: 2px; max-width: 100%; min-width: 0;
   padding: 4px; overflow-x: auto; overscroll-behavior-x: contain;
   scrollbar-width: thin; scrollbar-color: #8678a0 #f3eef7; touch-action: pan-x pan-y;
 }
-.fc-hand-many { grid-template-rows: repeat(2, 100px); }
 .fc-hand:empty { grid-template-rows: none; padding: 0; }
-.fc-hand .fc-card { --fc-width: 34px; --fc-height: 88px; --fc-glyph: 23px; }
+.fc-hand .fc-card { --fc-width: 26px; --fc-height: 68px; --fc-glyph: 18px; }
 .fc-card-target {
   position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
-  width: 44px; min-width: 44px; height: 100px; padding: 6px 5px; margin: 0;
+  width: 34px; min-width: 34px; height: 80px; padding: 6px 4px; margin: 0;
   border: 0; border-radius: 2px; background: transparent; box-shadow: none; cursor: pointer;
   touch-action: pan-x pan-y;
 }
@@ -95,8 +119,8 @@
 .fc-card-target[aria-pressed="true"]::after { content: "✓"; color: #fff; background: #665776; }
 .fc-card-target[data-unavailable="true"]::after { content: "−"; color: #6a6075; background: #f3eef7; }
 .fc-card-target:focus-visible, .fc-hand:focus-visible, .fc-rule-card:focus-within { outline: 2px solid #665776; outline-offset: 2px; }
-.fc-rack { display: grid; gap: 8px; }
-.fc-offer { display: flex; gap: 10px; align-items: center; }
+.fc-rack { display: grid; gap: 6px; min-width: 0; }
+.fc-offer { display: flex; gap: 8px; align-items: center; }
 .fc-discards summary { cursor: pointer; min-height: 32px; display: list-item; }
 .fc-discards > .fc-cards { margin: 6px 0; max-height: 220px; overflow-y: auto; overscroll-behavior-y: contain; }
 .fc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -111,6 +135,12 @@
 @media (max-width: 600px) {
   .fc-controls .pixel-btn { min-height: 44px; }
   .fc-hand { max-width: calc(100% - 16px); } /* Clear Duel's existing floating rules tab. */
-  .fc-cards { gap: 6px; }
-  .fc-table { padding: 8px; margin-right: 16px; } /* Keep public counts clear of the rules tab too. */
+  .fc-table { padding: 8px; gap: 8px 12px; margin-right: 16px; } /* Keep public counts clear of the rules tab too. */
+}
+
+@media (min-width: 601px) {
+  .fc-table-center { grid-template-columns: 1fr 1fr 1fr; min-height: 110px; }
+  .fc-turn { grid-column: auto; }
+  .fc-seat { min-height: 85px; }
+  .fc-stock { justify-content: center; }
 }

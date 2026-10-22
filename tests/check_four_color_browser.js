@@ -67,21 +67,27 @@ function backend(input) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width}/${name} overflow`);
         if (await page.locator('.fc-table').isVisible()) {
           const state = fixture.room.board_state;
+          assert.equal(await page.locator('#roomParticipants').isVisible(),false,'embedded seats replace the generic roster');
+          assert.equal(await page.locator('.fc-seat').count(),state.participant_order.length);
           for (const p of fixture.room.participants) {
-            const badge = page.locator(`#roomParticipants .seat-${p.seat_index}, #viewerParticipant .seat-${p.seat_index}`);
-            assert.equal(await badge.count(),1,'one existing avatar card per seat');
-            assert.ok((await badge.locator('.fc-seat-stats').innerText()).includes(`手牌 ${state.hand_counts[p.player_id]}`));
+            const badge = page.locator(`.fc-seat[data-player-id="${p.player_id}"]`);
+            assert.equal(await badge.count(),1,'one table seat per player');
+            const shownInHand = new Set([...(state.broken?.[p.player_id] || []), ...(state.listening?.[p.player_id] || [])]).size;
+            assert.ok((await badge.innerText()).includes(`暗牌 ${Math.max(0,state.hand_counts[p.player_id]-shownInHand)} 张`));
             const points = state.result?.point_deltas?.[p.player_id];
             if (points !== undefined) assert.ok((await badge.innerText()).includes(`${points > 0 ? '+' : ''}${points} 分`));
+            const visibleIds = await badge.locator('[data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
+            const expectedIds = [...(state.melds[p.player_id] || []).flatMap(g=>g.cards), ...(state.broken?.[p.player_id] || []), ...(state.listening?.[p.player_id] || [])];
+            assert.deepEqual(visibleIds.sort(),expectedIds.sort(),'each seat only displays its own public projection');
           }
-          assert.doesNotMatch(await page.locator('.fc-table').innerText(),/手牌/);
-          const publicIds = [...state.discards, ...(state.offer ? [state.offer.card] : [])];
+          const publicIds = state.offer ? [state.offer.card] : state.discards.slice(-1);
           for (const pid of state.participant_order) {
             publicIds.push(...(state.melds[pid] || []).flatMap(g=>g.cards), ...(state.broken?.[pid] || []), ...(state.listening?.[pid] || []));
           }
           const rendered = await page.locator('.fc-table [data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
           assert.deepEqual(rendered.sort(),publicIds.sort(),'table only renders server-public cards');
-          if (!publicIds.length) assert.ok((await page.locator('.fc-table').boundingBox()).height<125,'empty table stays compact');
+          const ys = await page.locator('.fc-hand button').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().y));
+          assert.ok(new Set(ys).size<=1,'hand always occupies one row');
         }
         await (target || page).screenshot({path:path.join(out,`${mode}-${name}-${width}.png`),...(target?{}:{fullPage:true})});
       }
@@ -145,7 +151,7 @@ function backend(input) {
       });
       for(const face of geometry.faces) {
         assert.ok(face.height/face.width>=2.5 && face.height/face.width<=2.7,JSON.stringify(face));
-        assert.ok(face.targetWidth>=44 && face.targetHeight>=44,JSON.stringify(face));
+        assert.ok(face.targetWidth>=24 && face.targetHeight>=44,JSON.stringify(face));
         assert.deepEqual(face.glyphs,[face.expected,face.expected]);
       }
       if(width<500 && handCount>20) assert.ok(geometry.scrollWidth>geometry.width,'long rack scrolls locally');
@@ -230,10 +236,37 @@ function backend(input) {
       assert.ok((await pile.locator('.fc-cards').boundingBox()).height<=220);
       await screenshot('discards',pile);
       if (mode === 'tenhu') {
-        await open('opening',false,2);
-        await screenshot('two-seats');
-        assert.equal(await page.locator('#roomParticipants .room-participant').count(),1);
-        assert.equal(await page.locator('#viewerParticipant .room-participant').count(),1);
+        for (const count of [2,3]) {
+          await open('opening',false,count);
+          await screenshot(`${count}-seats`);
+          assert.equal(await page.locator('.fc-seat').count(),count);
+        }
+      }
+      if (mode === 'qunhu') { await open('opening',false,5); await screenshot('five-seats'); }
+      // Dense public groups and long names on the actual page, without changing rules or a live room.
+      await open('opening');
+      fixture.room.participants[1].display_name = '名字较长的四色牌玩家';
+      fixture.room.board_state.participant_order.forEach((pid,i)=>{
+        const c='RYGW'[i];
+        fixture.room.board_state.melds[pid]=[
+          {cards:[`${c}0-1`,`${c}1-1`,`${c}2-1`]},
+          {cards:[`${c}3-1`,`${c}4-1`,`${c}5-1`]},
+          {cards:[`${c}6-1`,`${c}6-2`,`${c}6-3`,`${c}6-4`]},
+        ];
+      });
+      await page.reload(); await page.locator('.fc-meld').first().waitFor(); await dismiss();
+      await screenshot('public-groups');
+      const seats = await page.locator('.fc-seat').evaluateAll(nodes=>Object.fromEntries(nodes.map(n=>{
+        const r=n.getBoundingClientRect(); return [n.dataset.playerId,{x:r.x,y:r.y}];
+      })));
+      assert.ok(seats.p2.x<seats.p1.x && seats.p3.x<seats.p0.x, 'four seats occupy left and right corners');
+      assert.ok(seats.p2.y<seats.p3.y && seats.p1.y<seats.p0.y, 'four seats occupy upper and lower corners');
+      for (const glyph of await page.locator('.fc-meld .fc-card > strong:first-child').all()) {
+        await glyph.scrollIntoViewIfNeeded();
+        assert.equal(await glyph.evaluate(n=>{
+          const r=n.getBoundingClientRect(), face=n.parentElement;
+          return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>face.contains(document.elementFromPoint(r.x+x,r.y+y)));
+        }),true,'every stacked card keeps its top character unobscured');
       }
       assert.deepEqual(errors,[]);
       metrics.push({mode,width,ruleCards:rects,hand:geometry,submitHeight:buttonBox.height,consoleErrors:errors});

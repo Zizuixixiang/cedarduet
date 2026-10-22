@@ -59,6 +59,60 @@
     const n = el(doc, "div", "fc-cards"); ids.forEach(id => n.append(card(doc, id))); return n;
   }
   function actions(context) { return context.privateState?.legal_actions || []; }
+  function seats(context, table) {
+    const doc = table.ownerDocument, state = context.state;
+    const order = state.participant_order || [];
+    const viewerIndex = order.indexOf(context.viewer?.player_id);
+    const start = viewerIndex < 0 ? 0 : viewerIndex;
+    const positions = {2: ["south", "north"], 3: ["south", "ne", "nw"],
+      4: ["se", "ne", "nw", "sw"], 5: ["se", "ne", "north", "nw", "sw"]}[order.length] || [];
+    table.dataset.seats = String(order.length);
+    order.slice(start).concat(order.slice(0, start)).forEach((pid, index) => {
+      const p = context.participants.find(p => p.player_id === pid);
+      const isViewer = pid === context.viewer?.player_id;
+      const current = !context.isTerminal && pid === (context.room.current_player_id || state.turn_player_id);
+      const section = el(doc, "section", `fc-seat fc-position-${positions[index]} seat-${p?.seat_index ?? index}`);
+      section.dataset.playerId = pid;
+      section.classList.toggle("fc-seat-current", current);
+      section.classList.toggle("fc-seat-self", isViewer);
+      section.setAttribute("aria-label", `${p?.display_name || "玩家"}${isViewer ? "（你）" : ""}的公开牌区`);
+      const header = el(doc, "div", "fc-seat-header"), avatar = el(doc, "span", "room-participant-avatar");
+      if (p) context.helpers.renderParticipantAvatar(avatar, p);
+      avatar.setAttribute("aria-hidden", "true");
+      const copy = el(doc, "div", "fc-seat-copy");
+      copy.append(el(doc, "strong", "fc-seat-name", `${p?.display_name || "玩家"}${isViewer ? "（你）" : ""}`));
+      const labels = [];
+      if (pid === state.dealer_player_id) labels.push("庄");
+      if (current) labels.push("▶ 行动中");
+      if (labels.length) copy.append(el(doc, "span", "fc-meta", labels.join(" · ")));
+      header.append(avatar, copy); section.append(header);
+      const counts = [];
+      const shownInHand = new Set([...(state.broken?.[pid] || []), ...(state.listening?.[pid] || [])]).size;
+      if (Number.isInteger(state.hand_counts?.[pid])) counts.push(`暗牌 ${Math.max(0, state.hand_counts[pid] - shownInHand)} 张`);
+      if (Number.isInteger(state.closed_pair_counts?.[pid])) counts.push(`扣置 ${state.closed_pair_counts[pid]} 对`);
+      const points = state.result?.point_deltas?.[pid];
+      if (Number.isInteger(points)) counts.push(`${points > 0 ? "+" : ""}${points} 分`);
+      section.append(el(doc, "div", "fc-meta", counts.join(" · ")));
+      // Only the public projection belongs on the table. Never consult hands or closed_pairs here.
+      const groups = el(doc, "div", "fc-groups fc-seat-groups");
+      (state.melds?.[pid] || []).forEach((group, groupIndex) => {
+        const pile = rows(doc, group.cards);
+        pile.classList.add("fc-meld");
+        pile.setAttribute("role", "group");
+        pile.setAttribute("aria-label", `已亮组合 ${groupIndex + 1}`);
+        pile.style.setProperty("--fc-count", group.cards.length);
+        [...pile.children].forEach((face, i) => face.style.setProperty("--fc-index", i));
+        groups.append(pile);
+      });
+      section.append(groups);
+      for (const [ids, label] of [[state.broken?.[pid], "断张（待弃）"], [state.listening?.[pid], "已听牌 · 展示"]]) {
+        if (!ids?.length) continue;
+        const reveal = rows(doc, ids); reveal.classList.add("fc-reveal");
+        section.append(el(doc, "div", "fc-meta", label), reveal);
+      }
+      table.append(section);
+    });
+  }
   function renderBoard(context) {
     const doc = context.board.ownerDocument, state = context.state, local = ui(context);
     styles(doc);
@@ -69,10 +123,7 @@
     root.append(head);
     const table = el(doc, "section", "fc-table");
     table.setAttribute("aria-label", "公共牌桌");
-    const tableHead = el(doc, "div", "fc-head");
-    tableHead.append(el(doc, "strong", "", "公共牌桌"));
-    if (!state.discards.length) tableHead.append(el(doc, "span", "fc-meta", "弃牌 0 张"));
-    table.append(tableHead);
+    seats(context, table);
     const center = el(doc, "div", "fc-table-center"), stock = el(doc, "div", "fc-stock");
     stock.dataset.depth = String(Math.min(3, state.wall_count));
     if (state.wall_count > 0) {
@@ -83,38 +134,27 @@
     stockCopy.append(el(doc, "span", "fc-meta", "牌库"), el(doc, "strong", "", `${state.wall_count} 张`));
     stock.append(stockCopy); center.append(stock);
     const playZone = el(doc, "div", "fc-play-zone");
-    if (state.offer) {
+    const shownCard = state.offer?.card || state.discards.at(-1);
+    if (shownCard) {
       const offer = el(doc, "div", "fc-offer");
-      offer.append(el(doc, "span", "", state.offer.from_deck ? "公开翻牌" : "当前弃牌"), card(doc, state.offer.card));
+      offer.append(el(doc, "span", "fc-meta", state.offer ? (state.offer.from_deck ? "公开翻牌" : "当前弃牌") : "最近弃牌"), card(doc, shownCard));
       playZone.append(offer);
     } else playZone.append(el(doc, "span", "fc-meta", "出牌／翻牌区"));
-    center.append(playZone); table.append(center);
-    const exposed = el(doc, "div", "fc-exposed");
-    (state.participant_order || []).forEach(pid => {
-      const melds = state.melds[pid] || [], broken = state.broken?.[pid] || [], listening = state.listening?.[pid] || [];
-      if (!melds.length && !broken.length && !listening.length) return;
-      const p = context.participants.find(p => p.player_id === pid), section = el(doc, "section", "fc-seat");
-      section.append(el(doc, "div", "fc-meta", `${p?.display_name || "玩家"} · 已亮牌`));
-      if (melds.length) {
-        const groups = el(doc, "div", "fc-groups");
-        melds.forEach(group => groups.append(rows(doc, group.cards)));
-        section.append(groups);
-      }
-      if (broken.length) { section.append(el(doc,"span","fc-meta","断张（待弃）"), rows(doc,broken)); }
-      if (listening.length) { section.append(el(doc,"strong","fc-meta","已听牌 · 展示"), rows(doc,listening)); }
-      exposed.append(section);
-    });
-    if (exposed.children.length) table.append(exposed);
+    const flow = state.flow || {}, status = el(doc, "div", "fc-turn");
+    const actor = context.participants.find(p => p.player_id === (context.room.current_player_id || state.turn_player_id));
+    const phase = {waiting: "等待开局", discard: "出牌", draw: "翻牌", response: "回应亮牌", opening_hu: "开局确认", finished: "本手结束"}[flow.phase] || "等待行动";
+    status.append(el(doc, "span", "fc-meta", `第 ${flow.round_number || 1} 手 · 第 ${flow.turn_number || 0} 轮`),
+      el(doc, "strong", "", context.isTerminal ? "本手结束" : phase),
+      el(doc, "span", "fc-meta", context.isTerminal ? "" : `${actor?.display_name || "玩家"}${context.canMove ? " · 轮到你" : ""}`));
+    center.append(playZone, status); table.append(center); root.append(table);
     if (state.discards.length) {
       const discards = el(doc, "details", "fc-discards");
       discards.append(el(doc, "summary", "", `弃牌 ${state.discards.length} 张`), rows(doc, state.discards));
-      table.append(discards);
+      root.append(discards);
     }
-    root.append(table);
     const rack = el(doc, "section", "fc-rack");
     rack.append(el(doc, "strong", "", "我的手牌"));
     const hand = el(doc, "div", "fc-hand");
-    hand.classList.toggle("fc-hand-many", (context.privateState?.hand?.length || 0) > 10);
     hand.setAttribute("role", "group"); hand.setAttribute("aria-label", "我的手牌，可横向滚动查看");
     hand.setAttribute("aria-busy", String(local.busy));
     const selectable = new Set(actions(context).filter(a => a.action_id.startsWith("discard:")).map(a => a.action_id.slice(8)));
@@ -205,7 +245,7 @@
     context.controls.append(panel);
   }
   Object.keys(TITLES).forEach(type => window.DuelGameUI.register(type, {
-    participantPresentation: "generic", multiplayerTable: true, ownsPrivateStatePresentation: true,
+    participantPresentation: "embedded", multiplayerTable: true, ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false, renderBoard, renderControls, renderRulePicker,
   }));
 }());
