@@ -191,7 +191,136 @@
       } else pile.append(face);
     }
   }
+  // Separate page-visit UI: never write demo cards into room/state/uiState.
+  const TUTORIAL_KEY = "cedarduet.four_color.tutorial.v1";
+  let tutorialVisit = null, tutorial = null, tutorialObserver = null;
+  function closeTutorial(remember, restore = true) {
+    if (!tutorial) return;
+    const {dialog, focus} = tutorial;
+    tutorial = null;
+    if (remember) {
+      try { window.localStorage.setItem(TUTORIAL_KEY, remember); } catch (_) { /* Optional storage. */ }
+    }
+    dialog.close(); dialog.remove();
+    if (restore && focus?.isConnected) focus.focus({preventScroll: true});
+  }
+  function tutorialDemo(doc, vertical) {
+    const demo = el(doc, "div", "fc-tutorial-demo");
+    demo.dataset.axis = vertical ? "y" : "x";
+    demo.setAttribute("aria-label", "独立模拟牌堆，不是对局中的牌");
+    // Two independent, genuinely scrollable rails; reuse the public card faces.
+    for (let edge = 0; edge < 2; edge++) {
+      const seat = el(doc, "div", vertical ? `fc-seat-side fc-facing-${edge ? "left" : "right"}` : "");
+      const port = el(doc, "div", "fc-seat-public");
+      port.tabIndex = 0; port.setAttribute("role", "group");
+      port.setAttribute("aria-label", `${vertical ? "竖滑" : "横滑"}练习牌堆 ${edge + 1}`);
+      const groups = el(doc, "div", "fc-groups fc-seat-groups");
+      for (let i = 0; i < 18; i++) {
+        const pile = el(doc, "div", "fc-cards fc-meld");
+        for (let j = 0; j < 3; j++) {
+          const face = card(doc, `${"RYGW"[(i + edge) % 4]}${j}-1`);
+          face.removeAttribute("data-card-id");
+          if (vertical) {
+            const slot = el(doc, "span", "fc-side-card"); slot.append(face); pile.append(slot);
+          } else pile.append(face);
+        }
+        groups.append(pile);
+      }
+      port.append(groups); seat.append(port); demo.append(seat);
+    }
+    return demo;
+  }
+  function openTutorial(context) {
+    const practice = context.room.status === "waiting";
+    const doc = context.board.ownerDocument;
+    styles(doc);
+    const dialog = el(doc, "dialog", "fc-tutorial");
+    dialog.setAttribute("aria-labelledby", "fc-tutorial-title");
+    dialog.setAttribute("aria-describedby", "fc-tutorial-copy");
+    const head = el(doc, "div", "fc-tutorial-head");
+    const title = el(doc, "h2", "", "第一次来四色牌？"); title.id = "fc-tutorial-title";
+    const button = (text, primary, action) => {
+      const b = el(doc, "button", `pixel-btn compact${primary ? "" : " secondary"}`, text);
+      b.type = "button"; b.addEventListener("click", action); return b;
+    };
+    const close = button("×", false, () => closeTutorial());
+    close.classList.add("fc-tutorial-close"); close.setAttribute("aria-label", "关闭本次教程");
+    head.append(title, close);
+    const progress = el(doc, "span", "fc-meta", "2 步学会查看公开牌");
+    const copy = el(doc, "p", "", "头像和横排昵称紧贴各自的公开牌列。上下横滑、左右竖滑，就能查看被叠住的牌。X 只关闭本次，下次进入还会提示。");
+    copy.id = "fc-tutorial-copy"; copy.setAttribute("aria-live", "polite");
+    const sample = el(doc, "div", "fc-tutorial-sample");
+    const actions = el(doc, "div", "fc-tutorial-actions");
+    let step = -1;
+    const show = index => {
+      step = index; dialog.dataset.step = String(index + 1);
+      title.textContent = index === 0 ? "上下牌列，横向滑动" : "左右牌列，纵向滑动";
+      progress.textContent = `${index + 1} / 2`;
+      copy.textContent = index === 0
+        ? "上方和下方的公开牌都是单排。试着在模拟牌堆上左右滑动，查看后面的牌；五人局上方两家的牌列分别滑动。"
+        : "左边和右边的公开牌沿桌边排列。试着在模拟牌堆上上下滑动。认准紧贴牌列的头像和昵称，就知道是谁的牌。";
+      if (practice) {
+        sample.replaceChildren(tutorialDemo(doc, index === 1));
+        sample.append(el(doc, "p", "fc-meta", "模拟牌仅供练习，开局即收起，不会进入对局。"));
+      } else {
+        // A first visit to an already-started game gets instructions only.
+        copy.textContent = index === 0
+          ? "上方和下方的公开牌可以左右滑动。五人局上方两家的牌列分别滑动。关闭教程后，就能查看完整的公开牌列。"
+          : "左边和右边的公开牌可以上下滑动。紧贴牌列的头像和横排昵称就是这列牌的主人；关闭教程后即可查看。";
+      }
+      previous.hidden = false; previous.disabled = index === 0;
+      next.textContent = index === 1 ? "完成" : "下一步";
+      next.focus({preventScroll: true});
+    };
+    const previous = button("上一步", false, () => show(step - 1)); previous.hidden = true;
+    const next = button("查看教程", true, () => step === 1 ? closeTutorial("completed") : show(step + 1));
+    const dismiss = button("不再提示", false, () => closeTutorial("dismissed"));
+    actions.append(previous, next, dismiss);
+    dialog.append(head, progress, copy, sample, actions);
+    tutorial = {dialog, focus: doc.activeElement};
+    dialog.addEventListener("cancel", event => { event.preventDefault(); closeTutorial(); });
+    // Include scroll ports in the focus loop so keyboard users can practise too.
+    dialog.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      const nodes = [...dialog.querySelectorAll("button, [tabindex='0']")].filter(n => !n.disabled && n.getClientRects().length);
+      const first = nodes[0], last = nodes.at(-1);
+      if (event.shiftKey && doc.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && doc.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    doc.body.append(dialog); dialog.showModal(); next.focus({preventScroll: true});
+  }
+  function syncTutorial(context) {
+    const doc = context.board.ownerDocument;
+    if (!doc.body || typeof window.HTMLDialogElement?.prototype.showModal !== "function") return;
+    const waiting = context.room.status === "waiting" && context.room.room_kind === "invite";
+    const key = `${context.room.room_id}:${context.viewer?.player_id || ""}`;
+    if (tutorialVisit?.key !== key) { closeTutorial(null, false); tutorialVisit = {key, waiting}; }
+    // Synchronous removal, before the first real board render. Never replay a
+    // demo on revision changes or after waiting -> playing in this visit.
+    if (tutorialVisit.waiting && !waiting) { closeTutorial(null, false); tutorialVisit.seen = true; }
+    tutorialVisit.waiting = waiting;
+    if (tutorialVisit.seen) return;
+    tutorialVisit.seen = true;
+    let remembered = false;
+    try { remembered = ["completed", "dismissed"].includes(window.localStorage.getItem(TUTORIAL_KEY)); } catch (_) { /* Optional storage. */ }
+    if (!remembered) openTutorial(context);
+    if (!tutorialObserver) {
+      tutorialObserver = new window.MutationObserver(() => {
+        const view = doc.getElementById("gameView");
+        const waitingPanel = doc.getElementById("inviteRoomPanel");
+        const leftSurface = tutorialVisit?.waiting ? waitingPanel?.classList.contains("hidden")
+          : !context.board.querySelector(".fc-game");
+        if (view?.classList.contains("hidden") || leftSurface) {
+          closeTutorial(null, false); tutorialVisit = null;
+        }
+      });
+      [doc.getElementById("gameView"), doc.getElementById("inviteRoomPanel")].filter(Boolean)
+        .forEach(node => tutorialObserver.observe(node, {attributes: true, attributeFilter: ["class"]}));
+      tutorialObserver.observe(context.board, {childList: true});
+    }
+  }
   function renderBoard(context) {
+    syncTutorial(context);
     const doc = context.board.ownerDocument, state = context.state, local = ui(context);
     styles(doc);
     context.helpers.setBoardLayout({rows: 1, cols: 1, large: true, ariaLabel: "四色牌桌与本人手牌"});
@@ -344,6 +473,6 @@
   }
   Object.keys(TITLES).forEach(type => window.DuelGameUI.register(type, {
     participantPresentation: "embedded", multiplayerTable: true, ownsPrivateStatePresentation: true,
-    usesStandardMoveConfirmation: false, renderBoard, renderControls, renderRulePicker,
+    usesStandardMoveConfirmation: false, renderBoard, renderControls, renderRulePicker, syncTutorial,
   }));
 }());

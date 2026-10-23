@@ -29,21 +29,19 @@
   --fc-public-w: 18px; --fc-public-h: 47px; --fc-step: 18px;
   --fc-side: clamp(104px, 24%, 180px);
   --fc-neutral-extra: 32px;
-  --fc-corner-x: 6px; --fc-corner-top: 16px; --fc-corner-bottom: 8px;
-  position: relative; height: 400px; min-width: 0;
+  position: relative; height: 464px; min-width: 0;
   border: 1px solid #79aa99; border-radius: 12px; color: #173f34;
   background: linear-gradient(145deg, #e9f8f3, #c9eadf);
   box-shadow: inset 0 0 0 3px rgb(91 151 130 / 14%);
 }
 .fc-table .fc-meta { color: #3f6355; }
 .fc-seat { position: static; min-width: 0; }
-/* Identity and cards share the table as their containing block. Content cannot
-   move a corner; right-hand avatars sit on the same inset as left-hand avatars. */
+/* Names sit directly beside their own outer rail, away from the corners. */
 .fc-seat-identity { position: absolute; width: 100px; max-width: 100%; height: 32px; }
-.fc-position-north .fc-seat-identity { left: var(--fc-corner-x); top: var(--fc-corner-top); }
-.fc-position-east .fc-seat-identity { right: var(--fc-corner-x); top: var(--fc-corner-top); }
-.fc-position-west .fc-seat-identity { left: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
-.fc-position-south .fc-seat-identity { right: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
+.fc-position-north .fc-seat-identity { left: calc(50% - 50px); top: 8px; }
+.fc-position-south .fc-seat-identity { left: calc(50% - 50px); bottom: 4px; }
+.fc-position-west .fc-seat-identity { left: 6px; top: 144px; }
+.fc-position-east .fc-seat-identity { right: 6px; top: 144px; }
 .fc-seat-header { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; height: 32px; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-header { flex-direction: row-reverse; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-copy { text-align: right; }
@@ -66,9 +64,9 @@
   overflow: auto; scrollbar-width: none;
   overscroll-behavior: contain;
 }
-.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 108px; right: 108px; height: 96px; justify-content: safe center; }
-.fc-position-north .fc-seat-public { top: 12px; }
-.fc-position-south .fc-seat-public { bottom: 8px; height: 88px; }
+.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 6px; right: 6px; height: 96px; justify-content: safe center; }
+.fc-position-north .fc-seat-public { top: 44px; }
+.fc-position-south .fc-seat-public { bottom: 40px; height: 88px; }
 .fc-seat-groups { flex: none; flex-wrap: nowrap; gap: 8px; }
 .fc-seat-groups .fc-meld {
   flex: none; flex-direction: column; flex-wrap: nowrap; gap: 0;
@@ -80,7 +78,7 @@
 }
 .fc-seat-public .fc-card small { font-size: 8px; }
 .fc-meld > .fc-card + .fc-card { margin-top: calc(var(--fc-step) - var(--fc-public-h)); }
-.fc-seat-side .fc-seat-public { top: 112px; bottom: 110px; width: var(--fc-side); flex-direction: column; gap: 6px; }
+.fc-seat-side .fc-seat-public { top: 180px; bottom: 142px; width: var(--fc-side); flex-direction: column; gap: 6px; }
 .fc-facing-right .fc-seat-public { left: 6px; align-items: flex-start; }
 .fc-facing-left .fc-seat-public { right: 6px; align-items: safe flex-end; }
 .fc-seat-side .fc-seat-groups { flex-direction: column; gap: 7px; }
@@ -97,7 +95,7 @@
 .fc-reveal { flex-wrap: nowrap; gap: 2px; }
 .fc-seat-side .fc-reveal { flex-direction: column; }
 .fc-table-center {
-  position: absolute; top: 146px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 178px; left: 50%; transform: translateX(-50%);
   width: min(160px, calc(100% - 2 * var(--fc-side) - 48px));
   height: 122px; min-width: 0; display: grid; grid-template-rows: 54px 20px 48px;
 }
@@ -139,12 +137,12 @@
 /* History traces an inner ring without a frame. Missing provenance stays neutral. */
 .fc-history { position: absolute; }
 .fc-history-north, .fc-history-south { left: calc(var(--fc-side) + 6px); right: calc(var(--fc-side) + 6px); height: 21px; justify-content: flex-start; }
-.fc-history-north { top: 112px; }
-.fc-history-south { bottom: 98px; }
-.fc-history-west, .fc-history-east { width: 21px; top: 136px; bottom: 124px; }
+.fc-history-north { top: 144px; }
+.fc-history-south { bottom: 130px; }
+.fc-history-west, .fc-history-east { width: 21px; top: 168px; bottom: 156px; }
 .fc-history-west { left: calc(var(--fc-side) + 6px); }
 .fc-history-east { right: calc(var(--fc-side) + 6px); }
-.fc-table[data-seats="4"] .fc-history-south { bottom: 88px; right: calc(var(--fc-side) - 10px); }
+.fc-table[data-seats="4"] .fc-history-south { bottom: 120px; right: calc(var(--fc-side) - 10px); }
 .fc-table[data-seats="4"] .fc-position-south .fc-seat-public { height: 78px; }
 /* Equal pentagon edges share one centre and apothem (side / 2 tan(36deg)).
    Rails retain clockwise ownership; each scrolls along its own local X axis. */
@@ -163,8 +161,8 @@
 .fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 58px; width: calc(50% - 16px); height: 90px; justify-content: safe center; }
 .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public { left: 10px; }
 .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public { right: 10px; }
-.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 248px; bottom: 100px; width: var(--fc-side-public); }
-.fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: calc(16px + var(--fc-side-public)); right: calc(16px + var(--fc-side-public)); bottom: 48px; height: 80px; }
+.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 248px; bottom: 132px; width: var(--fc-side-public); }
+.fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 10px; right: 10px; bottom: 48px; height: 80px; }
 .fc-table[data-seats="5"] .fc-table-center { top: calc(var(--fc-ring-y) - 27px); height: 72px; grid-template-rows: 54px 18px; width: 92px; pointer-events: none; }
 .fc-table[data-seats="5"] :is(.fc-live-cards, .fc-discards, .fc-turn) { pointer-events: auto; }
 .fc-table[data-seats="5"] .fc-turn { justify-self: center; }
@@ -253,6 +251,31 @@
 @media (max-width: 600px) {
   .fc-controls .pixel-btn { min-height: 44px; }
   /* Reserve clearance for the wider neutral strip on narrow tables. */
-  .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-history-east { bottom: 170px; }
+  .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-history-east { bottom: 202px; }
   .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-position-east .fc-seat-public { width: min(calc(var(--fc-side) - 24px), calc(100% - var(--fc-side) - 148px)); }
 }
+/* First-visit practice stays in the modal top layer, outside the real board. */
+.fc-tutorial {
+  box-sizing: border-box; width: min(364px, calc(100% - 24px)); max-height: calc(100dvh - 24px);
+  margin: auto; padding: 12px; overflow-y: auto;
+  border: 3px solid var(--purple); background: var(--bg); color: var(--text);
+  box-shadow: 4px 4px 0 rgb(155 141 181 / 30%); font: 13px/1.4 system-ui, sans-serif;
+}
+.fc-tutorial::backdrop { background: rgb(92 84 99 / 55%); }
+.fc-tutorial [hidden] { display: none !important; }
+.fc-tutorial-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fc-tutorial h2 { margin: 0; font-size: 16px; line-height: 1.3; }
+.fc-tutorial p { margin: 8px 0 12px; }
+.fc-tutorial .pixel-btn { min-height: 44px; padding: 6px 8px; font: 13px/1.4 system-ui, sans-serif; }
+.fc-tutorial .fc-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
+.fc-tutorial-actions { display: flex; gap: 8px; }
+.fc-tutorial-actions > button { flex: 1; }
+.fc-tutorial-demo {
+  --fc-public-w: 18px; --fc-public-h: 47px; --fc-step: 18px;
+  display: grid; gap: 12px; padding: 8px; background: #e9f8f3;
+}
+.fc-tutorial-demo > div { min-width: 0; }
+.fc-tutorial-demo .fc-seat-public { position: static; box-sizing: border-box; width: 100%; height: 90px; overflow-x: auto; overflow-y: hidden; }
+.fc-tutorial-demo[data-axis="y"] { grid-template-columns: 1fr 1fr; }
+.fc-tutorial-demo[data-axis="y"] .fc-seat-public { height: 180px; overflow-x: hidden; overflow-y: auto; }
+.fc-tutorial button:focus-visible { outline: 2px solid #665776; outline-offset: 2px; }

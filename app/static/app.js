@@ -3767,6 +3767,9 @@ function renderGame(nextRoom, message = "", timeline = []) {
     hideWaitModeModal();
     closeMentionOptions();
     $("board").replaceChildren();
+    if (room.game_type.startsWith("four_color_")) {
+      renderer?.syncTutorial?.(createGameUIContext($("board"), $("gameControls"), timeline));
+    }
     if (message) showNotice(message);
     return;
   }

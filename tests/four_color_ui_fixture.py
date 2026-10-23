@@ -33,6 +33,8 @@ def seed(request):
         )
         for i in range(1, count):
             invites.join_invite(room["invite_code"], "human", f"p{i}")
+        if request.get("fixture") == "waiting":
+            return framework.get_room(room["room_id"])
         with patch.object(invites.secrets, "SystemRandom") as rng:
             rng.return_value.shuffle.side_effect = lambda seats: None
             room = invites.start_invite(room["room_id"], "human", "p0")
@@ -162,6 +164,8 @@ if __name__ == "__main__":
                     request["move"],
                     expected_revision=request["revision"],
                 )
+            elif request["action"] == "start":
+                room = invites.start_invite(request["room_id"], "human", "p0")
             elif request["action"] == "state":
                 room = framework.get_room(request["room_id"])
             else:
