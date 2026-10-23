@@ -52,6 +52,8 @@ function backend(request, db) {
         assert.equal(doc.querySelector('.fc-controls').parentElement.className, 'fc-action-slot');
         assert.equal(context.controls.children.length, 0, 'only one action area, beside the hand');
         const handBefore = JSON.stringify(context.privateState);
+        context.participants[1].display_name='Codex_杉星_0828';
+        if(context.participants[2]) context.participants[2].display_name='名字较长的四色牌玩家';
         assert.equal(doc.querySelectorAll('.fc-seat').length, count);
         assert.equal(doc.querySelectorAll('.fc-hand button').length, context.privateState.hand.length);
         const selectable = doc.querySelector('.fc-hand button:not(:disabled)');
@@ -91,7 +93,7 @@ function backend(request, db) {
           assert.ok(self.classList.contains('fc-position-south'), 'viewer always sits below the table');
           const expectedPositions = {
             2:['south','north'], 3:['south','east','west'],
-            4:['south','east','north','west'], 5:['south','east','north','north','west'],
+            4:['south','east','north','west'], 5:['south','east-low','east-high','west-high','west-low'],
           }[count];
           const offset=state.participant_order.indexOf(pid);
           expectedPositions.forEach((position,index)=>{
@@ -114,7 +116,9 @@ function backend(request, db) {
           for (const seat of doc.querySelectorAll('.fc-seat')) {
             assert.ok(seat.querySelector('.fc-seat-identity .room-participant-avatar'));
             assert.ok(seat.querySelector('.fc-seat-identity .fc-seat-counts'));
-            const side=['east','west'].includes(seat.dataset.position);
+            const playerName=seat.querySelector('.fc-seat-name');
+            assert.equal(playerName.title,playerName.textContent,'full name is available without vertical text');
+            const side=/^(east|west)/.test(seat.dataset.position);
             assert.equal(seat.querySelectorAll('.fc-side-card').length, side ? seat.querySelectorAll('[data-card-id]').length : 0);
             const owner=seat.dataset.playerId, info=seat.querySelector('.fc-seat-counts');
             const shown=new Set([...(state.broken?.[owner]||[]),...(state.listening?.[owner]||[])]).size;
@@ -123,15 +127,10 @@ function backend(request, db) {
             if(Number.isInteger(state.closed_pair_counts?.[owner])) {
               full.push(`扣置 ${state.closed_pair_counts[owner]} 对`); compact.push(`扣${state.closed_pair_counts[owner]}`);
             }
-            if(side) {
-              assert.equal(info.title,full.join(' · '));
-              assert.equal(info.getAttribute('aria-label'),info.title);
-              assert.deepEqual([...info.children].map(n=>n.textContent),compact);
-              assert.ok([...info.children].every(n=>n.getAttribute('aria-hidden')==='true'));
-            } else {
-              assert.equal(info.textContent,full.join(' · '),'north/south retain full wording');
-              assert.equal(info.children.length,0);
-            }
+            assert.equal(info.title,full.join(' · '));
+            assert.equal(info.getAttribute('aria-label'),info.title);
+            assert.deepEqual([...info.querySelectorAll('.fc-seat-count')].map(n=>n.textContent),compact);
+            assert.ok([...info.querySelectorAll('.fc-seat-count')].every(n=>n.getAttribute('aria-hidden')==='true'));
           }
           cases++;
         }
@@ -139,13 +138,14 @@ function backend(request, db) {
           for (const offer of [null, {card:'R0-1',from_deck:false}, {card:'R0-1',from_deck:true}, {card:'W2-1',from_deck:false}]) {
             state.discards=discards; state.offer=offer; render();
             const pile=doc.querySelector('.fc-discards');
-            assert.equal(pile.classList.contains('fc-discards-empty'),!discards.length && !offer);
-            const ids=[...pile.querySelectorAll('[data-card-id]')].map(n=>n.dataset.cardId);
+            const ids=[...doc.querySelectorAll('.fc-table-center [data-card-id]')].map(n=>n.dataset.cardId);
             assert.deepEqual(ids.sort(), [...new Set([...discards, ...(offer?[offer.card]:[])])].sort());
-            assert.equal(pile.querySelectorAll('.fc-card-current').length, offer || discards.length ? 1 : 0);
-            if (offer) assert.equal(pile.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
-            else assert.equal(pile.querySelectorAll('.fc-offer').length,0);
-            if (!discards.length) assert.match(pile.textContent,/暂无弃牌/);
+            assert.equal(doc.querySelectorAll('.fc-table-center .fc-card-current').length, offer || discards.length ? 1 : 0);
+            if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
+            else assert.equal(doc.querySelectorAll('.fc-offer').length,0);
+            assert.doesNotMatch(pile.textContent,/暂无弃牌|弃牌区 ·/);
+            assert.equal(doc.querySelectorAll('.fc-turn-indicator').length,1);
+            assert.equal(new Set([...doc.querySelectorAll('.fc-seat')].map(n=>n.dataset.position)).size,count);
           }
         }
         state.offer=null;
@@ -154,6 +154,7 @@ function backend(request, db) {
         context.isTerminal=true; state.flow.phase='finished'; state.result={reason:'wall_exhausted'}; render();
         assert.equal(doc.querySelectorAll('.fc-controls button').length,0);
         assert.equal(doc.querySelectorAll('.fc-seat-current').length,0);
+        assert.equal(doc.querySelectorAll('.fc-turn-indicator').length,0);
         assert.match(doc.querySelector('.fc-result').textContent,/流局/);
         context.privateState={}; render();
         assert.equal(doc.querySelectorAll('.fc-hand button').length,0);

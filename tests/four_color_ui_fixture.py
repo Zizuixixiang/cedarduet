@@ -41,6 +41,19 @@ def seed(request):
             game_type, "human_first", "human", "p0", ordered_participants=players(count)
         )
     kind = request.get("fixture", "opening")
+    if kind == "midgame":
+        # Advance only this disposable room with the engine's legal actions.
+        # Screenshots of normal play must not be synthetic meld arrangements.
+        game = GAMES[game_type]
+        for _ in range(32):
+            actor = next(p for p in room["participants"]
+                         if p["player_id"] == room["current_player_id"])
+            move = game.choose_local_npc_action(room["board_state"], actor, room["participants"])
+            if game.apply_action(room["board_state"], move, actor).state.get("result"):
+                break
+            room = framework.play_move(room["room_id"], actor["role"], actor["player_id"], move,
+                                       expected_revision=room["revision"])
+        assert room["revision"] >= 8, "Midgame fixture needs several real exchanges"
     if kind in ("hu", "empty", "listen"):
         if game_type != "four_color_tenhu":
             game = GAMES[game_type]

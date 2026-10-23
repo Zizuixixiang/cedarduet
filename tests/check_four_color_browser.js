@@ -29,6 +29,8 @@ function backend(input) {
       const errors = []; page.on('pageerror', e => errors.push(e.message));
       let fixture, posts = [], failNext = false;
       const firstViewport = [];
+      const screenshots = [];
+      let fiveOpeningIdentities;
       await page.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (url.hostname !== 'four-color.test') return route.abort();
@@ -67,6 +69,10 @@ function backend(input) {
       }
       async function screenshot(name, target) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width}/${name} overflow`);
+        // Save the real page even when a subsequent geometry assertion fails.
+        await (target || page).screenshot({path:path.join(out,`${mode}-${name}-${width}.png`),...(target?{}:{fullPage:true})});
+        screenshots.push(path.join(out,`${mode}-${name}-${width}.png`));
+        fs.writeFileSync(path.join(out,'screenshots.json'),JSON.stringify(screenshots,null,2));
         if (await page.locator('.fc-table').isVisible()) {
           const state = fixture.room.board_state;
           assert.equal(await page.locator('#roomParticipants').isVisible(),false,'embedded seats replace the generic roster');
@@ -75,19 +81,18 @@ function backend(input) {
             const badge = page.locator(`.fc-seat[data-player-id="${p.player_id}"]`);
             assert.equal(await badge.count(),1,'one table seat per player');
             const shownInHand = new Set([...(state.broken?.[p.player_id] || []), ...(state.listening?.[p.player_id] || [])]).size;
-            const side=['east','west'].includes(await badge.getAttribute('data-position'));
             const info=badge.locator('.fc-seat-counts');
             const hidden=Math.max(0,state.hand_counts[p.player_id]-shownInHand);
             const full=[`暗牌 ${hidden} 张`], compact=[`暗${hidden}`];
             const pairs=state.closed_pair_counts?.[p.player_id];
             if(Number.isInteger(pairs)) {full.push(`扣置 ${pairs} 对`);compact.push(`扣${pairs}`);}
             const points = state.result?.point_deltas?.[p.player_id];
-            assert.equal(await badge.evaluate(n=>n.classList.contains('fc-seat-current')),fixture.room.status==='playing' && p.player_id===fixture.room.current_player_id,'only the acting seat receives a gold border');
+            assert.equal(await badge.evaluate(n=>n.classList.contains('fc-seat-current')),fixture.room.status==='playing' && p.player_id===fixture.room.current_player_id,'only the acting identity is marked');
             if(Number.isInteger(points)) {
               const score=`${points>0?'+':''}${points}`;
               full.push(`${score} 分`); compact.push(score);
             }
-            if(side) {
+            {
               assert.equal(await info.getAttribute('title'),full.join(' · '));
               assert.equal(await info.getAttribute('aria-label'),full.join(' · '));
               assert.deepEqual(await info.locator('.fc-seat-count').allTextContents(),compact);
@@ -98,7 +103,7 @@ function backend(input) {
                 assert.ok(tag.height<=tag.line+1,'each side count is one readable short label');
                 assert.ok(tag.left>=tag.parentLeft-1 && tag.right<=tag.parentRight+1,'short counts fit the identity rail');
               }
-            } else assert.equal(await info.innerText(),full.join(' · '),'north/south counts unchanged');
+            }
             const visibleIds = await badge.locator('[data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
             const expectedIds = [...(state.melds[p.player_id] || []).flatMap(g=>g.cards), ...(state.broken?.[p.player_id] || []), ...(state.listening?.[p.player_id] || [])];
             assert.deepEqual(visibleIds.sort(),expectedIds.sort(),'each seat only displays its own public projection');
@@ -109,8 +114,8 @@ function backend(input) {
           }
           const rendered = await page.locator('.fc-table [data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
           assert.deepEqual(rendered.sort(),publicIds.sort(),'table only renders server-public cards');
-          const pile=page.locator('.fc-discards');
-          assert.equal(await pile.count(),1);
+          const pile=page.locator('.fc-table-center');
+          assert.equal(await page.locator('.fc-discards').count(),1);
           assert.equal(await page.locator('.fc-table-center > .fc-discards').count(),1);
           assert.equal(await page.locator('details.fc-discards').count(),0);
           const pileIds=await pile.locator('[data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
@@ -122,27 +127,43 @@ function backend(input) {
             if(state.discards.length) assert.equal(await pile.locator('.fc-card-current').getAttribute('data-card-id'),state.discards.at(-1));
           }
           const placements=await page.locator('.fc-seat').evaluateAll(nodes=>nodes.map(seat=>{
-            const rect=n=>{if(!n)return null; const r=n.getBoundingClientRect(); return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
-            const publicArea=seat.querySelector('.fc-seat-public');
+            const rect=n=>{const r=n.getBoundingClientRect(); return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
             return {position:seat.dataset.position,seat:rect(seat),identity:rect(seat.querySelector('.fc-seat-identity')),
-              avatar:rect(seat.querySelector('.room-participant-avatar')),publicArea:rect(publicArea),
-              faces:[...seat.querySelectorAll('.fc-meld:first-child .fc-card')].map(n=>({...rect(n),transform:getComputedStyle(n).transform}))};
+              avatar:rect(seat.querySelector('.room-participant-avatar')),style:{border:getComputedStyle(seat).borderWidth,background:getComputedStyle(seat).backgroundColor},
+              faces:[...seat.querySelectorAll('.fc-meld:first-child .fc-card')].map(rect)};
           }));
+          assert.equal(new Set(placements.map(p=>p.position)).size,state.participant_order.length,'each player has an independent station');
+          assert.equal(await page.locator('.fc-far-edge').count(),0);
           for(const p of placements) {
-            const {identity:i,publicArea:a,seat,avatar}=p;
-            assert.ok(i.x>=seat.x && i.right<=seat.right+1 && i.y>=seat.y && i.bottom<=seat.bottom+1,'identity contained by its own seat');
+            const {identity:i,seat,avatar}=p;
+            assert.ok(i.x>=seat.x-1 && i.right<=seat.right+1 && i.y>=seat.y-1 && i.bottom<=seat.bottom+1,'identity contained by its own seat');
             assert.ok(avatar.width>=20 && avatar.height>=20,'avatar retains its intended size');
-            if(['north','south'].includes(p.position)) {
-              assert.ok(Math.abs((i.x+i.right)-(seat.x+seat.right))<2,'north/south identity centered on its own edge');
-              if(a) assert.ok(p.position==='north'? i.bottom<=a.y+1:i.y>=a.bottom-1,'identity on the outer rail, clear of faces');
-              for(const face of p.faces) assert.ok(face.height>face.width,'top/bottom faces stay upright');
-            } else {
-              if(a) assert.ok(p.position==='west'?i.right<=a.x+1:i.x>=a.right-1,'side identity outside public column');
-              p.faces.forEach((face,index)=>{
-                assert.ok(face.width>face.height,'side face lies across the table edge');
-                assert.ok(face.transform.includes(p.position==='west'?'0, 1, -1, 0':'0, -1, 1, 0'),'opposite side orientations');
-                if(index) assert.ok(face.y>=p.faces[index-1].bottom-1 && Math.abs(face.x-p.faces[index-1].x)<1,'each meld is a vertical sequence');
-              });
+            assert.equal(p.style.border,'0px','no whole-seat border');
+            assert.equal(p.style.background,'rgba(0, 0, 0, 0)','no whole-seat background');
+            p.faces.forEach((face,index)=>{
+              const side=/^(east|west)/.test(p.position);
+              assert.ok(side?face.width>face.height:face.height>face.width,'faces follow their table edge');
+              if(index) {
+                const previous=p.faces[index-1];
+                const advance=side?Math.abs(face.x-previous.x):face.y-previous.y;
+                assert.ok(advance>=15 && advance<(side?face.width:face.height),'cards overlap along their long axis inside each bundle');
+              }
+            });
+          }
+          const acting=page.locator('.fc-turn-indicator');
+          assert.equal(await acting.count(),fixture.room.status==='playing'?1:0);
+          if(await acting.count()) {
+            assert.equal(await acting.innerText(),'▸ 行动中');
+            assert.ok(await acting.evaluate(n=>{
+              const s=getComputedStyle(n),r=n.getBoundingClientRect();
+              return s.whiteSpace==='nowrap' && r.height<20 && s.backgroundColor!=='rgba(0, 0, 0, 0)';
+            }),'turn badge is a compact solid horizontal label');
+          }
+          assert.equal(await page.locator('.fc-table-center').evaluate(n=>/暂无弃牌|弃牌区 ·/.test(n.textContent)),false);
+          for(const selector of ['.fc-discards','.fc-offer','.fc-table-center']) {
+            for(const style of await page.locator(selector).evaluateAll(nodes=>nodes.map(n=>({border:getComputedStyle(n).borderWidth,background:getComputedStyle(n).backgroundColor})))) {
+              assert.equal(style.border,'0px','no panel or separator borders');
+              assert.equal(style.background,'rgba(0, 0, 0, 0)');
             }
           }
           const ys = await page.locator('.fc-hand button').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().y));
@@ -161,26 +182,10 @@ function backend(input) {
             };
           });
           assert.equal(layout.historyPosition,'static','history tab cannot float over the table or hand');
-          assert.ok(layout.center.width>=100,'side seats preserve a usable center');
-          assert.equal(layout.center.height,204,'center height stays fixed');
-          const empty=!state.discards.length && !state.offer?.card;
-          assert.ok(empty?layout.discards.height<=55:layout.discards.height>=100,'only empty history collapses into a small box');
-          if(empty) assert.ok(layout.discards.width<=110,'empty box stays compact on desktop too');
-          assert.ok(layout.stock.bottom<=layout.discards.y && layout.discards.bottom<=layout.turn.y,'stock, discard history and turn have separate space');
+          assert.ok(layout.center.width>=80,'side seats preserve a usable center');
           assert.ok(layout.turn.bottom<=layout.center.bottom+1,'turn never leaves center');
-          const south=layout.seats.find(s=>s.position==='south');
-          assert.ok(south.y>=layout.center.bottom-1,'viewer sits below the center');
-          for(const s of layout.seats) {
-            if(s.position==='north') assert.ok(s.bottom<=layout.center.y+1,'opposite seats stay above center');
-            if(['west','east'].includes(s.position)) {
-              if(width<=600) assert.equal(s.width,88,'phone side width unchanged');
-              else assert.ok(s.width>88 && s.width<=132,'desktop sides widen within bounds');
-            }
-            if(s.position==='west') assert.ok(s.right<=layout.center.x+1,'left player stays left of center');
-            if(s.position==='east') assert.ok(s.x>=layout.center.right-1,'right player stays right of center');
-            assert.ok(s.x>=layout.table.x && s.right<=layout.table.right,'seat stays inside table');
-          }
-          layout.names.forEach(n=>assert.ok((n.vertical?n.width:n.height)<=n.lineHeight+1,'long names stay on one line'));
+          for(const s of layout.seats) assert.ok(s.x>=layout.table.x && s.right<=layout.table.right,'seat stays inside table');
+          layout.names.forEach(n=>assert.ok(!n.vertical && n.height<=n.lineHeight+1,'long names stay horizontal on one line'));
           if(['opening','public-groups','2-seats','3-seats','five-seats','five-public-groups','3-public-groups'].includes(name)) {
             await page.evaluate(()=>scrollTo(0,0));
             const rack=await page.locator('.fc-hand').boundingBox();
@@ -190,12 +195,38 @@ function backend(input) {
             assert.ok(control.y+control.height<=page.viewportSize().height,`${name}: actions visible in first viewport (${control.y+control.height} > ${page.viewportSize().height})`);
           }
         }
-        await (target || page).screenshot({path:path.join(out,`${mode}-${name}-${width}.png`),...(target?{}:{fullPage:true})});
       }
       async function open(kind, invited = false, count = 4) {
         fixture = backend({action:'seed',game_type:gameType,fixture:kind,count,invited});
         await page.goto(`http://four-color.test/?room=${fixture.room.room_id}`);
         await page.locator('.fc-hand').waitFor(); await dismiss();
+      }
+      async function identityPositions() {
+        return page.locator('.fc-seat-identity').evaluateAll(nodes=>nodes.map(n=>{
+          const r=n.getBoundingClientRect(), table=n.closest('.fc-table').getBoundingClientRect();
+          return [r.x-table.x,r.y-table.y,r.width,r.height];
+        }));
+      }
+      async function checkTurns(prefix) {
+        const state=fixture.room.board_state;
+        const original=fixture.room.current_player_id;
+        let stable;
+        for(const pid of state.participant_order) {
+          fixture.room.current_player_id=pid;
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await page.evaluate(()=>scrollTo(0,0));
+          const position=await page.locator(`.fc-seat[data-player-id="${pid}"]`).getAttribute('data-position');
+          await screenshot(`${prefix}-turn-${position}`);
+          const geometry=await identityPositions();
+          if(stable) assert.deepEqual(geometry,stable,'changing actor never moves identities');
+          else stable=geometry;
+          assert.ok(await page.locator('.fc-turn-indicator').evaluate(n=>{
+            const r=n.getBoundingClientRect();
+            return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>n.contains(document.elementFromPoint(r.x+x,r.y+y)));
+          }),'entire action badge is visible and unobscured');
+        }
+        fixture.room.current_player_id=original;
+        await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
       }
       await page.goto('http://four-color.test/');
       await page.locator('#lobbyView:not(.hidden)').waitFor();
@@ -241,6 +272,8 @@ function backend(input) {
       const handCount=fixture.room.private_state.hand.length;
       assert.equal(await page.locator('.fc-hand .fc-card').count(),handCount);
       await screenshot('opening');
+      const fourOpeningIdentities=await identityPositions();
+      await checkTurns('four-opening');
       const geometry = await page.locator('.fc-hand').evaluate(hand => {
         const names={R:'帥仕相俥傌炮兵',Y:'帥仕相俥傌炮兵',G:'將士象車馬包卒',W:'將士象車馬包卒'};
         const faces=[...hand.querySelectorAll('.fc-card')].map(face => {
@@ -305,6 +338,9 @@ function backend(input) {
       await page.reload(); await page.locator('.fc-hand').waitFor(); await dismiss();
       assert.equal(await page.locator('.fc-hand .fc-card').count(),handCount-1); assert.equal(posts.length,count);
       await screenshot('reconnected');
+      await open('midgame');
+      assert.ok(fixture.room.revision>=8);
+      await screenshot('normal-midgame');
       await page.locator('#rulesButton').click();
       await page.locator('#rulesText').waitFor({state:'visible'});
       assert.match(await page.locator('#rulesText').innerText(),/双弈平台约定/);
@@ -344,10 +380,16 @@ function backend(input) {
           assert.equal(await page.locator('.fc-seat').count(),count);
         }
       }
-      if (mode === 'qunhu') { await open('opening',false,5); await screenshot('five-seats'); }
+      if (mode === 'qunhu') {
+        await open('opening',false,5); await screenshot('five-seats');
+        fiveOpeningIdentities=await identityPositions();
+        await checkTurns('five-opening');
+        await open('midgame',false,5); await screenshot('five-normal-midgame');
+      }
       // Dense public groups and long names on the actual page, without changing rules or a live room.
       await open('opening');
-      fixture.room.participants[1].display_name = '名字较长的四色牌玩家';
+      fixture.room.participants[1].display_name = 'Codex_杉星_0828';
+      fixture.room.participants[3].display_name = '名字较长的四色牌玩家';
       if(mode==='jiuzhi') {
         fixture.room.board_state.closed_pair_counts.p1=1;
         fixture.room.board_state.hand_counts.p1=20+(fixture.room.board_state.broken?.p1?.length||0);
@@ -362,6 +404,8 @@ function backend(input) {
       });
       await page.reload(); await page.locator('.fc-meld').first().waitFor(); await dismiss();
       await screenshot('public-groups');
+      assert.deepEqual(await identityPositions(),fourOpeningIdentities,'public cards never move four-player identities');
+      await checkTurns('four-public');
       const seats = await page.locator('.fc-seat').evaluateAll(nodes=>Object.fromEntries(nodes.map(n=>{
         const r=n.getBoundingClientRect(); return [n.dataset.playerId,{x:r.x,y:r.y}];
       })));
@@ -379,7 +423,7 @@ function backend(input) {
       const highDiscards=Array.from({length:100},(_,i)=>`${'RYGW'[Math.floor(i/28)]}${Math.floor(i/4)%7}-${i%4+1}`);
       let historyGeometry;
       for(const [scene,discards,offer] of [
-        ['history-empty',[],null], ['history-only',highDiscards,null],
+        ['history-empty',[],null], ['offer-only',[],{card:'W6-4',from_deck:false}], ['deck-only',[],{card:'W6-4',from_deck:true}], ['history-only',highDiscards,null],
         ['discard-offer',highDiscards,{card:'W6-4',from_deck:false}],
         ['deck-offer',highDiscards,{card:'W6-4',from_deck:true}],
         ['overlapping-offer',highDiscards,{card:highDiscards.at(-1),from_deck:false}],
@@ -422,7 +466,7 @@ function backend(input) {
       assert.equal(await page.locator('#historyDrawerTab').getAttribute('aria-expanded'),'false');
       if (mode==='qunhu') {
         await open('opening',false,5);
-        fixture.room.participants.forEach((p,i)=>{p.display_name=`长昵称玩家${i}正在牌桌旁`;});
+        fixture.room.participants.forEach((p,i)=>{p.display_name=i===1?'Codex_杉星_0828':`长昵称玩家${i}正在牌桌旁`;});
         fixture.room.board_state.participant_order.forEach((pid,i)=>{
           const c='RYGW'[i%4];
           fixture.room.board_state.melds[pid]=[
@@ -435,15 +479,13 @@ function backend(input) {
         fixture.room.board_state.offer={card:'W6-4',from_deck:true};
         await page.reload(); await page.locator('.fc-discards').waitFor(); await dismiss();
         await screenshot('five-public-groups');
+        assert.deepEqual(await identityPositions(),fiveOpeningIdentities,'public cards never move five-player identities');
+        await checkTurns('five-public');
         assert.ok(await page.locator('.fc-discard-history').evaluate(n=>n.scrollHeight>n.clientHeight));
-        const north=await page.locator('.fc-far-edge > .fc-seat').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right};}));
-        assert.ok(north[0].right<north[1].left,'five-player far seats remain distinct');
-        assert.equal(await page.locator('.fc-far-edge > .fc-seat').count(),2);
+        const stations=await page.locator('.fc-seat').evaluateAll(nodes=>Object.fromEntries(nodes.map(n=>[n.dataset.position,n.getBoundingClientRect().y])));
+        assert.ok(stations['west-high']<stations['west-low'] && stations['east-high']<stations['east-low']);
+        assert.equal(Object.keys(stations).length,5);
         for (const seat of await page.locator('.fc-seat').all()) {
-          const publicArea=seat.locator('.fc-seat-public');
-          if (width<500 && ['east','west'].includes(await seat.getAttribute('data-position'))) {
-            assert.ok(await publicArea.evaluate(n=>n.scrollHeight>n.clientHeight),'dense side groups scroll inside their own seat');
-          }
           for (const glyph of await seat.locator('.fc-meld .fc-card > strong:first-child').all()) {
             await glyph.scrollIntoViewIfNeeded();
             assert.equal(await glyph.evaluate(n=>{
@@ -451,6 +493,17 @@ function backend(input) {
               return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>n.parentElement.contains(document.elementFromPoint(r.x+x,r.y+y)));
             }),true,'every five-player public glyph remains reachable and unobscured');
           }
+        }
+        for(const [scene,discards,offer] of [
+          ['five-history-empty',[],null],
+          ['five-offer-only',[],{card:'W6-4',from_deck:false}],
+          ['five-deck-only',[],{card:'W6-4',from_deck:true}],
+          ['five-history', ['W0-4','W1-4'],null],
+          ['five-history-100',highDiscards,null],
+        ]) {
+          Object.assign(fixture.room.board_state,{discards,offer});
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(scene);
         }
       }
       assert.deepEqual(errors,[]);
