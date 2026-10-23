@@ -209,10 +209,14 @@ function backend(input) {
               return true;
             };
             const fixed=[...table.querySelectorAll('.room-participant-avatar,.fc-seat-name,.fc-seat-count,.fc-dealer,.fc-turn-indicator,.fc-card-back,.fc-offer .fc-card,.fc-offer > .fc-meta')].map(n=>({box:rect(n),name:n.className}));
+            const publicZones=[...table.querySelectorAll('.fc-seat-public')].map(n=>({box:rect(n),name:`public:${n.closest('.fc-seat').dataset.position}`}));
+            const playerRails=[...table.querySelectorAll('.fc-history')].map(n=>({box:rect(n),name:`rail:${n.dataset.position}`}));
             const bad=[];
             fixed.forEach((a,i)=>fixed.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
+            publicZones.forEach((a,i)=>publicZones.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
             for(const n of table.querySelectorAll('.fc-seat-public .fc-card,.fc-discard-history .fc-card')) {
               const port=n.closest('.fc-seat-public,.fc-discard-history'),a=rect(n),clip=rect(port);
+              const obstacles=[...fixed,...(port.matches('.fc-discard-history')?publicZones:[]),...(port.closest('.fc-neutral-pile')?playerRails:[])];
               if(getComputedStyle(port).transform!=='none') {
                 // Intersect in the rail's local coordinates before rotating.
                 // Axis-aligned bounds include empty triangular corners and
@@ -225,12 +229,12 @@ function backend(input) {
                   x-=port.clientWidth/2;y-=port.clientHeight/2;
                   return {x:(clip.l+clip.r)/2+m.a*x+m.c*y,y:(clip.t+clip.b)/2+m.b*x+m.d*y};
                 });
-                for(const fixedBox of fixed)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
+                for(const fixedBox of obstacles)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
                 continue;
               }
               const visible={l:Math.max(a.l,clip.l),t:Math.max(a.t,clip.t),r:Math.min(a.r,clip.r),b:Math.min(a.b,clip.b)};
               if(visible.r<=visible.l||visible.b<=visible.t)continue;
-              for(const b of fixed)if(overlaps(visible,b.box))bad.push([n.dataset.cardId,b.name]);
+              for(const b of obstacles)if(overlaps(visible,b.box))bad.push([n.dataset.cardId,b.name]);
             }
             return bad;
           });
@@ -388,19 +392,42 @@ function backend(input) {
         const privateIds=new Set([...fixture.room.private_state.hand.map(c=>c.id),...(fixture.room.private_state.closed_pairs||[]).flat()]);
         const available=Array.from({length:112},(_,i)=>`${'RYGW'[Math.floor(i/28)]}${Math.floor(i/4)%7}-${i%4+1}`).filter(id=>!privateIds.has(id));
         Object.assign(s,{melds:{},broken:{},listening:{},discards:[],discard_sources:{}});
-        for(const pid of s.participant_order) s.melds[pid]=(ringOnly?[2,2,2]:[2,3,2,3,2]).map(n=>({cards:available.splice(0,n)}));
-        s.broken[s.participant_order[1]]=available.splice(0,2);
+        for(const pid of s.participant_order) s.melds[pid]=(ringOnly?[2,2]:[2,3,2,3,2]).map(n=>({cards:available.splice(0,n)}));
+        if(!ringOnly || count===4) s.broken[s.participant_order[1]]=available.splice(0,2);
         s.listening[s.participant_order[2]]=available.splice(0,2);
+        if(ringOnly && count===5) s.listening[s.participant_order[3]]=available.splice(0,2);
         for(const [i,pid] of s.participant_order.entries()) {
-          const ids=available.splice(0,i+(ringOnly?8:2));s.discards.push(...ids);ids.forEach(id=>s.discard_sources[id]=pid);
+          const ids=available.splice(0,i+(ringOnly?10:2));s.discards.push(...ids);ids.forEach(id=>s.discard_sources[id]=pid);
         }
-        s.discards.push(...available.splice(0,3)); // Legacy neutral history; no invented owner.
+        const neutralIds=available.splice(0,ringOnly && count===4?8:3);
+        s.discards.push(...neutralIds);
+        if(ringOnly && count===4) neutralIds.forEach(id=>s.discard_sources[id]=null);
         s.offer={card:available.shift(),source:s.participant_order[1],from_deck:false};
         if(ringOnly) {
           assert.ok(s.offer.card,'pressure fixture has enough unique physical cards');
           fs.writeFileSync(path.join(out,'visual-pressure-fixture.json'),JSON.stringify({kind:'UI pressure only; not a legal action replay',fixture},null,2));
         }
-        await refresh(); await completeCards(); await screenshot(`${ringOnly?'ring':'review'}-${count}-visual-stress`);
+        await refresh();
+        if(ringOnly && count===4 && process.env.FOUR_COLOR_BASELINE_CSS) {
+          const measure=()=>page.locator('.fc-table').evaluate(table=>{
+            const t=table.getBoundingClientRect(),rect=n=>{const r=n.getBoundingClientRect();return {x:r.x-t.x,y:r.y-t.y,width:r.width,height:r.height};};
+            return {neutral:rect(table.querySelector('.fc-discards')),west:rect(table.querySelector('.fc-history-west')),south:rect(table.querySelector('.fc-history-south'))};
+          });
+          await page.locator('#four-color-styles').evaluate(n=>n.disabled=true);
+          const oldStyle=await page.addStyleTag({content:fs.readFileSync(process.env.FOUR_COLOR_BASELINE_CSS,'utf8')});
+          const before=await measure();
+          await page.screenshot({path:path.join(out,`${mode}-neutral-before-${width}.png`),fullPage:true});
+          await oldStyle.evaluate(n=>n.remove());
+          await page.locator('#four-color-styles').evaluate(n=>n.disabled=false);
+          const after=await measure();
+          assert.equal(after.neutral.x-before.neutral.x,12,'neutral history moves right, not the south rail');
+          assert.equal(after.neutral.y-before.neutral.y,10,'neutral history moves down by 10px');
+          assert.ok(after.neutral.width-before.neutral.width>=24,'neutral history extends to the right');
+          assert.ok(after.neutral.x-after.west.x-after.west.width>=8,'clear gap beside the left player rail');
+          assert.deepEqual(after.south,before.south,'south player rail stays unchanged');
+          fs.writeFileSync(path.join(out,'neutral-before-after.json'),JSON.stringify({before,after},null,2));
+        }
+        await completeCards(); await screenshot(`${ringOnly?'ring':'review'}-${count}-visual-stress`);
         if(ringOnly) {
           const geometry=await page.locator('.fc-table').evaluate(table=>{
             const rect=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,cx:r.x+r.width/2,cy:r.y+r.height/2};};
@@ -416,20 +443,45 @@ function backend(input) {
             assert.ok(Math.max(...radii)-Math.min(...radii)<1,'all five sides share one apothem');
             const angles=geometry.rails.map(r=>(Math.atan2(r.cy-cy,r.cx-cx)*180/Math.PI+360)%360).sort((a,b)=>a-b);
             angles.forEach((a,i)=>assert.ok(Math.abs((angles[(i+1)%5]-a+360)%360-72)<.1,'regular 72 degree intervals'));
-            geometry.rails.forEach(r=>assert.ok(r.cards>=8 && r.cards<=12));
+            geometry.rails.forEach(r=>assert.ok(r.cards>=10 && r.cards<=14));
           } else {
             const west=geometry.rails.find(r=>r.position==='west'),south=geometry.rails.find(r=>r.position==='south'),north=geometry.rails.find(r=>r.position==='north');
             assert.ok(south.y-west.y-west.height>=12,'bottom-left rails have clear vertical separation');
             assert.ok(south.width>=north.width+15,'bottom rail extends further right');
           }
           fs.writeFileSync(path.join(out,'ring-geometry.json'),JSON.stringify(geometry,null,2));
-          metrics.push({mode,width,kind:'visual-pressure',playerDiscards:geometry.rails.map(r=>({position:r.position,count:r.cards})),neutralDiscards:3});
+          metrics.push({mode,width,kind:'visual-pressure',playerDiscards:geometry.rails.map(r=>({position:r.position,count:r.cards})),neutralDiscards:neutralIds.length});
           await checkRailHeads();
+          if(count===5) {
+            for(const pid of [s.participant_order[1],s.participant_order[4]]) {
+              s.listening[pid]=available.splice(0,4);
+              assert.equal(s.listening[pid].length,4,'four distinct public listening cards on each side');
+            }
+            fs.writeFileSync(path.join(out,'visual-listening-fixture.json'),JSON.stringify({kind:'UI pressure only; not a legal action replay',fixture},null,2));
+            await refresh(); await completeCards();
+            await screenshot('ring-5-both-sides-listening');
+            for(const position of ['west','east','north-west','north-east']) {
+              const reveal=page.locator(`.fc-position-${position} .fc-revealed-group`);
+              assert.equal(await reveal.locator('.fc-meta').innerText(),'已听牌 · 展示');
+              assert.equal(await reveal.locator('.fc-card').count(),['west','east'].includes(position)?4:2);
+              assert.ok(await reveal.evaluate(n=>{
+                const r=n.getBoundingClientRect(),p=n.closest('.fc-seat-public').getBoundingClientRect();
+                return r.top>=p.top && r.bottom<=p.bottom && r.left>=p.left && r.right<=p.right;
+              }),'whole listening display and label fit their public scrollport');
+            }
+            await checkRailHeads();
+          } else {
+            // Both neutral provenance types can coexist without fabricating a player.
+            neutralIds.slice(4).forEach(id=>delete s.discard_sources[id]);
+            await refresh();await completeCards();await screenshot('ring-4-both-neutral-sources');
+            assert.equal(await page.locator('.fc-neutral-pile').count(),2);
+            await checkRailHeads();
+          }
         }
         for(const selector of ['.fc-seat-public','.fc-discard-history']) {
           const clips=page.locator(selector);
           const index=await clips.evaluateAll(ns=>ns.findIndex(n=>n.scrollWidth>n.clientWidth || n.scrollHeight>n.clientHeight));
-          if(width===360) assert.ok(index>=0,'phone stress fixture exercises local scrolling');
+          if(width===360 && (selector==='.fc-discard-history' || !ringOnly)) assert.ok(index>=0,'phone history stress fixture exercises local scrolling');
           if(index<0) continue;
           const clip=clips.nth(index),axis=await clip.evaluate(n=>{n.scrollLeft=0;n.scrollTop=0;return n.scrollWidth>n.clientWidth?'x':'y';});
           await clip.focus();await page.keyboard.press(axis==='x'?'ArrowRight':'ArrowDown');
