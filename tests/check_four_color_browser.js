@@ -24,9 +24,10 @@ function backend(input) {
       if (process.env.FOUR_COLOR_CASE && process.env.FOUR_COLOR_CASE !== `${mode}:${width}`) continue;
       const gameType = `four_color_${mode}`;
       console.log(JSON.stringify({mode,width,status:"running"}));
-      const page = await browser.newPage({viewport:{width,height:1000},hasTouch:width<500});
+      const page = await browser.newPage({viewport:{width,height:width===360?800:900},hasTouch:width<500});
       const errors = []; page.on('pageerror', e => errors.push(e.message));
       let fixture, posts = [], failNext = false;
+      const firstViewport = [];
       await page.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (url.hostname !== 'four-color.test') return route.abort();
@@ -88,6 +89,34 @@ function backend(input) {
           assert.deepEqual(rendered.sort(),publicIds.sort(),'table only renders server-public cards');
           const ys = await page.locator('.fc-hand button').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().y));
           assert.ok(new Set(ys).size<=1,'hand always occupies one row');
+          const layout = await page.evaluate(() => {
+            const rect = n => {const r=n.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
+            return {
+              table:rect(document.querySelector('.fc-table')),
+              center:rect(document.querySelector('.fc-table-center')),
+              seats:[...document.querySelectorAll('.fc-seat')].map(n=>({position:n.dataset.position,...rect(n)})),
+              names:[...document.querySelectorAll('.fc-seat-name')].map(n=>({height:rect(n).height,lineHeight:parseFloat(getComputedStyle(n).lineHeight)})),
+              historyPosition:getComputedStyle(document.querySelector('#historyDrawerTab')).position,
+            };
+          });
+          assert.equal(layout.historyPosition,'static','history tab cannot float over the table or hand');
+          const south=layout.seats.find(s=>s.position==='south');
+          assert.ok(south.y>=layout.center.bottom-1,'viewer sits below the center');
+          for(const s of layout.seats) {
+            if(s.position==='north') assert.ok(s.bottom<=layout.center.y+1,'opposite seats stay above center');
+            if(s.position==='west') assert.ok(s.right<=layout.center.x+1,'left player stays left of center');
+            if(s.position==='east') assert.ok(s.x>=layout.center.right-1,'right player stays right of center');
+            assert.ok(s.x>=layout.table.x && s.right<=layout.table.right,'seat stays inside table');
+          }
+          layout.names.forEach(n=>assert.ok(n.height<=n.lineHeight+1,'long names stay on one line'));
+          if(['opening','public-groups','2-seats','3-seats','five-seats','five-public-groups'].includes(name)) {
+            await page.evaluate(()=>scrollTo(0,0));
+            const rack=await page.locator('.fc-hand').boundingBox();
+            const control=await page.locator('.fc-controls').boundingBox();
+            firstViewport.push({scene:name,tableHeight:layout.table.height,handBottom:rack.y+rack.height,actionsBottom:control.y+control.height});
+            assert.ok(rack.y+rack.height<=page.viewportSize().height,`${name}: hand visible in first viewport`);
+            assert.ok(control.y+control.height<=page.viewportSize().height,`${name}: actions visible in first viewport (${control.y+control.height} > ${page.viewportSize().height})`);
+          }
         }
         await (target || page).screenshot({path:path.join(out,`${mode}-${name}-${width}.png`),...(target?{}:{fullPage:true})});
       }
@@ -193,7 +222,7 @@ function backend(input) {
       assert.equal(await selectedTarget.evaluate(n=>{
         const r=n.getBoundingClientRect();
         return [[2,2],[r.width-2,2],[2,r.height-2],[r.width-2,r.height-2]].every(([x,y])=>n.contains(document.elementFromPoint(r.left+x,r.top+y)));
-      }),true,'selected target must clear the floating rules tab');
+      }),true,'selected target must be unobscured');
       await screenshot('selected');
       failNext = true; await submit.click();
       await page.waitForFunction(() => !document.querySelector('[data-fc-action="discard"]').disabled);
@@ -259,17 +288,51 @@ function backend(input) {
       const seats = await page.locator('.fc-seat').evaluateAll(nodes=>Object.fromEntries(nodes.map(n=>{
         const r=n.getBoundingClientRect(); return [n.dataset.playerId,{x:r.x,y:r.y}];
       })));
-      assert.ok(seats.p2.x<seats.p1.x && seats.p3.x<seats.p0.x, 'four seats occupy left and right corners');
-      assert.ok(seats.p2.y<seats.p3.y && seats.p1.y<seats.p0.y, 'four seats occupy upper and lower corners');
+      assert.ok(seats.p3.x<seats.p1.x, 'opponents occupy left and right sides');
+      assert.ok(seats.p2.y<seats.p3.y && seats.p2.y<seats.p1.y, 'opposite player sits above both side players');
+      assert.ok(seats.p0.y>seats.p3.y && seats.p0.y>seats.p1.y, 'viewer sits below both side players');
       for (const glyph of await page.locator('.fc-meld .fc-card > strong:first-child').all()) {
         await glyph.scrollIntoViewIfNeeded();
         assert.equal(await glyph.evaluate(n=>{
           const r=n.getBoundingClientRect(), face=n.parentElement;
           return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>face.contains(document.elementFromPoint(r.x+x,r.y+y)));
-        }),true,'every stacked card keeps its top character unobscured');
+        }),true,'every public card keeps its top character unobscured');
+      }
+      // History remains reachable using the original drawer, without a floating tab.
+      await page.locator('#historyDrawerTab').click();
+      await page.locator('#historyDrawer.show').waitFor();
+      await page.locator('#closeHistoryButton').click();
+      assert.equal(await page.locator('#historyDrawerTab').getAttribute('aria-expanded'),'false');
+      if (mode==='qunhu') {
+        await open('opening',false,5);
+        fixture.room.participants.forEach((p,i)=>{p.display_name=`长昵称玩家${i}正在牌桌旁`;});
+        fixture.room.board_state.participant_order.forEach((pid,i)=>{
+          const c='RYGW'[i%4];
+          fixture.room.board_state.melds[pid]=[
+            {cards:[`${c}0-1`,`${c}1-1`,`${c}2-1`]},
+            {cards:[`${c}3-1`,`${c}4-1`,`${c}5-1`]},
+            {cards:[`${c}6-1`,`${c}6-2`,`${c}6-3`,`${c}6-4`]},
+          ];
+        });
+        await page.reload(); await page.locator('.fc-meld').first().waitFor(); await dismiss();
+        await screenshot('five-public-groups');
+        assert.equal(await page.locator('.fc-far-edge > .fc-seat').count(),2);
+        for (const seat of await page.locator('.fc-seat').all()) {
+          const publicArea=seat.locator('.fc-seat-public');
+          if (width<500 && ['east','west'].includes(await seat.getAttribute('data-position'))) {
+            assert.ok(await publicArea.evaluate(n=>n.scrollHeight>n.clientHeight),'dense side groups scroll inside their own seat');
+          }
+          for (const glyph of await seat.locator('.fc-meld .fc-card > strong:first-child').all()) {
+            await glyph.scrollIntoViewIfNeeded();
+            assert.equal(await glyph.evaluate(n=>{
+              const r=n.getBoundingClientRect();
+              return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>n.parentElement.contains(document.elementFromPoint(r.x+x,r.y+y)));
+            }),true,'every five-player public glyph remains reachable and unobscured');
+          }
+        }
       }
       assert.deepEqual(errors,[]);
-      metrics.push({mode,width,ruleCards:rects,hand:geometry,submitHeight:buttonBox.height,consoleErrors:errors});
+      metrics.push({mode,width,ruleCards:rects,hand:geometry,submitHeight:buttonBox.height,firstViewport,consoleErrors:errors});
       fs.writeFileSync(path.join(out,'measurements.json'),JSON.stringify(metrics,null,2));
       console.log(JSON.stringify({mode,width,status:"passed"}));
       await page.close();

@@ -10,34 +10,94 @@
 .board.four_color_tenhu { display: block; width: min(100%, 880px); max-width: 100%; min-width: 0; height: auto; aspect-ratio: auto; border: 0; padding: 0; background: transparent; box-shadow: none; touch-action: manipulation; }
 #battleStage[data-game-type^="four_color_"] :is(.board-zone, .board-frame, .game-controls) { width: min(100%, 880px); max-width: 100%; min-width: 0; }
 .fc-game, .fc-controls { width: 100%; min-width: 0; color: var(--text); text-align: left; font: 13px/1.5 system-ui, sans-serif; }
-.fc-game { display: grid; gap: 10px; }
+/* The table, rack and primary actions are one compact playing surface. */
+.fc-game { display: grid; gap: 6px; }
 .fc-game p { margin: 0; }
-.fc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.fc-head strong { font-size: 14px; }
-.fc-meta { color: #6a6075; font-size: 11px; }
-/* Seats follow the viewer around the paper table; only five players use the north edge. */
+.fc-meta { color: #6a6075; font-size: 11px; line-height: 1.4; }
+#battleStage[data-game-type^="four_color_"] .game-controls:empty { display: none; }
+/* Reuse the existing history button in normal flow; it must never cover cards. */
+.game-view:has(#battleStage[data-game-type^="four_color_"]) > .history-drawer-tab {
+  position: static; transform: none; justify-self: end; z-index: auto;
+  min-width: 0; min-height: 36px; padding: 6px 10px;
+  border: 2px solid var(--purple-dark); box-shadow: 2px 2px 0 var(--purple-light);
+}
+.game-view:has(#battleStage[data-game-type^="four_color_"]) > .history-drawer-tab span {
+  writing-mode: horizontal-tb; font: 12px/1.4 system-ui, sans-serif;
+}
+/* Mahjong's top / left / right / bottom organization and mint table palette. */
 .fc-table {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-areas: "north north" "nw ne" "center center" "sw se" "south south";
-  gap: 10px 18px; padding: 12px; border: 3px solid var(--purple);
-  color: #394c45; background-color: #d9e4df;
-  background-image: repeating-linear-gradient(45deg, #4c685b06 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(-45deg, #ffffff19 0 1px, transparent 1px 4px);
-  box-shadow: inset 0 0 0 2px #edf2ef, inset 0 0 0 3px #a3b5ab, 3px 3px 0 var(--purple-light);
+  --fc-side: clamp(88px, 24%, 144px);
+  display: grid; grid-template-columns: var(--fc-side) minmax(0, 1fr) var(--fc-side);
+  grid-template-rows: auto minmax(142px, auto) auto;
+  grid-template-areas: "north north north" "west center east" "south south south";
+  align-items: center; gap: 6px; min-width: 0; padding: 8px;
+  border: 1px solid #79aa99; border-radius: 14px; color: #173f34;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 14%) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(rgb(255 255 255 / 14%) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(145deg, #e9f8f3, #c9eadf);
+  box-shadow: inset 0 0 0 3px rgb(91 151 130 / 14%);
 }
-.fc-table .fc-meta { color: #4f6359; }
+.fc-table[data-seats="2"] { grid-template-rows: auto 126px auto; }
+.fc-table[data-seats="3"] { grid-template-rows: minmax(142px, auto) auto; grid-template-areas: "west center east" "south south south"; }
+.fc-table .fc-meta { color: #3f6355; }
+.fc-far-edge { grid-area: north; display: flex; justify-content: center; gap: 12px; min-width: 0; }
+.fc-seat {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  padding: 3px; border: 1px solid transparent; border-radius: 6px;
+}
+.fc-position-west { grid-area: west; }
+.fc-position-east { grid-area: east; }
+.fc-position-north { flex: 0 1 auto; width: 100%; max-width: 560px; }
+.fc-position-south { grid-area: south; width: 100%; max-width: 560px; justify-self: center; }
+.fc-position-north, .fc-position-south { flex-direction: row; align-items: center; justify-content: center; gap: 8px; }
+.fc-seat-current { border-color: #c89427; background: rgb(255 255 250 / 60%); }
+.fc-seat-identity { min-width: 0; flex: 0 0 auto; }
+.fc-position-north .fc-seat-identity, .fc-position-south .fc-seat-identity { width: 100px; max-width: 100%; }
+.fc-seat-header { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.fc-seat .room-participant-avatar { border-width: 1px; border-radius: 50%; font-size: 11px; }
+.fc-seat-copy { display: grid; min-width: 0; gap: 1px; }
+.fc-seat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.4; }
+.fc-seat-copy .fc-meta { font-size: 10px; }
+.fc-seat-counts { margin-top: 2px; font-size: 10px; }
+.fc-groups, .fc-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px; }
+.fc-groups { gap: 6px; }
+.fc-groups .fc-cards { padding: 3px; background: #fffef5; border: 1px solid #b9d4c9; border-radius: 3px; }
+/* Each public combination is a separate short row, never a vertical card column.
+   A 20px step exposes the entire 16px glyph, including on a four-card group. */
+.fc-seat-public {
+  min-width: 0; max-width: 100%; max-height: 186px;
+  overflow: auto; scrollbar-width: thin; scrollbar-color: #85b5a4 transparent;
+  overscroll-behavior: contain;
+}
+.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public {
+  flex: 0 1 auto; display: flex; align-items: flex-start; gap: 8px; max-height: 84px;
+}
+.fc-position-north .fc-seat-groups, .fc-position-south .fc-seat-groups { flex-wrap: nowrap; }
+.fc-position-north .fc-revealed-group, .fc-position-south .fc-revealed-group { flex: none; margin: 0; }
+.fc-position-north .fc-reveal, .fc-position-south .fc-reveal { flex-wrap: nowrap; }
+.fc-seat-groups { gap: 4px 7px; }
+.fc-seat-groups .fc-meld { flex: none; flex-wrap: nowrap; gap: 0; padding: 0; border: 0; background: transparent; }
+.fc-meld .fc-card + .fc-card { margin-left: -2px; }
+.fc-seat-public .fc-card { --fc-width: 22px; --fc-height: 58px; --fc-glyph: 16px; padding: 5px 1px; }
+.fc-seat-public .fc-card small { font-size: 8px; }
+.fc-revealed-group + .fc-revealed-group, .fc-seat-groups + .fc-revealed-group { margin-top: 4px; }
+.fc-reveal { gap: 2px; }
+.fc-revealed-group > .fc-meta { margin-bottom: 2px; font-size: 10px; }
 .fc-table-center {
-  grid-area: center; display: grid; grid-template-columns: 1fr 1fr;
-  align-items: center; gap: 8px 12px; min-width: 0; padding: 12px 8px;
-  border-block: 1px solid #a3b5ab;
+  grid-area: center; min-width: 0; align-self: stretch;
+  display: grid; grid-template-columns: 1fr 1fr; align-content: center;
+  justify-items: center; align-items: center; gap: 8px 6px; padding: 6px 2px;
 }
-.fc-turn { grid-column: 1 / -1; display: grid; justify-items: center; gap: 2px; text-align: center; overflow-wrap: anywhere; }
-.fc-turn strong { font-size: 13px; }
-.fc-stock { display: flex; align-items: center; gap: 10px; padding: 0 6px 4px 0; }
-.fc-stock-copy { display: grid; gap: 2px; white-space: nowrap; }
-.fc-stock-copy strong { font-size: 13px; }
+.fc-turn { grid-column: 1 / -1; display: grid; justify-items: center; gap: 2px; text-align: center; }
+.fc-turn strong { font-size: 12px; }
+.fc-turn .fc-meta { font-size: 10px; }
+.fc-stock { display: grid; justify-items: center; gap: 6px; min-width: 0; }
+.fc-stock-copy { display: flex; align-items: baseline; justify-content: center; gap: 3px; white-space: nowrap; }
+.fc-stock-copy > .fc-meta { display: none; }
+.fc-stock-copy strong { font-size: 11px; font-weight: 500; }
 .fc-card-back {
-  display: block; flex: 0 0 24px; width: 24px; height: 62px; box-sizing: border-box;
+  display: block; width: 22px; height: 58px;
   border: 1px solid #675777; background-color: #8b7b9b;
   background-image: repeating-linear-gradient(45deg, transparent 0 3px, #e8dfef50 3px 4px),
     repeating-linear-gradient(-45deg, transparent 0 3px, #e8dfef50 3px 4px);
@@ -45,37 +105,11 @@
 }
 .fc-stock[data-depth="2"] .fc-card-back { box-shadow: inset 0 0 0 3px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e; }
 .fc-stock[data-depth="3"] .fc-card-back { box-shadow: inset 0 0 0 3px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e, 4px 4px 0 #e6ddec, 5px 5px 0 #81718e; }
-.fc-play-zone {
-  display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 2px 6px;
-  border-inline: 1px solid #a3b5ab; background: #eef3ef40;
-}
-.fc-seat { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; padding: 5px; border-top: 2px solid var(--seat-color); }
-.fc-position-nw { grid-area: nw; }
-.fc-position-ne { grid-area: ne; }
-.fc-position-sw { grid-area: sw; }
-.fc-position-se { grid-area: se; }
-.fc-position-north { grid-area: north; justify-self: center; width: min(100%, 240px); }
-.fc-position-south { grid-area: south; justify-self: center; width: min(100%, 240px); }
-.fc-position-ne, .fc-position-se { align-items: flex-end; text-align: right; }
-.fc-position-ne .fc-seat-header, .fc-position-se .fc-seat-header { flex-direction: row-reverse; }
-.fc-position-ne .fc-seat-groups, .fc-position-se .fc-seat-groups { justify-content: flex-end; }
-.fc-seat-current { border-top-color: var(--seat-ink); background: #ffffff60; }
-.fc-seat-header { display: flex; align-items: center; gap: 6px; max-width: 100%; }
-.fc-seat-copy { display: grid; min-width: 0; gap: 1px; }
-.fc-seat-name { font-size: 12px; overflow-wrap: anywhere; line-height: 1.4; }
-.fc-groups, .fc-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px; }
-.fc-groups { gap: 8px; }
-.fc-groups .fc-cards { padding: 4px; background: white; border: 1px solid var(--purple-light); border-radius: 2px; }
-/* Each stack is one public combination. The top character of every paper card stays exposed. */
-.fc-seat-groups { width: 100%; gap: 8px; }
-.fc-seat-groups .fc-meld {
-  position: relative; display: block; flex: 0 0 auto;
-  width: calc(26px + (var(--fc-count) - 1) * 2px);
-  height: calc(68px + (var(--fc-count) - 1) * 27px);
-  padding: 0; border: 0; border-radius: 0; background: transparent;
-}
-.fc-meld .fc-card { position: absolute; top: calc(var(--fc-index) * 27px); left: calc(var(--fc-index) * 2px); }
-.fc-reveal { display: grid; grid-template-columns: repeat(auto-fit, 26px); grid-auto-rows: 27px; gap: 0 3px; width: 100%; padding-bottom: 41px; }
+.fc-play-zone { display: flex; justify-content: center; min-width: 0; }
+.fc-play-zone > .fc-meta { max-width: 4em; text-align: center; font-size: 10px; }
+.fc-offer { display: flex; flex-direction: column-reverse; gap: 6px; align-items: center; }
+.fc-offer > .fc-meta { font-size: 10px; white-space: nowrap; }
+.fc-offer .fc-card { --fc-width: 22px; --fc-height: 58px; --fc-glyph: 16px; padding: 5px 1px; }
 /* Narrow paper faces, with separate keyboard/touch targets in the hand. */
 .fc-card {
   --fc-width: 26px; --fc-height: 68px; --fc-glyph: 18px;
@@ -118,10 +152,11 @@
 }
 .fc-card-target[aria-pressed="true"]::after { content: "✓"; color: #fff; background: #665776; }
 .fc-card-target[data-unavailable="true"]::after { content: "−"; color: #6a6075; background: #f3eef7; }
-.fc-card-target:focus-visible, .fc-hand:focus-visible, .fc-rule-card:focus-within { outline: 2px solid #665776; outline-offset: 2px; }
-.fc-rack { display: grid; gap: 6px; min-width: 0; }
-.fc-offer { display: flex; gap: 8px; align-items: center; }
-.fc-discards summary { cursor: pointer; min-height: 32px; display: list-item; }
+.fc-card-target:focus-visible, .fc-hand:focus-visible, .fc-seat-public:focus-visible, .fc-rule-card:focus-within { outline: 2px solid #665776; outline-offset: 2px; }
+.fc-rack { display: grid; gap: 3px; min-width: 0; padding: 5px 2px; }
+.fc-rack > strong { font-size: 11px; }
+.fc-closed { border-top: 1px solid var(--purple-light); }
+.fc-discards summary { cursor: pointer; min-height: 32px; padding-block: 5px; display: list-item; font-size: 11px; }
 .fc-discards > .fc-cards { margin: 6px 0; max-height: 220px; overflow-y: auto; overscroll-behavior-y: contain; }
 .fc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .fc-controls .pixel-btn { min-height: 40px; font: 13px/1.5 system-ui, sans-serif; white-space: normal; }
@@ -134,13 +169,14 @@
 }
 @media (max-width: 600px) {
   .fc-controls .pixel-btn { min-height: 44px; }
-  .fc-hand { max-width: calc(100% - 16px); } /* Clear Duel's existing floating rules tab. */
-  .fc-table { padding: 8px; gap: 8px 12px; margin-right: 16px; } /* Keep public counts clear of the rules tab too. */
-}
-
-@media (min-width: 601px) {
-  .fc-table-center { grid-template-columns: 1fr 1fr 1fr; min-height: 110px; }
-  .fc-turn { grid-column: auto; }
-  .fc-seat { min-height: 85px; }
-  .fc-stock { justify-content: center; }
+  .fc-table { --fc-side: 88px; padding: 5px; gap: 4px; border-radius: 12px; }
+  .fc-seat { padding: 2px; }
+  .fc-position-north, .fc-position-south { gap: 6px; }
+  .fc-far-edge { gap: 8px; }
+  /* Five seats keep two distinct players across the far edge, then left/right. */
+  .fc-table[data-seats="5"] .fc-position-north { flex: 1 1 0; flex-direction: column; align-items: stretch; }
+  .fc-table[data-seats="5"] .fc-position-north .fc-seat-identity { width: 100%; }
+  /* Two public rows fit beside the center; further groups scroll within their
+     own seat so the five-player far edge cannot push hand actions off screen. */
+  .fc-table[data-seats="5"] :is(.fc-position-west, .fc-position-east) .fc-seat-public { max-height: 124px; }
 }

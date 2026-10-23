@@ -49,6 +49,8 @@ function backend(request, db) {
             canMove:()=>context.canMove,submitMove:async move=>sent.push(move)},
         };
         render();
+        assert.equal(doc.querySelector('.fc-controls').parentElement.className, 'fc-action-slot');
+        assert.equal(context.controls.children.length, 0, 'only one action area, beside the hand');
         const handBefore = JSON.stringify(context.privateState);
         assert.equal(doc.querySelectorAll('.fc-seat').length, count);
         assert.equal(doc.querySelectorAll('.fc-hand button').length, context.privateState.hand.length);
@@ -85,7 +87,16 @@ function backend(request, db) {
           context.viewer={player_id:pid}; render();
           const self=doc.querySelector('.fc-seat-self');
           assert.equal(self.dataset.playerId,pid);
-          assert.ok(self.classList.contains(count<4?'fc-position-south':'fc-position-se'));
+          assert.ok(self.classList.contains('fc-position-south'), 'viewer always sits below the table');
+          const expectedPositions = {
+            2:['south','north'], 3:['south','east','west'],
+            4:['south','east','north','west'], 5:['south','east','north','north','west'],
+          }[count];
+          const offset=state.participant_order.indexOf(pid);
+          expectedPositions.forEach((position,index)=>{
+            const owner=state.participant_order[(offset+index)%count];
+            assert.equal(doc.querySelector(`.fc-seat[data-player-id="${owner}"]`).dataset.position,position);
+          });
           for (const seat of doc.querySelectorAll('.fc-seat')) {
             const owner=seat.dataset.playerId;
             const expected=[...state.melds[owner].flatMap(g=>g.cards),...(state.broken?.[owner]||[]),...(state.listening?.[owner]||[])];
@@ -94,6 +105,9 @@ function backend(request, db) {
           }
           assert.equal(doc.querySelector('.fc-offer [data-card-id]').dataset.cardId,'W2-1');
           assert.equal(doc.querySelectorAll('.fc-table [data-card-id="R2-1"]').length,0,'sealed pairs never enter the public table');
+          const rack=doc.querySelector('.fc-rack'), discardPile=doc.querySelector('.fc-discards');
+          assert.ok(rack.compareDocumentPosition(discardPile) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+            'discard history must follow the hand and its actions');
           cases++;
         }
         context.canMove=false; render();
@@ -105,9 +119,36 @@ function backend(request, db) {
         context.privateState={}; render();
         assert.equal(doc.querySelectorAll('.fc-hand button').length,0);
         assert.equal(doc.querySelectorAll('.fc-closed').length,0);
+        if (count === 4) {
+          for (const kind of ['hu','empty',...(mode==='qunhu'?['listen']:[])]) {
+            const scenarioDB=path.join(tmp,`${mode}-${kind}.db`);
+            const scenario=backend({action:'seed',game_type:`four_color_${mode}`,fixture:kind,count:4},scenarioDB);
+            context={...context,state:scenario.room.board_state,room:scenario.room,
+              participants:scenario.room.participants,privateState:scenario.room.private_state,
+              viewer:{player_id:'p0'},uiState:{},canMove:true,isTerminal:false};
+            render();
+            if (kind==='listen') doc.querySelector('.fc-hand [data-card-id="R4-4"]').click();
+            const buttons=[...doc.querySelectorAll('.fc-controls button')];
+            for (const button of buttons.filter(b=>!b.disabled)) {
+              sent.length=0;
+              button.click(); await new Promise(resolve=>setImmediate(resolve));
+              assert.equal(sent.length,1,`${mode}/${kind}/${button.dataset.fcAction}: one submission`);
+              assert.ok(context.privateState.legal_actions.includes(sent[0]),'send the exact server action object');
+              // Each response branches from the same real engine snapshot.
+              const branchDB=path.join(tmp,'branch.db'); fs.copyFileSync(scenarioDB,branchDB);
+              const result=backend({action:'move',room_id:scenario.room.room_id,
+                revision:scenario.room.revision,move:sent[0]},branchDB);
+              assert.equal(result.ok,true,`${mode}/${kind}/${button.dataset.fcAction}: engine accepts UI action`);
+              if (button.dataset.fcAction.startsWith('hu')) assert.equal(result.room.board_state.result.reason,'hu');
+              if (kind==='empty') assert.equal(result.room.board_state.result.reason,'wall_exhausted');
+              fs.rmSync(branchDB,{force:true});
+            }
+            assert.ok(buttons.some(b=>!b.disabled),'fixture exposes at least one actionable button');
+          }
+        }
         dom.window.close();
       }
     }
-    console.log(`PASS: ${cases} seat perspectives; 7 real-engine mode/count combinations; public ownership, sealed pairs, selection/submit, waiting and terminal states`);
+    console.log(`PASS: ${cases} seat perspectives; 7 real-engine mode/count combinations; public ownership, sealed pairs, selection/submit, response actions, hu/listen/draw and terminal states`);
   } finally {fs.rmSync(tmp,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});
