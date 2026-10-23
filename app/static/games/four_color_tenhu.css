@@ -44,6 +44,16 @@
 .fc-position-east .fc-seat-identity { right: var(--fc-corner-x); top: var(--fc-corner-top); }
 .fc-position-west .fc-seat-identity { left: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
 .fc-position-south .fc-seat-identity { right: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
+/* Four-handed ownership: a quiet pointer from each corner toward its edge.
+   Keep the approved four corner positions and avoid extra owner labels. */
+.fc-table[data-seats="4"] .fc-seat-identity::after {
+  position: absolute; color: #326857; opacity: .95;
+  font: 700 13px/1 system-ui, sans-serif; pointer-events: none;
+}
+.fc-table[data-seats="4"] .fc-position-north .fc-seat-identity::after { content: "→"; right: -8px; top: 12px; }
+.fc-table[data-seats="4"] .fc-position-east .fc-seat-identity::after { content: "↓"; right: 20px; bottom: -11px; }
+.fc-table[data-seats="4"] .fc-position-west .fc-seat-identity::after { content: "↑"; left: 20px; top: -11px; }
+.fc-table[data-seats="4"] .fc-position-south .fc-seat-identity::after { content: "←"; left: -8px; top: 12px; }
 .fc-seat-header { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; height: 32px; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-header { flex-direction: row-reverse; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-copy { text-align: right; }
@@ -144,7 +154,11 @@
 .fc-history-west, .fc-history-east { width: 21px; top: 136px; bottom: 124px; }
 .fc-history-west { left: calc(var(--fc-side) + 6px); }
 .fc-history-east { right: calc(var(--fc-side) + 6px); }
-.fc-table[data-seats="4"] .fc-history-south { bottom: 88px; right: calc(var(--fc-side) - 10px); }
+/* Wider horizontal scrollports expose more of the next discard without
+   changing the west/east scrollports or the inner neutral strip. */
+.fc-table[data-seats="4"] .fc-history-north { left: calc(var(--fc-side) - 6px); right: calc(var(--fc-side) - 6px); }
+.fc-table[data-seats="4"] .fc-seat-side .fc-seat-public { top: 140px; }
+.fc-table[data-seats="4"] .fc-history-south { bottom: 88px; left: calc(var(--fc-side) - 6px); right: calc(var(--fc-side) - 22px); }
 .fc-table[data-seats="4"] .fc-position-south .fc-seat-public { height: 78px; }
 /* Equal pentagon edges share one centre and apothem (side / 2 tan(36deg)).
    Rails retain clockwise ownership; each scrolls along its own local X axis. */
