@@ -1283,6 +1283,15 @@ function gamePlayerCountLabel(declared) {
     : `${counts.join("、")}人`;
 }
 
+function gameOptionLabel(game, games) {
+  if (game.game_type === "four_color_tenhu") {
+    const counts = games.filter(item => isFourColorGame(item.game_type))
+      .flatMap(allowedPlayerCountsForGame);
+    return `四色牌 / ${gamePlayerCountLabel({allowed_player_counts: counts})}`;
+  }
+  return `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+}
+
 function gameCategoryLabel(category) {
   return {board: "棋", card: "牌", dice: "骰", tabletop: "桌游"}[category] || "游戏";
 }
@@ -1411,7 +1420,7 @@ function syncGameTypeOptions(games, {preserveSelection = true} = {}) {
   categorizedGames.forEach((game) => {
     const option = document.createElement("option");
     option.value = game.game_type;
-    option.textContent = game.game_type === "four_color_tenhu" ? "四色牌" : `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    option.textContent = gameOptionLabel(game, games);
     select.appendChild(option);
   });
   if (!categorizedGames.length) {
@@ -4265,7 +4274,7 @@ function syncInviteGameOptions({preserveSelection = true} = {}) {
   categorizedGames.forEach((game) => {
     const option = document.createElement("option");
     option.value = game.game_type;
-    option.textContent = game.game_type === "four_color_tenhu" ? "四色牌" : `${game.display_name || game.game_type} / ${gamePlayerCountLabel(game)}`;
+    option.textContent = gameOptionLabel(game, games);
     select.appendChild(option);
   });
   if (!categorizedGames.length) {

@@ -28,6 +28,7 @@
 .fc-table {
   --fc-public-w: 18px; --fc-public-h: 47px; --fc-step: 18px;
   --fc-side: clamp(104px, 24%, 180px);
+  --fc-neutral-extra: 32px;
   --fc-corner-x: 6px; --fc-corner-top: 16px; --fc-corner-bottom: 8px;
   position: relative; height: 400px; min-width: 0;
   border: 1px solid #79aa99; border-radius: 12px; color: #173f34;
@@ -125,7 +126,10 @@
 }
 .fc-stock[data-depth="2"] .fc-card-back { box-shadow: inset 0 0 0 2px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e; }
 .fc-stock[data-depth="3"] .fc-card-back { box-shadow: inset 0 0 0 2px #e6ddec, 2px 2px 0 #e6ddec, 3px 3px 0 #81718e, 4px 4px 0 #e6ddec, 5px 5px 0 #81718e; }
-.fc-discards { min-width: 0; min-height: 0; }
+/* Neutral history can use the empty side-rail space, without moving live cards.
+   Occupied side rails retain their clearance and history scrolls locally. */
+.fc-table:has(.fc-history-west, .fc-history-east) { --fc-neutral-extra: 0px; }
+.fc-discards { min-width: 0; min-height: 0; width: calc(100% + var(--fc-neutral-extra)); justify-self: center; }
 .fc-discards:empty { display: none; }
 .fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: thin; scrollbar-color: #85b5a4 transparent; overscroll-behavior: contain; }
 .fc-discard-history[data-axis="x"] { flex-direction: row; overflow-x: auto; overflow-y: hidden; }

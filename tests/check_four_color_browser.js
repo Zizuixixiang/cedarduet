@@ -292,6 +292,84 @@ function backend(input) {
         fixture.room.current_player_id=original;
         await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
       }
+      if(process.env.FOUR_COLOR_FOLLOWUP_ONLY) {
+        const count=mode==='qunhu'?5:4;
+        await open('midgame',false,count);
+        fixture.room.participants[1].display_name='Codex_杉星_0828';
+        const s=fixture.room.board_state;
+        const deck=Array.from({length:112},(_,i)=>`${'RYGW'[Math.floor(i/28)]}${Math.floor(i/4)%7}-${i%4+1}`);
+        const privateIds=new Set([...fixture.room.private_state.hand.map(c=>c.id),...(fixture.room.private_state.closed_pairs||[]).flat()]);
+        const used=new Set([...privateIds,...Object.values(s.melds).flatMap(gs=>gs.flatMap(g=>g.cards))]);
+        const available=deck.filter(id=>!used.has(id));
+        const green=available.filter(id=>id.startsWith('G')).slice(0,3);
+        assert.equal(green.length,3);
+        Object.assign(s,{broken:{},listening:{},offer:{card:available.find(id=>!green.includes(id)),source:s.participant_order[1],from_deck:false}});
+        async function refresh() { await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss(); }
+        async function fullFaces(pile, sparse=false) {
+          const evidence=await pile.evaluate(async (n,sparse)=>{
+            const faces=[...n.querySelectorAll('.fc-card')];
+            const measure=()=>{
+              const r=n.getBoundingClientRect();
+              const bounds={left:r.left+n.clientLeft,top:r.top+n.clientTop,right:r.left+n.clientLeft+n.clientWidth,bottom:r.top+n.clientTop+n.clientHeight};
+              return {bounds,scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,faces:faces.map(c=>{const f=c.getBoundingClientRect();return {id:c.dataset.cardId,left:f.left,right:f.right,top:f.top,bottom:f.bottom};})};
+            };
+            if(sparse) return [measure()];
+            const ends=[];
+            for(const end of [0,1]) {
+              n.scrollLeft=end*n.scrollWidth; n.scrollTop=end*n.scrollHeight;
+              await new Promise(requestAnimationFrame);
+              const m=measure(); m.faces=[m.faces.at(end?-1:0)]; ends.push(m);
+            }
+            return ends;
+          },sparse);
+          for(const m of evidence) for(const f of m.faces) {
+            assert.ok(f.left>=m.bounds.left-.5 && f.right<=m.bounds.right+.5 && f.top>=m.bounds.top-.5 && f.bottom<=m.bounds.bottom+.5,
+              `complete card border inside scrollport: ${JSON.stringify({width,...m,face:f})}`);
+          }
+          return evidence;
+        }
+        for(const source of ['unknown','deck']) for(const n of [1,2,3]) {
+          s.discards=green.slice(0,n); s.discard_sources=source==='deck'?Object.fromEntries(s.discards.map(id=>[id,null])):{};
+          await refresh();
+          const evidence=await fullFaces(page.locator('.fc-neutral-pile .fc-discard-history'),true);
+          metrics.push({mode,width,source,cards:n,evidence});
+          if((source==='unknown'&&n===2)||(source==='deck'&&n===3)) await screenshot(`followup-${count}-${source}-${n}`);
+        }
+        // Many neutral cards and real source-owned rails share the unchanged table.
+        s.discards=available.filter(id=>id!==s.offer.card).slice(0,25);
+        s.discard_sources=Object.fromEntries(s.discards.slice(0,count).map((id,i)=>[id,s.participant_order[i]]));
+        await refresh();
+        // Five-seat upper rails are unchanged: at 360px they are only 45px wide
+        // for a 47px face. Record that existing limitation, rather than claiming
+        // full-face acceptance for those out-of-scope player rails.
+        const upperRails=page.locator('.fc-history-north-west, .fc-history-north-east');
+        metrics.push({mode,width,unchangedFiveSeatUpperRails:await upperRails.evaluateAll(ns=>ns.map(n=>({position:n.dataset.position,width:n.clientWidth,cardWidth:n.querySelector('.fc-card').getBoundingClientRect().width})))});
+        for(const pile of await page.locator('.fc-discard-history:not(.fc-history-north-west):not(.fc-history-north-east)').all()) await fullFaces(pile);
+        await screenshot(`followup-${count}-scroll-end`);
+        await checkRailHeads();
+        if(width===360 && mode==='tenhu') {
+          Object.assign(s,{melds:{},discards:deck.slice(0,100),offer:{...s.offer,card:deck[111]},
+            discard_sources:Object.fromEntries(deck.slice(0,40).map((id,i)=>[id,s.participant_order[Math.floor(i/10)]]))});
+          fixture.room.private_state={hand:[],legal_actions:[],action_labels:{}};
+          await refresh();
+          for(const pile of await page.locator('.fc-discard-history').all()) await fullFaces(pile);
+          await screenshot('followup-100-scroll-end');
+          await checkRailHeads();
+        }
+        await page.goto('http://four-color.test/'); await page.locator('#lobbyView:not(.hidden)').waitFor();
+        await page.selectOption('#gameCategory','card');
+        for(const [select,counts] of [['gameType','targetPlayerCount'],['inviteGame','inviteCount']]) {
+          if(select==='inviteGame') {await page.locator('#inviteCreateEntry').click();await page.selectOption('#inviteCategory','card');}
+          assert.equal(await page.locator(`#${select} option[value="four_color_tenhu"]`).textContent(),'四色牌 / 2–5人');
+          for(const [rule,expected] of [['tenhu',['2','3','4']],['jiuzhi',['4']],['qunhu',['3','4','5']]]) {
+            await page.locator(`#${select}RulePicker input[value="${rule}"]`).check();
+            assert.deepEqual(await page.locator(`#${counts} option`).evaluateAll(ns=>ns.map(n=>n.value)),expected,`${select}/${rule} legal counts only`);
+          }
+          if(width===360&&mode==='tenhu') await screenshot(`followup-${select}`,page.locator(select==='gameType'?'.create-panel':'#inviteDialog'));
+        }
+        assert.deepEqual(errors,[]);
+        await page.close(); continue;
+      }
       if(process.env.FOUR_COLOR_VISUAL_ONLY) {
         for(const count of (mode==='qunhu'?[4,5]:[4])) {
           if(process.env.FOUR_COLOR_COUNT && count!==Number(process.env.FOUR_COLOR_COUNT)) continue;
