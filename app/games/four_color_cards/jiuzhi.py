@@ -2,7 +2,7 @@
 
 from collections import Counter
 from copy import deepcopy
-from .common import FourColorGame
+from .common import FourColorGame, record_discard
 from .cards import code, label
 from .jiuzhi_rules import winning_pairs
 from .rules import JIUZHI
@@ -128,7 +128,7 @@ class Jiuzhi(FourColorGame):
             if self._options(s, s["turn_player_id"]):
                 return
             q["index"] += 1
-        s["discards"].append(q["card"])
+        record_discard(s, q)
         s["turn_player_id"] = self._next(s, q["source"])
         s["pending"] = None
         s["flow"]["phase"] = "draw"

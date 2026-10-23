@@ -1,6 +1,6 @@
 """Zhongxiao Qunhu with explicit fixed-listen, priority and flower conventions."""
 
-from .common import FourColorGame
+from .common import FourColorGame, record_discard
 from .cards import code, label
 from .qunhu_rules import (
     winning_partition,
@@ -102,7 +102,7 @@ class Qunhu(FourColorGame):
                 s["turn_player_id"] = p
                 s["flow"]["phase"] = "discard"
         else:
-            s["discards"].append(q["card"])
+            record_discard(s, q)
             s["turn_player_id"] = self._next(s, q["source"])
             s["flow"]["phase"] = "draw"
             if not s["wall"]:

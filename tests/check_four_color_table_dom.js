@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'four-color-table-dom-'));
 const source = fs.readFileSync(path.join(root, 'app/static/games/four_color_tenhu.js'), 'utf8');
 let cases = 0;
+let combinations = 0;
 function backend(request, db) {
   const input=path.join(tmp,'input.json'), output=path.join(tmp,'output.json'), error=path.join(tmp,'error.txt');
   fs.writeFileSync(input, JSON.stringify(request));
@@ -26,6 +27,8 @@ function backend(request, db) {
   try {
     for (const [mode, counts] of [['tenhu',[2,3,4]], ['jiuzhi',[4]], ['qunhu',[3,4,5]]]) {
       for (const count of counts) {
+        if(process.env.FOUR_COLOR_DOM_CASE && process.env.FOUR_COLOR_DOM_CASE!==`${mode}:${count}`) continue;
+        combinations++;
         const db = path.join(tmp, `${mode}-${count}.db`);
         const fixture = backend({action:'seed',game_type:`four_color_${mode}`,count}, db);
         assert.equal(fixture.ok, true);
@@ -76,7 +79,7 @@ function backend(request, db) {
         for (const key of ['hands','closed_pairs','wall','reserve']) {
           Object.defineProperty(state, key, {get(){throw new Error(`read forbidden state.${key}`);}});
         }
-        const groups = [['R0-1'], ['Y1-1','Y1-2'], ['G3-1','G4-1','G5-1'], ['W6-1','W6-2','W6-3','W6-4']];
+        const groups = [['R0-1'], ['Y1-1','Y1-2'], ['R6-2','Y6-2','G6-2'], ['W6-1','W6-2','W6-3','W6-4']];
         state.participant_order.forEach(pid=>{state.melds[pid]=groups.map(cards=>({cards}));});
         if (mode === 'jiuzhi') {
           state.broken.p1=['R6-1','G6-1'];
@@ -93,7 +96,7 @@ function backend(request, db) {
           assert.ok(self.classList.contains('fc-position-south'), 'viewer always sits below the table');
           const expectedPositions = {
             2:['south','north'], 3:['south','east','west'],
-            4:['south','east','north','west'], 5:['south','east-low','east-high','west-high','west-low'],
+            4:['south','east','north','west'], 5:['south','east','north-east','north-west','west'],
           }[count];
           const offset=state.participant_order.indexOf(pid);
           expectedPositions.forEach((position,index)=>{
@@ -105,12 +108,13 @@ function backend(request, db) {
             const expected=[...state.melds[owner].flatMap(g=>g.cards),...(state.broken?.[owner]||[]),...(state.listening?.[owner]||[])];
             assert.deepEqual([...seat.querySelectorAll('[data-card-id]')].map(n=>n.dataset.cardId).sort(), expected.sort());
             assert.equal(seat.querySelectorAll('.fc-meld').length,4);
+            assert.deepEqual([...seat.querySelectorAll('.fc-meld')].map(g=>[...g.querySelectorAll('[data-card-id]')].map(n=>n.dataset.cardId)),groups,'mixed-color groups retain server grouping and order');
           }
           assert.equal(doc.querySelector('.fc-discard-history .fc-card-current').dataset.cardId,'W2-1');
           assert.equal(doc.querySelectorAll('.fc-offer').length,0);
           assert.equal(doc.querySelectorAll('.fc-table [data-card-id="R2-1"]').length,0,'sealed pairs never enter the public table');
           const rack=doc.querySelector('.fc-rack'), discardPile=doc.querySelector('.fc-discards');
-          assert.ok(discardPile.closest('.fc-table-center'), 'all discards belong inside the public table');
+          assert.ok(discardPile.closest('.fc-table-center'), 'neutral history belongs beside the stock');
           assert.equal(doc.querySelectorAll('details.fc-discards').length,0);
           assert.ok(discardPile.compareDocumentPosition(rack) & window.Node.DOCUMENT_POSITION_FOLLOWING);
           for (const seat of doc.querySelectorAll('.fc-seat')) {
@@ -138,9 +142,9 @@ function backend(request, db) {
           for (const offer of [null, {card:'R0-1',from_deck:false}, {card:'R0-1',from_deck:true}, {card:'W2-1',from_deck:false}]) {
             state.discards=discards; state.offer=offer; render();
             const pile=doc.querySelector('.fc-discards');
-            const ids=[...doc.querySelectorAll('.fc-table-center [data-card-id]')].map(n=>n.dataset.cardId);
+            const ids=[...doc.querySelectorAll('.fc-discard-history [data-card-id], .fc-offer [data-card-id]')].map(n=>n.dataset.cardId);
             assert.deepEqual(ids.sort(), [...new Set([...discards, ...(offer?[offer.card]:[])])].sort());
-            assert.equal(doc.querySelectorAll('.fc-table-center .fc-card-current').length, offer || discards.length ? 1 : 0);
+            assert.equal(doc.querySelectorAll('.fc-discard-history .fc-card-current, .fc-offer .fc-card-current').length, offer || discards.length ? 1 : 0);
             if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
             else assert.equal(doc.querySelectorAll('.fc-offer').length,0);
             assert.doesNotMatch(pile.textContent,/暂无弃牌|弃牌区 ·/);
@@ -148,6 +152,14 @@ function backend(request, db) {
             assert.equal(new Set([...doc.querySelectorAll('.fc-seat')].map(n=>n.dataset.position)).size,count);
           }
         }
+        state.discards=['W1-1','W2-1','R5-2','G5-2'];
+        state.discard_sources={'W1-1':'p0','W2-1':'p1','R5-2':null,'Y0-4':'p1'};
+        state.offer={card:'W2-1',source:'p1',from_deck:false}; render();
+        assert.equal(doc.querySelectorAll('.fc-history').length,1,'pending card does not also appear in its history');
+        assert.equal(doc.querySelector('.fc-history').dataset.playerId,'p0');
+        assert.equal(doc.querySelector('.fc-history').dataset.position,doc.querySelector('.fc-seat[data-player-id="p0"]').dataset.position);
+        assert.deepEqual([...doc.querySelectorAll('.fc-neutral-pile [data-card-id]')].map(n=>n.dataset.cardId),['R5-2','G5-2'],'deck and old unknown cards remain neutral');
+        assert.equal(doc.querySelectorAll('.fc-table [data-card-id="Y0-4"]').length,0,'metadata alone never exposes a card');
         state.offer=null;
         context.canMove=false; render();
         assert.equal(doc.querySelectorAll('.fc-hand button:not(:disabled)').length,0);
@@ -189,6 +201,7 @@ function backend(request, db) {
         dom.window.close();
       }
     }
-    console.log(`PASS: ${cases} seat perspectives; 7 real-engine mode/count combinations; public ownership, sealed pairs, selection/submit, response actions, hu/listen/draw and terminal states`);
+    assert.ok(combinations,'FOUR_COLOR_DOM_CASE must match a mode:count case');
+    console.log(`PASS: ${cases} seat perspectives; ${combinations} real-engine mode/count combinations; public ownership, sealed pairs, selection/submit, response actions, hu/listen/draw and terminal states`);
   } finally {fs.rmSync(tmp,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

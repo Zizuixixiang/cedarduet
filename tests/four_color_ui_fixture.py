@@ -45,7 +45,7 @@ def seed(request):
         # Advance only this disposable room with the engine's legal actions.
         # Screenshots of normal play must not be synthetic meld arrangements.
         game = GAMES[game_type]
-        for _ in range(32):
+        for _ in range(64):
             actor = next(p for p in room["participants"]
                          if p["player_id"] == room["current_player_id"])
             move = game.choose_local_npc_action(room["board_state"], actor, room["participants"])
@@ -53,6 +53,8 @@ def seed(request):
                 break
             room = framework.play_move(room["room_id"], actor["role"], actor["player_id"], move,
                                        expected_revision=room["revision"])
+            if room["revision"] >= 32 and room["board_state"]["pending"]:
+                break
         assert room["revision"] >= 8, "Midgame fixture needs several real exchanges"
     if kind in ("hu", "empty", "listen"):
         if game_type != "four_color_tenhu":

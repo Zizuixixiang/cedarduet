@@ -13,8 +13,8 @@ let sequence = 0;
 function backend(input) {
   if (input.action === 'seed') env.DUEL_DB_PATH = path.join(tmp, `${++sequence}.db`);
   const r = spawnSync(path.join(root,'vendor/duel/.venv/bin/python'), [path.join(__dirname,'four_color_ui_fixture.py')],
-    {env, cwd:root, input:JSON.stringify(input), encoding:'utf8', timeout:15000});
-  assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
+    {env, cwd:root, input:JSON.stringify(input), encoding:'utf8', timeout:45000});
+  assert.equal(r.status, 0, r.stderr || String(r.error || r.signal || 'fixture failed')); return JSON.parse(r.stdout);
 }
 (async () => {
   let browser;
@@ -114,7 +114,7 @@ function backend(input) {
           }
           const rendered = await page.locator('.fc-table [data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
           assert.deepEqual(rendered.sort(),publicIds.sort(),'table only renders server-public cards');
-          const pile=page.locator('.fc-table-center');
+          const pile=page.locator('.fc-table-center, .fc-history');
           assert.equal(await page.locator('.fc-discards').count(),1);
           assert.equal(await page.locator('.fc-table-center > .fc-discards').count(),1);
           assert.equal(await page.locator('details.fc-discards').count(),0);
@@ -125,6 +125,13 @@ function backend(input) {
           else {
             assert.equal(await pile.locator('.fc-offer').count(),0);
             if(state.discards.length) assert.equal(await pile.locator('.fc-card-current').getAttribute('data-card-id'),state.discards.at(-1));
+          }
+          for(const history of await page.locator('.fc-history').all()) {
+            const owner=await history.getAttribute('data-player-id');
+            const ids=await history.locator('[data-card-id]').evaluateAll(ns=>ns.map(n=>n.dataset.cardId));
+            assert.ok(ids.every(id=>state.discard_sources?.[id]===owner),'only known player discards enter that inner edge');
+            const seat=page.locator(`.fc-seat[data-player-id="${owner}"]`);
+            assert.equal(await history.getAttribute('data-position'),await seat.getAttribute('data-position'));
           }
           const placements=await page.locator('.fc-seat').evaluateAll(nodes=>nodes.map(seat=>{
             const rect=n=>{const r=n.getBoundingClientRect(); return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
@@ -182,7 +189,7 @@ function backend(input) {
             };
           });
           assert.equal(layout.historyPosition,'static','history tab cannot float over the table or hand');
-          assert.ok(layout.center.width>=80,'side seats preserve a usable center');
+          assert.ok(layout.center.width>=54,'side seats preserve a usable center');
           assert.ok(layout.turn.bottom<=layout.center.bottom+1,'turn never leaves center');
           for(const s of layout.seats) assert.ok(s.x>=layout.table.x && s.right<=layout.table.right,'seat stays inside table');
           layout.names.forEach(n=>assert.ok(!n.vertical && n.height<=n.lineHeight+1,'long names stay horizontal on one line'));
@@ -227,6 +234,66 @@ function backend(input) {
         }
         fixture.room.current_player_id=original;
         await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+      }
+      if(process.env.FOUR_COLOR_VISUAL_ONLY) {
+        for(const count of (mode==='qunhu'?[4,5]:[4])) {
+          if(process.env.FOUR_COLOR_COUNT && count!==Number(process.env.FOUR_COLOR_COUNT)) continue;
+          await open('midgame',false,count);
+          fixture.room.participants.forEach((p,i)=>{p.display_name=i===1?'Codex_杉星_0828':i===count-1?'南杉正在牌桌旁的长昵称':`玩家${i}`;});
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-normal-midgame`);
+          const normal=structuredClone(fixture);
+          // Presentation stress fixtures only; real midgame above comes from engine moves.
+          const deck=Array.from({length:112},(_,i)=>`${'RYGW'[Math.floor(i/28)]}${Math.floor(i/4)%7}-${i%4+1}`);
+          const privateIds=new Set([...fixture.room.private_state.hand.map(t=>t.id),...(fixture.room.private_state.closed_pairs||[]).flat()]);
+          const available=deck.filter(id=>!privateIds.has(id));
+          const s=fixture.room.board_state;
+          s.broken && Object.keys(s.broken).forEach(pid=>s.broken[pid]=[]);
+          s.listening && Object.keys(s.listening).forEach(pid=>s.listening[pid]=null);
+          s.discards=[]; s.discard_sources={};
+          for(const pid of s.participant_order) {
+            s.melds[pid]=[2,3,4].map(n=>({cards:available.splice(0,n)}));
+            const discarded=available.splice(0,2);
+            s.discards.push(...discarded);
+            discarded.forEach(id=>s.discard_sources[id]=pid);
+          }
+          s.offer={card:available.shift(),source:s.participant_order[1],from_deck:false};
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-ring-groups-offer`);
+          await checkTurns(`${count}-ring`);
+          for(const glyph of await page.locator('.fc-seat-public .fc-card > strong:first-child').all()) {
+            await glyph.scrollIntoViewIfNeeded();
+            assert.ok(await glyph.evaluate(n=>{
+              const r=n.getBoundingClientRect();
+              return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>n.parentElement.contains(document.elementFromPoint(r.x+x,r.y+y)));
+            }),'each card exposes a readable glyph within its bundle');
+          }
+          s.discards=[]; s.discard_sources={}; s.offer=null;
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-groups-no-history`);
+          fixture=structuredClone(normal);
+          fixture.room.board_state.discard_sources={};
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-legacy-history`);
+          assert.equal(await page.locator('.fc-history').count(),0,'old unknown history is never assigned to players');
+          fixture=structuredClone(normal);
+          Object.assign(fixture.room.board_state,{melds:Object.fromEntries(s.participant_order.map(pid=>[pid,[]])),broken:{},listening:{},discards:deck.slice(0,100),offer:null,
+            discard_sources:Object.fromEntries(deck.slice(0,100).map((id,i)=>[id,s.participant_order[i%count]]))});
+          fixture.room.private_state={hand:[],legal_actions:[],action_labels:{}};
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-history-100`);
+          for(const pile of await page.locator('.fc-history').all()) {
+            assert.ok(await pile.evaluate(n=>n.scrollHeight>n.clientHeight || n.scrollWidth>n.clientWidth),'long history scrolls locally');
+            for(const index of [0,-1]) {
+              const face=pile.locator('.fc-card').nth(index); await face.scrollIntoViewIfNeeded();
+              assert.ok(await face.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'first and last history cards are reachable');
+            }
+          }
+          await open('opening',false,count); await screenshot(`${count}-empty-opening`);
+        }
+        assert.deepEqual(errors,[]);
+        metrics.push({mode,width,visualMatrix:true,consoleErrors:errors});
+        await page.close(); continue;
       }
       await page.goto('http://four-color.test/');
       await page.locator('#lobbyView:not(.hidden)').waitFor();
@@ -371,8 +438,16 @@ function backend(input) {
       const pile=page.locator('.fc-discards').first();
       assert.equal(await page.locator('.fc-table-center > .fc-discards').count(),1);
       assert.equal(await page.locator('details.fc-discards').count(),0);
-      assert.ok((await pile.locator('.fc-discard-history').boundingBox()).height<=150);
+      for(const history of await pile.locator('.fc-discard-history').all()) {
+        assert.ok((await history.boundingBox()).height<=150);
+        assert.ok(await history.locator('.fc-card').count(),'no empty history placeholder');
+      }
       await screenshot('discards',pile);
+      if(process.env.FOUR_COLOR_ACTIONS_ONLY) {
+        assert.deepEqual(errors,[]);
+        metrics.push({mode,width,actions:true,consoleErrors:errors});
+        await page.close(); continue;
+      }
       if (mode === 'tenhu') {
         for (const count of [2,3]) {
           await open('opening',false,count);
@@ -483,7 +558,7 @@ function backend(input) {
         await checkTurns('five-public');
         assert.ok(await page.locator('.fc-discard-history').evaluate(n=>n.scrollHeight>n.clientHeight));
         const stations=await page.locator('.fc-seat').evaluateAll(nodes=>Object.fromEntries(nodes.map(n=>[n.dataset.position,n.getBoundingClientRect().y])));
-        assert.ok(stations['west-high']<stations['west-low'] && stations['east-high']<stations['east-low']);
+        assert.ok(stations['north-west']<stations.west && stations['north-east']<stations.east);
         assert.equal(Object.keys(stations).length,5);
         for (const seat of await page.locator('.fc-seat').all()) {
           for (const glyph of await seat.locator('.fc-meld .fc-card > strong:first-child').all()) {

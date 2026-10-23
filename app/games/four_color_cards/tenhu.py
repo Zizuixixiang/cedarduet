@@ -10,6 +10,7 @@ import random
 
 from ..base import GamePlugin, MoveResult
 from .cards import DECK, card_view, code, label
+from .common import record_discard, public_discard_sources
 from .rules import TENHU
 from .tenhu_rules import (
     RULES_VERSION, best_partition, claims, meld_info, response_windows, score_hand,
@@ -137,7 +138,7 @@ class BgaTenHu(GamePlugin):
             if any(o["kind"] != "pass" for o in options):
                 return
             pending["index"] += 1
-        state["discards"].append(pending["card"])
+        record_discard(state, pending)
         next_player = self._next(state, pending["source"])
         state["pending"] = None
         state["turn_player_id"] = next_player
@@ -238,6 +239,7 @@ class BgaTenHu(GamePlugin):
                 "hand_counts": {p: len(h) for p, h in state["hands"].items()},
                 "melds": deepcopy(state["melds"]), "wall_count": len(state["wall"]),
                 "discards": list(state["discards"]),
+                "discard_sources": public_discard_sources(state),
                 "offer": {k: pending[k] for k in ("card", "source", "from_deck")} if pending else None,
                 "result": deepcopy(state["result"])}
 

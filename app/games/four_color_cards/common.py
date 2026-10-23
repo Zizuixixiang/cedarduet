@@ -8,6 +8,24 @@ from .cards import DECK, card_view
 GAME_TYPES = frozenset(("four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"))
 
 
+def record_discard(state, pending):
+    """Record only a settled public card. None means an unclaimed deck reveal.
+
+    Missing entries belong to old saves and have unknown provenance; never
+    reconstruct them from the current actor or from private hands.
+    """
+    state["discards"].append(pending["card"])
+    state.setdefault("discard_sources", {})[pending["card"]] = (
+        None if pending["from_deck"] else pending["source"]
+    )
+
+
+def public_discard_sources(state):
+    known = state.get("discard_sources", {})
+    return {card: known[card] for card in state["discards"]
+            if card in known and (known[card] is None or known[card] in state["participant_order"])}
+
+
 class FourColorGame(GamePlugin):
     category = "card"
     supports_npcs = True
@@ -164,6 +182,7 @@ class FourColorGame(GamePlugin):
             melds=deepcopy(s["melds"]),
             wall_count=len(s["wall"]),
             discards=list(s["discards"]),
+            discard_sources=public_discard_sources(s),
             offer=(
                 {k: s["pending"][k] for k in ("card", "source", "from_deck")}
                 if s["pending"]

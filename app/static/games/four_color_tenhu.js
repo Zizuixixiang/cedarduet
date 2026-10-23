@@ -65,9 +65,9 @@
     const viewerIndex = order.indexOf(context.viewer?.player_id);
     const start = viewerIndex < 0 ? 0 : viewerIndex;
     // Same clockwise seating as Mahjong: viewer, right, opposite, left.
-    // Five players occupy two distinct stations on each side of the table.
+    // Like Hold'em's five-player ring: two upper stations and two side stations.
     const positions = {2: ["south", "north"], 3: ["south", "east", "west"],
-      4: ["south", "east", "north", "west"], 5: ["south", "east-low", "east-high", "west-high", "west-low"]}[order.length] || [];
+      4: ["south", "east", "north", "west"], 5: ["south", "east", "north-east", "north-west", "west"]}[order.length] || [];
     table.dataset.seats = String(order.length);
     order.slice(start).concat(order.slice(0, start)).forEach((pid, index) => {
       const p = context.participants.find(p => p.player_id === pid);
@@ -151,6 +151,41 @@
       table.append(section);
     });
   }
+  function historyPiles(context, table, neutral, ids) {
+    const doc = table.ownerDocument, sources = context.state.discard_sources || {};
+    const piles = new Map();
+    const recent = context.state.offer ? null : ids.at(-1);
+    for (const id of ids) {
+      const source = sources[id];
+      const seat = [...table.querySelectorAll(".fc-seat")].find(n => n.dataset.playerId === source);
+      const key = seat ? `player:${source}` : source === null ? "deck" : "unknown";
+      if (!piles.has(key)) {
+        const pile = el(doc, "div", "fc-cards fc-discard-history");
+        pile.dataset.historyKey = key;
+        pile.tabIndex = 0; pile.setAttribute("role", "group");
+        if (seat) {
+          pile.classList.add("fc-history", `fc-history-${seat.dataset.position}`);
+          pile.dataset.playerId = source;
+          pile.dataset.position = seat.dataset.position;
+          const owner = context.participants.find(p => p.player_id === source)?.display_name || "玩家";
+          pile.setAttribute("aria-label", `${owner}的历史弃牌，可滚动查看`);
+          table.append(pile);
+        } else {
+          const group = el(doc, "div", "fc-neutral-pile");
+          const label = key === "deck" ? "翻牌" : "旧弃牌";
+          pile.setAttribute("aria-label", key === "deck" ? "无人收取的公开翻牌，可滚动查看" : "来源未记录的历史弃牌，可滚动查看");
+          group.append(el(doc, "span", "fc-meta", label), pile); neutral.append(group);
+        }
+        piles.set(key, pile);
+      }
+      const pile = piles.get(key), face = card(doc, id);
+      if (id === recent) face.classList.add("fc-card-current");
+      face.title = `${pile.getAttribute("aria-label").split("，")[0]}：${name(id)}`;
+      if (!pile.dataset.position || pile.dataset.position.startsWith("north") || pile.dataset.position === "south") {
+        const slot = el(doc, "span", "fc-history-card"); slot.append(face); pile.append(slot);
+      } else pile.append(face);
+    }
+  }
   function renderBoard(context) {
     const doc = context.board.ownerDocument, state = context.state, local = ui(context);
     styles(doc);
@@ -185,20 +220,11 @@
       offer.append(el(doc, "span", "fc-meta", label), face);
       live.append(offer);
     }
-    const history = rows(doc, historyIds);
-    history.classList.add("fc-discard-history");
-    if (historyIds.length) history.tabIndex = 0;
-    history.setAttribute("role", "group");
-    history.setAttribute("aria-label", `已弃牌 ${historyIds.length} 张，可滚动查看`);
-    if (!state.offer && history.lastElementChild) {
-      history.lastElementChild.classList.add("fc-card-current");
-      history.lastElementChild.setAttribute("aria-label", `最近弃牌：${name(historyIds.at(-1))}`);
-    }
-    playZone.append(history);
+    historyPiles(context, table, playZone, historyIds);
     const flow = state.flow || {}, status = el(doc, "div", "fc-turn");
-    const phase = {discard: "出牌", draw: "翻牌", response: "回应亮牌", opening_hu: "开局确认"}[flow.phase];
-    status.append(el(doc, "strong", "", context.isTerminal ? "本手结束" : phase ? `${context.canMove ? "请" : "等待"}${phase}` : "等待开局"));
-    center.append(playZone, status); table.append(center); root.append(table);
+    const phase = {discard: "出牌", draw: "翻牌", response: "回应", opening_hu: "确认"}[flow.phase];
+    status.append(el(doc, "strong", "", context.isTerminal ? "本手结束" : phase ? `${context.canMove ? "请" : "待"}${phase}` : "等待开局"));
+    center.append(status, playZone); table.append(center); root.append(table);
     const rack = el(doc, "section", "fc-rack");
     rack.append(el(doc, "strong", "", "我的手牌"));
     const hand = el(doc, "div", "fc-hand");
@@ -257,12 +283,17 @@
       if(result.flowers?.length) show.append(rows(doc,result.flowers)); root.append(show);
     }
     context.board.append(root);
-    // Start at the newest history; preserve deliberate scrolling on UI rerenders.
-    const historyKey = `${historyIds.join(",")}|${state.offer?.card || ""}`;
-    history.scrollTop = local.historyKey === historyKey ? (local.historyScroll || 0) : history.scrollHeight;
-    local.historyKey = historyKey;
-    local.historyScroll = history.scrollTop;
-    history.addEventListener("scroll", () => { local.historyScroll = history.scrollTop; }, {passive:true});
+    // Each player's history has its own scroll position, including neutral piles.
+    local.histories ||= {};
+    table.querySelectorAll(".fc-discard-history").forEach(history => {
+      const key = history.dataset.historyKey;
+      const cards = [...history.querySelectorAll("[data-card-id]")].map(n => n.dataset.cardId).join(",");
+      const saved = local.histories[key];
+      history.scrollTop = saved?.cards === cards ? saved.top : history.scrollHeight;
+      history.scrollLeft = saved?.cards === cards ? saved.left : history.scrollWidth;
+      const remember = () => { local.histories[key] = {cards, top: history.scrollTop, left: history.scrollLeft}; };
+      remember(); history.addEventListener("scroll", remember, {passive:true});
+    });
     hand.scrollLeft = local.handScroll || 0;
     if (hand.scrollWidth > hand.clientWidth) hand.tabIndex = 0;
   }
