@@ -97,11 +97,31 @@
       identity.append(header); section.append(identity);
       const counts = [];
       const shownInHand = new Set([...(state.broken?.[pid] || []), ...(state.listening?.[pid] || [])]).size;
-      if (Number.isInteger(state.hand_counts?.[pid])) counts.push(`暗牌 ${Math.max(0, state.hand_counts[pid] - shownInHand)} 张`);
-      if (Number.isInteger(state.closed_pair_counts?.[pid])) counts.push(`扣置 ${state.closed_pair_counts[pid]} 对`);
+      if (Number.isInteger(state.hand_counts?.[pid])) {
+        const hidden = Math.max(0, state.hand_counts[pid] - shownInHand);
+        counts.push([`暗牌 ${hidden} 张`, `暗${hidden}`]);
+      }
+      if (Number.isInteger(state.closed_pair_counts?.[pid])) {
+        const pairs = state.closed_pair_counts[pid];
+        counts.push([`扣置 ${pairs} 对`, `扣${pairs}`]);
+      }
       const points = state.result?.point_deltas?.[pid];
-      if (Number.isInteger(points)) counts.push(`${points > 0 ? "+" : ""}${points} 分`);
-      identity.append(el(doc, "div", "fc-meta fc-seat-counts", counts.join(" · ")));
+      if (Number.isInteger(points)) {
+        const score = `${points > 0 ? "+" : ""}${points}`;
+        counts.push([`${score} 分`, score]);
+      }
+      const fullCounts = counts.map(([full]) => full).join(" · ");
+      const countInfo = el(doc, "div", "fc-meta fc-seat-counts");
+      if (positions[index] === "west" || positions[index] === "east") {
+        countInfo.title = fullCounts;
+        countInfo.setAttribute("role", "group");
+        countInfo.setAttribute("aria-label", fullCounts);
+        counts.forEach(([, compact]) => {
+          const label = el(doc, "span", "fc-seat-count", compact);
+          label.setAttribute("aria-hidden", "true"); countInfo.append(label);
+        });
+      } else countInfo.textContent = fullCounts;
+      identity.append(countInfo);
       // Only the public projection belongs on the table. Never consult hands or closed_pairs here.
       const publicCards = el(doc, "div", "fc-seat-public");
       publicCards.tabIndex = 0;
@@ -122,6 +142,13 @@
         const shown = el(doc, "div", "fc-revealed-group");
         shown.append(el(doc, "div", "fc-meta", label), reveal);
         publicCards.append(shown);
+      }
+      if (positions[index] === "west" || positions[index] === "east") {
+        // Reserve the rotated footprint for each face, not for the entire meld.
+        publicCards.querySelectorAll(".fc-card").forEach(face => {
+          const slot = el(doc, "span", "fc-side-card");
+          face.replaceWith(slot); slot.append(face);
+        });
       }
       if (publicCards.children.length) section.append(publicCards);
       (positions[index] === "north" ? farEdge : table).append(section);
@@ -147,13 +174,32 @@
     const stockCopy = el(doc, "span", "fc-stock-copy");
     stockCopy.append(el(doc, "span", "fc-meta", "牌库"), el(doc, "strong", "", `${state.wall_count} 张`));
     stock.append(stockCopy); center.append(stock);
-    const playZone = el(doc, "div", "fc-play-zone");
-    const shownCard = state.offer?.card || state.discards.at(-1);
-    if (shownCard) {
-      const offer = el(doc, "div", "fc-offer");
-      offer.append(el(doc, "span", "fc-meta", state.offer ? (state.offer.from_deck ? "公开翻牌" : "当前弃牌") : "最近弃牌"), card(doc, shownCard));
+    const playZone = el(doc, "section", "fc-discards");
+    playZone.classList.toggle("fc-discards-empty", !state.discards.length && !state.offer?.card);
+    playZone.setAttribute("aria-label", "弃牌区");
+    playZone.append(el(doc, "strong", "fc-discard-title", `弃牌区 · ${state.discards.length}`));
+    // Pending offers normally enter discards only after all responses finish.
+    // Use physical IDs so an overlapping projection still renders each card once.
+    const historyIds = state.discards.filter(id => id !== state.offer?.card);
+    if (state.offer?.card) {
+      const offer = el(doc, "div", "fc-offer"), face = card(doc, state.offer.card);
+      const label = state.offer.from_deck ? "公开翻牌" : "当前弃牌";
+      face.classList.add("fc-card-current");
+      face.setAttribute("aria-label", `${label}：${name(state.offer.card)}`);
+      offer.append(el(doc, "span", "fc-meta", label), face);
       playZone.append(offer);
-    } else playZone.append(el(doc, "span", "fc-meta", "出牌／翻牌区"));
+    }
+    const history = rows(doc, historyIds);
+    history.classList.add("fc-discard-history");
+    history.tabIndex = 0;
+    history.setAttribute("role", "group");
+    history.setAttribute("aria-label", "已弃牌，可滚动查看");
+    if (!state.offer && history.lastElementChild) {
+      history.lastElementChild.classList.add("fc-card-current");
+      history.lastElementChild.setAttribute("aria-label", `最近弃牌：${name(historyIds.at(-1))}`);
+    }
+    if (!historyIds.length) history.append(el(doc, "span", "fc-meta", "暂无弃牌"));
+    playZone.append(history);
     const flow = state.flow || {}, status = el(doc, "div", "fc-turn");
     const phase = {discard: "出牌", draw: "翻牌", response: "回应亮牌", opening_hu: "开局确认"}[flow.phase];
     status.append(el(doc, "span", "fc-meta", `第 ${flow.round_number || 1} 手 · 第 ${flow.turn_number || 0} 轮`),
@@ -188,11 +234,6 @@
     actionSlot.setAttribute("role", "group");
     actionSlot.setAttribute("aria-label", "游戏专属操作");
     rack.append(hand, actionSlot); root.append(rack);
-    if (state.discards.length) {
-      const discards = el(doc, "details", "fc-discards");
-      discards.append(el(doc, "summary", "", `弃牌 ${state.discards.length} 张`), rows(doc, state.discards));
-      root.append(discards);
-    }
     if (context.privateState?.closed_pairs?.length) {
       const closed=el(doc,"section","fc-rack fc-closed"); closed.append(el(doc,"strong","","我的扣置对子"));
       const pairs=el(doc,"div","fc-groups");
@@ -206,7 +247,7 @@
       root.append(line);
       if (scoring && state.board_kind === "four_color_tenhu") {
         root.append(el(doc, "p", "", `组合 ${scoring.base_hu} 胡 · 花 ${scoring.flower_hu} 胡 · 每家 ${Math.abs(scoring.per_opponent)} 分${scoring.qualified ? "付给胡家" : "由相公赔付"}`));
-        const show = el(doc, "details", "fc-discards");
+        const show = el(doc, "details", "fc-result-details");
         show.append(el(doc, "summary", "", "胡牌暗组与花牌"));
         scoring.concealed_groups.forEach(g => show.append(rows(doc, g.cards)));
         if (result.flower_card) show.append(rows(doc, [result.flower_card]));
@@ -216,12 +257,18 @@
     if (state.result?.scoring && state.board_kind !== "four_color_tenhu") {
       const result=state.result, scoring=result.scoring;
       root.append(el(doc,"p","",scoring.heads ? `${Object.entries(scoring.heads).map(([k,v])=>`${k} ${v}`).join(" · ")} · 共 ${scoring.total} 头` : `${result.win_kind === "self_draw" ? "自摸" : scoring.flower_hit ? "着花" : "未着花"} · 每家 ${scoring.per_opponent} 分`));
-      const show=el(doc,"details","fc-discards"); show.append(el(doc,"summary","","胜牌与花牌"));
+      const show=el(doc,"details","fc-result-details"); show.append(el(doc,"summary","","胜牌与花牌"));
       if(scoring.pairs) scoring.pairs.forEach(p=>show.append(rows(doc,p)));
       if(scoring.partition) { scoring.partition.groups.forEach(g=>show.append(rows(doc,g.cards))); show.append(rows(doc,[scoring.partition.singleton])); }
       if(result.flowers?.length) show.append(rows(doc,result.flowers)); root.append(show);
     }
     context.board.append(root);
+    // Start at the newest history; preserve deliberate scrolling on UI rerenders.
+    const historyKey = `${historyIds.join(",")}|${state.offer?.card || ""}`;
+    history.scrollTop = local.historyKey === historyKey ? (local.historyScroll || 0) : history.scrollHeight;
+    local.historyKey = historyKey;
+    local.historyScroll = history.scrollTop;
+    history.addEventListener("scroll", () => { local.historyScroll = history.scrollTop; }, {passive:true});
     hand.scrollLeft = local.handScroll || 0;
     if (hand.scrollWidth > hand.clientWidth) hand.tabIndex = 0;
   }

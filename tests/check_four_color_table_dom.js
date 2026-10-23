@@ -78,6 +78,7 @@ function backend(request, db) {
         state.participant_order.forEach(pid=>{state.melds[pid]=groups.map(cards=>({cards}));});
         if (mode === 'jiuzhi') {
           state.broken.p1=['R6-1','G6-1'];
+          state.hand_counts.p1=22; state.closed_pair_counts.p1=1;
           context.privateState.closed_pairs=[['R2-1','R2-2']];
         }
         if (mode === 'qunhu') state.listening.p1=['Y0-1','Y1-1','Y2-1','G0-1','G0-2'];
@@ -103,13 +104,51 @@ function backend(request, db) {
             assert.deepEqual([...seat.querySelectorAll('[data-card-id]')].map(n=>n.dataset.cardId).sort(), expected.sort());
             assert.equal(seat.querySelectorAll('.fc-meld').length,4);
           }
-          assert.equal(doc.querySelector('.fc-offer [data-card-id]').dataset.cardId,'W2-1');
+          assert.equal(doc.querySelector('.fc-discard-history .fc-card-current').dataset.cardId,'W2-1');
+          assert.equal(doc.querySelectorAll('.fc-offer').length,0);
           assert.equal(doc.querySelectorAll('.fc-table [data-card-id="R2-1"]').length,0,'sealed pairs never enter the public table');
           const rack=doc.querySelector('.fc-rack'), discardPile=doc.querySelector('.fc-discards');
-          assert.ok(rack.compareDocumentPosition(discardPile) & window.Node.DOCUMENT_POSITION_FOLLOWING,
-            'discard history must follow the hand and its actions');
+          assert.ok(discardPile.closest('.fc-table-center'), 'all discards belong inside the public table');
+          assert.equal(doc.querySelectorAll('details.fc-discards').length,0);
+          assert.ok(discardPile.compareDocumentPosition(rack) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+          for (const seat of doc.querySelectorAll('.fc-seat')) {
+            assert.ok(seat.querySelector('.fc-seat-identity .room-participant-avatar'));
+            assert.ok(seat.querySelector('.fc-seat-identity .fc-seat-counts'));
+            const side=['east','west'].includes(seat.dataset.position);
+            assert.equal(seat.querySelectorAll('.fc-side-card').length, side ? seat.querySelectorAll('[data-card-id]').length : 0);
+            const owner=seat.dataset.playerId, info=seat.querySelector('.fc-seat-counts');
+            const shown=new Set([...(state.broken?.[owner]||[]),...(state.listening?.[owner]||[])]).size;
+            const hidden=Math.max(0,state.hand_counts[owner]-shown);
+            const full=[`暗牌 ${hidden} 张`], compact=[`暗${hidden}`];
+            if(Number.isInteger(state.closed_pair_counts?.[owner])) {
+              full.push(`扣置 ${state.closed_pair_counts[owner]} 对`); compact.push(`扣${state.closed_pair_counts[owner]}`);
+            }
+            if(side) {
+              assert.equal(info.title,full.join(' · '));
+              assert.equal(info.getAttribute('aria-label'),info.title);
+              assert.deepEqual([...info.children].map(n=>n.textContent),compact);
+              assert.ok([...info.children].every(n=>n.getAttribute('aria-hidden')==='true'));
+            } else {
+              assert.equal(info.textContent,full.join(' · '),'north/south retain full wording');
+              assert.equal(info.children.length,0);
+            }
+          }
           cases++;
         }
+        for (const discards of [[], ['W1-1','W2-1']]) {
+          for (const offer of [null, {card:'R0-1',from_deck:false}, {card:'R0-1',from_deck:true}, {card:'W2-1',from_deck:false}]) {
+            state.discards=discards; state.offer=offer; render();
+            const pile=doc.querySelector('.fc-discards');
+            assert.equal(pile.classList.contains('fc-discards-empty'),!discards.length && !offer);
+            const ids=[...pile.querySelectorAll('[data-card-id]')].map(n=>n.dataset.cardId);
+            assert.deepEqual(ids.sort(), [...new Set([...discards, ...(offer?[offer.card]:[])])].sort());
+            assert.equal(pile.querySelectorAll('.fc-card-current').length, offer || discards.length ? 1 : 0);
+            if (offer) assert.equal(pile.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
+            else assert.equal(pile.querySelectorAll('.fc-offer').length,0);
+            if (!discards.length) assert.match(pile.textContent,/暂无弃牌/);
+          }
+        }
+        state.offer=null;
         context.canMove=false; render();
         assert.equal(doc.querySelectorAll('.fc-hand button:not(:disabled)').length,0);
         context.isTerminal=true; state.flow.phase='finished'; state.result={reason:'wall_exhausted'}; render();
