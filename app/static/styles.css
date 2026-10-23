@@ -739,6 +739,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border: 3px solid var(--purple-dark);
   box-shadow: 3px 3px 0 rgba(92, 84, 99, .18);
 }
+@media (min-width: 600px) {
+  /* Lift both ancestors: above seat/hint siblings and the following lobby panels. */
+  .create-panel:has(.ai-multi-field.open),
+  .create-panel > .create-form:has(.ai-multi-field.open) { z-index: 2; }
+}
 .ai-multi-option {
   width: 100%;
   min-height: 44px;
