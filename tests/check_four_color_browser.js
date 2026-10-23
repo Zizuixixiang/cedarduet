@@ -165,13 +165,25 @@ function backend(input) {
           const pair=(a,b,axis)=>assert.ok(Math.abs(corners[a][axis]-corners[b][axis])<=1,`${name}: avatar ${a}/${b} ${axis} corners align`);
           const count=state.participant_order.length;
           if(count===4) { pair('north','east','y'); pair('west','south','y'); pair('north','west','x'); pair('east','south','x'); }
-          if(count===5) { pair('north-west','east','y'); pair('west','south','y'); pair('north-west','west','x'); pair('east','south','x'); }
+          if(count===5) {
+            pair('north-west','north-east','y'); pair('west','east','y');
+            assert.ok(corners.west.y>corners['north-west'].y+100 && corners.south.y>corners.west.y+100,'five seats occupy upper, side and bottom levels');
+            assert.ok(corners['north-west'].x>corners.west.x && corners['north-east'].x<corners.east.x,'upper shoulders are inset from side seats');
+          }
           if(cornerBaselines.has(count)) assert.deepEqual(corners,cornerBaselines.get(count),'avatar centres remain fixed across names, actors and public cards');
           else cornerBaselines.set(count,corners);
-          const rails=await page.locator('.fc-discard-history').evaluateAll(ns=>ns.map(n=>({axis:n.dataset.axis,key:n.dataset.historyKey,
-            cards:[...n.querySelectorAll('.fc-card')].map(c=>{const r=c.getBoundingClientRect(),h=c.querySelector('strong').getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height,head:{x:h.x,y:h.y,w:h.width,h:h.height}};})})));
+          const rails=await page.locator('.fc-discard-history').evaluateAll(ns=>ns.map(n=>({axis:n.dataset.axis,key:n.dataset.historyKey,diagonal:/north-(west|east)/.test(n.dataset.position||''),
+            cards:[...n.querySelectorAll('.fc-card')].map(c=>{const r=c.getBoundingClientRect(),h=c.querySelector('strong').getBoundingClientRect(),slot=c.closest('.fc-history-card')||c; return {x:r.x,y:r.y,w:r.width,h:r.height,localX:slot.offsetLeft,localY:slot.offsetTop,localWidth:slot.offsetWidth,head:{x:h.x,y:h.y,w:h.width,h:h.height}};})})));
           for(const rail of rails) for(let i=0;i<rail.cards.length;i++) {
             const c=rail.cards[i],horizontal=rail.axis==='x';
+            if(rail.diagonal) {
+              if(i) {
+                const previous=rail.cards[i-1],advance=c.localX-previous.localX;
+                assert.equal(c.localY,previous.localY,'diagonal history is one local row');
+                assert.ok(advance>=14 && advance<c.localWidth,'diagonal cards retain readable overlapping heads');
+              }
+              continue;
+            }
             assert.ok(horizontal?c.w>c.h:c.h>c.w,'long edge follows the strip');
             if(!i) continue;
             const prev=rail.cards[i-1],advance=horizontal?c.x-prev.x:c.y-prev.y;
@@ -184,7 +196,7 @@ function backend(input) {
           const collisions=await page.locator('.fc-table').evaluate(table=>{
             const rect=n=>{const r=n.getBoundingClientRect();return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
             const overlaps=(a,b)=>Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5 && Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;
-            const fixed=[...table.querySelectorAll('.room-participant-avatar,.fc-seat-name,.fc-seat-counts,.fc-turn-indicator,.fc-card-back,.fc-offer .fc-card,.fc-offer > .fc-meta')].map(n=>({box:rect(n),name:n.className}));
+            const fixed=[...table.querySelectorAll('.room-participant-avatar,.fc-seat-name,.fc-seat-count,.fc-dealer,.fc-turn-indicator,.fc-card-back,.fc-offer .fc-card,.fc-offer > .fc-meta')].map(n=>({box:rect(n),name:n.className}));
             const bad=[];
             fixed.forEach((a,i)=>fixed.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
             for(const n of table.querySelectorAll('.fc-seat-public .fc-card,.fc-discard-history .fc-card')) {
@@ -237,8 +249,18 @@ function backend(input) {
             const rack=await page.locator('.fc-hand').boundingBox();
             const control=await page.locator('.fc-controls').boundingBox();
             firstViewport.push({scene:name,tableHeight:layout.table.height,handBottom:rack.y+rack.height,actionsBottom:control.y+control.height});
-            assert.ok(rack.y+rack.height<=page.viewportSize().height,`${name}: hand visible in first viewport`);
-            assert.ok(control.y+control.height<=page.viewportSize().height,`${name}: actions visible in first viewport (${control.y+control.height} > ${page.viewportSize().height})`);
+            if(state.participant_order.length!==5) {
+              assert.ok(rack.y+rack.height<=page.viewportSize().height,`${name}: hand visible in first viewport`);
+              assert.ok(control.y+control.height<=page.viewportSize().height,`${name}: actions visible in first viewport (${control.y+control.height} > ${page.viewportSize().height})`);
+            } else {
+              // Five independent stations use a taller table; keep full-size
+              // hand/action targets reachable through ordinary page scrolling.
+              for(const selector of ['.fc-hand','.fc-controls']) {
+                await page.locator(selector).scrollIntoViewIfNeeded();
+                const r=await page.locator(selector).boundingBox();
+                assert.ok(r.y>=0 && r.y+r.height<=page.viewportSize().height,`${selector} scrolls fully into view`);
+              }
+            }
           }
         }
       }
@@ -260,7 +282,8 @@ function backend(input) {
             n.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
             await new Promise(requestAnimationFrame);
             const r=n.getBoundingClientRect();
-            for(const [x,y] of [[1,1],[r.width-1,r.height-1]]) {
+            const diagonal=/north-(west|east)/.test(n.closest('.fc-discard-history').dataset.position||'');
+            for(const [x,y] of diagonal?[[r.width/2,r.height/2]]:[[1,1],[r.width-1,r.height-1]]) {
               const hit=document.elementFromPoint(r.x+x,r.y+y);
               if(!n.contains(hit))bad.push({card:n.parentElement.dataset.cardId,rail:n.closest('.fc-discard-history').dataset.historyKey,hit:hit?.outerHTML.slice(0,160)});
             }
@@ -292,6 +315,89 @@ function backend(input) {
         fixture.room.current_player_id=original;
         await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
       }
+      if(process.env.FOUR_COLOR_REVIEW_ONLY) {
+        const count=mode==='qunhu'?5:4;
+        async function refresh() {await page.reload();await page.locator('.fc-table').waitFor();await dismiss();}
+        async function completeCards() {
+          const failures=await page.locator('.fc-seat-public, .fc-discard-history').evaluateAll(async clips=>{
+            const bad=[];
+            for(const clip of clips) {
+              for(const face of clip.querySelectorAll('.fc-card')) {
+                const slot=face.closest('.fc-side-card, .fc-history-card')||face;
+                let x=slot.offsetLeft,y=slot.offsetTop,p=slot.offsetParent;
+                while(p && p!==clip) {x+=p.offsetLeft;y+=p.offsetTop;p=p.offsetParent;}
+                if(!p) { // Neutral scrollports are static, without a rotated rail.
+                  const r=slot.getBoundingClientRect(),c=clip.getBoundingClientRect();
+                  x=r.left-c.left+clip.scrollLeft;y=r.top-c.top+clip.scrollTop;
+                }
+                const w=slot.offsetWidth,h=slot.offsetHeight;
+                clip.scrollLeft=Math.max(0,x+w-clip.clientWidth+1);
+                clip.scrollTop=Math.max(0,y+h-clip.clientHeight+1);
+                await new Promise(requestAnimationFrame);
+                if(x<clip.scrollLeft-.5 || x+w>clip.scrollLeft+clip.clientWidth+.5 || y<clip.scrollTop-.5 || y+h>clip.scrollTop+clip.clientHeight+.5)
+                  bad.push({card:face.dataset.cardId,x,y,w,h,width:clip.clientWidth,height:clip.clientHeight,left:clip.scrollLeft,top:clip.scrollTop});
+              }
+            }
+            return bad;
+          });
+          assert.deepEqual(failures,[],'every complete face can be reached, including rotated rails and public-group tails');
+        }
+        await open('midgame',false,count);
+        fixture.room.participants.forEach((p,i)=>p.display_name=i===1?'Codex_杉星_0828':i===2?'南杉在牌桌旁的长中文昵称':`玩家${i}`);
+        await refresh();
+        await completeCards(); await screenshot(`review-${count}-midgame`);
+        const normal=structuredClone(fixture);
+        await open('dense',false,count);
+        assert.ok(fixture.replay.discards>25,'legal dense replay must significantly exceed 19 discards');
+        if(count===5) assert.equal(new Set(Object.values(fixture.replay.player_discards)).size,5,'five players have different real discard counts');
+        fs.writeFileSync(path.join(out,'legal-replay.json'),JSON.stringify(fixture.replay,null,2));
+        await completeCards(); await screenshot(`review-${count}-legal-dense`);
+        metrics.push({mode,width,replay:{...fixture.replay,moves:fixture.replay.moves.length}});
+        fixture=normal;
+        const s=fixture.room.board_state;
+        const privateIds=new Set([...fixture.room.private_state.hand.map(c=>c.id),...(fixture.room.private_state.closed_pairs||[]).flat()]);
+        const available=Array.from({length:112},(_,i)=>`${'RYGW'[Math.floor(i/28)]}${Math.floor(i/4)%7}-${i%4+1}`).filter(id=>!privateIds.has(id));
+        Object.assign(s,{melds:{},broken:{},listening:{},discards:[],discard_sources:{}});
+        for(const pid of s.participant_order) s.melds[pid]=[2,3,2,3,2].map(n=>({cards:available.splice(0,n)}));
+        s.broken[s.participant_order[1]]=available.splice(0,2);
+        s.listening[s.participant_order[2]]=available.splice(0,2);
+        for(const [i,pid] of s.participant_order.entries()) {
+          const ids=available.splice(0,i+2);s.discards.push(...ids);ids.forEach(id=>s.discard_sources[id]=pid);
+        }
+        s.discards.push(...available.splice(0,3)); // Legacy neutral history; no invented owner.
+        s.offer={card:available.shift(),source:s.participant_order[1],from_deck:false};
+        await refresh(); await completeCards(); await screenshot(`review-${count}-visual-stress`);
+        for(const selector of ['.fc-seat-public','.fc-discard-history']) {
+          const clips=page.locator(selector);
+          const index=await clips.evaluateAll(ns=>ns.findIndex(n=>n.scrollWidth>n.clientWidth || n.scrollHeight>n.clientHeight));
+          if(width===360) assert.ok(index>=0,'phone stress fixture exercises local scrolling');
+          if(index<0) continue;
+          const clip=clips.nth(index),axis=await clip.evaluate(n=>{n.scrollLeft=0;n.scrollTop=0;return n.scrollWidth>n.clientWidth?'x':'y';});
+          await clip.focus();await page.keyboard.press(axis==='x'?'ArrowRight':'ArrowDown');
+          await page.waitForFunction(({selector,index,axis})=>{const n=document.querySelectorAll(selector)[index];return axis==='x'?n.scrollLeft>0:n.scrollTop>0;},{selector,index,axis},{timeout:5000});
+        }
+        const typography=await page.locator('.fc-card').evaluateAll(ns=>ns.map(n=>{
+          const style=getComputedStyle(n,'::before');
+          return {frame:parseFloat(style.borderTopWidth),inset:parseFloat(style.top),height:n.clientHeight,glyphs:[...n.querySelectorAll('strong')].map(g=>({top:g.offsetTop,bottom:g.offsetTop+g.offsetHeight,size:parseFloat(getComputedStyle(g).fontSize)}))};
+        }));
+        typography.forEach(t=>{assert.equal(t.frame,1);t.glyphs.forEach(g=>{assert.ok(g.top>=t.inset+t.frame && g.bottom<=t.height-t.inset-t.frame,`inner caps do not cross either glyph: ${JSON.stringify(t)}`);assert.ok(g.size>=13);});});
+        if(count===4) {
+          const alignment=await page.locator('.fc-history-north,.fc-history-south').evaluateAll(ns=>ns.map(n=>({left:n.getBoundingClientRect().left,first:n.firstElementChild.offsetLeft})));
+          assert.equal(alignment[0].left,alignment[1].left);assert.equal(alignment[0].first,alignment[1].first,'same natural starting baseline');
+        }
+        const stable=await identityPositions();
+        for(const pid of s.participant_order) {fixture.room.current_player_id=pid;await refresh();assert.deepEqual(await identityPositions(),stable);assert.equal(await page.locator('.fc-turn-indicator').count(),1);}
+        s.discards=[];s.discard_sources={};s.offer=null;
+        if(count===4) {
+          s.broken={};s.listening={};
+          Object.values(s.melds).forEach(groups=>groups.splice(4));
+        }
+        await refresh(); await screenshot(`review-${count}-groups-no-history`);
+        if(count===4) for(const clip of await page.locator('.fc-position-north .fc-seat-public,.fc-position-south .fc-seat-public').all()) {
+          assert.ok(await clip.evaluate(n=>n.scrollWidth===n.clientWidth),'four ordinary upper/lower bundles fit without clipping or scrolling');
+        }
+        assert.deepEqual(errors,[]);await page.close();continue;
+      }
       if(process.env.FOUR_COLOR_FOLLOWUP_ONLY) {
         const count=mode==='qunhu'?5:4;
         await open('midgame',false,count);
@@ -310,8 +416,15 @@ function backend(input) {
             const faces=[...n.querySelectorAll('.fc-card')];
             const measure=()=>{
               const r=n.getBoundingClientRect();
-              const bounds={left:r.left+n.clientLeft,top:r.top+n.clientTop,right:r.left+n.clientLeft+n.clientWidth,bottom:r.top+n.clientTop+n.clientHeight};
-              return {bounds,scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,faces:faces.map(c=>{const f=c.getBoundingClientRect();return {id:c.dataset.cardId,left:f.left,right:f.right,top:f.top,bottom:f.bottom};})};
+              const rotated=getComputedStyle(n).transform!=='none';
+              const bounds=rotated?{left:0,top:0,right:n.clientWidth,bottom:n.clientHeight}:{left:r.left+n.clientLeft,top:r.top+n.clientTop,right:r.left+n.clientLeft+n.clientWidth,bottom:r.top+n.clientTop+n.clientHeight};
+              return {bounds,rotated,scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,faces:faces.map(c=>{
+                if(rotated) {
+                  const slot=c.closest('.fc-history-card')||c,left=slot.offsetLeft-n.scrollLeft,top=slot.offsetTop-n.scrollTop;
+                  return {id:c.dataset.cardId,left,right:left+slot.offsetWidth,top,bottom:top+slot.offsetHeight};
+                }
+                const f=c.getBoundingClientRect();return {id:c.dataset.cardId,left:f.left,right:f.right,top:f.top,bottom:f.bottom};
+              })};
             };
             if(sparse) return [measure()];
             const ends=[];
@@ -339,12 +452,7 @@ function backend(input) {
         s.discards=available.filter(id=>id!==s.offer.card).slice(0,25);
         s.discard_sources=Object.fromEntries(s.discards.slice(0,count).map((id,i)=>[id,s.participant_order[i]]));
         await refresh();
-        // Five-seat upper rails are unchanged: at 360px they are only 45px wide
-        // for a 47px face. Record that existing limitation, rather than claiming
-        // full-face acceptance for those out-of-scope player rails.
-        const upperRails=page.locator('.fc-history-north-west, .fc-history-north-east');
-        metrics.push({mode,width,unchangedFiveSeatUpperRails:await upperRails.evaluateAll(ns=>ns.map(n=>({position:n.dataset.position,width:n.clientWidth,cardWidth:n.querySelector('.fc-card').getBoundingClientRect().width})))});
-        for(const pile of await page.locator('.fc-discard-history:not(.fc-history-north-west):not(.fc-history-north-east)').all()) await fullFaces(pile);
+        for(const pile of await page.locator('.fc-discard-history').all()) await fullFaces(pile);
         await screenshot(`followup-${count}-scroll-end`);
         await checkRailHeads();
         if(width===360 && mode==='tenhu') {

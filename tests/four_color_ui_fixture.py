@@ -41,6 +41,45 @@ def seed(request):
             game_type, "human_first", "human", "p0", ordered_participants=players(count)
         )
     kind = request.get("fixture", "opening")
+    if kind == "dense":
+        # Legal replay only: accept offers at different rates per seat and
+        # discard a legal own card. Declining optional wins keeps the hand deep.
+        # Never inject cards, sources or a replacement board into this room.
+        game = GAMES[game_type]
+        policy_rng = random.Random(request.get("seed", 9) + 20261023)
+        moves = []
+        for _ in range(1200):
+            actor = next(p for p in room["participants"]
+                         if p["player_id"] == room["current_player_id"])
+            state = room["board_state"]
+            legal = game.private_state(state, actor, room["participants"])["legal_actions"]
+            by_id = {m["action_id"]: m for m in legal}
+            discards = [m for m in legal if m["action_id"].startswith("discard:")]
+            seat = state["participant_order"].index(actor["player_id"])
+            if discards:
+                move = policy_rng.choice(discards)
+            elif "take" in by_id and policy_rng.random() < (.9, .25, .65, .1, .45)[seat]:
+                move = by_id["take"]
+            else:
+                move = by_id.get("pass") or by_id.get("draw") or next(
+                    (m for m in legal if not m["action_id"].startswith(("hu", "listen"))), legal[0])
+            assert move in legal
+            next_state = game.apply_action(state, move, actor).state
+            if next_state.get("result"):
+                break  # Leave the deepest still-playing state for the UI.
+            room = framework.play_move(room["room_id"], actor["role"], actor["player_id"], move,
+                                       expected_revision=room["revision"])
+            moves.append({"player_id": actor["player_id"], "move": move})
+            cards = physical_cards(room["board_state"]) if game_type == "four_color_tenhu" else physical(room["board_state"])
+            assert len(cards) == len(set(cards)) == 112
+        else:
+            raise AssertionError("Dense replay did not reach the end of the wall")
+        request["replay"] = {"seed": request.get("seed", 9), "policy": "uneven-take-v1",
+                             "game_type": game_type, "count": count, "moves": moves,
+                             "discards": len(room["board_state"]["discards"]),
+                             "player_discards": {p: sum(room["board_state"].get("discard_sources", {}).get(c) == p
+                                                       for c in room["board_state"]["discards"])
+                                                 for p in room["board_state"]["participant_order"]}}
     if kind == "midgame":
         # Advance only this disposable room with the engine's legal actions.
         # Screenshots of normal play must not be synthetic meld arrangements.
@@ -110,7 +149,7 @@ def seed(request):
 if __name__ == "__main__":
     request = json.load(sys.stdin)
     with patch.dict(
-        GAMES, {g.game_type: g(random.Random(9)) for g in (BgaTenHu, Jiuzhi, Qunhu)}
+        GAMES, {g.game_type: g(random.Random(request.get("seed", 9))) for g in (BgaTenHu, Jiuzhi, Qunhu)}
     ):
         try:
             if request["action"] == "seed":
@@ -133,6 +172,8 @@ if __name__ == "__main__":
                 "timeline": [],
                 "message": "",
             }
+            if "replay" in request:
+                result["replay"] = request["replay"]
         except framework.DuelError as exc:
             result = {"ok": False, "message": str(exc), "status": exc.status_code}
         print(json.dumps(result, ensure_ascii=False))

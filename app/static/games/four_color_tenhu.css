@@ -40,14 +40,10 @@
 /* Identity and cards share the table as their containing block. Content cannot
    move a corner; right-hand avatars sit on the same inset as left-hand avatars. */
 .fc-seat-identity { position: absolute; width: 100px; max-width: 100%; height: 32px; }
-.fc-position-north .fc-seat-identity, .fc-position-north-west .fc-seat-identity { left: var(--fc-corner-x); top: var(--fc-corner-top); }
-.fc-position-east .fc-seat-identity, .fc-position-north-east .fc-seat-identity { right: var(--fc-corner-x); top: var(--fc-corner-top); }
+.fc-position-north .fc-seat-identity { left: var(--fc-corner-x); top: var(--fc-corner-top); }
+.fc-position-east .fc-seat-identity { right: var(--fc-corner-x); top: var(--fc-corner-top); }
 .fc-position-west .fc-seat-identity { left: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
 .fc-position-south .fc-seat-identity { right: var(--fc-corner-x); bottom: var(--fc-corner-bottom); }
-/* Five players retain four corners and a separate top-centre identity, in
-   participant order. The bottom card rail keeps its full height. */
-.fc-table[data-seats="5"] { height: 410px; }
-.fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { left: 50%; right: auto; transform: translateX(-50%); }
 .fc-seat-header { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; height: 32px; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-header { flex-direction: row-reverse; }
 :is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-seat-copy { text-align: right; }
@@ -69,16 +65,13 @@
 .fc-seat-public {
   position: absolute; min-width: 0; min-height: 0; max-width: 100%;
   display: flex; align-items: flex-start; gap: 8px; padding: 1px;
-  overflow: auto; scrollbar-width: thin; scrollbar-color: #85b5a4 transparent;
+  overflow: auto; scrollbar-width: none;
   overscroll-behavior: contain;
 }
-.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 112px; right: 112px; height: 96px; justify-content: safe center; }
+.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 108px; right: 108px; height: 96px; justify-content: safe center; }
 .fc-position-north .fc-seat-public { top: 12px; }
-.fc-position-south .fc-seat-public { bottom: 8px; }
-:is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 54px; width: calc(50% - 12px); height: 88px; justify-content: safe center; }
-.fc-position-north-west .fc-seat-public { left: 6px; }
-.fc-position-north-east .fc-seat-public { right: 6px; }
-.fc-seat-groups { flex-wrap: nowrap; gap: 8px; }
+.fc-position-south .fc-seat-public { bottom: 8px; height: 88px; }
+.fc-seat-groups { flex: none; flex-wrap: nowrap; gap: 8px; }
 .fc-seat-groups .fc-meld {
   flex: none; flex-direction: column; flex-wrap: nowrap; gap: 0;
   padding: 0; border: 0; background: transparent;
@@ -92,7 +85,6 @@
 .fc-seat-side .fc-seat-public { top: 112px; bottom: 110px; width: var(--fc-side); flex-direction: column; gap: 6px; }
 .fc-facing-right .fc-seat-public { left: 6px; align-items: flex-start; }
 .fc-facing-left .fc-seat-public { right: 6px; align-items: safe flex-end; }
-.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 168px; }
 .fc-seat-side .fc-seat-groups { flex-direction: column; gap: 7px; }
 .fc-seat-side .fc-seat-groups .fc-meld { flex-direction: row; }
 .fc-facing-left .fc-seat-groups .fc-meld { flex-direction: row-reverse; }
@@ -111,7 +103,6 @@
   width: min(160px, calc(100% - 2 * var(--fc-side) - 48px));
   height: 122px; min-width: 0; display: grid; grid-template-rows: 54px 20px 48px;
 }
-.fc-table[data-seats="5"] .fc-table-center { top: 180px; height: 104px; grid-template-rows: 54px 18px 32px; }
 .fc-live-cards { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
 .fc-stock { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .fc-stock-copy { display: grid; justify-items: center; white-space: nowrap; line-height: 1.3; }
@@ -131,7 +122,8 @@
 .fc-table:has(.fc-history-west, .fc-history-east) { --fc-neutral-extra: 0px; }
 .fc-discards { min-width: 0; min-height: 0; width: calc(100% + var(--fc-neutral-extra)); justify-self: center; }
 .fc-discards:empty { display: none; }
-.fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: thin; scrollbar-color: #85b5a4 transparent; overscroll-behavior: contain; }
+.fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: none; overscroll-behavior: contain; }
+.fc-seat-public::-webkit-scrollbar, .fc-discard-history::-webkit-scrollbar { display: none; }
 .fc-discard-history[data-axis="x"] { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
 .fc-discard-history[data-axis="y"] { flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 .fc-discard-history[data-axis="x"] > .fc-history-card + .fc-history-card { margin-left: -29px; }
@@ -139,16 +131,37 @@
 .fc-discard-history[data-axis="y"] > .fc-card + .fc-card { margin-top: -29px; }
 /* History traces an inner ring without a frame. Missing provenance stays neutral. */
 .fc-history { position: absolute; }
-.fc-history-north, .fc-history-south { left: calc(var(--fc-side) + 6px); right: calc(var(--fc-side) + 6px); height: 21px; flex-wrap: nowrap; justify-content: safe center; }
+.fc-history-north, .fc-history-south { left: calc(var(--fc-side) + 6px); right: calc(var(--fc-side) + 6px); height: 21px; justify-content: flex-start; }
 .fc-history-north { top: 112px; }
-.fc-history-south { bottom: 106px; }
-.fc-history-west, .fc-history-east { width: 21px; top: 136px; bottom: 132px; }
+.fc-history-south { bottom: 98px; }
+.fc-history-west, .fc-history-east { width: 21px; top: 136px; bottom: 124px; }
 .fc-history-west { left: calc(var(--fc-side) + 6px); }
 .fc-history-east { right: calc(var(--fc-side) + 6px); }
-.fc-history-north-west, .fc-history-north-east { top: 146px; height: 21px; width: calc(50% - var(--fc-side) - 9px); flex-wrap: nowrap; justify-content: safe center; }
-.fc-history-north-west { left: calc(var(--fc-side) + 6px); }
-.fc-history-north-east { right: calc(var(--fc-side) + 6px); }
-.fc-table[data-seats="5"] :is(.fc-history-west, .fc-history-east) { top: 170px; bottom: 132px; }
+/* Independent five-seat ring: two upper shoulders, two sides, viewer below.
+   The two upper history edges slope toward one apex instead of splitting a
+   narrow horizontal track. Seat ownership and clockwise order stay unchanged. */
+.fc-table[data-seats="5"] {
+  --fc-side: clamp(86px, 21%, 150px);
+  --fc-ring-width: min(170px, calc(100% - 2 * var(--fc-side) - 24px));
+  height: 500px;
+}
+.fc-table[data-seats="5"] .fc-position-north-west .fc-seat-identity { left: calc(25% - 50px); top: 16px; }
+.fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { right: calc(25% - 50px); top: 16px; }
+.fc-table[data-seats="5"] :is(.fc-position-west, .fc-position-east) .fc-seat-identity { top: 210px; bottom: auto; width: var(--fc-side); }
+.fc-table[data-seats="5"] .fc-position-south .fc-seat-identity { left: calc(50% - 50px); right: auto; bottom: 8px; }
+.fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 58px; width: calc(50% - 16px); height: 90px; justify-content: safe center; }
+.fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public { left: 10px; }
+.fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public { right: 10px; }
+.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 252px; bottom: 150px; }
+.fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 32px; right: 32px; bottom: 48px; height: 80px; }
+.fc-table[data-seats="5"] .fc-table-center { top: 244px; height: 104px; grid-template-rows: 54px 18px 32px; width: calc(var(--fc-ring-width) - 46px); }
+.fc-table[data-seats="5"] :is(.fc-history-north-west, .fc-history-north-east) { top: 210px; height: 21px; width: calc(var(--fc-ring-width) * .61); }
+.fc-table[data-seats="5"] .fc-history-north-west { left: calc(50% - var(--fc-ring-width) / 2); transform: rotate(-35deg); transform-origin: left center; }
+.fc-table[data-seats="5"] .fc-history-north-east { right: calc(50% - var(--fc-ring-width) / 2); transform: rotate(35deg); transform-origin: right center; }
+.fc-table[data-seats="5"] :is(.fc-history-west, .fc-history-east) { top: 234px; bottom: 154px; }
+.fc-table[data-seats="5"] .fc-history-west { left: calc(50% - var(--fc-ring-width) / 2); }
+.fc-table[data-seats="5"] .fc-history-east { right: calc(50% - var(--fc-ring-width) / 2); }
+.fc-table[data-seats="5"] .fc-history-south { left: calc(50% - var(--fc-ring-width) / 2); right: calc(50% - var(--fc-ring-width) / 2); top: 350px; bottom: auto; }
 .fc-neutral-pile { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 12px 20px; min-width: 0; min-height: 0; flex: 1; }
 .fc-neutral-pile > .fc-meta { font-size: 9px; line-height: 12px; }
 .fc-discards:has(.fc-neutral-pile + .fc-neutral-pile) { display: flex; gap: 4px; }
@@ -157,8 +170,8 @@
 .fc-history-card .fc-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); }
 .fc-offer { position: relative; display: flex; align-items: center; justify-content: center; flex: none; }
 .fc-offer > .fc-meta { position: absolute; right: 0; bottom: calc(100% + 5px); white-space: nowrap; font-size: 9px; }
-:is(.fc-discard-history, .fc-offer) .fc-card { --fc-width: 18px; --fc-height: 47px; --fc-glyph: 14px; padding: 4px 1px; }
-.fc-discard-history .fc-card { display: flex; flex-direction: column; justify-content: space-between; padding: 2px 1px; }
+:is(.fc-discard-history, .fc-offer) .fc-card { --fc-width: 18px; --fc-height: 47px; --fc-glyph: 14px; padding: 2px 1px; }
+.fc-discard-history .fc-card { display: flex; flex-direction: column; justify-content: space-between; }
 :is(.fc-discard-history, .fc-offer) .fc-card small { font-size: 8px; }
 .fc-table .fc-card-current { box-shadow: 0 0 0 2px #fff8cf, 0 0 8px 3px #e6c65a80; }
 .fc-turn { align-self: end; text-align: center; white-space: nowrap; }
@@ -174,7 +187,7 @@
   background-image: repeating-linear-gradient(0deg, #ffffff08 0 1px, transparent 1px 3px);
   box-shadow: 0 1px 2px #4a3c2926; font-family: "Noto Serif TC", "Songti TC", PMingLiU, serif;
 }
-.fc-card::before { content: ""; position: absolute; inset: 3px; border-inline: 1px solid currentColor; border-block: 3px solid currentColor; opacity: .5; pointer-events: none; }
+.fc-card::before { content: ""; position: absolute; inset: 1px; border-block: 1px solid currentColor; opacity: .3; pointer-events: none; }
 .fc-card strong { font-size: var(--fc-glyph); line-height: 1; font-weight: 600; }
 .fc-card small { font: 9px/1.2 system-ui, sans-serif; }
 .fc-R { --fc-paper: #e77c55; --fc-ink: #3d1c16; }
