@@ -242,7 +242,8 @@ function backend(input) {
           const acting=page.locator('.fc-turn-indicator');
           assert.equal(await acting.count(),fixture.room.status==='playing'?1:0);
           if(await acting.count()) {
-            assert.equal(await acting.innerText(),'▸ 行动中');
+            assert.equal(await acting.innerText(),'行动中');
+            assert.equal(await page.locator('.fc-seat-counts > .fc-turn-indicator').count(),1);
             assert.ok(await acting.evaluate(n=>{
               const s=getComputedStyle(n),r=n.getBoundingClientRect();
               return s.whiteSpace==='nowrap' && r.height<20 && s.backgroundColor!=='rgba(0, 0, 0, 0)';
@@ -420,10 +421,10 @@ function backend(input) {
           await oldStyle.evaluate(n=>n.remove());
           await page.locator('#four-color-styles').evaluate(n=>n.disabled=false);
           const after=await measure();
-          assert.equal(after.neutral.x-before.neutral.x,12,'neutral history moves right, not the south rail');
-          assert.equal(after.neutral.y-before.neutral.y,10,'neutral history moves down by 10px');
-          assert.ok(after.neutral.width-before.neutral.width>=24,'neutral history extends to the right');
-          assert.ok(after.neutral.x-after.west.x-after.west.width>=8,'clear gap beside the left player rail');
+          assert.equal(after.neutral.x-before.neutral.x,-6,'neutral history returns 6px left from 554756f');
+          assert.equal(after.neutral.y-before.neutral.y,22,'container replaces the removed 12px heading and moves faces 10px lower');
+          assert.ok(after.neutral.width<before.neutral.width,'neutral history no longer extends into the right public area');
+          assert.ok(after.neutral.x-after.west.x-after.west.width>=3,'neutral history remains separate from the left player rail');
           assert.deepEqual(after.south,before.south,'south player rail stays unchanged');
           fs.writeFileSync(path.join(out,'neutral-before-after.json'),JSON.stringify({before,after},null,2));
         }
@@ -474,7 +475,10 @@ function backend(input) {
             // Both neutral provenance types can coexist without fabricating a player.
             neutralIds.slice(4).forEach(id=>delete s.discard_sources[id]);
             await refresh();await completeCards();await screenshot('ring-4-both-neutral-sources');
-            assert.equal(await page.locator('.fc-neutral-pile').count(),2);
+            assert.equal(await page.locator('.fc-neutral-pile').count(),1,'neutral origins share one strip without losing per-card provenance');
+            assert.equal(await page.locator('.fc-neutral-pile .fc-meta').count(),0);
+            assert.equal(await page.locator('.fc-neutral-pile [aria-label^="无人收取"]').count(),4);
+            assert.equal(await page.locator('.fc-neutral-pile [aria-label^="来源未记录"]').count(),4);
             await checkRailHeads();
           }
         }
@@ -537,7 +541,7 @@ function backend(input) {
                 const f=c.getBoundingClientRect();return {id:c.dataset.cardId,left:f.left,right:f.right,top:f.top,bottom:f.bottom};
               })};
             };
-            if(sparse) return [measure()];
+            if(sparse && n.scrollWidth<=n.clientWidth && n.scrollHeight<=n.clientHeight) return [measure()];
             const ends=[];
             for(const end of [0,1]) {
               n.scrollLeft=end*n.scrollWidth; n.scrollTop=end*n.scrollHeight;
@@ -555,6 +559,7 @@ function backend(input) {
         for(const source of ['unknown','deck']) for(const n of [1,2,3]) {
           s.discards=green.slice(0,n); s.discard_sources=source==='deck'?Object.fromEntries(s.discards.map(id=>[id,null])):{};
           await refresh();
+          if(n<=2)assert.ok(await page.locator('.fc-neutral-pile .fc-discard-history').evaluate(n=>n.scrollWidth===n.clientWidth),'one/two cards fit with the complete final border before scrolling');
           const evidence=await fullFaces(page.locator('.fc-neutral-pile .fc-discard-history'),true);
           metrics.push({mode,width,source,cards:n,evidence});
           if((source==='unknown'&&n===2)||(source==='deck'&&n===3)) await screenshot(`followup-${count}-${source}-${n}`);

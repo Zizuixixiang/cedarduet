@@ -51,14 +51,12 @@
 .fc-seat .room-participant-avatar { width: 22px; height: 22px; flex: 0 0 22px; border-width: 1px; border-radius: 50%; font-size: 11px; }
 .fc-seat-copy { display: grid; min-width: 0; flex: 1; gap: 1px; }
 .fc-seat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; writing-mode: horizontal-tb; font-size: 11px; line-height: 1.4; }
-.fc-seat-counts { display: flex; align-items: center; gap: 4px; font-size: 10px; line-height: 1.3; white-space: nowrap; }
+.fc-seat-counts { display: flex; align-items: center; gap: 1px; font-size: 10px; line-height: 1.3; white-space: nowrap; }
 .fc-dealer { color: #76540c; font-size: 9px; }
 .fc-turn-indicator {
-  position: absolute; left: 0; top: -12px; z-index: 1;
-  padding: 1px 4px; border-radius: 3px; background: #a74740; color: #fff;
+  flex: none; padding: 1px; border-radius: 3px; background: #a74740; color: #fff;
   font: 700 9px/1.25 system-ui, sans-serif; white-space: nowrap;
 }
-:is(.fc-position-east, .fc-position-north-east, .fc-position-south) .fc-turn-indicator { left: auto; right: 0; }
 .fc-groups, .fc-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px; }
 .fc-groups { gap: 6px; }
 .fc-groups .fc-cards { padding: 3px; background: #fffef5; border: 1px solid #b9d4c9; border-radius: 3px; }
@@ -122,11 +120,11 @@
 .fc-table:has(.fc-history-west, .fc-history-east) { --fc-neutral-extra: 0px; }
 .fc-discards { min-width: 0; min-height: 0; width: calc(100% + var(--fc-neutral-extra)); justify-self: center; }
 .fc-discards:empty { display: none; }
-/* Move the neutral history itself, independently of the south player's rail.
-   Two provenance labels still have room for complete 47px end cards. */
+/* A modest neutral strip, separate from the south player's rail. The extra
+   12px replaces the removed heading, keeping the faces 10px lower than before. */
 .fc-table[data-seats="4"] .fc-discards {
-  position: relative; justify-self: start; left: 12px; top: 10px;
-  width: max(102px, calc(100% + 24px)); pointer-events: none;
+  position: relative; justify-self: start; left: 6px; top: 32px;
+  width: calc(100% + 10px); pointer-events: none;
 }
 .fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: none; overscroll-behavior: contain; }
 .fc-seat-public::-webkit-scrollbar, .fc-discard-history::-webkit-scrollbar { display: none; }
@@ -183,9 +181,7 @@
 .fc-table[data-seats="5"] .fc-history-east { --fc-ring-angle: 144deg; }
 .fc-table[data-seats="5"] .fc-history-south { --fc-ring-angle: 216deg; }
 .fc-table[data-seats="5"] .fc-history-west { --fc-ring-angle: 288deg; }
-.fc-neutral-pile { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 12px 20px; min-width: 0; min-height: 0; flex: 1; }
-.fc-neutral-pile > .fc-meta { justify-self: start; font-size: 9px; line-height: 12px; pointer-events: auto; }
-.fc-discards:has(.fc-neutral-pile + .fc-neutral-pile) { display: flex; gap: 4px; }
+.fc-neutral-pile { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px; min-width: 0; min-height: 0; }
 .fc-neutral-pile .fc-discard-history { min-height: 0; pointer-events: auto; }
 .fc-history-card { position: relative; display: block; flex: none; width: 47px; height: 18px; }
 .fc-history-card .fc-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); }

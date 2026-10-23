@@ -90,7 +90,6 @@
       playerName.title = playerName.textContent;
       copy.append(playerName);
       header.append(avatar, copy);
-      if (current) header.append(el(doc, "span", "fc-turn-indicator", "▸ 行动中"));
       const identity = el(doc, "div", "fc-seat-identity");
       identity.append(header); section.append(identity);
       const counts = [];
@@ -118,6 +117,7 @@
         label.setAttribute("aria-hidden", "true"); countInfo.append(label);
       });
       if (pid === state.dealer_player_id) countInfo.append(el(doc, "span", "fc-dealer", "庄"));
+      if (current) countInfo.append(el(doc, "span", "fc-turn-indicator", "行动中"));
       copy.append(countInfo);
       // Only the public projection belongs on the table. Never consult hands or closed_pairs here.
       const publicCards = el(doc, "div", "fc-seat-public");
@@ -158,7 +158,7 @@
     for (const id of ids) {
       const source = sources[id];
       const seat = [...table.querySelectorAll(".fc-seat")].find(n => n.dataset.playerId === source);
-      const key = seat ? `player:${source}` : source === null ? "deck" : "unknown";
+      const key = seat ? `player:${source}` : "neutral";
       if (!piles.has(key)) {
         const pile = el(doc, "div", "fc-cards fc-discard-history");
         pile.dataset.historyKey = key;
@@ -173,15 +173,19 @@
           table.append(pile);
         } else {
           const group = el(doc, "div", "fc-neutral-pile");
-          const label = key === "deck" ? "翻牌" : "旧弃牌";
-          pile.setAttribute("aria-label", key === "deck" ? "无人收取的公开翻牌，可滚动查看" : "来源未记录的历史弃牌，可滚动查看");
-          group.append(el(doc, "span", "fc-meta", label), pile); neutral.append(group);
+          pile.setAttribute("aria-label", "中立历史牌，含公开翻牌或来源未记录的弃牌，可滚动查看");
+          group.append(pile); neutral.append(group);
         }
         piles.set(key, pile);
       }
       const pile = piles.get(key), face = card(doc, id);
       if (id === recent) face.classList.add("fc-card-current");
       face.title = `${pile.getAttribute("aria-label").split("，")[0]}：${name(id)}`;
+      if (!seat) {
+        const origin = source === null ? "无人收取的公开翻牌" : "来源未记录的历史弃牌";
+        face.title = `${origin}：${name(id)}`;
+        face.setAttribute("aria-label", face.title);
+      }
       if (pile.dataset.axis === "x") {
         const slot = el(doc, "span", "fc-history-card"); slot.append(face); pile.append(slot);
       } else pile.append(face);
