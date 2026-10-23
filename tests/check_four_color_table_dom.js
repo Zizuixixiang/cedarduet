@@ -160,6 +160,11 @@ function backend(request, db) {
         assert.equal(doc.querySelector('.fc-history').dataset.position,doc.querySelector('.fc-seat[data-player-id="p0"]').dataset.position);
         assert.deepEqual([...doc.querySelectorAll('.fc-neutral-pile [data-card-id]')].map(n=>n.dataset.cardId),['R5-2','G5-2'],'deck and old unknown cards remain neutral');
         assert.equal(doc.querySelectorAll('.fc-table [data-card-id="Y0-4"]').length,0,'metadata alone never exposes a card');
+        for(const pile of doc.querySelectorAll('.fc-discard-history')) assert.equal(pile.dataset.axis,/^(west|east)$/.test(pile.dataset.position)?'y':'x','player and neutral histories declare their single scroll axis');
+        state.discards=['G4-1','G6-1']; state.discard_sources={}; state.offer=null; render();
+        assert.equal(doc.querySelectorAll('.fc-discard-history').length,1);
+        assert.equal(doc.querySelector('.fc-discard-history').dataset.axis,'x');
+        assert.equal(doc.querySelectorAll('.fc-history').length,0,'two legacy greens stay neutral');
         state.offer=null;
         context.canMove=false; render();
         assert.equal(doc.querySelectorAll('.fc-hand button:not(:disabled)').length,0);

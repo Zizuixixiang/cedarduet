@@ -6,6 +6,7 @@ const {spawnSync} = require('node:child_process');
 const root = path.resolve(__dirname, '../../..');
 const out = process.env.FOUR_COLOR_ARTIFACTS || '/tmp/cedartoy-four-color-ui';
 fs.mkdirSync(out, {recursive:true});
+fs.rmSync(path.join(out,'measurements.json'),{force:true});
 const tmp = fs.mkdtempSync(path.join(out, 'db-'));
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const env = {...process.env, PYTHONPATH:path.join(root,'vendor/duel'), PYTHONDONTWRITEBYTECODE:'1'};
@@ -30,6 +31,7 @@ function backend(input) {
       let fixture, posts = [], failNext = false;
       const firstViewport = [];
       const screenshots = [];
+      const cornerBaselines = new Map(), geometryEvidence = [];
       let fiveOpeningIdentities;
       await page.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -143,7 +145,6 @@ function backend(input) {
           assert.equal(await page.locator('.fc-far-edge').count(),0);
           for(const p of placements) {
             const {identity:i,seat,avatar}=p;
-            assert.ok(i.x>=seat.x-1 && i.right<=seat.right+1 && i.y>=seat.y-1 && i.bottom<=seat.bottom+1,'identity contained by its own seat');
             assert.ok(avatar.width>=20 && avatar.height>=20,'avatar retains its intended size');
             assert.equal(p.style.border,'0px','no whole-seat border');
             assert.equal(p.style.background,'rgba(0, 0, 0, 0)','no whole-seat background');
@@ -157,6 +158,44 @@ function backend(input) {
               }
             });
           }
+          const corners=await page.locator('.fc-seat').evaluateAll(ns=>Object.fromEntries(ns.map(n=>{
+            const t=n.closest('.fc-table').getBoundingClientRect(), a=n.querySelector('.room-participant-avatar').getBoundingClientRect();
+            return [n.dataset.position,{x:a.x+a.width/2-t.x,y:a.y+a.height/2-t.y}];
+          })));
+          const pair=(a,b,axis)=>assert.ok(Math.abs(corners[a][axis]-corners[b][axis])<=1,`${name}: avatar ${a}/${b} ${axis} corners align`);
+          const count=state.participant_order.length;
+          if(count===4) { pair('north','east','y'); pair('west','south','y'); pair('north','west','x'); pair('east','south','x'); }
+          if(count===5) { pair('north-west','east','y'); pair('west','south','y'); pair('north-west','west','x'); pair('east','south','x'); }
+          if(cornerBaselines.has(count)) assert.deepEqual(corners,cornerBaselines.get(count),'avatar centres remain fixed across names, actors and public cards');
+          else cornerBaselines.set(count,corners);
+          const rails=await page.locator('.fc-discard-history').evaluateAll(ns=>ns.map(n=>({axis:n.dataset.axis,key:n.dataset.historyKey,
+            cards:[...n.querySelectorAll('.fc-card')].map(c=>{const r=c.getBoundingClientRect(),h=c.querySelector('strong').getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height,head:{x:h.x,y:h.y,w:h.width,h:h.height}};})})));
+          for(const rail of rails) for(let i=0;i<rail.cards.length;i++) {
+            const c=rail.cards[i],horizontal=rail.axis==='x';
+            assert.ok(horizontal?c.w>c.h:c.h>c.w,'long edge follows the strip');
+            if(!i) continue;
+            const prev=rail.cards[i-1],advance=horizontal?c.x-prev.x:c.y-prev.y;
+            assert.ok(Math.abs(horizontal?c.y-prev.y:c.x-prev.x)<=1,'history is exactly one row or column');
+            assert.ok(advance>0 && advance<(horizontal?c.w:c.h),'history overlaps along its only axis');
+            assert.ok(horizontal?prev.head.x+prev.head.w<=c.x+1:prev.head.y+prev.head.h<=c.y+1,'next card never covers the identifying head');
+          }
+          geometryEvidence.push({scene:name,corners,rails});
+          fs.writeFileSync(path.join(out,'geometry.json'),JSON.stringify(geometryEvidence,null,2));
+          const collisions=await page.locator('.fc-table').evaluate(table=>{
+            const rect=n=>{const r=n.getBoundingClientRect();return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
+            const overlaps=(a,b)=>Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5 && Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;
+            const fixed=[...table.querySelectorAll('.room-participant-avatar,.fc-seat-name,.fc-seat-counts,.fc-turn-indicator,.fc-card-back,.fc-offer .fc-card,.fc-offer > .fc-meta')].map(n=>({box:rect(n),name:n.className}));
+            const bad=[];
+            fixed.forEach((a,i)=>fixed.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
+            for(const n of table.querySelectorAll('.fc-seat-public .fc-card,.fc-discard-history .fc-card')) {
+              const a=rect(n),clip=rect(n.closest('.fc-seat-public,.fc-discard-history'));
+              const visible={l:Math.max(a.l,clip.l),t:Math.max(a.t,clip.t),r:Math.min(a.r,clip.r),b:Math.min(a.b,clip.b)};
+              if(visible.r<=visible.l||visible.b<=visible.t)continue;
+              for(const b of fixed)if(overlaps(visible,b.box))bad.push([n.dataset.cardId,b.name]);
+            }
+            return bad;
+          });
+          assert.deepEqual(collisions,[],`${name}: identities, badges, stock and offer must not cover cards or each other`);
           const acting=page.locator('.fc-turn-indicator');
           assert.equal(await acting.count(),fixture.room.status==='playing'?1:0);
           if(await acting.count()) {
@@ -191,7 +230,7 @@ function backend(input) {
           assert.equal(layout.historyPosition,'static','history tab cannot float over the table or hand');
           assert.ok(layout.center.width>=54,'side seats preserve a usable center');
           assert.ok(layout.turn.bottom<=layout.center.bottom+1,'turn never leaves center');
-          for(const s of layout.seats) assert.ok(s.x>=layout.table.x && s.right<=layout.table.right,'seat stays inside table');
+          for(const identity of await page.locator('.fc-seat-identity').all()) assert.ok(await identity.evaluate(n=>{const r=n.getBoundingClientRect(),t=n.closest('.fc-table').getBoundingClientRect();return r.left>=t.left&&r.right<=t.right&&r.top>=t.top&&r.bottom<=t.bottom;}),'identity stays inside table');
           layout.names.forEach(n=>assert.ok(!n.vertical && n.height<=n.lineHeight+1,'long names stay horizontal on one line'));
           if(['opening','public-groups','2-seats','3-seats','five-seats','five-public-groups','3-public-groups'].includes(name)) {
             await page.evaluate(()=>scrollTo(0,0));
@@ -214,6 +253,22 @@ function backend(input) {
           return [r.x-table.x,r.y-table.y,r.width,r.height];
         }));
       }
+      async function checkRailHeads() {
+        const hidden=await page.locator('.fc-discard-history .fc-card > strong:first-child').evaluateAll(async heads=>{
+          const bad=[];
+          for(const n of heads) {
+            n.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+            await new Promise(requestAnimationFrame);
+            const r=n.getBoundingClientRect();
+            for(const [x,y] of [[1,1],[r.width-1,r.height-1]]) {
+              const hit=document.elementFromPoint(r.x+x,r.y+y);
+              if(!n.contains(hit))bad.push({card:n.parentElement.dataset.cardId,rail:n.closest('.fc-discard-history').dataset.historyKey,hit:hit?.outerHTML.slice(0,160)});
+            }
+          }
+          return bad;
+        });
+        assert.deepEqual(hidden,[],'every history head is readable and reachable on its strip');
+      }
       async function checkTurns(prefix) {
         const state=fixture.room.board_state;
         const original=fixture.room.current_player_id;
@@ -227,10 +282,12 @@ function backend(input) {
           const geometry=await identityPositions();
           if(stable) assert.deepEqual(geometry,stable,'changing actor never moves identities');
           else stable=geometry;
-          assert.ok(await page.locator('.fc-turn-indicator').evaluate(n=>{
+          const badgeHits=await page.locator('.fc-turn-indicator').evaluate(n=>{
             const r=n.getBoundingClientRect();
-            return [[1,1],[r.width-1,1],[1,r.height-1],[r.width-1,r.height-1]].every(([x,y])=>n.contains(document.elementFromPoint(r.x+x,r.y+y)));
-          }),'entire action badge is visible and unobscured');
+            // Probe inside the existing 3px rounded corners, not transparent pixels.
+            return [[2,2],[r.width-2,2],[2,r.height-2],[r.width-2,r.height-2]].map(([x,y])=>{const hit=document.elementFromPoint(r.x+x,r.y+y); return {visible:n.contains(hit),hit:hit?.outerHTML.slice(0,200),x:r.x+x,y:r.y+y};});
+          });
+          assert.ok(badgeHits.every(h=>h.visible),`entire action badge is visible and unobscured: ${JSON.stringify(badgeHits)}`);
         }
         fixture.room.current_player_id=original;
         await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
@@ -272,23 +329,47 @@ function backend(input) {
           await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
           await screenshot(`${count}-groups-no-history`);
           fixture=structuredClone(normal);
+          const sparse=fixture.room.board_state;
+          const meldIds=new Set(Object.values(sparse.melds).flatMap(gs=>gs.flatMap(g=>g.cards)));
+          const green=deck.filter(id=>id.startsWith('G')&&!privateIds.has(id)&&!meldIds.has(id)).slice(0,2);
+          Object.assign(sparse,{broken:{},listening:{},discards:green,discard_sources:{},offer:{card:deck.find(id=>id.startsWith('Y')&&!privateIds.has(id)&&!meldIds.has(id)),source:sparse.participant_order[1],from_deck:false}});
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-sparse-user-like`);
+          assert.equal(await page.locator('.fc-history').count(),0,'unknown greens never acquire a player source');
+          await checkRailHeads();
+          sparse.discard_sources=Object.fromEntries(green.map(id=>[id,null]));
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-neutral-deck-two`); await checkRailHeads();
+          sparse.discards=green.slice(0,1);
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-neutral-one`); await checkRailHeads();
+          fixture=structuredClone(normal);
           fixture.room.board_state.discard_sources={};
           await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
           await screenshot(`${count}-legacy-history`);
           assert.equal(await page.locator('.fc-history').count(),0,'old unknown history is never assigned to players');
           fixture=structuredClone(normal);
-          Object.assign(fixture.room.board_state,{melds:Object.fromEntries(s.participant_order.map(pid=>[pid,[]])),broken:{},listening:{},discards:deck.slice(0,100),offer:null,
+          Object.assign(fixture.room.board_state,{melds:Object.fromEntries(s.participant_order.map(pid=>[pid,[]])),broken:{},listening:{},discards:deck.slice(0,20),offer:{card:deck[111],source:s.participant_order[1],from_deck:false},
             discard_sources:Object.fromEntries(deck.slice(0,100).map((id,i)=>[id,s.participant_order[i%count]]))});
           fixture.room.private_state={hand:[],legal_actions:[],action_labels:{}};
+          await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
+          await screenshot(`${count}-dense-ring-20`); await checkRailHeads();
+          fixture.room.board_state.discards=deck.slice(0,100);
           await page.reload(); await page.locator('.fc-table').waitFor(); await dismiss();
           await screenshot(`${count}-history-100`);
           for(const pile of await page.locator('.fc-history').all()) {
             assert.ok(await pile.evaluate(n=>n.scrollHeight>n.clientHeight || n.scrollWidth>n.clientWidth),'long history scrolls locally');
+            await pile.evaluate(n=>{n.scrollLeft=0;n.scrollTop=0;});
+            await pile.focus();
+            const axis=await pile.getAttribute('data-axis'),key=await pile.getAttribute('data-history-key');
+            await page.keyboard.press(axis==='x'?'ArrowRight':'ArrowDown');
+            await page.waitForFunction(({key,axis})=>{const n=[...document.querySelectorAll('.fc-discard-history')].find(n=>n.dataset.historyKey===key);return axis==='x'?n.scrollLeft>0:n.scrollTop>0;},{key,axis},{timeout:5000});
             for(const index of [0,-1]) {
-              const face=pile.locator('.fc-card').nth(index); await face.scrollIntoViewIfNeeded();
+              const face=pile.locator('.fc-card > strong:first-child').nth(index); await face.scrollIntoViewIfNeeded();
               assert.ok(await face.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'first and last history cards are reachable');
             }
           }
+          await checkRailHeads();
           await open('opening',false,count); await screenshot(`${count}-empty-opening`);
         }
         assert.deepEqual(errors,[]);

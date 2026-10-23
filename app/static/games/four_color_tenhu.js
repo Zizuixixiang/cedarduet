@@ -162,6 +162,7 @@
       if (!piles.has(key)) {
         const pile = el(doc, "div", "fc-cards fc-discard-history");
         pile.dataset.historyKey = key;
+        pile.dataset.axis = seat && /^(west|east)$/.test(seat.dataset.position) ? "y" : "x";
         pile.tabIndex = 0; pile.setAttribute("role", "group");
         if (seat) {
           pile.classList.add("fc-history", `fc-history-${seat.dataset.position}`);
@@ -289,8 +290,12 @@
       const key = history.dataset.historyKey;
       const cards = [...history.querySelectorAll("[data-card-id]")].map(n => n.dataset.cardId).join(",");
       const saved = local.histories[key];
-      history.scrollTop = saved?.cards === cards ? saved.top : history.scrollHeight;
-      history.scrollLeft = saved?.cards === cards ? saved.left : history.scrollWidth;
+      const edge = history.getBoundingClientRect();
+      const head = [...history.querySelectorAll(".fc-card > strong:first-child")].at(-1)?.getBoundingClientRect();
+      // Reveal the newest identifying head, not its long trailing tail. Two
+      // cards must not lose their first head just to scroll a blank tail in.
+      history.scrollTop = saved?.cards === cards ? saved.top : Math.max(0, (head?.bottom || 0) - edge.bottom + 2);
+      history.scrollLeft = saved?.cards === cards ? saved.left : Math.max(0, (head?.right || 0) - edge.right + 2);
       const remember = () => { local.histories[key] = {cards, top: history.scrollTop, left: history.scrollLeft}; };
       remember(); history.addEventListener("scroll", remember, {passive:true});
     });
