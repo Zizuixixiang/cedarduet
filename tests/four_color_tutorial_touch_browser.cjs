@@ -17,6 +17,7 @@ function backend(request, db) {
   assert.equal(r.status,0,r.stderr);const result=JSON.parse(r.stdout);assert.ok(result.ok,JSON.stringify(result));return result;
 }
 async function swipe(page, port, axis) {
+  await port.evaluate(n => { n.scrollLeft = 0; n.scrollTop = 0; });
   const r=await port.boundingBox();
   const before=await port.evaluate(n=>({x:n.scrollLeft,y:n.scrollTop,parent:n.closest('dialog').scrollTop,page:scrollY}));
   const cdp=await page.context().newCDPSession(page);
@@ -37,12 +38,12 @@ async function swipe(page, port, axis) {
 async function spotlightMetrics(page) {
   const metrics = await page.evaluate(() => {
     const dialog = document.querySelector('.fc-tutorial');
-    const target = dialog.querySelector('.fc-tutorial-demo');
+    const target = dialog.querySelector('[data-tutorial-target]');
     const spotlight = dialog.querySelector('.fc-tutorial-spotlight');
     const panel = dialog.querySelector('.fc-tutorial-panel');
     const t = target.getBoundingClientRect(), h = spotlight.getBoundingClientRect(), p = panel.getBoundingClientRect();
     const box = r => ({x:r.x,y:r.y,width:r.width,height:r.height});
-    const ports = [...target.querySelectorAll('.fc-seat-public')];
+    const ports = target.tabIndex === 0 ? [target] : [];
     return {
       target:box(t), spotlight:box(h), panel:box(p),
       aligned:Math.abs(h.x-t.x+4)<1 && Math.abs(h.y-t.y+4)<1
@@ -98,15 +99,25 @@ async function spotlightMetrics(page) {
       assert.equal(await page.locator('#fc-tutorial-copy').innerText(),'上下横滑、左右竖滑，就能查看被叠住的牌。');
       await shot('welcome');await button('查看教程').click();
       const scrolls=[], highlights=[];
-      for(const axis of ['x','y']) {
-        if(axis==='y')await button('下一步').click();
-        const demo=page.locator('.fc-tutorial-demo');assert.equal(await demo.getAttribute('data-axis'),axis);
-        const rect=await page.locator('.fc-tutorial').boundingBox();
-        assert.ok(rect.x>=0&&rect.y>=0&&rect.x+rect.width<=width&&rect.y+rect.height<=800,'modal fits viewport');
-        assert.equal(await page.locator('.fc-tutorial [data-card-id]').count(),0);
-        for(const port of await demo.locator('.fc-seat-public').all())scrolls.push(await swipe(page,port,axis));
+      for (let step = 0; step < 4; step++) {
+        if (step) await button('下一步').click();
+        const board = page.locator('.fc-tutorial-board');
+        assert.equal(await board.locator('.fc-seat').count(), 4);
+        assert.equal(await board.locator('.room-participant-avatar').count(), 4);
+        assert.equal(await board.locator('.fc-stock').count(), 1);
+        assert.ok(await board.locator('.fc-hand').count());
+        assert.equal(await board.getAttribute('data-source'), status === 'waiting' ? 'example' : 'snapshot');
+        assert.equal(await board.locator('button:not(:disabled)').count(), 0);
+        const port = board.locator('[data-tutorial-target]');
+        const axis = step < 2 ? 'x' : 'y';
+        const overflow = await port.evaluate((n, axis) => axis === 'x'
+          ? n.scrollWidth - n.clientWidth : n.scrollHeight - n.clientHeight, axis);
+        // Sparse real snapshots must stay sparse. Never inject fake cards into them.
+        if (overflow > 20) scrolls.push(await swipe(page, port, axis));
+        else scrolls.push({axis, step, overflow, skipped:'no overflow in this projection'});
+        if (status === 'waiting' && [0, 2, 3].includes(step)) assert.ok(overflow > 20, 'example provides horizontal and vertical practice');
         highlights.push(await spotlightMetrics(page));
-        await shot(axis==='x'?'horizontal':'vertical');
+        await shot(`full-board-step-${step + 1}`);
       }
       assert.equal(await page.evaluate(()=>JSON.stringify(room)),stateBefore,'practice cannot mutate room state');
       assert.equal(await page.evaluate(()=>JSON.stringify(registeredGameUIState)),uiBefore,'practice cannot mutate UI drafts');
@@ -120,8 +131,8 @@ async function spotlightMetrics(page) {
         await page.keyboard.press('Tab');
         assert.ok(await page.evaluate(()=>!!document.activeElement.closest('.fc-tutorial')));
       }
-      await button('上一步').click();assert.equal(await page.locator('.fc-tutorial-demo').getAttribute('data-axis'),'x');
-      await button('关闭本次教程').click();assert.equal(await page.locator('.fc-tutorial-demo').count(),0);
+      await button('上一步').click();assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'3');
+      await button('关闭本次教程').click();assert.equal(await page.locator('.fc-tutorial-board').count(),0);
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
       await page.reload();await page.locator('.fc-tutorial[open]').waitFor();
       await page.keyboard.press('Escape');assert.equal(await page.locator('.fc-tutorial').count(),0);
@@ -131,19 +142,19 @@ async function spotlightMetrics(page) {
       await page.reload();await page.locator(status==='waiting'?'#inviteRoomPanel:not(.hidden)':'.fc-table').waitFor();
       assert.equal(await page.locator('.fc-tutorial').count(),0);
       await page.evaluate(k=>localStorage.removeItem(k),key);await page.reload();await button('查看教程').click();
-      await button('下一步').click();await button('完成').click();assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');
+      for (let i = 0; i < 3; i++) await button('下一步').click();await button('完成').click();assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');
       await page.reload();await page.locator(status==='waiting'?'#inviteRoomPanel:not(.hidden)':'.fc-table').waitFor();
       assert.equal(await page.locator('.fc-tutorial').count(),0);
       if(status==='waiting') {
         await page.evaluate(k=>localStorage.removeItem(k),key);await page.reload();await button('查看教程').click();
         fixture=backend({action:'start',room_id:fixture.room.room_id},db);
-        const remaining=await page.evaluate(f=>{renderGame(f.room,'',f.timeline);return document.querySelectorAll('.fc-tutorial, .fc-tutorial-demo').length;},fixture);
+        const remaining=await page.evaluate(f=>{renderGame(f.room,'',f.timeline);return document.querySelectorAll('.fc-tutorial, .fc-tutorial-board').length;},fixture);
         assert.equal(remaining,0,'waiting -> playing removes the whole tutorial synchronously');
         assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
       }
       assert.deepEqual(errors,[]);
       evidence.push({status,width,scrolls,highlights,errors});fs.writeFileSync(path.join(out,'measurements.json'),JSON.stringify(evidence,null,2));
-      console.log(`PASS ${status}/${width}: both rails in both directions; state isolated; memory and cleanup`);
+      console.log(`PASS ${status}/${width}: full board and actual region highlights; state isolated; memory and cleanup`);
       await page.close();
     }
   } finally {await browser?.close();fs.rmSync(tmp,{recursive:true,force:true});}

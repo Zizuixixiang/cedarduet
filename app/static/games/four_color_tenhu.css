@@ -254,7 +254,7 @@
   .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-history-east { bottom: 202px; }
   .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-position-east .fc-seat-public { width: min(calc(var(--fc-side) - 24px), calc(100% - var(--fc-side) - 148px)); }
 }
-/* Gem Merchant's top-layer spotlight; the target is independent practice DOM. */
+/* Gem Merchant spotlight over a complete, isolated normal board. */
 /* Sequence the room hint after the tutorial without changing its preference. */
 body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
 
@@ -268,17 +268,18 @@ body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
 .fc-tutorial::backdrop { background: transparent; }
 .fc-tutorial.has-target { background: transparent; }
 .fc-tutorial-stage {
-  min-height: 100%; padding: 16px; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 18px;
+  position: relative; z-index: 0; isolation: isolate;
+  box-sizing: border-box; min-height: 100%; padding: 12px;
 }
 .fc-tutorial-spotlight {
-  position: absolute; z-index: 1; pointer-events: none;
+  position: absolute; box-sizing: border-box; z-index: 1; pointer-events: none;
   border: 2px solid var(--purple-darker, #8678A0);
   box-shadow: 0 0 0 9999px rgb(92 84 99 / 55%);
 }
-.fc-tutorial-panel, .fc-tutorial-sample { width: min(340px, 100%); flex: none; }
+.fc-tutorial-board { margin: 0 auto; }
 .fc-tutorial-panel {
-  position: relative; z-index: 2; padding: 12px;
+  position: absolute; z-index: 2; box-sizing: border-box; padding: 12px;
+  left: 50%; transform: translateX(-50%); width: min(340px, calc(100% - 24px));
   border: 3px solid var(--purple); background: var(--bg);
   box-shadow: 4px 4px 0 rgb(155 141 181 / 30%);
 }
@@ -286,17 +287,11 @@ body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
 .fc-tutorial [hidden] { display: none !important; }
 .fc-tutorial-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fc-tutorial h2 { margin: 0; color: var(--purple-darker); font-size: 16px; line-height: 1.3; }
-.fc-tutorial p { margin: 8px 0 12px; }
-.fc-tutorial .pixel-btn { min-height: 44px; padding: 6px 8px; font: 13px/1.4 system-ui, sans-serif; }
-.fc-tutorial .fc-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
+.fc-tutorial-panel p { margin: 8px 0 12px; }
+.fc-tutorial-panel .pixel-btn { min-height: 44px; padding: 6px 8px; font: 13px/1.4 system-ui, sans-serif; }
+.fc-tutorial-panel .fc-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
 .fc-tutorial-actions { display: flex; gap: 8px; }
 .fc-tutorial-actions > button { flex: 1; }
-.fc-tutorial-demo {
-  --fc-public-w: 18px; --fc-public-h: 47px; --fc-step: 18px;
-  display: grid; gap: 12px; padding: 8px; background: #e9f8f3;
-}
-.fc-tutorial-demo > div { min-width: 0; }
-.fc-tutorial-demo .fc-seat-public { position: static; box-sizing: border-box; width: 100%; height: 90px; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; }
-.fc-tutorial-demo[data-axis="y"] { grid-template-columns: 1fr 1fr; }
-.fc-tutorial-demo[data-axis="y"] .fc-seat-public { height: 180px; overflow-x: hidden; overflow-y: auto; touch-action: pan-y; }
+.fc-tutorial-board :is(.fc-position-north, .fc-position-north-west, .fc-position-north-east, .fc-position-south) .fc-seat-public { touch-action: pan-x; }
+.fc-tutorial-board .fc-seat-side .fc-seat-public { touch-action: pan-y; }
 .fc-tutorial :is(button, [tabindex="0"]):focus-visible { outline: 2px solid #665776; outline-offset: 2px; }

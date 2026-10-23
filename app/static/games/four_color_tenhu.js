@@ -207,31 +207,59 @@
     dialog.close(); dialog.remove();
     if (restore && focus?.isConnected) focus.focus({preventScroll: true});
   }
-  function tutorialDemo(doc, vertical) {
-    const demo = el(doc, "div", "fc-tutorial-demo");
-    demo.dataset.axis = vertical ? "y" : "x";
-    demo.setAttribute("aria-label", "独立模拟牌堆，不是对局中的牌");
-    // Two independent, genuinely scrollable rails; reuse the public card faces.
-    for (let edge = 0; edge < 2; edge++) {
-      const seat = el(doc, "div", vertical ? `fc-seat-side fc-facing-${edge ? "left" : "right"}` : "");
-      const port = el(doc, "div", "fc-seat-public");
-      port.tabIndex = 0; port.setAttribute("role", "group");
-      port.setAttribute("aria-label", `${vertical ? "竖滑" : "横滑"}练习牌堆 ${edge + 1}`);
-      const groups = el(doc, "div", "fc-groups fc-seat-groups");
-      for (let i = 0; i < 18; i++) {
-        const pile = el(doc, "div", "fc-cards fc-meld");
-        for (let j = 0; j < 3; j++) {
-          const face = card(doc, `${"RYGW"[(i + edge) % 4]}${j}-1`);
-          face.removeAttribute("data-card-id");
-          if (vertical) {
-            const slot = el(doc, "span", "fc-side-card"); slot.append(face); pile.append(slot);
-          } else pile.append(face);
-        }
-        groups.append(pile);
-      }
-      port.append(groups); seat.append(port); demo.append(seat);
-    }
-    return demo;
+  // Copy projections and allow only avatar painting; never pass live action helpers or uiState.
+  function tutorialBoard(context, board) {
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const example = context.room.status === "waiting" || !context.state?.participant_order?.length;
+    const participants = example ? ["示例玩家", "右家", "对家", "左家"].map((label, i) => ({
+      player_id: `tutorial-${i}`, display_name: label, seat_index: i,
+    })) : clone(context.participants);
+    const order = participants.map(p => p.player_id);
+    const deck = Array.from("RYGW", color => Array.from({length: 7}, (_, rank) =>
+      Array.from({length: 4}, (_, copy) => `${color}${rank}-${copy + 1}`))).flat(2);
+    const state = example ? {
+      board_kind: context.room.game_type || "four_color_tenhu", participant_order: order,
+      dealer_player_id: order[0], turn_player_id: order[0], wall_count: 24,
+      flow: {phase: "discard"}, melds: {}, hand_counts: {}, discards: [], discard_sources: {},
+    } : clone(context.state);
+    const used = new Set();
+    if (example) order.forEach((pid, seat) => {
+      const count = seat % 2 ? 8 : 2;
+      state.melds[pid] = Array.from({length: count}, () => {
+        const first = deck.find(id => !used.has(id) && id.endsWith("-1"));
+        const cards = [1, 2, 3].map(copy => `${first.slice(0, 2)}-${copy}`);
+        cards.forEach(id => used.add(id));
+        return {cards};
+      });
+      state.hand_counts[pid] = 20;
+    });
+    if (example) [order[2], order[0], order[1], order[3]].forEach(pid => {
+      const history = deck.filter(id => !used.has(id)).slice(0, pid === order[2] ? 28 : 1);
+      state.discards.push(...history);
+      history.forEach(id => { used.add(id); state.discard_sources[id] = pid; });
+    });
+    const privateState = example ? {hand: deck.filter(id => !used.has(id)).slice(0, 20).map(id => ({id}))}
+      : clone(context.privateState || {});
+    if (example) state.wall_count = deck.length - used.size - privateState.hand.length;
+    // Removing legal actions prevents even selection handlers being installed.
+    privateState.legal_actions = [];
+    const practice = {
+      board, state, privateState, participants, uiState: {}, canMove: false,
+      viewer: example ? {player_id: order[0]} : clone(context.viewer || {}),
+      room: example ? {current_player_id: order[0]} : clone(context.room),
+      isTerminal: example ? false : context.isTerminal,
+      helpers: {
+        setBoardLayout() {},
+        renderParticipantAvatar(target, participant) {
+          if (!example) context.helpers.renderParticipantAvatar(target, participant);
+          else target.textContent = ["🙂", "🐱", "🐼", "🦊"][participant.seat_index];
+        },
+      },
+    };
+    renderBoard(practice, true);
+    board.dataset.source = example ? "example" : "snapshot";
+    board.setAttribute("aria-label", example ? "教程示例牌桌" : "当前牌桌的只读副本");
+    return example;
   }
   function openTutorial(context) {
     const doc = context.board.ownerDocument;
@@ -239,8 +267,8 @@
     const dialog = el(doc, "dialog", "fc-tutorial");
     dialog.setAttribute("aria-labelledby", "fc-tutorial-title");
     dialog.setAttribute("aria-describedby", "fc-tutorial-copy");
-    // Gem Merchant's modal / spotlight / explanation structure, with an
-    // independent practice target inside the modal so the real game stays inert.
+    // Gem Merchant's modal / spotlight / explanation structure, with a
+    // complete practice board inside the modal so the real game stays inert.
     const spotlight = el(doc, "div", "fc-tutorial-spotlight");
     spotlight.setAttribute("aria-hidden", "true"); spotlight.hidden = true;
     const stage = el(doc, "div", "fc-tutorial-stage");
@@ -257,42 +285,80 @@
     const progress = el(doc, "span", "fc-tutorial-progress"); progress.hidden = true;
     const copy = el(doc, "p", "", "上下横滑、左右竖滑，就能查看被叠住的牌。");
     copy.id = "fc-tutorial-copy"; copy.setAttribute("aria-live", "polite");
-    const sample = el(doc, "div", "fc-tutorial-sample"); sample.hidden = true;
+    const sample = el(doc, "div", "board four_color_tenhu fc-tutorial-board"); sample.hidden = true;
+    let steps = [], step = -1;
+    const targetForStep = () => steps[step]?.target;
     const position = () => {
-      const target = sample.firstElementChild;
+      const target = targetForStep();
       spotlight.hidden = !target;
       dialog.classList.toggle("has-target", !!target);
-      if (!target) return;
-      const rect = target.getBoundingClientRect(), bounds = dialog.getBoundingClientRect();
+      const bounds = dialog.getBoundingClientRect();
+      const panelHeight = panel.getBoundingClientRect().height;
+      if (!target) {
+        panel.style.top = `${Math.max(12, (dialog.clientHeight - panelHeight) / 2)}px`;
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      const top = rect.top - bounds.top + dialog.scrollTop;
+      const bottom = top + rect.height;
+      const below = bottom + 14, above = top - panelHeight - 14;
+      // Keep the normal board geometry. On short screens scroll the tutorial,
+      // never the real page; the explanation never overlaps its target.
+      const panelTop = below + panelHeight <= dialog.clientHeight || above < 12 ? below : above;
+      panel.style.top = `${panelTop}px`;
+      stage.style.minHeight = `${Math.max(sample.offsetHeight + 24, panelTop + panelHeight + 12)}px`;
       Object.assign(spotlight.style, {
-        left: `${rect.left - bounds.left + dialog.scrollLeft - 4}px`,
-        top: `${rect.top - bounds.top + dialog.scrollTop - 4}px`,
+        left: `${rect.left - bounds.left - 4}px`, top: `${top - 4}px`,
         width: `${rect.width + 8}px`, height: `${rect.height + 8}px`
       });
     };
     const actions = el(doc, "div", "fc-tutorial-actions");
-    let step = -1;
     const show = index => {
+      if (!steps.length) {
+        sample.hidden = false;
+        const example = tutorialBoard(context, sample);
+        for (const place of ["north", "north-west", "north-east", "south", "west", "east"]) {
+          const seat = sample.querySelector(`.fc-position-${place}`);
+          if (!seat) continue;
+          const side = ["west", "east"].includes(place);
+          const history = sample.querySelector(`.fc-history-${place}`);
+          const port = seat.querySelector(".fc-seat-public");
+          const vertical = port?.classList.contains("fc-discard-history") ? port.dataset.axis === "y" : side;
+          const area = port?.classList.contains("fc-discard-history") ? "历史弃牌" : "明牌";
+          const direction = vertical ? "上下" : "左右";
+          const label = {north: "上方", "north-west": "左上方", "north-east": "右上方", south: "下方", west: "左侧", east: "右侧"}[place];
+          steps.push({target: port || seat.querySelector(".fc-seat-identity"),
+            title: `${label}${area}，${vertical ? "纵向" : "横向"}滑动`,
+            copy: port ? `${label}牌多时可${direction}滑动，查看被叠住的牌。`
+              : `${label}是这家的公开牌区，目前还没有明牌；亮牌后可${direction}滑动查看。`});
+        }
+      }
+      targetForStep()?.removeAttribute("data-tutorial-target");
       step = index; dialog.dataset.step = String(index + 1);
-      title.textContent = index === 0 ? "上下牌列，横向滑动" : "左右牌列，纵向滑动";
-      progress.hidden = false; progress.textContent = `${index + 1} / 2`;
-      dismiss.hidden = true; sample.hidden = false;
-      copy.textContent = index === 0
-        ? "试着左右滑动示例牌列，查看上下两家的公开牌。"
-        : "试着上下滑动示例牌列，查看左右两家的公开牌。";
-      // Practice is modal-only in both waiting and already-playing rooms.
-      sample.replaceChildren(tutorialDemo(doc, index === 1));
+      targetForStep().setAttribute("data-tutorial-target", "true");
+      title.textContent = steps[index].title;
+      progress.hidden = false; progress.textContent = `${index + 1} / ${steps.length}`;
+      dismiss.hidden = true;
+      copy.textContent = steps[index].copy;
       previous.hidden = false; previous.disabled = index === 0;
-      next.textContent = index === 1 ? "完成" : "下一步";
+      next.textContent = index === steps.length - 1 ? "完成" : "下一步";
+      dialog.scrollTop = 0;
       position();
+      // A short viewport can show the explanation above a lower table edge.
+      // Bring that pair into view without scrolling or moving the real board.
+      const targetRect = targetForStep().getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      if (Math.max(targetRect.bottom, panelRect.bottom) > dialog.clientHeight) {
+        dialog.scrollTop = Math.max(0, Math.min(targetRect.top, panelRect.top) - 12);
+      }
       next.focus({preventScroll: true});
     };
     const previous = button("上一步", false, () => show(step - 1)); previous.hidden = true;
-    const next = button("查看教程", true, () => step === 1 ? closeTutorial("completed") : show(step + 1));
+    const next = button("查看教程", true, () => step >= 0 && step === steps.length - 1 ? closeTutorial("completed") : show(step + 1));
     const dismiss = button("不再提示", false, () => closeTutorial("dismissed"));
     actions.append(previous, next, dismiss);
     panel.append(head, progress, copy, actions);
-    stage.append(sample, panel); dialog.append(spotlight, stage);
+    stage.append(sample); dialog.append(stage, spotlight, panel);
     tutorial = {dialog, position, focus: doc.activeElement};
     dialog.addEventListener("cancel", event => { event.preventDefault(); closeTutorial(); });
     // Include scroll ports in the focus loop so keyboard users can practise too.
@@ -342,8 +408,8 @@
       tutorialObserver.observe(context.board, {childList: true});
     }
   }
-  function renderBoard(context) {
-    syncTutorial(context);
+  function renderBoard(context, tutorialSurface = false) {
+    if (!tutorialSurface) syncTutorial(context);
     const doc = context.board.ownerDocument, state = context.state, local = ui(context);
     styles(doc);
     context.helpers.setBoardLayout({rows: 1, cols: 1, large: true, ariaLabel: "四色牌桌与本人手牌"});

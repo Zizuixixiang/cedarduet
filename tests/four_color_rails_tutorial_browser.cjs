@@ -23,7 +23,7 @@ async function swipe(page, selector, axis) {
   const n = page.locator(selector).first(); await n.scrollIntoViewIfNeeded();
   await n.evaluate(n=>{n.scrollTop=0;n.scrollLeft=0;});
   const r=await n.boundingBox(), cdp=await page.context().newCDPSession(page);
-  const x=r.x+(axis==='x'?r.width-15:Math.min(25,r.width/2)), y=r.y+(axis==='y'?r.height-12:25);
+  const x=r.x+(axis==='x'?r.width-15:Math.min(25,r.width/2)), y=r.y+(axis==='y'?r.height-12:Math.min(25,r.height/2));
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
   for(let i=1;i<=8;i++) {
     await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-(axis==='x'?i*12:0),y:y-(axis==='y'?i*10:0)}]});
@@ -64,23 +64,24 @@ async function swipe(page, selector, axis) {
       await shot('welcome');
       const panelBefore=await page.locator('#inviteRoomPanel').boundingBox();
       await page.getByRole('button',{name:'查看教程',exact:true}).click();
-      await swipe(page,'.fc-tutorial-demo .fc-seat-public','x');
+      await swipe(page,'.fc-tutorial-board [data-tutorial-target]','x');
       await shot('horizontal');
-      const port=page.locator('.fc-tutorial-demo .fc-seat-public').first();
+      const port=page.locator('.fc-tutorial-board [data-tutorial-target]').first();
       await port.evaluate(n=>n.scrollLeft=0); await port.focus(); await page.keyboard.press('ArrowRight');
-      await page.waitForFunction(()=>document.querySelector('.fc-tutorial-demo .fc-seat-public').scrollLeft>0);
-      await page.getByRole('button',{name:'不再提示',exact:true}).focus(); await page.keyboard.press('Tab');
-      assert.equal(await page.locator(':focus').getAttribute('aria-label'),'关闭本次教程');
+      await page.waitForFunction(()=>document.querySelector('.fc-tutorial-board [data-tutorial-target]').scrollLeft>0);
+      await page.getByRole('button',{name:'下一步',exact:true}).focus(); await page.keyboard.press('Tab');
+      assert.ok(await page.evaluate(() => !!document.activeElement.closest('.fc-tutorial')));
 
       await page.getByRole('button',{name:'下一步',exact:true}).click();
-      await swipe(page,'.fc-tutorial-demo .fc-seat-public','y');
+      await page.getByRole('button',{name:'下一步',exact:true}).click();
+      await swipe(page,'.fc-tutorial-board [data-tutorial-target]','y');
       await shot('vertical');
       await page.getByRole('button',{name:'上一步',exact:true}).click();
-      assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'1');
+      assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'2');
       assert.deepEqual(await page.locator('#inviteRoomPanel').boundingBox(),panelBefore,'overlay never shifts waiting panel');
       await page.getByRole('button',{name:'关闭本次教程',exact:true}).click();
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
-      assert.equal(await page.locator('.fc-tutorial-demo').count(),0);
+      assert.equal(await page.locator('.fc-tutorial-board').count(),0);
       assert.equal(JSON.stringify(fixture),waiting,'demo must not change room projection');
       assert.deepEqual(posts,[],'practice does not submit anything');
       await reload();await page.locator('.fc-tutorial[open]').waitFor();
@@ -92,6 +93,7 @@ async function swipe(page, selector, axis) {
       await page.evaluate(k=>localStorage.removeItem(k),key);await reload();
       await page.getByRole('button',{name:'查看教程',exact:true}).click();
       await page.getByRole('button',{name:'下一步',exact:true}).click();
+      for (let i = 0; i < 2; i++) await page.getByRole('button',{name:'下一步',exact:true}).click();
       await page.getByRole('button',{name:'完成',exact:true}).click();
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');
       await reload();assert.equal(await page.locator('.fc-tutorial').count(),0);
@@ -101,7 +103,7 @@ async function swipe(page, selector, axis) {
       // Server-driven start while the learner's modal is still open.
       fixture=backend({action:'start',room_id:fixture.room.room_id});
       await page.evaluate(f=>renderGame(f.room,"",f.timeline),fixture);
-      assert.equal(await page.locator('.fc-tutorial, .fc-tutorial-demo').count(),0,'start removes demo synchronously');
+      assert.equal(await page.locator('.fc-tutorial, .fc-tutorial-board').count(),0,'start removes demo synchronously');
       assert.equal(await page.locator('.fc-table').count(),1);
       await shot('started');
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null,'forced close does not pretend completion');
