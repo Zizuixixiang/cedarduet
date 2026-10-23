@@ -162,7 +162,7 @@
       if (!piles.has(key)) {
         const pile = el(doc, "div", "fc-cards fc-discard-history");
         pile.dataset.historyKey = key;
-        pile.dataset.axis = seat && /^(west|east)$/.test(seat.dataset.position) ? "y" : "x";
+        pile.dataset.axis = table.dataset.seats !== "5" && seat && /^(west|east)$/.test(seat.dataset.position) ? "y" : "x";
         pile.tabIndex = 0; pile.setAttribute("role", "group");
         if (seat) {
           pile.classList.add("fc-history", `fc-history-${seat.dataset.position}`);
@@ -182,7 +182,7 @@
       const pile = piles.get(key), face = card(doc, id);
       if (id === recent) face.classList.add("fc-card-current");
       face.title = `${pile.getAttribute("aria-label").split("，")[0]}：${name(id)}`;
-      if (!pile.dataset.position || pile.dataset.position.startsWith("north") || pile.dataset.position === "south") {
+      if (pile.dataset.axis === "x") {
         const slot = el(doc, "span", "fc-history-card"); slot.append(face); pile.append(slot);
       } else pile.append(face);
     }
