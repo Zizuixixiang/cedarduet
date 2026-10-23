@@ -196,11 +196,14 @@
   let tutorialVisit = null, tutorial = null, tutorialObserver = null;
   function closeTutorial(remember, restore = true) {
     if (!tutorial) return;
-    const {dialog, focus} = tutorial;
+    const {dialog, focus, resizeObserver, position} = tutorial;
     tutorial = null;
     if (remember) {
       try { window.localStorage.setItem(TUTORIAL_KEY, remember); } catch (_) { /* Optional storage. */ }
     }
+    resizeObserver?.disconnect();
+    window.removeEventListener("resize", position);
+    window.visualViewport?.removeEventListener("resize", position);
     dialog.close(); dialog.remove();
     if (restore && focus?.isConnected) focus.focus({preventScroll: true});
   }
@@ -231,12 +234,17 @@
     return demo;
   }
   function openTutorial(context) {
-    const practice = context.room.status === "waiting";
     const doc = context.board.ownerDocument;
     styles(doc);
     const dialog = el(doc, "dialog", "fc-tutorial");
     dialog.setAttribute("aria-labelledby", "fc-tutorial-title");
     dialog.setAttribute("aria-describedby", "fc-tutorial-copy");
+    // Gem Merchant's modal / spotlight / explanation structure, with an
+    // independent practice target inside the modal so the real game stays inert.
+    const spotlight = el(doc, "div", "fc-tutorial-spotlight");
+    spotlight.setAttribute("aria-hidden", "true"); spotlight.hidden = true;
+    const stage = el(doc, "div", "fc-tutorial-stage");
+    const panel = el(doc, "section", "fc-tutorial-panel");
     const head = el(doc, "div", "fc-tutorial-head");
     const title = el(doc, "h2", "", "第一次来四色牌？"); title.id = "fc-tutorial-title";
     const button = (text, primary, action) => {
@@ -246,38 +254,46 @@
     const close = button("×", false, () => closeTutorial());
     close.classList.add("fc-tutorial-close"); close.setAttribute("aria-label", "关闭本次教程");
     head.append(title, close);
-    const progress = el(doc, "span", "fc-meta", "2 步学会查看公开牌");
-    const copy = el(doc, "p", "", "头像和横排昵称紧贴各自的公开牌列。上下横滑、左右竖滑，就能查看被叠住的牌。X 只关闭本次，下次进入还会提示。");
+    const progress = el(doc, "span", "fc-tutorial-progress"); progress.hidden = true;
+    const copy = el(doc, "p", "", "上下横滑、左右竖滑，就能查看被叠住的牌。");
     copy.id = "fc-tutorial-copy"; copy.setAttribute("aria-live", "polite");
-    const sample = el(doc, "div", "fc-tutorial-sample");
+    const sample = el(doc, "div", "fc-tutorial-sample"); sample.hidden = true;
+    const position = () => {
+      const target = sample.firstElementChild;
+      spotlight.hidden = !target;
+      dialog.classList.toggle("has-target", !!target);
+      if (!target) return;
+      const rect = target.getBoundingClientRect(), bounds = dialog.getBoundingClientRect();
+      Object.assign(spotlight.style, {
+        left: `${rect.left - bounds.left + dialog.scrollLeft - 4}px`,
+        top: `${rect.top - bounds.top + dialog.scrollTop - 4}px`,
+        width: `${rect.width + 8}px`, height: `${rect.height + 8}px`
+      });
+    };
     const actions = el(doc, "div", "fc-tutorial-actions");
     let step = -1;
     const show = index => {
       step = index; dialog.dataset.step = String(index + 1);
       title.textContent = index === 0 ? "上下牌列，横向滑动" : "左右牌列，纵向滑动";
-      progress.textContent = `${index + 1} / 2`;
+      progress.hidden = false; progress.textContent = `${index + 1} / 2`;
+      dismiss.hidden = true; sample.hidden = false;
       copy.textContent = index === 0
-        ? "上方和下方的公开牌都是单排。试着在模拟牌堆上左右滑动，查看后面的牌；五人局上方两家的牌列分别滑动。"
-        : "左边和右边的公开牌沿桌边排列。试着在模拟牌堆上上下滑动。认准紧贴牌列的头像和昵称，就知道是谁的牌。";
-      if (practice) {
-        sample.replaceChildren(tutorialDemo(doc, index === 1));
-        sample.append(el(doc, "p", "fc-meta", "模拟牌仅供练习，开局即收起，不会进入对局。"));
-      } else {
-        // A first visit to an already-started game gets instructions only.
-        copy.textContent = index === 0
-          ? "上方和下方的公开牌可以左右滑动。五人局上方两家的牌列分别滑动。关闭教程后，就能查看完整的公开牌列。"
-          : "左边和右边的公开牌可以上下滑动。紧贴牌列的头像和横排昵称就是这列牌的主人；关闭教程后即可查看。";
-      }
+        ? "试着左右滑动示例牌列，查看上下两家的公开牌。"
+        : "试着上下滑动示例牌列，查看左右两家的公开牌。";
+      // Practice is modal-only in both waiting and already-playing rooms.
+      sample.replaceChildren(tutorialDemo(doc, index === 1));
       previous.hidden = false; previous.disabled = index === 0;
       next.textContent = index === 1 ? "完成" : "下一步";
+      position();
       next.focus({preventScroll: true});
     };
     const previous = button("上一步", false, () => show(step - 1)); previous.hidden = true;
     const next = button("查看教程", true, () => step === 1 ? closeTutorial("completed") : show(step + 1));
     const dismiss = button("不再提示", false, () => closeTutorial("dismissed"));
     actions.append(previous, next, dismiss);
-    dialog.append(head, progress, copy, sample, actions);
-    tutorial = {dialog, focus: doc.activeElement};
+    panel.append(head, progress, copy, actions);
+    stage.append(sample, panel); dialog.append(spotlight, stage);
+    tutorial = {dialog, position, focus: doc.activeElement};
     dialog.addEventListener("cancel", event => { event.preventDefault(); closeTutorial(); });
     // Include scroll ports in the focus loop so keyboard users can practise too.
     dialog.addEventListener("keydown", event => {
@@ -287,7 +303,14 @@
       if (event.shiftKey && doc.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && doc.activeElement === last) { event.preventDefault(); first.focus(); }
     });
-    doc.body.append(dialog); dialog.showModal(); next.focus({preventScroll: true});
+    doc.body.append(dialog); dialog.showModal();
+    if (window.ResizeObserver) {
+      tutorial.resizeObserver = new window.ResizeObserver(position);
+      [stage, sample, panel].forEach(node => tutorial.resizeObserver.observe(node));
+    }
+    window.addEventListener("resize", position);
+    window.visualViewport?.addEventListener("resize", position);
+    position(); next.focus({preventScroll: true});
   }
   function syncTutorial(context) {
     const doc = context.board.ownerDocument;
