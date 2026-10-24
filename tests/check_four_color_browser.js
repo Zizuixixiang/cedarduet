@@ -439,16 +439,18 @@ function backend(input) {
           });
           await page.locator('#four-color-styles').evaluate(n=>n.disabled=true);
           const oldStyle=await page.addStyleTag({content:fs.readFileSync(process.env.FOUR_COLOR_BASELINE_CSS,'utf8')});
+          await page.locator('.fc-discards').evaluate(n=>n.closest('.fc-table').querySelector('.fc-table-center').append(n));
           const before=await measure();
           await page.screenshot({path:path.join(out,`${mode}-neutral-before-${width}.png`),fullPage:true});
+          await page.locator('.fc-discards').evaluate(n=>n.closest('.fc-table').append(n));
           await oldStyle.evaluate(n=>n.remove());
           await page.locator('#four-color-styles').evaluate(n=>n.disabled=false);
           const after=await measure();
-          assert.equal(after.neutral.x,before.neutral.x,'public history keeps its horizontal position');
-          assert.equal(after.neutral.y-before.neutral.y,37,'public history moves below the complete player ring');
-          assert.equal(after.neutral.width,before.neutral.width,'public history width stays unchanged');
-          assert.ok(after.neutral.x-after.west.x-after.west.width>=3,'neutral history remains separate from the left player rail');
-          assert.equal(after.south.y-before.south.y,-58,'south player history returns to the ring');
+          assert.equal(after.neutral.x,after.west.x,'public history aligns with the player ring');
+          assert.equal(after.neutral.y,before.neutral.y,'public history stays on the same row');
+          assert.equal(after.neutral.width,after.south.width,'public viewport spans the full inner width');
+          assert.ok(after.neutral.y-after.south.y-after.south.height>=20,'public history stays outside the player ring');
+          assert.deepEqual(after.south,before.south,'south history stays fixed');
           fs.writeFileSync(path.join(out,'neutral-before-after.json'),JSON.stringify({before,after},null,2));
         }
         await completeCards(); await screenshot(`${ringOnly?'ring':'review'}-${count}-visual-stress`);

@@ -43,8 +43,16 @@ const collisionProbe=(0,eval)('('+collisionBody+')');
  const after=await rails(),protectedAfter=await protectedGeometry();
  await page.locator('#four-color-styles').evaluate(n=>n.disabled=true);
  const oldStyle=await page.addStyleTag({content:fs.readFileSync(process.env.FOUR_COLOR_BASELINE_CSS,'utf8')+'\n.fc-neutral-label { display: none; }'});
+ if(seats===4)await page.locator('.fc-discards').evaluate(n=>n.closest('.fc-table').querySelector('.fc-table-center').append(n));
+ const beforeRails=await rails();
+ if(seats===4){
+  assert.deepEqual(beforeRails.filter(r=>r[0]!=='neutral'),after.filter(r=>r[0]!=='neutral'),'all player histories stay fixed');
+  assert.equal(beforeRails.find(r=>r[0]==='neutral')[2],after.find(r=>r[0]==='neutral')[2],'neutral row stays fixed');
+ }
+
  if(seats===5)assert.deepEqual(await rails(),after,'five-player single-row coordinates unchanged');
  assert.deepEqual(await protectedGeometry(),protectedAfter,'avatars, public cards, stock, turn and hand unchanged');
+ if(seats===4)await page.locator('.fc-discards').evaluate(n=>n.closest('.fc-table').append(n));
  await oldStyle.evaluate(n=>n.remove());await page.locator('#four-color-styles').evaluate(n=>n.disabled=false);
  if(seats===4){
   const ring=await page.locator('.fc-table').evaluate(table=>{
@@ -57,6 +65,10 @@ const collisionProbe=(0,eval)('('+collisionBody+')');
   assert.equal(n.l,w.l);assert.equal(n.r,e.r);
   assert.equal(w.t-n.b,3);assert.equal(s.t-w.b,3,'all corners have the same 3px clearance');
   assert.ok(l.t-s.b>=16 && p.t>l.b,'public label and cards sit clearly outside the player ring');
+  assert.equal(p.l,n.l);assert.equal(p.r,n.r,'public history aligns with the north/south rails');
+  const widths=await page.locator('.fc-history-north,.fc-neutral-pile .fc-discard-history').evaluateAll(ns=>ns.map(n=>({viewport:n.clientWidth,content:n.scrollWidth})));
+  assert.equal(widths[0].viewport,widths[1].viewport,'actual public scroll viewport equals the north rail');
+  results.push({seats,width,widths});
   results.push({seats,width,ring});
  }
  // Exercise native input, then prove both endpoints expose a complete face.

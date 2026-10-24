@@ -229,7 +229,11 @@
     const flow = state.flow || {}, status = el(doc, "div", "fc-turn");
     const phase = {discard: "出牌", draw: "翻牌", response: "回应", opening_hu: "确认"}[flow.phase];
     status.append(el(doc, "strong", "", context.isTerminal ? "本手结束" : phase ? `${context.canMove ? "请" : "待"}${phase}` : "等待开局"));
-    center.append(status, playZone); table.append(center); root.append(table);
+    center.append(status);
+    // Four-player public history spans the table's inner width, not the stock's.
+    if (table.dataset.seats === "4") table.append(playZone);
+    else center.append(playZone);
+    table.append(center); root.append(table);
     const rack = el(doc, "section", "fc-rack");
     rack.append(el(doc, "strong", "", "我的手牌"));
     const hand = el(doc, "div", "fc-hand");

@@ -120,8 +120,9 @@
 .fc-discards:empty { display: none; }
 /* Public history sits below the complete player ring, with its own label. */
 .fc-table[data-seats="4"] .fc-discards {
-  position: relative; justify-self: start; left: 6px; top: 69px;
-  width: calc(100% + 10px); pointer-events: none;
+  position: absolute; justify-self: stretch; top: 321px;
+  left: calc(var(--fc-side) + 6px); right: calc(var(--fc-side) + 6px);
+  width: auto; pointer-events: none;
 }
 .fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: none; overscroll-behavior: contain; }
 .fc-seat-public::-webkit-scrollbar, .fc-discard-history::-webkit-scrollbar { display: none; }

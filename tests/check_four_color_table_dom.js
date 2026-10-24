@@ -116,7 +116,7 @@ function backend(request, db) {
           assert.equal(doc.querySelectorAll('.fc-offer').length,0);
           assert.equal(doc.querySelectorAll('.fc-table [data-card-id="R2-1"]').length,0,'sealed pairs never enter the public table');
           const rack=doc.querySelector('.fc-rack'), discardPile=doc.querySelector('.fc-discards');
-          assert.ok(discardPile.closest('.fc-table-center'), 'neutral history belongs beside the stock');
+          assert.ok(discardPile.parentElement.matches(count===4?'.fc-table':'.fc-table-center'), 'four-player neutral history uses table width; other layouts retain the stock container');
           assert.equal(doc.querySelectorAll('details.fc-discards').length,0);
           assert.ok(discardPile.compareDocumentPosition(rack) & window.Node.DOCUMENT_POSITION_FOLLOWING);
           for (const seat of doc.querySelectorAll('.fc-seat')) {
