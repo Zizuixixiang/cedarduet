@@ -444,11 +444,11 @@ function backend(input) {
           await oldStyle.evaluate(n=>n.remove());
           await page.locator('#four-color-styles').evaluate(n=>n.disabled=false);
           const after=await measure();
-          assert.equal(after.neutral.x-before.neutral.x,-6,'neutral history returns 6px left from 554756f');
-          assert.equal(after.neutral.y-before.neutral.y,22,'container replaces the removed 12px heading and moves faces 10px lower');
-          assert.ok(after.neutral.width<before.neutral.width,'neutral history no longer extends into the right public area');
+          assert.equal(after.neutral.x,before.neutral.x,'public history keeps its horizontal position');
+          assert.equal(after.neutral.y-before.neutral.y,37,'public history moves below the complete player ring');
+          assert.equal(after.neutral.width,before.neutral.width,'public history width stays unchanged');
           assert.ok(after.neutral.x-after.west.x-after.west.width>=3,'neutral history remains separate from the left player rail');
-          assert.deepEqual(after.south,before.south,'south player rail stays unchanged');
+          assert.equal(after.south.y-before.south.y,-58,'south player history returns to the ring');
           fs.writeFileSync(path.join(out,'neutral-before-after.json'),JSON.stringify({before,after},null,2));
         }
         await completeCards(); await screenshot(`${ringOnly?'ring':'review'}-${count}-visual-stress`);
@@ -471,8 +471,8 @@ function backend(input) {
             geometry.rails.forEach(r=>assert.ok(r.cards>=10 && r.cards<=14));
           } else {
             const west=geometry.rails.find(r=>r.position==='west'),south=geometry.rails.find(r=>r.position==='south'),north=geometry.rails.find(r=>r.position==='north');
-            assert.ok(south.y-west.y-west.height>=12,'bottom-left rails have clear vertical separation');
-            assert.ok(south.width>=north.width+15,'bottom rail extends further right');
+            assert.equal(south.y-west.y-west.height,3,'south history closes the inner ring with the same 3px corner gap');
+            assert.equal(south.width,north.width,'north/south ring edges have equal width');
           }
           fs.writeFileSync(path.join(out,'ring-geometry.json'),JSON.stringify(geometry,null,2));
           metrics.push({mode,width,kind:'visual-pressure',playerDiscards:geometry.rails.map(r=>({position:r.position,count:r.cards})),neutralDiscards:neutralIds.length});

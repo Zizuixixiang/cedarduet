@@ -118,10 +118,9 @@
 .fc-table:has(.fc-history-west, .fc-history-east) { --fc-neutral-extra: 0px; }
 .fc-discards { min-width: 0; min-height: 0; width: calc(100% + var(--fc-neutral-extra)); justify-self: center; }
 .fc-discards:empty { display: none; }
-/* A modest neutral strip, separate from the south player's rail. The extra
-   12px replaces the removed heading, keeping the faces 10px lower than before. */
+/* Public history sits below the complete player ring, with its own label. */
 .fc-table[data-seats="4"] .fc-discards {
-  position: relative; justify-self: start; left: 6px; top: 32px;
+  position: relative; justify-self: start; left: 6px; top: 69px;
   width: calc(100% + 10px); pointer-events: none;
 }
 .fc-discard-history { box-sizing: border-box; flex-wrap: nowrap; gap: 0; padding: 1px; scrollbar-width: none; overscroll-behavior: contain; }
@@ -142,7 +141,9 @@
 .fc-history-west, .fc-history-east { width: 21px; top: 168px; bottom: 156px; }
 .fc-history-west { left: calc(var(--fc-side) + 6px); }
 .fc-history-east { right: calc(var(--fc-side) + 6px); }
-.fc-table[data-seats="4"] .fc-history-south { bottom: 120px; right: calc(var(--fc-side) - 10px); }
+/* Keep the south scrollport above the centre grid's transparent bottom row. */
+.fc-table[data-seats="4"] .fc-history-south { bottom: 178px; z-index: 1; }
+.fc-table[data-seats="4"] :is(.fc-history-west, .fc-history-east) { bottom: 202px; }
 .fc-table[data-seats="4"] .fc-position-south .fc-seat-public { height: 78px; }
 /* Equal pentagon edges share one centre and apothem (side / 2 tan(36deg)).
    Rails retain clockwise ownership; each scrolls along its own local X axis. */
@@ -151,17 +152,20 @@
   --fc-side-public: min(var(--fc-side), calc((100% - 180px) / 2));
   --fc-ring-edge: clamp(90px, 25vw, 100px);
   --fc-ring-apothem: calc(var(--fc-ring-edge) * .68819096);
-  --fc-ring-y: 270px;
-  height: 500px;
+  --fc-middle-y: 170px;
+  --fc-ring-y: calc(var(--fc-middle-y) + 60px);
+  height: 460px;
 }
+/* A labelled neutral strip needs its own space above the pentagon. */
+.fc-table[data-seats="5"]:has(.fc-neutral-pile) { --fc-middle-y: 210px; height: 500px; }
 .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-identity { left: calc(25% - 50px); top: 16px; }
 .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { right: calc(25% - 50px); top: 16px; }
-.fc-table[data-seats="5"] :is(.fc-position-west, .fc-position-east) .fc-seat-identity { top: 210px; bottom: auto; width: var(--fc-side); }
+.fc-table[data-seats="5"] :is(.fc-position-west, .fc-position-east) .fc-seat-identity { top: var(--fc-middle-y); bottom: auto; width: var(--fc-side); }
 .fc-table[data-seats="5"] .fc-position-south .fc-seat-identity { left: calc(50% - 50px); right: auto; bottom: 8px; }
 .fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 58px; width: calc(50% - 12px); height: 90px; justify-content: safe center; }
 .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public { left: 8px; }
 .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public { right: 8px; }
-.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 246px; bottom: 130px; width: var(--fc-side-public); }
+.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: calc(var(--fc-middle-y) + 36px); bottom: 130px; width: var(--fc-side-public); }
 .fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 8px; right: 8px; bottom: 48px; height: 80px; }
 .fc-table[data-seats="5"] .fc-table-center { top: calc(var(--fc-ring-y) - 27px); height: 72px; grid-template-rows: 54px 18px; width: 92px; pointer-events: none; }
 .fc-table[data-seats="5"] :is(.fc-live-cards, .fc-discards, .fc-turn) { pointer-events: auto; }
@@ -241,16 +245,12 @@
 .fc-result-details summary { cursor: pointer; min-height: 32px; padding-block: 5px; display: list-item; font-size: 11px; }
 .fc-result-details > .fc-cards { margin: 6px 0; max-height: 220px; overflow-y: auto; overscroll-behavior-y: contain; }
 .fc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.fc-controls .pixel-btn { min-height: 40px; font: 13px/1.5 system-ui, sans-serif; white-space: normal; }
+.fc-controls .pixel-btn { min-height: 44px; max-width: 100%; font: 600 16px/1.5 system-ui, sans-serif; white-space: normal; }
+.fc-controls .pixel-btn:not(:disabled) { color: var(--text); background: var(--purple-light); border-color: var(--purple-darker); }
 .fc-action-cards { display: block; font-size: 11px; }
 .fc-result { font-weight: 600; }
 @media (min-width: 1101px) {
   .create-form:has(> .fc-rule-picker) > .participant-picker { grid-column: 1 / 4; }
   .create-form:has(> .fc-rule-picker) > .pixel-field:has(#gameType) { grid-column: 4 / -1; }
   .create-form:has(> .fc-rule-picker) > .multiplayer-options { grid-column: 3 / 6; }
-}
-@media (max-width: 600px) {
-  .fc-controls .pixel-btn { min-height: 44px; }
-  /* Keep the east history above the neutral strip; public ports stay symmetric. */
-  .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-history-east { bottom: 202px; }
 }
