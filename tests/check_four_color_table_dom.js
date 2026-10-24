@@ -38,6 +38,7 @@ function backend(request, db) {
         window.eval(source);
         const renderer = renderers[fixture.room.game_type], sent = [];
         assert.equal(renderer.participantPresentation, 'embedded');
+        assert.equal(renderer.syncTutorial, undefined, 'removed tutorial has no lifecycle hook');
         let context;
         function render() {
           context.board.replaceChildren(); context.controls.replaceChildren();
@@ -52,6 +53,7 @@ function backend(request, db) {
             canMove:()=>context.canMove,submitMove:async move=>sent.push(move)},
         };
         render();
+        assert.equal(doc.querySelector('.fc-tutorial, .fc-tutorial-board'), null);
         assert.equal(doc.querySelector('.fc-controls').parentElement.className, 'fc-action-slot');
         assert.equal(context.controls.children.length, 0, 'only one action area, beside the hand');
         const handBefore = JSON.stringify(context.privateState);
@@ -145,7 +147,7 @@ function backend(request, db) {
             const ids=[...doc.querySelectorAll('.fc-discard-history [data-card-id], .fc-offer [data-card-id]')].map(n=>n.dataset.cardId);
             assert.deepEqual(ids.sort(), [...new Set([...discards, ...(offer?[offer.card]:[])])].sort());
             assert.equal(doc.querySelectorAll('.fc-discard-history .fc-card-current, .fc-offer .fc-card-current').length, offer || discards.length ? 1 : 0);
-            if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
+            if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,count===5?(offer.from_deck?'翻牌':'弃牌'):(offer.from_deck?'公开翻牌':'当前弃牌'));
             else assert.equal(doc.querySelectorAll('.fc-offer').length,0);
             assert.doesNotMatch(pile.textContent,/暂无弃牌|弃牌区 ·/);
             assert.equal(doc.querySelectorAll('.fc-turn-indicator').length,1);

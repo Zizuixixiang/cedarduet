@@ -149,7 +149,7 @@
 .fc-table[data-seats="5"] {
   --fc-side: clamp(86px, 21%, 150px);
   --fc-side-public: min(var(--fc-side), calc((100% - 180px) / 2));
-  --fc-ring-edge: clamp(90px, 25vw, 100px);
+  --fc-ring-edge: clamp(94px, calc(25vw + 4px), 104px);
   --fc-ring-apothem: calc(var(--fc-ring-edge) * .68819096);
   --fc-ring-y: 270px;
   height: 500px;
@@ -164,16 +164,30 @@
 .fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 246px; bottom: 130px; width: var(--fc-side-public); }
 .fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 8px; right: 8px; bottom: 48px; height: 80px; }
 .fc-table[data-seats="5"] .fc-table-center { top: calc(var(--fc-ring-y) - 27px); height: 72px; grid-template-rows: 54px 18px; width: 92px; pointer-events: none; }
-.fc-table[data-seats="5"] :is(.fc-live-cards, .fc-discards, .fc-turn) { pointer-events: auto; }
-.fc-table[data-seats="5"] .fc-turn { justify-self: center; }
+.fc-table[data-seats="5"] :is(.fc-stock, .fc-offer, .fc-discards, .fc-turn) { pointer-events: auto; }
+.fc-table[data-seats="5"] .fc-turn { justify-self: center; transform: translateY(-7px); }
+.fc-table[data-seats="5"] .fc-live-cards { transform: translateY(-2px); pointer-events: none; }
+.fc-table[data-seats="5"] .fc-stock { transform: translateY(-8px); }
+.fc-table[data-seats="5"] .fc-offer > .fc-meta { left: 0; right: auto; bottom: 100%; }
 /* Unowned history stays neutral, in the free space above the ring. */
 .fc-table[data-seats="5"] .fc-discards { position: absolute; top: calc(187px - var(--fc-ring-y)); width: 124px; }
 .fc-table[data-seats="5"] .fc-history {
   left: 50%; top: var(--fc-ring-y); right: auto; bottom: auto;
-  width: calc(var(--fc-ring-edge) - 12px); height: 21px;
-  transform: translate(-50%, -50%) rotate(var(--fc-ring-angle)) translateY(calc(-1 * var(--fc-ring-apothem)));
+  /* The shorter inner row adds visible layers without filling the corners.
+     Card sizes and readable heads stay unchanged. Both rows scroll together. */
+  display: grid; grid-auto-flow: column;
+  grid-template-rows: repeat(2, 16px); grid-auto-columns: 17px; touch-action: pan-x;
+  width: calc(var(--fc-ring-edge) - 14px); height: 35px;
+  transform: translate(-50%, -50%) rotate(var(--fc-ring-angle)) translateY(calc(-1 * var(--fc-ring-apothem) + 8px));
+  clip-path: polygon(0 0, 100% 0, 100% 19px, calc(100% - 12px) 19px, calc(100% - 12px) 100%, 12px 100%, 12px 19px, 0 19px);
   transform-origin: center;
 }
+/* Scroll past the inset so the inner row's final face is fully reachable. */
+.fc-table[data-seats="5"] .fc-history > .fc-history-card:last-child::after {
+  content: ""; position: absolute; left: 100%; width: 12px; height: 1px;
+}
+.fc-table[data-seats="5"] .fc-history > .fc-history-card + .fc-history-card { margin-left: 0; }
+.fc-table[data-seats="5"] .fc-history > .fc-history-card:nth-child(even) { transform: translateX(12px); }
 .fc-table[data-seats="5"] .fc-history-north-west { --fc-ring-angle: 0deg; }
 .fc-table[data-seats="5"] .fc-history-north-east { --fc-ring-angle: 72deg; }
 .fc-table[data-seats="5"] .fc-history-east { --fc-ring-angle: 144deg; }
@@ -250,48 +264,6 @@
 }
 @media (max-width: 600px) {
   .fc-controls .pixel-btn { min-height: 44px; }
-  /* Reserve clearance for the wider neutral strip on narrow tables. */
+  /* Keep the east history above the neutral strip; public ports stay symmetric. */
   .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-history-east { bottom: 202px; }
-  .fc-table[data-seats="4"]:has(.fc-neutral-pile) .fc-position-east .fc-seat-public { width: min(calc(var(--fc-side) - 24px), calc(100% - var(--fc-side) - 148px)); }
 }
-/* Gem Merchant spotlight over a complete, isolated normal board. */
-/* Sequence the room hint after the tutorial without changing its preference. */
-body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
-
-.fc-tutorial {
-  position: fixed; inset: 0; box-sizing: border-box;
-  width: 100%; height: 100dvh; max-width: none; max-height: none;
-  margin: 0; padding: 0; border: 0; overflow: auto; overscroll-behavior: contain;
-  background: rgb(92 84 99 / 55%); color: var(--text);
-  font: 13px/1.4 system-ui, -apple-system, "PingFang SC", sans-serif;
-}
-.fc-tutorial::backdrop { background: transparent; }
-.fc-tutorial.has-target { background: var(--bg, #FDF6F7); }
-.fc-tutorial-stage {
-  position: relative; z-index: 0; isolation: isolate;
-  box-sizing: border-box; min-height: 100%; padding: 12px;
-}
-.fc-tutorial-spotlight {
-  position: absolute; box-sizing: border-box; z-index: 1; pointer-events: none;
-  border: 2px solid var(--purple-darker, #8678A0);
-  box-shadow: 0 0 0 9999px rgb(92 84 99 / 55%);
-}
-.fc-tutorial-board { margin: 0 auto; }
-.fc-tutorial-panel {
-  position: absolute; z-index: 2; box-sizing: border-box; padding: 12px;
-  left: 50%; transform: translateX(-50%); width: min(340px, calc(100% - 24px));
-  border: 3px solid var(--purple); background: var(--bg);
-  box-shadow: 4px 4px 0 rgb(155 141 181 / 30%);
-}
-.fc-tutorial-progress { display: block; margin-top: 4px; color: var(--purple-darker); font-size: 11px; }
-.fc-tutorial [hidden] { display: none !important; }
-.fc-tutorial-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.fc-tutorial h2 { margin: 0; color: var(--purple-darker); font-size: 16px; line-height: 1.3; }
-.fc-tutorial-panel p { margin: 8px 0 12px; }
-.fc-tutorial-panel .pixel-btn { min-height: 44px; padding: 6px 8px; font: 13px/1.4 system-ui, sans-serif; }
-.fc-tutorial-panel .fc-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
-.fc-tutorial-actions { display: flex; gap: 8px; }
-.fc-tutorial-actions > button { flex: 1; }
-/* The normal public ports can overflow on both axes; do not suppress either gesture. */
-.fc-tutorial-board .fc-seat-public { touch-action: pan-x pan-y; }
-.fc-tutorial :is(button, [tabindex="0"]):focus-visible { outline: 2px solid #665776; outline-offset: 2px; }

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
-const root = path.resolve(__dirname, '../../..');
+const root = process.env.FOUR_COLOR_ROOT || path.resolve(__dirname, '../../..');
 const out = process.env.FOUR_COLOR_ARTIFACTS || '/tmp/cedartoy-four-color-ui';
 fs.mkdirSync(out, {recursive:true});
 fs.rmSync(path.join(out,'measurements.json'),{force:true});
@@ -125,7 +125,7 @@ function backend(input) {
           const pileIds=await pile.locator('[data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
           assert.equal(pileIds.length,new Set(pileIds).size,'offer and history never repeat a physical card');
           assert.equal(await pile.locator('.fc-card-current').count(),state.offer || state.discards.length ? 1 : 0);
-          if(state.offer) assert.equal(await pile.locator('.fc-offer .fc-meta').innerText(),state.offer.from_deck?'公开翻牌':'当前弃牌');
+          if(state.offer) assert.equal(await pile.locator('.fc-offer .fc-meta').innerText(),state.participant_order.length===5?(state.offer.from_deck?'翻牌':'弃牌'):(state.offer.from_deck?'公开翻牌':'当前弃牌'));
           else {
             assert.equal(await pile.locator('.fc-offer').count(),0);
             if(state.discards.length) assert.equal(await pile.locator('.fc-card-current').getAttribute('data-card-id'),state.discards.at(-1));
@@ -179,10 +179,11 @@ function backend(input) {
           for(const rail of rails) for(let i=0;i<rail.cards.length;i++) {
             const c=rail.cards[i],horizontal=rail.axis==='x';
             if(rail.diagonal) {
-              if(i) {
-                const previous=rail.cards[i-1],advance=c.localX-previous.localX;
-                assert.equal(c.localY,previous.localY,'diagonal history is one local row');
-                assert.ok(advance>=14 && advance<c.localWidth,'diagonal cards retain readable overlapping heads');
+              assert.equal(c.localY,1+(i%2)*16,'five-player histories use two compact rows');
+              if(i>=2) {
+                const previous=rail.cards[i-2],advance=c.localX-previous.localX;
+                assert.equal(c.localY,previous.localY);
+                assert.equal(advance,17,'each row keeps readable overlapping heads');
               }
               continue;
             }
@@ -196,7 +197,7 @@ function backend(input) {
           geometryEvidence.push({scene:name,corners,rails});
           fs.writeFileSync(path.join(out,'geometry.json'),JSON.stringify(geometryEvidence,null,2));
           const collisions=await page.locator('.fc-table').evaluate(table=>{
-            const rect=n=>{const r=n.getBoundingClientRect();return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
+            const rect=n=>{let r=n.getBoundingClientRect();if(n.matches('.fc-seat-name')){const range=document.createRange();range.selectNodeContents(n);const text=range.getBoundingClientRect();r={left:Math.max(r.left,text.left),right:Math.min(r.right,text.right),top:Math.max(r.top,text.top),bottom:Math.min(r.bottom,text.bottom)};}return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
             const overlaps=(a,b)=>Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5 && Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;
             const polygonOverlaps=(a,b)=>{
               const corners=[{x:b.l,y:b.t},{x:b.r,y:b.t},{x:b.r,y:b.b},{x:b.l,y:b.b}];
@@ -222,14 +223,17 @@ function backend(input) {
                 // Axis-aligned bounds include empty triangular corners and
                 // even offscreen cards, which are not painted over an identity.
                 const slot=n.closest('.fc-history-card'),m=new DOMMatrix(getComputedStyle(port).transform);
-                const l=Math.max(0,slot.offsetLeft-port.scrollLeft),t=Math.max(0,slot.offsetTop-port.scrollTop);
-                const r=Math.min(port.clientWidth,slot.offsetLeft-port.scrollLeft+slot.offsetWidth),b=Math.min(port.clientHeight,slot.offsetTop-port.scrollTop+slot.offsetHeight);
-                if(r<=l||b<=t)continue;
-                const polygon=[[l,t],[r,t],[r,b],[l,b]].map(([x,y])=>{
-                  x-=port.clientWidth/2;y-=port.clientHeight/2;
-                  return {x:(clip.l+clip.r)/2+m.a*x+m.c*y,y:(clip.t+clip.b)/2+m.b*x+m.d*y};
-                });
-                for(const fixedBox of obstacles)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
+                const x=slot.offsetLeft+new DOMMatrix(getComputedStyle(slot).transform).m41-port.scrollLeft;
+                const y=slot.offsetTop-port.scrollTop;
+                for(const [cl,ct,cr,cb] of [[0,0,port.clientWidth,19],[12,19,port.clientWidth-12,port.clientHeight]]) {
+                  const l=Math.max(cl,x),t=Math.max(ct,y),r=Math.min(cr,x+slot.offsetWidth),b=Math.min(cb,y+slot.offsetHeight);
+                  if(r<=l||b<=t)continue;
+                  const polygon=[[l,t],[r,t],[r,b],[l,b]].map(([x,y])=>{
+                    x-=port.clientWidth/2;y-=port.clientHeight/2;
+                    return {x:(clip.l+clip.r)/2+m.a*x+m.c*y,y:(clip.t+clip.b)/2+m.b*x+m.d*y};
+                  });
+                  for(const fixedBox of obstacles)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
+                }
                 continue;
               }
               const visible={l:Math.max(a.l,clip.l),t:Math.max(a.t,clip.t),r:Math.min(a.r,clip.r),b:Math.min(a.b,clip.b)};
@@ -312,6 +316,11 @@ function backend(input) {
           const bad=[];
           for(const n of heads) {
             n.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+            const port=n.closest('.fc-history');
+            if(port?.closest('.fc-table[data-seats="5"]')) {
+              const slot=n.closest('.fc-history-card');
+              port.scrollLeft=Math.max(0,slot.offsetLeft+new DOMMatrix(getComputedStyle(slot).transform).m41+11-port.clientWidth/2);
+            }
             await new Promise(requestAnimationFrame);
             const r=n.getBoundingClientRect();
             const diagonal=getComputedStyle(n.closest('.fc-discard-history')).transform!=='none';
@@ -364,10 +373,13 @@ function backend(input) {
                   x=r.left-c.left+clip.scrollLeft;y=r.top-c.top+clip.scrollTop;
                 }
                 const w=slot.offsetWidth,h=slot.offsetHeight;
-                clip.scrollLeft=Math.max(0,x+w-clip.clientWidth+1);
+                const five=clip.matches('.fc-history')&&clip.closest('.fc-table[data-seats="5"]');
+                const inset=five&&slot.matches(':nth-child(even)')?12:0;
+                if(five)x+=new DOMMatrix(getComputedStyle(slot).transform).m41;
+                clip.scrollLeft=Math.max(0,x+w-clip.clientWidth+inset+1);
                 clip.scrollTop=Math.max(0,y+h-clip.clientHeight+1);
                 await new Promise(requestAnimationFrame);
-                if(x<clip.scrollLeft-.5 || x+w>clip.scrollLeft+clip.clientWidth+.5 || y<clip.scrollTop-.5 || y+h>clip.scrollTop+clip.clientHeight+.5)
+                if(x<clip.scrollLeft+inset-.5 || x+w>clip.scrollLeft+clip.clientWidth-inset+.5 || y<clip.scrollTop-.5 || y+h>clip.scrollTop+clip.clientHeight+.5)
                   bad.push({card:face.dataset.cardId,x,y,w,h,width:clip.clientWidth,height:clip.clientHeight,left:clip.scrollLeft,top:clip.scrollTop});
               }
             }
@@ -439,7 +451,7 @@ function backend(input) {
             const lengths=geometry.rails.map(r=>r.widthLocal);
             assert.ok(Math.max(...lengths)-Math.min(...lengths)<=1,'five equally long scrollports');
             const cx=geometry.rails.reduce((v,r)=>v+r.cx,0)/5,cy=geometry.rails.reduce((v,r)=>v+r.cy,0)/5;
-            assert.ok(Math.abs(cx-geometry.live.cx)<1 && Math.abs(cy-geometry.live.cy)<1,'live cards at pentagon geometric centre');
+            assert.ok(Math.abs(cx-geometry.live.cx)<1 && Math.abs(cy-geometry.live.cy-2)<1,'central contents lift 2px to clear the shorter inner row');
             const radii=geometry.rails.map(r=>Math.hypot(r.cx-cx,r.cy-cy));
             assert.ok(Math.max(...radii)-Math.min(...radii)<1,'all five sides share one apothem');
             const angles=geometry.rails.map(r=>(Math.atan2(r.cy-cy,r.cx-cx)*180/Math.PI+360)%360).sort((a,b)=>a-b);
