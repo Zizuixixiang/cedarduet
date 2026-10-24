@@ -21,10 +21,11 @@ async function swipe(page, port, axis) {
   const r=await port.boundingBox();
   const before=await port.evaluate(n=>({x:n.scrollLeft,y:n.scrollTop,parent:n.closest('dialog').scrollTop,page:scrollY}));
   const cdp=await page.context().newCDPSession(page);
-  const x=r.x+(axis==='x'?r.width-20:r.width/2), y=r.y+(axis==='y'?r.height-20:r.height/2);
+  const distance = Math.min(100, (axis === 'x' ? r.width : r.height) - 12);
+  const x=r.x+(axis==='x'?r.width-6:r.width/2), y=r.y+(axis==='y'?r.height-6:r.height/2);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
   for(let i=1;i<=10;i++) {
-    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-(axis==='x'?i*12:0),y:y-(axis==='y'?i*12:0)}]});
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-(axis==='x'?i*distance/10:0),y:y-(axis==='y'?i*distance/10:0)}]});
     await page.waitForTimeout(20);
   }
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
@@ -62,7 +63,7 @@ async function spotlightMetrics(page) {
   });
   assert.ok(metrics.aligned && metrics.separate && metrics.inView,JSON.stringify(metrics));
   assert.ok(metrics.nativeModal && metrics.touchTargets,'modal isolates game while demo receives input');
-  assert.ok(metrics.mask.includes('9999px') && metrics.transparent==='rgba(0, 0, 0, 0)','Gem-style cutout mask');
+  assert.ok(metrics.mask.includes('9999px') && metrics.transparent!=='rgba(0, 0, 0, 0)','Gem-style cutout over an opaque tutorial surface');
   assert.equal(metrics.overflow,false);
   return metrics;
 }
@@ -70,7 +71,8 @@ async function spotlightMetrics(page) {
   let browser;const evidence=[];
   try {
     browser=await chromium.launch({headless:true,args:['--no-sandbox']});
-    for(const width of [360,430,1280]) for(const status of ['waiting','playing']) {
+    const widths = (process.env.FOUR_COLOR_WIDTHS || '360,430,1280').split(',').map(Number);
+    for(const width of widths) for(const status of ['waiting','playing']) {
       const db=path.join(tmp,`${width}-${status}.db`);
       let fixture=backend({action:'seed',game_type:'four_color_tenhu',count:4,invited:true,fixture:status==='waiting'?'waiting':'opening'},db);
       const original=JSON.stringify(fixture);
@@ -96,28 +98,60 @@ async function spotlightMetrics(page) {
       const stateBefore=await page.evaluate(()=>JSON.stringify(room));
       const uiBefore=await page.evaluate(()=>JSON.stringify(registeredGameUIState));
       const boardBefore=await page.locator('#board').innerHTML();
-      assert.equal(await page.locator('#fc-tutorial-copy').innerText(),'上下横滑、左右竖滑，就能查看被叠住的牌。');
+      await page.evaluate(() => { window.realBoardClicks = 0; document.querySelector('#board').addEventListener('click', () => window.realBoardClicks++); });
+      assert.equal(await page.locator('#fc-tutorial-copy').innerText(),'滑动公开牌和弃牌区，就能查看被叠住的牌。');
       await shot('welcome');await button('查看教程').click();
       const scrolls=[], highlights=[];
-      for (let step = 0; step < 4; step++) {
+      for (let step = 0; step < 3; step++) {
         if (step) await button('下一步').click();
         const board = page.locator('.fc-tutorial-board');
         assert.equal(await board.locator('.fc-seat').count(), 4);
         assert.equal(await board.locator('.room-participant-avatar').count(), 4);
         assert.equal(await board.locator('.fc-stock').count(), 1);
-        assert.ok(await board.locator('.fc-hand').count());
-        assert.equal(await board.getAttribute('data-source'), status === 'waiting' ? 'example' : 'snapshot');
+        assert.equal(await board.locator('.fc-hand').count(), 1);
+        assert.equal(await board.getAttribute('data-source'), 'example');
         assert.equal(await board.locator('button:not(:disabled)').count(), 0);
-        const port = board.locator('[data-tutorial-target]');
-        const axis = step < 2 ? 'x' : 'y';
-        const overflow = await port.evaluate((n, axis) => axis === 'x'
-          ? n.scrollWidth - n.clientWidth : n.scrollHeight - n.clientHeight, axis);
-        // Sparse real snapshots must stay sparse. Never inject fake cards into them.
-        if (overflow > 20) scrolls.push(await swipe(page, port, axis));
-        else scrolls.push({axis, step, overflow, skipped:'no overflow in this projection'});
-        if (status === 'waiting' && [0, 2, 3].includes(step)) assert.ok(overflow > 20, 'example provides horizontal and vertical practice');
+        const ports = [board.locator('[data-tutorial-target]')];
+        const density = await board.evaluate(b => [...b.querySelectorAll('.fc-seat-public')].map(n => ({
+          target:n.hasAttribute('data-tutorial-target'), cards:n.querySelectorAll('.fc-card').length,
+          groups:n.querySelectorAll('.fc-meld').length
+        })));
+        density.filter(n => !n.target).forEach(n => assert.equal(n.cards,9,'other seats remain ordinary'));
+        highlights.push({density});
+        for (const port of ports) {
+          const dimensions = await port.evaluate(n => ({x:n.scrollWidth-n.clientWidth, y:n.scrollHeight-n.clientHeight,
+            width:n.clientWidth, height:n.clientHeight, axis:n.dataset.axis, touch:getComputedStyle(n).touchAction,
+            type:n.className, position:n.closest('.fc-seat')?.dataset.position}));
+          // Only the current representative needs overflow; the opposite seat stays ordinary.
+          for (const axis of step === 2 ? [dimensions.axis] : ['x','y']) {
+            assert.ok(dimensions[axis] > 20 && dimensions[axis] < 58, JSON.stringify({width, step, dimensions, axis}));
+            scrolls.push({...dimensions, step, ...await swipe(page, port, axis)});
+          }
+        }
+        if (step === 2) assert.ok((await board.locator('[data-tutorial-target]').getAttribute('class')).includes('fc-discard-history'));
         highlights.push(await spotlightMetrics(page));
+        // No click can reach the board below the native modal or select a practice card.
+        await board.locator('.fc-hand button').first().dispatchEvent('click');
+        const hit = await page.evaluate(() => {
+          const d = document.querySelector('dialog.fc-tutorial');
+          return [[2,2],[innerWidth-2,innerHeight-2],[innerWidth/2,innerHeight-2]]
+            .every(([x,y]) => { const n = document.elementFromPoint(x,y); return n === d || d.contains(n); });
+        });
+        assert.ok(hit, 'entire viewport remains inside tutorial, including bottom corners');
+        await page.touchscreen.tap(2, 2); await page.touchscreen.tap(width-2, 798);
+        assert.equal(await page.evaluate(() => window.realBoardClicks), 0);
         await shot(`full-board-step-${step + 1}`);
+        if (width < 500) {
+          await page.setViewportSize({width:width===360?430:360,height:800});
+          await page.waitForTimeout(100);await spotlightMetrics(page);
+          const port=board.locator('[data-tutorial-target]');
+          const dimensions=await port.evaluate(n=>({x:n.scrollWidth-n.clientWidth,y:n.scrollHeight-n.clientHeight,axis:n.dataset.axis}));
+          for(const axis of step===2?[dimensions.axis]:['x','y']) {
+            assert.ok(dimensions[axis]>20 && dimensions[axis]<58,'resize keeps only a short overflow');
+            scrolls.push({resized:true,step,...dimensions,...await swipe(page,port,axis)});
+          }
+          await page.setViewportSize({width,height:800});await page.waitForTimeout(100);
+        }
       }
       assert.equal(await page.evaluate(()=>JSON.stringify(room)),stateBefore,'practice cannot mutate room state');
       assert.equal(await page.evaluate(()=>JSON.stringify(registeredGameUIState)),uiBefore,'practice cannot mutate UI drafts');
@@ -127,11 +161,14 @@ async function spotlightMetrics(page) {
       await page.waitForTimeout(100);await spotlightMetrics(page);
       await page.setViewportSize({width,height:800});
       await page.waitForTimeout(100);await spotlightMetrics(page);
+      await page.setViewportSize({width, height:640}); await page.waitForTimeout(100); await spotlightMetrics(page);
+      await shot('short-640');
+      await page.setViewportSize({width, height:800}); await page.waitForTimeout(100);
       for(let i=0;i<7;i++) {
         await page.keyboard.press('Tab');
         assert.ok(await page.evaluate(()=>!!document.activeElement.closest('.fc-tutorial')));
       }
-      await button('上一步').click();assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'3');
+      await button('上一步').click();assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'2');
       await button('关闭本次教程').click();assert.equal(await page.locator('.fc-tutorial-board').count(),0);
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
       await page.reload();await page.locator('.fc-tutorial[open]').waitFor();
@@ -142,7 +179,7 @@ async function spotlightMetrics(page) {
       await page.reload();await page.locator(status==='waiting'?'#inviteRoomPanel:not(.hidden)':'.fc-table').waitFor();
       assert.equal(await page.locator('.fc-tutorial').count(),0);
       await page.evaluate(k=>localStorage.removeItem(k),key);await page.reload();await button('查看教程').click();
-      for (let i = 0; i < 3; i++) await button('下一步').click();await button('完成').click();assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');
+      for (let i = 0; i < 2; i++) await button('下一步').click();await button('完成').click();assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');
       await page.reload();await page.locator(status==='waiting'?'#inviteRoomPanel:not(.hidden)':'.fc-table').waitFor();
       assert.equal(await page.locator('.fc-tutorial').count(),0);
       if(status==='waiting') {
@@ -151,6 +188,58 @@ async function spotlightMetrics(page) {
         const remaining=await page.evaluate(f=>{renderGame(f.room,'',f.timeline);return document.querySelectorAll('.fc-tutorial, .fc-tutorial-board').length;},fixture);
         assert.equal(remaining,0,'waiting -> playing removes the whole tutorial synchronously');
         assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
+      }
+      if (status === 'playing') {
+        for (const seats of [4, 5]) {
+          const geometryFixture = seats === 4 ? fixture : backend({action:'seed',game_type:'four_color_qunhu',count:5,invited:true,fixture:'opening'},path.join(tmp,`${width}-five.db`));
+          await page.evaluate(f => {
+            const sparse = structuredClone(f);
+            for (const pid of sparse.room.board_state.participant_order) sparse.room.board_state.melds[pid] =
+              Array.from({length:6}, (_, i) => ({cards:[1,2,3].map(copy => `R${i}-${copy}`)}));
+            sparse.room.revision++;
+            renderGame(sparse.room, '', sparse.timeline);
+          }, geometryFixture);
+          const sparse = await page.locator('#board').evaluate(board => {
+            const box = n => { const r=n.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
+            const ports = [...board.querySelectorAll('.fc-seat-public')];
+            const positions = () => [...board.querySelectorAll('.fc-seat-identity')].map(box);
+            const measure = () => ports.map(n => ({port:box(n), groups:box(n.querySelector('.fc-seat-groups')),
+              card:box(n.querySelector('.fc-card')), gap:getComputedStyle(n.querySelector('.fc-seat-groups')).gap,
+              side:!!n.closest('.fc-seat-side')}));
+            const avatars = positions(), expanded = measure();
+            const before = document.createElement('style');
+            before.textContent = `
+              .fc-position-north .fc-seat-public,.fc-position-south .fc-seat-public {left:6px;right:6px}
+              .fc-seat-side .fc-seat-public {top:180px;bottom:142px}
+              .fc-table[data-seats="5"] :is(.fc-position-north-west,.fc-position-north-east) .fc-seat-public {width:calc(50% - 16px)}
+              .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public {left:10px}
+              .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public {right:10px}
+              .fc-table[data-seats="5"] .fc-seat-side .fc-seat-public {top:248px;bottom:132px}
+              .fc-table[data-seats="5"] .fc-position-south .fc-seat-public {left:10px;right:10px}`;
+            document.head.append(before);
+            const old = measure(), oldAvatars = positions(); before.remove();
+            const overlap = (a,b) => Math.min(a.x+a.width,b.x+b.width)>Math.max(a.x,b.x)+.5
+              && Math.min(a.y+a.height,b.y+b.height)>Math.max(a.y,b.y)+.5;
+            const collisions = [];
+            expanded.forEach((a,i) => {
+              avatars.forEach((b,j) => {if(overlap(a.port,b))collisions.push(`port${i}/avatar${j}`)});
+              expanded.slice(i+1).forEach((b,j) => {if(overlap(a.port,b.port))collisions.push(`port${i}/port${i+j+1}`)});
+            });
+            return {expanded, old, avatars, oldAvatars, collisions};
+          });
+          assert.deepEqual(sparse.avatars,sparse.oldAvatars,'avatars never move');
+          assert.deepEqual(sparse.collisions,[],'four/five-player ports avoid one another and avatars');
+          sparse.expanded.forEach((n,i) => {
+            const old=sparse.old[i], long=n.side?'height':'width', short=n.side?'width':'height';
+            assert.equal(n.groups.width,old.groups.width,'sparse groups keep original compact width');
+            assert.equal(n.groups.height,old.groups.height);
+            assert.equal(n.card.width,old.card.width);assert.equal(n.card.height,old.card.height);
+            assert.equal(n.gap,old.gap);
+            assert.equal(n.port[short],old.port[short]);
+            assert.ok(n.port[long]-old.port[long]>=4 && n.port[long]-old.port[long]<=6,'only 4–6px extension');
+          });
+          highlights.push({seats,sparse});await shot(`normal-six-columns-${seats}-seats`);
+        }
       }
       assert.deepEqual(errors,[]);
       evidence.push({status,width,scrolls,highlights,errors});fs.writeFileSync(path.join(out,'measurements.json'),JSON.stringify(evidence,null,2));

@@ -73,11 +73,10 @@ async function swipe(page, selector, axis) {
       assert.ok(await page.evaluate(() => !!document.activeElement.closest('.fc-tutorial')));
 
       await page.getByRole('button',{name:'下一步',exact:true}).click();
-      await page.getByRole('button',{name:'下一步',exact:true}).click();
       await swipe(page,'.fc-tutorial-board [data-tutorial-target]','y');
       await shot('vertical');
       await page.getByRole('button',{name:'上一步',exact:true}).click();
-      assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'2');
+      assert.equal(await page.locator('.fc-tutorial').getAttribute('data-step'),'1');
       assert.deepEqual(await page.locator('#inviteRoomPanel').boundingBox(),panelBefore,'overlay never shifts waiting panel');
       await page.getByRole('button',{name:'关闭本次教程',exact:true}).click();
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),null);
@@ -92,7 +91,6 @@ async function swipe(page, selector, axis) {
       await reload();assert.equal(await page.locator('.fc-tutorial').count(),0);
       await page.evaluate(k=>localStorage.removeItem(k),key);await reload();
       await page.getByRole('button',{name:'查看教程',exact:true}).click();
-      await page.getByRole('button',{name:'下一步',exact:true}).click();
       for (let i = 0; i < 2; i++) await page.getByRole('button',{name:'下一步',exact:true}).click();
       await page.getByRole('button',{name:'完成',exact:true}).click();
       assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),'completed');

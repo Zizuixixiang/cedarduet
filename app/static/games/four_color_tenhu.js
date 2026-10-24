@@ -207,59 +207,91 @@
     dialog.close(); dialog.remove();
     if (restore && focus?.isConnected) focus.focus({preventScroll: true});
   }
-  // Copy projections and allow only avatar painting; never pass live action helpers or uiState.
+  // Copy participant presentation and allow only avatar painting; never pass live action helpers or uiState.
   function tutorialBoard(context, board) {
     const clone = value => JSON.parse(JSON.stringify(value));
-    const example = context.room.status === "waiting" || !context.state?.participant_order?.length;
-    const participants = example ? ["示例玩家", "右家", "对家", "左家"].map((label, i) => ({
-      player_id: `tutorial-${i}`, display_name: label, seat_index: i,
-    })) : clone(context.participants);
-    const order = participants.map(p => p.player_id);
-    const deck = Array.from("RYGW", color => Array.from({length: 7}, (_, rank) =>
-      Array.from({length: 4}, (_, copy) => `${color}${rank}-${copy + 1}`))).flat(2);
-    const state = example ? {
+    const hasPlayers = context.room.status !== "waiting" && context.state?.participant_order?.length >= 2;
+    const participants = hasPlayers ? clone(context.participants)
+      : ["示例玩家", "右家", "对家", "左家"].map((label, i) => ({
+        player_id: `tutorial-${i}`, display_name: label, seat_index: i,
+      }));
+    const order = hasPlayers ? [...context.state.participant_order] : participants.map(p => p.player_id);
+    // Independent visual examples; only the current target needs overflow.
+    const state = {
       board_kind: context.room.game_type || "four_color_tenhu", participant_order: order,
       dealer_player_id: order[0], turn_player_id: order[0], wall_count: 24,
       flow: {phase: "discard"}, melds: {}, hand_counts: {}, discards: [], discard_sources: {},
-    } : clone(context.state);
-    const used = new Set();
-    if (example) order.forEach((pid, seat) => {
-      const count = seat % 2 ? 8 : 2;
-      state.melds[pid] = Array.from({length: count}, () => {
-        const first = deck.find(id => !used.has(id) && id.endsWith("-1"));
-        const cards = [1, 2, 3].map(copy => `${first.slice(0, 2)}-${copy}`);
-        cards.forEach(id => used.add(id));
-        return {cards};
-      });
+    };
+    order.forEach((pid, seat) => {
+      state.melds[pid] = Array.from({length: 3}, (_, group) => ({
+        cards: Array.from({length: 3}, (_, card) =>
+          `${"RYGW"[(seat + group) % 4]}${group % 7}-tutorial-${seat}-${group}-${card}`),
+      }));
       state.hand_counts[pid] = 20;
-    });
-    if (example) [order[2], order[0], order[1], order[3]].forEach(pid => {
-      const history = deck.filter(id => !used.has(id)).slice(0, pid === order[2] ? 28 : 1);
+      const history = Array.from({length: 2}, (_, i) => `${"RYGW"[seat % 4]}${i % 7}-history-${seat}-${i}`);
       state.discards.push(...history);
-      history.forEach(id => { used.add(id); state.discard_sources[id] = pid; });
+      history.forEach(id => { state.discard_sources[id] = pid; });
     });
-    const privateState = example ? {hand: deck.filter(id => !used.has(id)).slice(0, 20).map(id => ({id}))}
-      : clone(context.privateState || {});
-    if (example) state.wall_count = deck.length - used.size - privateState.hand.length;
+    const privateState = {hand: Array.from({length: 20}, (_, i) => ({id: `${"RYGW"[i % 4]}${i % 7}-hand-${i}`}))};
     // Removing legal actions prevents even selection handlers being installed.
     privateState.legal_actions = [];
     const practice = {
       board, state, privateState, participants, uiState: {}, canMove: false,
-      viewer: example ? {player_id: order[0]} : clone(context.viewer || {}),
-      room: example ? {current_player_id: order[0]} : clone(context.room),
-      isTerminal: example ? false : context.isTerminal,
+      viewer: hasPlayers ? clone(context.viewer || {}) : {player_id: order[0]},
+      room: {current_player_id: order[0]},
+      isTerminal: false,
       helpers: {
         setBoardLayout() {},
         renderParticipantAvatar(target, participant) {
-          if (!example) context.helpers.renderParticipantAvatar(target, participant);
+          if (hasPlayers) context.helpers.renderParticipantAvatar(target, participant);
           else target.textContent = ["🙂", "🐱", "🐼", "🦊"][participant.seat_index];
         },
       },
     };
+    board.replaceChildren();
     renderBoard(practice, true);
-    board.dataset.source = example ? "example" : "snapshot";
-    board.setAttribute("aria-label", example ? "教程示例牌桌" : "当前牌桌的只读副本");
-    return example;
+    board.dataset.source = "example";
+    board.setAttribute("aria-label", "教程示例牌桌，不是实际牌局");
+    const ordinary = clone(state);
+    return selector => {
+      Object.assign(state, clone(ordinary));
+      practice.uiState = {};
+      board.replaceChildren();
+      renderBoard(practice, true);
+      const port = board.querySelector(selector);
+      if (!port?.clientWidth || !port.clientHeight) return;
+      // Measure the normal renderer's card pitch, then add only a short swipe
+      // beyond this viewport. One tall/long stack suffices for the second axis.
+      const extra = 28;
+      if (port.classList.contains("fc-seat-public")) {
+        const side = port.closest(".fc-seat-side"), pid = port.closest(".fc-seat").dataset.playerId;
+        const groups = port.querySelector(".fc-seat-groups"), pile = groups.firstElementChild;
+        const rect = pile.getBoundingClientRect(), face = pile.firstElementChild.getBoundingClientRect();
+        const across = side ? "height" : "width", along = side ? "width" : "height";
+        const gap = parseFloat(window.getComputedStyle(groups).gap);
+        const pitch = (rect[along] - face[along]) / 2;
+        const count = Math.ceil(((side ? port.clientHeight : port.clientWidth) + extra + gap) / (rect[across] + gap));
+        const depth = Math.ceil(((side ? port.clientWidth : port.clientHeight) + extra - face[along]) / pitch) + 1;
+        const seat = order.indexOf(pid);
+        state.melds[pid] = Array.from({length: count}, (_, group) => ({
+          cards: Array.from({length: group === 0 ? depth : 3}, (_, card) =>
+            `${"RYGW"[(seat + group) % 4]}${group % 7}-tutorial-${seat}-${group}-${card}`),
+        }));
+      } else {
+        const axis = port.dataset.axis === "y" ? "height" : "width";
+        const first = port.children[0].getBoundingClientRect(), second = port.children[1].getBoundingClientRect();
+        const pitch = axis === "width" ? second.left - first.left : second.top - first.top;
+        const count = Math.ceil(((axis === "width" ? port.clientWidth : port.clientHeight) + extra - first[axis]) / pitch) + 1;
+        const pid = port.dataset.playerId, seat = order.indexOf(pid);
+        const history = Array.from({length: count}, (_, i) => `${"RYGW"[seat % 4]}${i % 7}-history-${seat}-${i}`);
+        state.discards = state.discards.filter(id => state.discard_sources[id] !== pid).concat(history);
+        history.forEach(id => { state.discard_sources[id] = pid; });
+      }
+      board.replaceChildren();
+      renderBoard(practice, true);
+      const target = board.querySelector(selector);
+      target.scrollLeft = 0; target.scrollTop = 0;
+    };
   }
   function openTutorial(context) {
     const doc = context.board.ownerDocument;
@@ -283,13 +315,20 @@
     close.classList.add("fc-tutorial-close"); close.setAttribute("aria-label", "关闭本次教程");
     head.append(title, close);
     const progress = el(doc, "span", "fc-tutorial-progress"); progress.hidden = true;
-    const copy = el(doc, "p", "", "上下横滑、左右竖滑，就能查看被叠住的牌。");
+    const copy = el(doc, "p", "", "滑动公开牌和弃牌区，就能查看被叠住的牌。");
     copy.id = "fc-tutorial-copy"; copy.setAttribute("aria-live", "polite");
     const sample = el(doc, "div", "board four_color_tenhu fc-tutorial-board"); sample.hidden = true;
-    let steps = [], step = -1;
-    const targetForStep = () => steps[step]?.target;
+    let steps = [], step = -1, prepare, fittedSize;
+    const targetForStep = () => steps[step] && sample.querySelector(steps[step].selector);
     const position = () => {
-      const target = targetForStep();
+      let target = targetForStep();
+      if (target) {
+        const size = `${step}:${target.clientWidth}:${target.clientHeight}`;
+        if (fittedSize !== size) {
+          prepare(steps[step].selector); fittedSize = size;
+          target = targetForStep(); target.setAttribute("data-tutorial-target", "true");
+        }
+      }
       spotlight.hidden = !target;
       dialog.classList.toggle("has-target", !!target);
       const bounds = dialog.getBoundingClientRect();
@@ -311,27 +350,25 @@
         left: `${rect.left - bounds.left - 4}px`, top: `${top - 4}px`,
         width: `${rect.width + 8}px`, height: `${rect.height + 8}px`
       });
+      const start = Math.max(0, Math.min(top, panelTop) - 12);
+      const end = Math.max(bottom, panelTop + panelHeight) + 12;
+      if (start < dialog.scrollTop || end > dialog.scrollTop + dialog.clientHeight) dialog.scrollTop = start;
     };
     const actions = el(doc, "div", "fc-tutorial-actions");
     const show = index => {
       if (!steps.length) {
         sample.hidden = false;
-        const example = tutorialBoard(context, sample);
-        for (const place of ["north", "north-west", "north-east", "south", "west", "east"]) {
-          const seat = sample.querySelector(`.fc-position-${place}`);
-          if (!seat) continue;
-          const side = ["west", "east"].includes(place);
-          const history = sample.querySelector(`.fc-history-${place}`);
-          const port = seat.querySelector(".fc-seat-public");
-          const vertical = port?.classList.contains("fc-discard-history") ? port.dataset.axis === "y" : side;
-          const area = port?.classList.contains("fc-discard-history") ? "历史弃牌" : "明牌";
-          const direction = vertical ? "上下" : "左右";
-          const label = {north: "上方", "north-west": "左上方", "north-east": "右上方", south: "下方", west: "左侧", east: "右侧"}[place];
-          steps.push({target: port || seat.querySelector(".fc-seat-identity"),
-            title: `${label}${area}，${vertical ? "纵向" : "横向"}滑动`,
-            copy: port ? `${label}牌多时可${direction}滑动，查看被叠住的牌。`
-              : `${label}是这家的公开牌区，目前还没有明牌；亮牌后可${direction}滑动查看。`});
-        }
+        prepare = tutorialBoard(context, sample);
+        const upper = ["north", "north-west", "south"].map(p => `.fc-position-${p} .fc-seat-public`)
+          .find(selector => sample.querySelector(selector));
+        const side = ".fc-seat-side .fc-seat-public";
+        const history = sample.querySelector(".fc-history-north") || sample.querySelector(".fc-history-south");
+        if (upper) steps.push({selector: upper, title: "上下两家的公开牌",
+          copy: "示例牌桌：左右看牌列，上下看牌叠。"});
+        if (sample.querySelector(side)) steps.push({selector: side, title: "左右两家的公开牌",
+          copy: "上下看牌行，左右看牌叠。"});
+        if (history) steps.push({selector: `.fc-history-${history.dataset.position}`, title: "弃牌区也能滑动",
+          copy: `${history.dataset.axis === "y" ? "上下" : "左右"}滑动，查看历史弃牌。`});
       }
       targetForStep()?.removeAttribute("data-tutorial-target");
       step = index; dialog.dataset.step = String(index + 1);
@@ -344,13 +381,6 @@
       next.textContent = index === steps.length - 1 ? "完成" : "下一步";
       dialog.scrollTop = 0;
       position();
-      // A short viewport can show the explanation above a lower table edge.
-      // Bring that pair into view without scrolling or moving the real board.
-      const targetRect = targetForStep().getBoundingClientRect();
-      const panelRect = panel.getBoundingClientRect();
-      if (Math.max(targetRect.bottom, panelRect.bottom) > dialog.clientHeight) {
-        dialog.scrollTop = Math.max(0, Math.min(targetRect.top, panelRect.top) - 12);
-      }
       next.focus({preventScroll: true});
     };
     const previous = button("上一步", false, () => show(step - 1)); previous.hidden = true;

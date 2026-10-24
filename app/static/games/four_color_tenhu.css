@@ -64,7 +64,7 @@
   overflow: auto; scrollbar-width: none;
   overscroll-behavior: contain;
 }
-.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 6px; right: 6px; height: 96px; justify-content: safe center; }
+.fc-position-north .fc-seat-public, .fc-position-south .fc-seat-public { left: 4px; right: 4px; height: 96px; justify-content: safe center; }
 .fc-position-north .fc-seat-public { top: 44px; }
 .fc-position-south .fc-seat-public { bottom: 40px; height: 88px; }
 .fc-seat-groups { flex: none; flex-wrap: nowrap; gap: 8px; }
@@ -78,7 +78,7 @@
 }
 .fc-seat-public .fc-card small { font-size: 8px; }
 .fc-meld > .fc-card + .fc-card { margin-top: calc(var(--fc-step) - var(--fc-public-h)); }
-.fc-seat-side .fc-seat-public { top: 180px; bottom: 142px; width: var(--fc-side); flex-direction: column; gap: 6px; }
+.fc-seat-side .fc-seat-public { top: 178px; bottom: 138px; width: var(--fc-side); flex-direction: column; gap: 6px; }
 .fc-facing-right .fc-seat-public { left: 6px; align-items: flex-start; }
 .fc-facing-left .fc-seat-public { right: 6px; align-items: safe flex-end; }
 .fc-seat-side .fc-seat-groups { flex-direction: column; gap: 7px; }
@@ -158,11 +158,11 @@
 .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { right: calc(25% - 50px); top: 16px; }
 .fc-table[data-seats="5"] :is(.fc-position-west, .fc-position-east) .fc-seat-identity { top: 210px; bottom: auto; width: var(--fc-side); }
 .fc-table[data-seats="5"] .fc-position-south .fc-seat-identity { left: calc(50% - 50px); right: auto; bottom: 8px; }
-.fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 58px; width: calc(50% - 16px); height: 90px; justify-content: safe center; }
-.fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public { left: 10px; }
-.fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public { right: 10px; }
-.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 248px; bottom: 132px; width: var(--fc-side-public); }
-.fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 10px; right: 10px; bottom: 48px; height: 80px; }
+.fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 58px; width: calc(50% - 12px); height: 90px; justify-content: safe center; }
+.fc-table[data-seats="5"] .fc-position-north-west .fc-seat-public { left: 8px; }
+.fc-table[data-seats="5"] .fc-position-north-east .fc-seat-public { right: 8px; }
+.fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 246px; bottom: 130px; width: var(--fc-side-public); }
+.fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 8px; right: 8px; bottom: 48px; height: 80px; }
 .fc-table[data-seats="5"] .fc-table-center { top: calc(var(--fc-ring-y) - 27px); height: 72px; grid-template-rows: 54px 18px; width: 92px; pointer-events: none; }
 .fc-table[data-seats="5"] :is(.fc-live-cards, .fc-discards, .fc-turn) { pointer-events: auto; }
 .fc-table[data-seats="5"] .fc-turn { justify-self: center; }
@@ -266,7 +266,7 @@ body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
   font: 13px/1.4 system-ui, -apple-system, "PingFang SC", sans-serif;
 }
 .fc-tutorial::backdrop { background: transparent; }
-.fc-tutorial.has-target { background: transparent; }
+.fc-tutorial.has-target { background: var(--bg, #FDF6F7); }
 .fc-tutorial-stage {
   position: relative; z-index: 0; isolation: isolate;
   box-sizing: border-box; min-height: 100%; padding: 12px;
@@ -292,6 +292,6 @@ body:has(dialog.fc-tutorial[open]) #waitModeModal { visibility: hidden; }
 .fc-tutorial-panel .fc-tutorial-close { width: 36px; min-height: 36px; flex: none; padding: 0; font-size: 20px; }
 .fc-tutorial-actions { display: flex; gap: 8px; }
 .fc-tutorial-actions > button { flex: 1; }
-.fc-tutorial-board :is(.fc-position-north, .fc-position-north-west, .fc-position-north-east, .fc-position-south) .fc-seat-public { touch-action: pan-x; }
-.fc-tutorial-board .fc-seat-side .fc-seat-public { touch-action: pan-y; }
+/* The normal public ports can overflow on both axes; do not suppress either gesture. */
+.fc-tutorial-board .fc-seat-public { touch-action: pan-x pan-y; }
 .fc-tutorial :is(button, [tabindex="0"]):focus-visible { outline: 2px solid #665776; outline-offset: 2px; }
