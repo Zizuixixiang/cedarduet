@@ -174,7 +174,7 @@
         } else {
           const group = el(doc, "div", "fc-neutral-pile");
           pile.setAttribute("aria-label", "中立历史牌，含公开翻牌或来源未记录的弃牌，可滚动查看");
-          group.append(pile); neutral.append(group);
+          group.append(el(doc, "span", "fc-meta fc-neutral-label", "公共弃牌"), pile); neutral.append(group);
         }
         piles.set(key, pile);
       }
@@ -222,8 +222,7 @@
       const label = state.offer.from_deck ? "公开翻牌" : "当前弃牌";
       face.classList.add("fc-card-current");
       face.setAttribute("aria-label", `${label}：${name(state.offer.card)}`);
-      const caption = table.dataset.seats === "5" ? (state.offer.from_deck ? "翻牌" : "弃牌") : label;
-      offer.append(el(doc, "span", "fc-meta", caption), face);
+      offer.append(el(doc, "span", "fc-meta", label), face);
       live.append(offer);
     }
     historyPiles(context, table, playZone, historyIds);

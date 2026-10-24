@@ -125,7 +125,7 @@ function backend(input) {
           const pileIds=await pile.locator('[data-card-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.cardId));
           assert.equal(pileIds.length,new Set(pileIds).size,'offer and history never repeat a physical card');
           assert.equal(await pile.locator('.fc-card-current').count(),state.offer || state.discards.length ? 1 : 0);
-          if(state.offer) assert.equal(await pile.locator('.fc-offer .fc-meta').innerText(),state.participant_order.length===5?(state.offer.from_deck?'翻牌':'弃牌'):(state.offer.from_deck?'公开翻牌':'当前弃牌'));
+          if(state.offer) assert.equal(await pile.locator('.fc-offer .fc-meta').innerText(),state.offer.from_deck?'公开翻牌':'当前弃牌');
           else {
             assert.equal(await pile.locator('.fc-offer').count(),0);
             if(state.discards.length) assert.equal(await pile.locator('.fc-card-current').getAttribute('data-card-id'),state.discards.at(-1));
@@ -166,7 +166,11 @@ function backend(input) {
           })));
           const pair=(a,b,axis)=>assert.ok(Math.abs(corners[a][axis]-corners[b][axis])<=1,`${name}: avatar ${a}/${b} ${axis} corners align`);
           const count=state.participant_order.length;
-          if(count===4) { pair('north','east','y'); pair('west','south','y'); pair('north','west','x'); pair('east','south','x'); }
+          if(count===4) {
+            pair('west','east','y');
+            assert.ok(Math.abs(corners.north.x+corners.south.x-corners.west.x-corners.east.x)<2,'upper/lower avatars mirror the table centre');
+            assert.ok(corners.north.y<corners.west.y && corners.west.y<corners.south.y,'four identities occupy top, sides and bottom');
+          }
           if(count===5) {
             pair('north-west','north-east','y'); pair('west','east','y');
             assert.ok(corners.west.y>corners['north-west'].y+100 && corners.south.y>corners.west.y+100,'five seats occupy upper, side and bottom levels');
@@ -179,11 +183,10 @@ function backend(input) {
           for(const rail of rails) for(let i=0;i<rail.cards.length;i++) {
             const c=rail.cards[i],horizontal=rail.axis==='x';
             if(rail.diagonal) {
-              assert.equal(c.localY,1+(i%2)*16,'five-player histories use two compact rows');
-              if(i>=2) {
-                const previous=rail.cards[i-2],advance=c.localX-previous.localX;
-                assert.equal(c.localY,previous.localY);
-                assert.equal(advance,17,'each row keeps readable overlapping heads');
+              if(i) {
+                const previous=rail.cards[i-1],advance=c.localX-previous.localX;
+                assert.equal(c.localY,previous.localY,'diagonal history is one local row');
+                assert.ok(advance>=14 && advance<c.localWidth,'diagonal cards retain readable overlapping heads');
               }
               continue;
             }
@@ -197,9 +200,13 @@ function backend(input) {
           geometryEvidence.push({scene:name,corners,rails});
           fs.writeFileSync(path.join(out,'geometry.json'),JSON.stringify(geometryEvidence,null,2));
           const collisions=await page.locator('.fc-table').evaluate(table=>{
-            const rect=n=>{let r=n.getBoundingClientRect();if(n.matches('.fc-seat-name')){const range=document.createRange();range.selectNodeContents(n);const text=range.getBoundingClientRect();r={left:Math.max(r.left,text.left),right:Math.min(r.right,text.right),top:Math.max(r.top,text.top),bottom:Math.min(r.bottom,text.bottom)};}return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
-            const overlaps=(a,b)=>Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5 && Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;
+            const rect=n=>{let r=n.getBoundingClientRect();if(n.matches('.fc-seat-name, .fc-seat-public .fc-meta')){const range=document.createRange();range.selectNodeContents(n);const text=range.getBoundingClientRect();r={left:Math.max(r.left,text.left),right:Math.min(r.right,text.right),top:Math.max(r.top,text.top),bottom:Math.min(r.bottom,text.bottom)};}return {l:r.left,t:r.top,r:r.right,b:r.bottom};};
+            const validBox=b=>{if(!['l','t','r','b'].every(k=>Number.isFinite(b[k])))throw new Error('Collision box requires finite l/t/r/b');};
+            const overlaps=(a,b)=>{validBox(a);validBox(b);return Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5 && Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;};
             const polygonOverlaps=(a,b)=>{
+              validBox(b);
+              if(!a.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)))throw new Error('Collision polygon requires finite coordinates');
+              if(b.r<=b.l || b.b<=b.t)return false;
               const corners=[{x:b.l,y:b.t},{x:b.r,y:b.t},{x:b.r,y:b.b},{x:b.l,y:b.b}];
               for(const shape of [a,corners]) for(let i=0;i<shape.length;i++) {
                 const p=shape[i],q=shape[(i+1)%shape.length],length=Math.hypot(q.x-p.x,q.y-p.y);
@@ -209,31 +216,43 @@ function backend(input) {
               }
               return true;
             };
+            // Fail closed if a future rect refactor breaks either collision path.
+            const probe={l:0,t:0,r:10,b:10},near={l:5,t:5,r:15,b:15},far={l:20,t:20,r:30,b:30};
+            const polygon=[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}];
+            if(!overlaps(probe,near)||overlaps(probe,far)||!polygonOverlaps(polygon,near)||polygonOverlaps(polygon,far))throw new Error('Collision detector self-check failed');
+            let rejected=0;
+            for(const check of [()=>overlaps(probe,{x:0,y:0,right:10,bottom:10}),()=>polygonOverlaps(polygon,{l:NaN,t:0,r:10,b:10})]){
+              try{check();}catch(_){rejected++;}
+            }
+            if(rejected!==2)throw new Error('Invalid collision geometry was accepted');
             const fixed=[...table.querySelectorAll('.room-participant-avatar,.fc-seat-name,.fc-seat-count,.fc-dealer,.fc-turn-indicator,.fc-card-back,.fc-offer .fc-card,.fc-offer > .fc-meta')].map(n=>({box:rect(n),name:n.className}));
-            const publicZones=[...table.querySelectorAll('.fc-seat-public')].map(n=>({box:rect(n),name:`public:${n.closest('.fc-seat').dataset.position}`}));
+            // Transparent scrollport space is not painted. Clip each public
+            // face/label to its own port before checking history against it.
+            const publicPaint=[...table.querySelectorAll('.fc-seat-public .fc-card,.fc-seat-public .fc-meta')].map(n=>{
+              const port=n.closest('.fc-seat-public'),a=rect(n),clip=rect(port);
+              validBox(a);validBox(clip);
+              return {port,box:{l:Math.max(a.l,clip.l),t:Math.max(a.t,clip.t),r:Math.min(a.r,clip.r),b:Math.min(a.b,clip.b)},name:`public:${n.closest('.fc-seat').dataset.position}:${n.dataset.cardId || 'label'}`};
+            }).filter(n=>n.box.r>n.box.l && n.box.b>n.box.t);
             const playerRails=[...table.querySelectorAll('.fc-history')].map(n=>({box:rect(n),name:`rail:${n.dataset.position}`}));
             const bad=[];
             fixed.forEach((a,i)=>fixed.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
-            publicZones.forEach((a,i)=>publicZones.slice(i+1).forEach(b=>{if(overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
+            publicPaint.forEach((a,i)=>publicPaint.slice(i+1).forEach(b=>{if(a.port!==b.port && overlaps(a.box,b.box))bad.push([a.name,b.name]);}));
             for(const n of table.querySelectorAll('.fc-seat-public .fc-card,.fc-discard-history .fc-card')) {
               const port=n.closest('.fc-seat-public,.fc-discard-history'),a=rect(n),clip=rect(port);
-              const obstacles=[...fixed,...(port.matches('.fc-discard-history')?publicZones:[]),...(port.closest('.fc-neutral-pile')?playerRails:[])];
+              const obstacles=[...fixed,...(port.matches('.fc-discard-history')?publicPaint:[]),...(port.closest('.fc-neutral-pile')?playerRails:[])];
               if(getComputedStyle(port).transform!=='none') {
                 // Intersect in the rail's local coordinates before rotating.
                 // Axis-aligned bounds include empty triangular corners and
                 // even offscreen cards, which are not painted over an identity.
                 const slot=n.closest('.fc-history-card'),m=new DOMMatrix(getComputedStyle(port).transform);
-                const x=slot.offsetLeft+new DOMMatrix(getComputedStyle(slot).transform).m41-port.scrollLeft;
-                const y=slot.offsetTop-port.scrollTop;
-                for(const [cl,ct,cr,cb] of [[0,0,port.clientWidth,19],[12,19,port.clientWidth-12,port.clientHeight]]) {
-                  const l=Math.max(cl,x),t=Math.max(ct,y),r=Math.min(cr,x+slot.offsetWidth),b=Math.min(cb,y+slot.offsetHeight);
-                  if(r<=l||b<=t)continue;
-                  const polygon=[[l,t],[r,t],[r,b],[l,b]].map(([x,y])=>{
-                    x-=port.clientWidth/2;y-=port.clientHeight/2;
-                    return {x:(clip.l+clip.r)/2+m.a*x+m.c*y,y:(clip.t+clip.b)/2+m.b*x+m.d*y};
-                  });
-                  for(const fixedBox of obstacles)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
-                }
+                const l=Math.max(0,slot.offsetLeft-port.scrollLeft),t=Math.max(0,slot.offsetTop-port.scrollTop);
+                const r=Math.min(port.clientWidth,slot.offsetLeft-port.scrollLeft+slot.offsetWidth),b=Math.min(port.clientHeight,slot.offsetTop-port.scrollTop+slot.offsetHeight);
+                if(r<=l||b<=t)continue;
+                const polygon=[[l,t],[r,t],[r,b],[l,b]].map(([x,y])=>{
+                  x-=port.clientWidth/2;y-=port.clientHeight/2;
+                  return {x:(clip.l+clip.r)/2+m.a*x+m.c*y,y:(clip.t+clip.b)/2+m.b*x+m.d*y};
+                });
+                for(const fixedBox of obstacles)if(polygonOverlaps(polygon,fixedBox.box))bad.push([n.dataset.cardId,fixedBox.name]);
                 continue;
               }
               const visible={l:Math.max(a.l,clip.l),t:Math.max(a.t,clip.t),r:Math.min(a.r,clip.r),b:Math.min(a.b,clip.b)};
@@ -316,11 +335,6 @@ function backend(input) {
           const bad=[];
           for(const n of heads) {
             n.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
-            const port=n.closest('.fc-history');
-            if(port?.closest('.fc-table[data-seats="5"]')) {
-              const slot=n.closest('.fc-history-card');
-              port.scrollLeft=Math.max(0,slot.offsetLeft+new DOMMatrix(getComputedStyle(slot).transform).m41+11-port.clientWidth/2);
-            }
             await new Promise(requestAnimationFrame);
             const r=n.getBoundingClientRect();
             const diagonal=getComputedStyle(n.closest('.fc-discard-history')).transform!=='none';
@@ -373,13 +387,10 @@ function backend(input) {
                   x=r.left-c.left+clip.scrollLeft;y=r.top-c.top+clip.scrollTop;
                 }
                 const w=slot.offsetWidth,h=slot.offsetHeight;
-                const five=clip.matches('.fc-history')&&clip.closest('.fc-table[data-seats="5"]');
-                const inset=five&&slot.matches(':nth-child(even)')?12:0;
-                if(five)x+=new DOMMatrix(getComputedStyle(slot).transform).m41;
-                clip.scrollLeft=Math.max(0,x+w-clip.clientWidth+inset+1);
+                clip.scrollLeft=Math.max(0,x+w-clip.clientWidth+1);
                 clip.scrollTop=Math.max(0,y+h-clip.clientHeight+1);
                 await new Promise(requestAnimationFrame);
-                if(x<clip.scrollLeft+inset-.5 || x+w>clip.scrollLeft+clip.clientWidth-inset+.5 || y<clip.scrollTop-.5 || y+h>clip.scrollTop+clip.clientHeight+.5)
+                if(x<clip.scrollLeft-.5 || x+w>clip.scrollLeft+clip.clientWidth+.5 || y<clip.scrollTop-.5 || y+h>clip.scrollTop+clip.clientHeight+.5)
                   bad.push({card:face.dataset.cardId,x,y,w,h,width:clip.clientWidth,height:clip.clientHeight,left:clip.scrollLeft,top:clip.scrollTop});
               }
             }
@@ -446,12 +457,13 @@ function backend(input) {
             const rect=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,cx:r.x+r.width/2,cy:r.y+r.height/2};};
             return {live:rect(table.querySelector('.fc-live-cards')),rails:[...table.querySelectorAll('.fc-history')].map(n=>({position:n.dataset.position,...rect(n),widthLocal:n.clientWidth,matrix:getComputedStyle(n).transform,cards:n.children.length}))};
           });
+          for(const box of [geometry.live,...geometry.rails])assert.ok(['x','y','width','height','cx','cy'].every(k=>Number.isFinite(box[k])),'ring geometry fields must be finite');
           if(count===5) {
             assert.equal(geometry.rails.length,5);
             const lengths=geometry.rails.map(r=>r.widthLocal);
             assert.ok(Math.max(...lengths)-Math.min(...lengths)<=1,'five equally long scrollports');
             const cx=geometry.rails.reduce((v,r)=>v+r.cx,0)/5,cy=geometry.rails.reduce((v,r)=>v+r.cy,0)/5;
-            assert.ok(Math.abs(cx-geometry.live.cx)<1 && Math.abs(cy-geometry.live.cy-2)<1,'central contents lift 2px to clear the shorter inner row');
+            assert.ok(Math.abs(cx-geometry.live.cx)<1 && Math.abs(cy-geometry.live.cy)<1,'live cards at pentagon geometric centre');
             const radii=geometry.rails.map(r=>Math.hypot(r.cx-cx,r.cy-cy));
             assert.ok(Math.max(...radii)-Math.min(...radii)<1,'all five sides share one apothem');
             const angles=geometry.rails.map(r=>(Math.atan2(r.cy-cy,r.cx-cx)*180/Math.PI+360)%360).sort((a,b)=>a-b);
@@ -488,7 +500,7 @@ function backend(input) {
             neutralIds.slice(4).forEach(id=>delete s.discard_sources[id]);
             await refresh();await completeCards();await screenshot('ring-4-both-neutral-sources');
             assert.equal(await page.locator('.fc-neutral-pile').count(),1,'neutral origins share one strip without losing per-card provenance');
-            assert.equal(await page.locator('.fc-neutral-pile .fc-meta').count(),0);
+            assert.equal(await page.locator('.fc-neutral-pile .fc-neutral-label').innerText(),'公共弃牌');
             assert.equal(await page.locator('.fc-neutral-pile [aria-label^="无人收取"]').count(),4);
             assert.equal(await page.locator('.fc-neutral-pile [aria-label^="来源未记录"]').count(),4);
             await checkRailHeads();

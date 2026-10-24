@@ -56,9 +56,9 @@ return [[r.left,r.top],[r.right,r.top],[r.right,r.bottom],[r.left,r.bottom]];};
     const x=c.offsetLeft+shift-n.scrollLeft,y=c.offsetTop-n.scrollTop,l=Math.max(0,x),t=Math.max(0,y),right=Math.min(n.clientWidth,x+c.offsetWidth),b=Math.min(n.clientHeight,y+c.offsetHeight);
     const h=c.querySelector('strong'),hr=h.getBoundingClientRect(),dx=hr.x+hr.width/2-cx,dy=hr.y+hr.height/2-cy;
     const hx=m.a*dx+m.b*dy+n.clientWidth/2,hy=m.c*dx+m.d*dy+n.clientHeight/2;
-    const inset=c.matches(":nth-child(even)")?12:0;
+    const inset=0;
     const readable=hx>=inset+6.9&&hx<=n.clientWidth-inset-6.9&&hy>=6.9&&hy<=n.clientHeight-6.9&&c.contains(document.elementFromPoint(hr.x+hr.width/2,hr.y+hr.height/2));
-    const pieces=[[0,0,n.clientWidth,19],[12,19,n.clientWidth-12,n.clientHeight]].map(([cl,ct,cr,cb])=>{
+    const pieces=[[0,0,n.clientWidth,n.clientHeight]].map(([cl,ct,cr,cb])=>{
      const pl=Math.max(l,cl),pt=Math.max(t,ct),pr=Math.min(right,cr),pb=Math.min(b,cb);
      return pr>pl&&pb>pt?[[pl,pt],[pr,pt],[pr,pb],[pl,pb]].map(([x,y])=>world(x,y)):[];
     }).filter(p=>p.length);
@@ -79,7 +79,13 @@ return [[r.left,r.top],[r.right,r.top],[r.right,r.bottom],[r.left,r.bottom]];};
 
  fs.writeFileSync(path.join(out,`${width}-initial-geometry.json`),JSON.stringify(geometry,null,2));
  assert.deepEqual(geometry.bad,[],`initial collisions at ${width}`);
- geometry.rails.forEach(r=>{assert.ok(r.readable>=7,'initial heads must be visibly readable');assert.ok(r.visible>=8,'initial view must show more than four layers');});
+ geometry.rails.forEach(r=>{
+  assert.equal(r.height,21,'original single-row scrollport');
+  assert.ok(r.readable>=3,'single-row heads remain readable');
+  assert.ok(r.scrollWidth>r.width,'native history overflow remains scrollable');
+  r.cards.forEach((c,i)=>{assert.equal(c.y,r.cards[0].y,'all cards share one row');if(i)assert.equal(c.x-r.cards[i-1].x,20,'original overlap pitch');});
+ });
+ assert.ok(await page.locator('.fc-history').evaluateAll(ns=>ns.every(n=>getComputedStyle(n).display==='flex' && getComputedStyle(n).clipPath==='none')),'no double-row grid or mask');
  const samples=[{scene:'initial',...geometry}];
  // The same public/listening pressure as ringOnly, only in a disposable projection.
  const pressure=structuredClone(fixture);
@@ -127,7 +133,7 @@ return [[r.left,r.top],[r.right,r.top],[r.right,r.bottom],[r.left,r.bottom]];};
    const bad=[];
    for(const port of ports)for(const slot of port.querySelectorAll('.fc-history-card')){
     if(!port.isConnected || !port.clientWidth) throw new Error('Measured port detached or hidden during scene');
-    const inset=slot.matches(':nth-child(even)')?12:0,shift=new DOMMatrix(getComputedStyle(slot).transform).m41;
+    const inset=0,shift=new DOMMatrix(getComputedStyle(slot).transform).m41;
     const x=slot.offsetLeft+shift;
     port.scrollLeft=Math.max(0,x-inset-(port.clientWidth-2*inset-slot.offsetWidth)/2);
     await new Promise(requestAnimationFrame);

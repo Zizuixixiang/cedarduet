@@ -149,7 +149,7 @@
 .fc-table[data-seats="5"] {
   --fc-side: clamp(86px, 21%, 150px);
   --fc-side-public: min(var(--fc-side), calc((100% - 180px) / 2));
-  --fc-ring-edge: clamp(94px, calc(25vw + 4px), 104px);
+  --fc-ring-edge: clamp(90px, 25vw, 100px);
   --fc-ring-apothem: calc(var(--fc-ring-edge) * .68819096);
   --fc-ring-y: 270px;
   height: 500px;
@@ -164,36 +164,23 @@
 .fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: 246px; bottom: 130px; width: var(--fc-side-public); }
 .fc-table[data-seats="5"] .fc-position-south .fc-seat-public { left: 8px; right: 8px; bottom: 48px; height: 80px; }
 .fc-table[data-seats="5"] .fc-table-center { top: calc(var(--fc-ring-y) - 27px); height: 72px; grid-template-rows: 54px 18px; width: 92px; pointer-events: none; }
-.fc-table[data-seats="5"] :is(.fc-stock, .fc-offer, .fc-discards, .fc-turn) { pointer-events: auto; }
-.fc-table[data-seats="5"] .fc-turn { justify-self: center; transform: translateY(-7px); }
-.fc-table[data-seats="5"] .fc-live-cards { transform: translateY(-2px); pointer-events: none; }
-.fc-table[data-seats="5"] .fc-stock { transform: translateY(-8px); }
-.fc-table[data-seats="5"] .fc-offer > .fc-meta { left: 0; right: auto; bottom: 100%; }
+.fc-table[data-seats="5"] :is(.fc-live-cards, .fc-discards, .fc-turn) { pointer-events: auto; }
+.fc-table[data-seats="5"] .fc-turn { justify-self: center; }
 /* Unowned history stays neutral, in the free space above the ring. */
 .fc-table[data-seats="5"] .fc-discards { position: absolute; top: calc(187px - var(--fc-ring-y)); width: 124px; }
 .fc-table[data-seats="5"] .fc-history {
   left: 50%; top: var(--fc-ring-y); right: auto; bottom: auto;
-  /* The shorter inner row adds visible layers without filling the corners.
-     Card sizes and readable heads stay unchanged. Both rows scroll together. */
-  display: grid; grid-auto-flow: column;
-  grid-template-rows: repeat(2, 16px); grid-auto-columns: 17px; touch-action: pan-x;
-  width: calc(var(--fc-ring-edge) - 14px); height: 35px;
-  transform: translate(-50%, -50%) rotate(var(--fc-ring-angle)) translateY(calc(-1 * var(--fc-ring-apothem) + 8px));
-  clip-path: polygon(0 0, 100% 0, 100% 19px, calc(100% - 12px) 19px, calc(100% - 12px) 100%, 12px 100%, 12px 19px, 0 19px);
+  width: calc(var(--fc-ring-edge) - 12px); height: 21px;
+  transform: translate(-50%, -50%) rotate(var(--fc-ring-angle)) translateY(calc(-1 * var(--fc-ring-apothem)));
   transform-origin: center;
 }
-/* Scroll past the inset so the inner row's final face is fully reachable. */
-.fc-table[data-seats="5"] .fc-history > .fc-history-card:last-child::after {
-  content: ""; position: absolute; left: 100%; width: 12px; height: 1px;
-}
-.fc-table[data-seats="5"] .fc-history > .fc-history-card + .fc-history-card { margin-left: 0; }
-.fc-table[data-seats="5"] .fc-history > .fc-history-card:nth-child(even) { transform: translateX(12px); }
 .fc-table[data-seats="5"] .fc-history-north-west { --fc-ring-angle: 0deg; }
 .fc-table[data-seats="5"] .fc-history-north-east { --fc-ring-angle: 72deg; }
 .fc-table[data-seats="5"] .fc-history-east { --fc-ring-angle: 144deg; }
 .fc-table[data-seats="5"] .fc-history-south { --fc-ring-angle: 216deg; }
 .fc-table[data-seats="5"] .fc-history-west { --fc-ring-angle: 288deg; }
-.fc-neutral-pile { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px; min-width: 0; min-height: 0; }
+.fc-neutral-pile { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px; min-width: 0; min-height: 0; }
+.fc-neutral-label { position: absolute; left: 0; bottom: calc(100% + 2px); white-space: nowrap; pointer-events: none; }
 .fc-neutral-pile .fc-discard-history { min-height: 0; pointer-events: auto; }
 .fc-history-card { position: relative; display: block; flex: none; width: 47px; height: 18px; }
 .fc-history-card .fc-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-90deg); }

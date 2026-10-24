@@ -147,9 +147,10 @@ function backend(request, db) {
             const ids=[...doc.querySelectorAll('.fc-discard-history [data-card-id], .fc-offer [data-card-id]')].map(n=>n.dataset.cardId);
             assert.deepEqual(ids.sort(), [...new Set([...discards, ...(offer?[offer.card]:[])])].sort());
             assert.equal(doc.querySelectorAll('.fc-discard-history .fc-card-current, .fc-offer .fc-card-current').length, offer || discards.length ? 1 : 0);
-            if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,count===5?(offer.from_deck?'翻牌':'弃牌'):(offer.from_deck?'公开翻牌':'当前弃牌'));
+            if (offer) assert.equal(doc.querySelector('.fc-offer .fc-meta').textContent,offer.from_deck?'公开翻牌':'当前弃牌');
             else assert.equal(doc.querySelectorAll('.fc-offer').length,0);
             assert.doesNotMatch(pile.textContent,/暂无弃牌|弃牌区 ·/);
+            if(!discards.length) assert.equal(doc.querySelector('.fc-neutral-label'),null,'empty neutral history has no label');
             assert.equal(doc.querySelectorAll('.fc-turn-indicator').length,1);
             assert.equal(doc.querySelectorAll('.fc-seat-counts > .fc-turn-indicator').length,1);
             assert.equal(doc.querySelector('.fc-turn-indicator').textContent,'行动中');
@@ -164,7 +165,8 @@ function backend(request, db) {
         assert.equal(doc.querySelector('.fc-history').dataset.position,doc.querySelector('.fc-seat[data-player-id="p0"]').dataset.position);
         assert.deepEqual([...doc.querySelectorAll('.fc-neutral-pile [data-card-id]')].map(n=>n.dataset.cardId),['R5-2','G5-2'],'deck and old unknown cards remain neutral');
         assert.equal(doc.querySelectorAll('.fc-neutral-pile').length,1);
-        assert.equal(doc.querySelectorAll('.fc-neutral-pile > .fc-meta').length,0);
+        assert.equal(doc.querySelector('.fc-neutral-pile > .fc-neutral-label').textContent,'公共弃牌');
+        assert.equal(doc.querySelectorAll('.fc-history .fc-neutral-label').length,0,'owned history is never labelled public');
         assert.match(doc.querySelector('.fc-neutral-pile [data-card-id="R5-2"]').getAttribute('aria-label'),/^无人收取的公开翻牌/);
         assert.match(doc.querySelector('.fc-neutral-pile [data-card-id="G5-2"]').getAttribute('aria-label'),/^来源未记录的历史弃牌/);
         assert.equal(doc.querySelectorAll('.fc-table [data-card-id="Y0-4"]').length,0,'metadata alone never exposes a card');
