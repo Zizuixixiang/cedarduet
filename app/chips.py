@@ -171,6 +171,49 @@ def _ensure_wallet(
     return wallet
 
 
+def validate_stake_budget(conn: sqlite3.Connection, room: dict) -> None:
+    """Check only this room's initiator inside the write_transaction (no debit).
+
+    Joined seats in unfinished rooms are commitments, including inactive seats
+    still awaiting settlement. Unaccepted invitations reserve nobody's funds.
+    Commitments use stake face values, never game settlement multipliers.
+    Invitees have no balance gate, but their accepted stakes still count
+    if they later initiate another room. Recheck the initiator at admission/start.
+    Room lifecycle/settlement releases commitments without another ledger/table.
+    """
+    if room.get("stake", 0) == 0:
+        return
+    required = room["stake"]
+    participant = next((p for p in room["participants"]
+                        if p["player_id"] == room["initiator_player_id"]), None)
+    if participant is None or participant.get("participant_kind") == "system_npc":
+        raise DuelError("筹码房间缺少有效发起人", 409)
+    role, player_id = participant["role"], participant["player_id"]
+    wallet = _wallet_row(conn, role, player_id)
+    balance = wallet["balance"] if wallet is not None else INITIAL_BALANCE
+    rows = conn.execute(
+        """
+        SELECT r.stake FROM rooms r
+        JOIN room_participants p ON p.room_id = r.room_id
+        WHERE p.role = ? AND p.player_id = ?
+          AND p.participant_kind != 'system_npc'
+          AND (p.join_status = 'joined' OR r.status = 'playing')
+          AND r.status IN ('pending', 'waiting', 'playing') AND r.stake > 0
+          AND r.room_id != ?
+          AND (r.status != 'pending' OR r.confirmation_expires_at IS NULL
+               OR r.confirmation_expires_at > ?)
+        """,
+        (role, player_id, room.get("room_id", ""), _timestamp()),
+    ).fetchall()
+    committed = sum(row["stake"] for row in rows)
+    if balance <= 0 or required > balance - committed:
+        raise DuelError(
+            f"{participant.get('display_name') or player_id} 可用筹码不足，"
+            f"本局押注 {required}，可用 {max(0, balance - committed)}",
+            409,
+        )
+
+
 def _write_ledger(
     conn: sqlite3.Connection,
     *,

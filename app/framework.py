@@ -1976,6 +1976,12 @@ def create_room(
     with write_transaction() as conn:
         _maintain_rooms(conn)
         _check_global_capacity(conn)
+        from .chips import validate_stake_budget
+
+        validate_stake_budget(conn, {
+            "game_type": game_type, "stake": stake, "participants": participants,
+            "initiator_player_id": player_id,
+        })
         pair = _one_to_one_bound_pair(participants, game)
         if pair is not None:
             _check_pair_capacity(conn, *pair)
@@ -2141,6 +2147,10 @@ def respond_to_invitation(
         ).fetchone()
         if confirmation is None:
             raise DuelError("当前参与者不在该局确认清单中", 403)
+        if decision == "accept" and room["status"] in {"pending", "waiting"}:
+            from .chips import validate_stake_budget
+
+            validate_stake_budget(conn, room)
         if (
             decision == "accept"
             and confirmation["decision"] == "accepted"
@@ -2306,6 +2316,9 @@ def join_room(
                 "active": True,
             },
         ], key=lambda item: item["seat_index"])
+        from .chips import validate_stake_budget
+
+        validate_stake_budget(conn, {**room, "participants": prospective})
         pair = _one_to_one_bound_pair(prospective, game)
         if pair is not None:
             _check_pair_capacity(conn, *pair)

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import httpx
 
-from app import database, framework
+from app import chips, database, framework
 from app import main as main_module
 from app.npc_controller import run_current_npc_turn
 from app.games import GAMES, game_catalog
@@ -584,6 +584,8 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
         self.assertEqual(refreshed["private_state"], current["private_state"])
 
     def test_real_buy_in_room_is_accepted_and_attached_only_at_terminal(self):
+        for role, player in (("human", "stake-human"), ("ai", "stake-ai")):
+            chips.change_balance(role, player, 800, "test_setup")
         room = framework.create_room(
             "texas_holdem", "human_first", "human", "stake-human", "stake-ai",
             stake=1000,
@@ -638,6 +640,8 @@ class TexasHoldemFrameworkTests(unittest.TestCase):
         self.assertEqual(terminal_ledger, 2)
 
     def test_real_buy_in_resignation_settles_committed_internal_pot(self):
+        for role, player in (("human", "resign-human"), ("ai", "resign-ai")):
+            chips.change_balance(role, player, 800, "test_setup")
         room = framework.create_room(
             "texas_holdem", "human_first", "human", "resign-human", "resign-ai",
             stake=1000,

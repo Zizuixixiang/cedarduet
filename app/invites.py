@@ -4,6 +4,7 @@ import re
 import secrets
 from contextlib import closing
 from .database import connect, decode_room, write_transaction
+from .chips import validate_stake_budget
 from .framework import (
     DuelError, _now, _player_id, _room_id, _new_room_id, _decorate,
     _check_global_capacity, _initialize_opening_state, _record_event,
@@ -77,6 +78,15 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
         require_npc(game, temporary=True)
     with write_transaction() as conn:
         _check_global_capacity(conn)
+        validate_stake_budget(conn, {
+            "game_type": game_type, "stake": stake,
+            "initiator_player_id": player_id,
+            "target_player_count": target_player_count,
+            "participants": [
+                {"player_id": player_id, "role": role},
+                *({"player_id": ai, "role": "ai"} for ai in selected),
+            ],
+        })
         # Cross-account rooms have no bound-pair quota. Apply a per-owner cap.
         count = conn.execute("SELECT COUNT(*) FROM rooms WHERE initiator_player_id = ? AND status IN ('waiting','playing','pending')", (player_id,)).fetchone()[0]
         if count >= 10:
@@ -130,6 +140,10 @@ def join_invite(code, role, player_id, *, display_name=None):
             raise DuelError("同一账号不能重复入座", 409)
         if len(room["participants"]) >= room["target_player_count"]:
             raise DuelError("房间已满", 409)
+        validate_stake_budget(conn, {
+            **room, "participants": [*room["participants"],
+                                      {"player_id": player_id, "role": role}],
+        })
         _insert_member(conn, room["room_id"], player_id, role, display_name, len(room["participants"]))
         _touch_room_presence(conn, room["room_id"], player_id)
         conn.execute("UPDATE rooms SET revision = revision + 1, updated_at = ? WHERE room_id = ?", (_now(), room["room_id"]))
@@ -171,6 +185,7 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
                 members.append({"player_id": f"npc:{persona.id}"})
         room = decode_room(row, conn)
         members = room["participants"]
+        validate_stake_budget(conn, room)
         secrets.SystemRandom().shuffle(members)
         # Move all old seats out of range before assigning the shuffled indices.
         conn.execute("UPDATE room_participants SET seat_index = seat_index + 100 WHERE room_id = ?", (room_id,))
