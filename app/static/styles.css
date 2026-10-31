@@ -4690,3 +4690,198 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   display: block;
   overflow-wrap: anywhere;
 }
+
+/* Mouse/trackpad lobby: stable type and controls, layout follows available space. */
+@media (hover: hover) and (pointer: fine) {
+  .duel-main:has(> #lobbyView:not(.hidden)) {
+    width: min(1240px, calc(100% - 32px));
+    min-height: 0;
+    padding: 16px 0 22px;
+  }
+  .app:has(#lobbyView:not(.hidden)) > .topbar {
+    min-height: 58px;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+  }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .topbar-leading { gap: 10px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .brand { gap: 14px; font-size: 24px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .pixel-logo { width: 24px; height: 18px; border-width: 4px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .home-link { width: 28px; height: 28px; font-size: 18px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .top-actions {
+    flex: 1 1 420px;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .service-badge { display: inline-flex; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .pair-label {
+    display: block;
+    max-width: min(360px, 100%);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .chip-wallet-actions { flex-wrap: wrap; gap: 7px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar :is(.chip-balance-link, .chip-center-button) {
+    height: auto;
+    min-height: 40px;
+    padding: 6px 9px;
+  }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .chip-balance-link { min-width: 72px; max-width: 164px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .chip-balance { max-width: 120px; font-size: 16px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .long-balance .chip-balance { font-size: 13px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .chip-center-button { font-size: 14px; }
+  .app:has(#lobbyView:not(.hidden)) > .topbar .chip-wallet-icon { width: 22px; height: 22px; font-size: 14px; }
+
+  #lobbyView {
+    width: 100%;
+    min-width: 0;
+    max-width: 1200px;
+    margin-inline: auto;
+    align-content: start;
+    gap: 16px;
+    container: duel-lobby / inline-size;
+  }
+  #lobbyView .lobby-header { min-height: 48px; padding: 0; flex-wrap: wrap; gap: 12px; }
+  #lobbyView .lobby-title-row { min-height: 34px; }
+  #lobbyView .lobby-header h1 { font-size: 30px; line-height: 1.2; }
+  #lobbyView .hero-pair {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 240px;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  #lobbyView .lobby-notification-bell { width: 34px; height: 34px; min-width: 34px; flex-basis: 34px; border-width: 3px; }
+  #lobbyView .lobby-notification-bell svg { width: 20px; height: 20px; }
+  #lobbyView .invite-entry { margin: 0; gap: 10px; }
+  #lobbyView .lobby-stack { min-width: 0; gap: 16px; }
+  #lobbyView .lobby-stack > .section-panel:not(.room-panel) { min-width: 0; padding: 16px; }
+  #lobbyView .room-panel-body { padding: 16px; }
+  #lobbyView .section-head { margin-bottom: 8px; }
+  #lobbyView .section-head h2 { font-size: 20px; line-height: 1.4; }
+  #lobbyView .section-head .tag { font-size: 13px; line-height: 1.4; }
+  #lobbyView > .notice { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .invite-entry .pixel-btn,
+  #lobbyView .create-form > .create-submit {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 48px;
+    padding: 8px 16px;
+    font-size: 16px;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  #lobbyView .create-form {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 6px 20px;
+  }
+  /* Three shared rows: label, control, hint. Wrapped labels size both columns. */
+  #lobbyView .create-form > .participant-picker,
+  #lobbyView .create-form > .pixel-field,
+  #lobbyView .create-form > .pixel-field:has(#gameType) {
+    min-width: 0;
+    grid-column: auto;
+    grid-row: span 3;
+    display: grid;
+    grid-template-rows: subgrid;
+  }
+  #lobbyView .participant-picker > .pixel-field {
+    grid-row: 1 / -1;
+    grid-template-rows: subgrid;
+  }
+  #lobbyView .create-form .pixel-field { min-width: 0; font-size: 14px; line-height: 1.5; gap: 6px; }
+  #lobbyView .create-form .pixel-field > span { overflow-wrap: anywhere; }
+  #lobbyView .create-form .pixel-field select,
+  #lobbyView .create-form .pixel-field input,
+  #lobbyView .create-form .ai-multi-trigger {
+    min-width: 0;
+    height: 48px;
+    min-height: 48px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  #lobbyView .create-form .game-type-selects { grid-template-columns: 76px minmax(0, 1fr); }
+  #lobbyView .create-form > .multiplayer-options {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px 12px;
+    margin-block: 6px;
+  }
+  #lobbyView .npc-fill-toggle { min-width: 0; min-height: 48px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .npc-fill-toggle input { flex: none; }
+  #lobbyView .create-form > .fc-rule-picker { grid-column: 1 / -1; min-width: 0; margin-block: 6px; }
+  #lobbyView .create-form .fc-rule-card { min-width: 0; }
+  #lobbyView .create-form .fc-rule-card input { flex: none; }
+  #lobbyView .create-form .fc-rule-copy { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .create-form .fc-rule-copy strong { font-size: 16px; }
+  #lobbyView .create-form .fc-rule-copy > span { font-size: 13px; }
+  #lobbyView .create-form > .create-submit {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: end;
+    width: 220px;
+    margin-top: 6px;
+  }
+  #lobbyView .create-form .ai-multi-option { font-size: 16px; line-height: 1.5; }
+  #lobbyView .create-form .ai-multi-option .ai-multi-name { white-space: normal; overflow-wrap: anywhere; }
+  #lobbyView .create-panel:has(.ai-multi-field.open),
+  #lobbyView .create-form:has(.ai-multi-field.open) { z-index: 2; }
+  #lobbyView .stake-game-hint,
+  #lobbyView .npc-provider-hint,
+  #lobbyView #gameTokenEstimate { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .seat-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  #lobbyView .seat-preview-item { flex: 0 1 220px; max-width: 100%; padding: 7px 9px; line-height: 1.5; }
+  #lobbyView .seat-preview-number,
+  #lobbyView .seat-preview-kind,
+  #lobbyView .seat-preview-balance { font-size: 13px; }
+  #lobbyView .seat-preview-name { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+  #lobbyView .create-note { margin-top: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .create-note p { min-width: 0; }
+  #lobbyView .pending-group-title { font-size: 14px; line-height: 1.5; }
+  #lobbyView .pending-card { display: flex; flex-wrap: wrap; gap: 10px; }
+  #lobbyView .pending-copy { flex: 1 1 280px; }
+  #lobbyView .pending-title { font-size: 16px; line-height: 1.5; white-space: normal; }
+  #lobbyView .pending-meta { font-size: 13px; line-height: 1.5; white-space: normal; }
+  #lobbyView .pending-card .pixel-btn { width: auto; min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 14px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+
+  #lobbyView .room-scope-tabs button { min-height: 44px; font-size: 14px; line-height: 1.5; white-space: normal; }
+  #lobbyView .room-scope-hint { font-size: 13px; line-height: 1.5; }
+  #lobbyView .room-list {
+    width: 100%;
+    max-width: 390px;
+    margin-inline: auto;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
+  }
+  #lobbyView .room-empty { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .room-card { min-width: 0; }
+  #lobbyView .room-open { min-height: 0; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px; }
+  #lobbyView .room-title { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .room-meta,
+  #lobbyView .room-stake { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .room-state { min-width: 0; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #lobbyView .room-state .turn { min-width: 0; max-width: 100%; font-size: 14px; text-align: left; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+  #lobbyView .room-status-badge { min-height: 28px; padding: 5px 8px; font-size: 14px; line-height: 1.4; white-space: normal; }
+  #lobbyView .room-invite-badge { min-height: 0; padding: 2px 4px; font-size: 13px; }
+  #lobbyView .room-enter { flex: none; font-size: 14px; line-height: 1.5; }
+  #lobbyView .room-record-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
+  #lobbyView .room-retention { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .room-record-button { min-width: 0; min-height: 36px; padding: 6px 8px; font-size: 14px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+
+  @container duel-lobby (min-width: 640px) {
+    #lobbyView .create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #lobbyView .create-form > .multiplayer-options { grid-template-columns: minmax(0, 240px) minmax(0, 240px); }
+  }
+  @container duel-lobby (min-width: 700px) {
+    #lobbyView .room-list { max-width: 796px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @container duel-lobby (min-width: 1040px) {
+    #lobbyView .room-list { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+}
