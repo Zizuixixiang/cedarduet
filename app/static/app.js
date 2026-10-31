@@ -585,7 +585,7 @@ function statusLabel(status) {
     waiting: "等待加入",
     playing: "对局中",
     finished: "已结束",
-    archived: "已归档",
+    archived: "已结束",
   }[status] || status;
 }
 
@@ -755,7 +755,7 @@ function turnLabel(turn, aiPlayerId, currentActor = null, targetRoom = null) {
 
 function roomTurnText(targetRoom) {
   if (isTerminal(targetRoom)) {
-    return targetRoom.status === "archived" ? "对局已归档" : "对局已结束";
+    return "对局已结束";
   }
   if (targetRoom.room_kind === "invite" && targetRoom.status === "waiting") return "等待开局";
   if (targetRoom.status === "pending") return "等待对方确认";
@@ -894,6 +894,26 @@ function pendingRoomCreatedNotice(targetRoom) {
   );
 }
 
+// These spans remain ordinary inline text on touch; desktop styles group wrapping units.
+function appendRoomTextUnits(target, parts, separator, separatorClass = "") {
+  parts.forEach((part, index) => {
+    if (index) {
+      if (separatorClass) {
+        const divider = document.createElement("span");
+        divider.className = separatorClass;
+        divider.textContent = separator;
+        target.appendChild(divider);
+      } else {
+        target.append(document.createTextNode(separator));
+      }
+    }
+    const unit = document.createElement("span");
+    unit.className = "room-text-unit";
+    unit.textContent = part;
+    target.appendChild(unit);
+  });
+}
+
 function renderRooms(rooms) {
   const list = $("roomList");
   list.replaceChildren();
@@ -937,20 +957,32 @@ function renderRooms(rooms) {
     copy.className = "room-copy";
     const title = document.createElement("span");
     title.className = "room-title";
-    title.textContent = summary.participant_names && (summary.spectating || summary.participant_names.length > 2 || summary.room_kind === "invite")
-      ? `${summary.game_name} × ${summary.participant_names.join(" / ")}`
-      : `${summary.game_name} × ${summary.ai_name}`;
+    const titleNames = summary.participant_names && (summary.spectating || summary.participant_names.length > 2 || summary.room_kind === "invite")
+      ? summary.participant_names : [String(summary.ai_name)];
+    const gameName = document.createElement("strong");
+    gameName.className = "room-game-name";
+    gameName.textContent = String(summary.game_name);
+    const divider = document.createElement("span");
+    divider.className = "room-title-separator";
+    divider.textContent = " × ";
+    const participants = document.createElement("span");
+    participants.className = "room-title-participants";
+    appendRoomTextUnits(participants, titleNames, " / ", "room-title-separator");
+    title.append(gameName, divider, participants);
     title.title = title.textContent;
     const meta = document.createElement("span");
     meta.className = "room-meta";
-    meta.textContent = summary.room_kind === "invite"
-      ? `${activeInvite ? "" : "邀请房 · "}${summary.participant_count}/${summary.target_player_count} · ${summary.status === "waiting" ? "等待开局" : statusLabel(summary.status)}`
-      : `${summary.room_id} · ${statusLabel(summary.status)} · 更新于 ${relativeTime(summary.updated_at)}`;
+    const metaParts = summary.room_kind === "invite"
+      ? [...(activeInvite ? [] : ["邀请房"]), `${summary.participant_count}/${summary.target_player_count}`, summary.status === "waiting" ? "等待开局" : statusLabel(summary.status)]
+      : [String(summary.room_id), statusLabel(summary.status), `更新于 ${relativeTime(summary.updated_at)}`];
+    appendRoomTextUnits(meta, metaParts, " · ");
+    const tags = document.createElement("span");
+    tags.className = "room-tags";
     if (activeInvite) {
       const inviteBadge = document.createElement("span");
       inviteBadge.className = "room-status-badge room-invite-badge";
       inviteBadge.textContent = "邀请房";
-      meta.prepend(inviteBadge);
+      tags.appendChild(inviteBadge);
     }
     const stake = document.createElement("span");
     stake.className = "room-stake";
@@ -959,7 +991,8 @@ function renderRooms(rooms) {
     stake.textContent = summary.stake_hint
       ? `${stakeLabel}（${summary.stake_hint}）`
       : stakeLabel;
-    copy.append(title, meta, stake);
+    tags.appendChild(stake);
+    copy.append(title, meta, tags);
 
     const state = document.createElement("span");
     state.className = "room-state";

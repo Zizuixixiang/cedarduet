@@ -633,7 +633,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 19px;
 }
 .room-copy { min-width: 0; }
-.room-title { display: block; color: var(--purple-darker); font-size: 14px; }
+.room-title { display: block; color: var(--purple-darker); font-size: 14px; font-weight: 400; }
+/* Title and metadata wrappers must inherit their own text tier, not board UI typography. */
+.room-title :is(.room-game-name, .room-title-participants, .room-title-separator, .room-text-unit),
+.room-meta .room-text-unit {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.room-game-name { display: inline-block; max-width: 100%; vertical-align: top; font-weight: 700; overflow-wrap: anywhere; }
+.room-title-participants { font-weight: 400; }
+.room-title-separator { margin-inline: .15em; font-weight: 400; opacity: .6; }
 .room-meta { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .room-state { align-self: stretch; display: grid; justify-items: end; align-content: space-between; gap: 8px; }
 .room-state .turn { color: var(--pink-dark); font-size: 12px; white-space: nowrap; }
@@ -662,17 +672,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-status-badge.pale {
   color: var(--pink-dark);
   background: rgba(230, 168, 177, .22);
-}
-.room-status-badge.room-invite-badge {
-  min-height: 18px;
-  margin-right: 6px;
-  padding: 2px 4px;
-  vertical-align: middle;
-  color: var(--text);
-  background: var(--pink);
-  border: 1px solid var(--pink-dark);
-  box-shadow: none;
-  font-size: 10px;
 }
 .room-enter { color: var(--pink); font-size: 10px; }
 .room-record-controls {
@@ -707,15 +706,41 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: var(--pink-dark);
   border-color: var(--pink-dark);
 }
-.room-stake {
-  display: inline-flex;
+.room-tags {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 5px;
+}
+.room-stake,
+.room-tags > .room-invite-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 23px;
+  margin: 0;
   padding: 3px 6px;
   color: var(--purple-darker);
   background: var(--purple-light);
   border: 1px solid var(--purple);
+  box-shadow: none;
+  font-family: system-ui, "Microsoft YaHei", sans-serif;
   font-size: 10px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
+.room-tags > .room-invite-badge {
+  flex: none;
+  color: #315f85;
+  background: #eaf3fc;
+  border-color: #9fbdd5;
+}
+
 .room-empty {
   min-height: 150px;
   padding: 24px;
@@ -4704,10 +4729,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     grid-template-columns: minmax(0, 1fr);
   }
   .duel-main:has(> #lobbyView:not(.hidden)) {
-    width: 736px;
+    width: 960px;
     max-width: none;
     min-height: 0;
-    margin-inline: max(16px, calc((100% - 736px) / 2));
+    margin-inline: max(16px, calc((100% - 960px) / 2));
     padding: 16px 0 24px;
   }
   .app:has(#lobbyView:not(.hidden)) > .topbar {
@@ -4785,8 +4810,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .lobby-stack > .create-panel {
     font-family: system-ui, "Microsoft YaHei", sans-serif;
     display: grid;
-    grid-template-columns: 680px;
-    width: max-content;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
     justify-self: center;
     padding: 16px 24px;
     align-items: start;
@@ -4868,6 +4893,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   /* Up to three equal cards; keep two-card rooms compact and rows content-sized. */
   #lobbyView .seat-preview {
     grid-area: 4 / 1;
+    width: min(100%, 680px);
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
@@ -4923,9 +4949,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .pending-meta { font-size: 14px; line-height: 1.5; white-space: normal; }
   #lobbyView .pending-card .pixel-btn { width: auto; min-width: 0; min-height: 44px; padding: 6px 12px; font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
 
+  #lobbyView .room-panel { font-family: system-ui, "Microsoft YaHei", sans-serif; font-size: 16px; font-weight: 400; line-height: 1.5; }
+  #lobbyView .room-panel :is(button, .room-retention) { font-family: inherit; }
   #lobbyView .room-panel-body { padding: 16px 24px 24px; }
-  #lobbyView .room-scope-tabs button { min-height: 44px; font-size: 14px; line-height: 1.5; white-space: normal; }
-  #lobbyView .room-scope-hint { font-size: 14px; line-height: 1.5; }
+  #lobbyView .room-scope-tabs button { color: var(--text); min-height: 44px; font-size: 16px; font-weight: 600; line-height: 1.5; white-space: normal; }
+  #lobbyView .room-scope-hint { color: #756c7d; font-size: 14px; line-height: 1.5; }
   #lobbyView .room-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
@@ -4938,10 +4966,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     margin: 0;
     color: var(--text);
     font-size: 16px;
+    font-weight: 600;
     line-height: 1.5;
   }
   #lobbyView .room-group-heading.current { order: 0; }
-  #lobbyView .room-group-heading.history { order: 2; }
+  #lobbyView .room-group-heading.history { order: 2; color: #756c7d; }
   #lobbyView .room-list:has(.room-card:not(.ended)) .room-group-heading.history { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--purple); }
   #lobbyView .room-empty { grid-column: 1 / -1; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .room-card {
@@ -4951,46 +4980,53 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     flex-direction: column;
   }
   #lobbyView .room-card.ended { order: 3; background: #f9f7fa; }
-  #lobbyView .room-card.ended .room-title { color: var(--text); }
+  #lobbyView .room-card.ended .room-title { color: #756c7d; }
   #lobbyView .room-open {
     flex: 1;
     min-height: 0;
     grid-template-columns: 40px minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr auto;
     align-items: start;
-    gap: 8px 12px;
+    gap: 12px;
     padding: 16px;
   }
   #lobbyView .room-glyph { width: 40px; height: 40px; }
+  #lobbyView .room-copy { display: grid; gap: 6px; justify-items: start; align-content: start; }
   #lobbyView .room-title {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
-    margin-bottom: 4px;
+    display: block;
+    margin: 0;
     color: var(--text);
-    font-size: 16px;
-    line-height: 24px;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1.5;
     overflow-wrap: anywhere;
   }
-  #lobbyView .room-meta,
-  #lobbyView .room-stake {
-    display: inline;
-    margin: 0 8px 0 0;
+  /* Inline on touch; desktop keeps each name / ID / timestamp together when it fits. */
+  #lobbyView .room-meta .room-text-unit { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; }
+  #lobbyView .room-meta {
+    display: block;
+    margin: 0;
     max-width: 100%;
-    color: var(--text);
+    color: #756c7d;
     font-size: 14px;
-    line-height: 22px;
+    font-weight: 400;
+    line-height: 1.5;
     overflow-wrap: anywhere;
   }
-  #lobbyView .room-meta::after { content: " ·"; }
-  #lobbyView .room-stake { padding: 0; border: 0; background: transparent; }
-  #lobbyView .room-card.ended .room-stake { background: transparent; }
+  #lobbyView .room-tags { margin-top: 2px; }
+  #lobbyView .room-tags > :is(.room-stake, .room-invite-badge) {
+    min-height: 29px;
+    padding: 3px 8px;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+  #lobbyView .room-stake { color: #655176; background: var(--purple-light); border-color: var(--purple); }
   #lobbyView .room-state {
     grid-column: 2;
     min-width: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     align-self: end;
     justify-content: space-between;
     gap: 12px;
@@ -4998,16 +5034,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .room-state .turn {
     min-width: 0;
     max-width: 100%;
-    color: var(--text);
-    font-size: 14px;
+    color: #9b4961;
+    font-size: 16px;
+    font-weight: 600;
     text-align: left;
-    line-height: 22px;
+    line-height: 1.5;
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  #lobbyView .room-status-badge { color: var(--text); min-height: 24px; padding: 0 6px; font-size: 14px; line-height: 22px; white-space: normal; }
-  #lobbyView .room-invite-badge { min-height: 0; padding: 0 4px; font-size: 14px; }
-  #lobbyView .room-enter { color: var(--text); flex: none; font-size: 16px; line-height: 24px; white-space: nowrap; }
+  #lobbyView .room-status-badge { min-height: 24px; padding: 0 6px; font-size: 14px; font-weight: 500; line-height: 1.5; white-space: normal; }
+  #lobbyView .room-status-badge.pale { color: #655176; background: var(--purple-light); border-color: var(--purple); box-shadow: none; }
+  #lobbyView .room-enter { color: #655176; flex: none; font-size: 16px; font-weight: 600; line-height: 1.5; white-space: nowrap; }
   #lobbyView .room-record-controls {
     grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 8px;
@@ -5016,8 +5053,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     border-top: 1px solid var(--purple-light);
   }
   #lobbyView .room-record-controls.spectator-retention-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  #lobbyView .room-retention { min-width: 0; color: var(--text); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
-  #lobbyView .room-record-button { min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 14px; line-height: 22px; white-space: normal; }
+  #lobbyView .room-retention { min-width: 0; color: #756c7d; font-size: 14px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .room-record-button { color: #655176; min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 16px; font-weight: 600; line-height: 1.5; white-space: normal; }
+  #lobbyView .room-record-button.danger { color: #fff; background: #9b4961; border-color: #9b4961; }
 }
 
 /* Mouse desktop readability. Explicit semantic selectors leave board glyphs,
