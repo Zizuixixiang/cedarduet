@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.19">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.22">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -229,21 +229,18 @@
             <div id="pendingList" class="pending-list"></div>
           </section>
 
-          <section class="section-panel pixel-card room-panel">
-            <div class="section-head">
-              <div>
-                <span class="tag">ROOM LOG</span>
-                <div class="room-list-heading">
-                  <h2>我的全部房间</h2>
-                  <select id="roomListScope" class="room-scope-select" aria-label="房间列表范围">
-                    <option value="mine">我的</option>
-                    <option value="machines">自家小机</option>
-                  </select>
-                </div>
-              </div>
-              <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
+          <section class="section-panel pixel-card room-panel" aria-label="房间列表">
+            <div id="roomListScope" class="room-scope-tabs" role="tablist" aria-label="房间列表范围">
+              <button id="roomScopeMine" type="button" role="tab" data-room-scope="mine" aria-selected="true" aria-controls="roomScopePanel" tabindex="0">我的</button>
+              <button id="roomScopeMachines" type="button" role="tab" data-room-scope="machines" aria-selected="false" aria-controls="roomScopePanel" tabindex="-1">自家小机</button>
             </div>
-            <div id="roomList" class="room-list"></div>
+            <div id="roomScopePanel" class="room-panel-body" role="tabpanel" aria-labelledby="roomScopeMine">
+              <div class="room-list-tools">
+                <p id="roomScopeHint" class="room-scope-hint" aria-hidden="true">仅可观战，不能操作对局。</p>
+                <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
+              </div>
+              <div id="roomList" class="room-list"></div>
+            </div>
           </section>
         </div>
       </section>
@@ -491,6 +488,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.1"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.22"></script>
+  <script src="/static/app.js?v=0.9.25"></script>
 </body>
 </html>

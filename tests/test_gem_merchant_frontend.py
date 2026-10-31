@@ -59,7 +59,7 @@ class GemMerchantFrontendContractTests(unittest.TestCase):
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("function renderBoard(context)", SCRIPT)
         self.assertIn("function renderControls(context)", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/gem_merchant.css?v=1";', SCRIPT)
+        self.assertIn('const STYLE_HREF = "/static/games/gem_merchant.css?v=2";', SCRIPT)
         self.assertIn('link.dataset.duelGameStyle = "gem_merchant";', SCRIPT)
         self.assertIn('gem_merchant: "约300–600 token/轮",', APP_SCRIPT)
         self.assertNotIn('register("gem_merchant"', APP_SCRIPT)
@@ -171,7 +171,7 @@ assert.equal(nodes.filter((n) => cls(n, "gm-royal")).length, 4);
 assert.ok(text(v.board).includes("糖霜女王"));
 assert.equal(nodes.filter((n) => cls(n, "gm-player")).length, 2);
 assert.ok(cls(v.context.board, "gem_merchant"));
-assert.equal(styles.get("duel-game-gem-merchant-styles").href, "/static/games/gem_merchant.css?v=1");
+assert.equal(styles.get("duel-game-gem-merchant-styles").href, "/static/games/gem_merchant.css?v=2");
 view(FX.opening, "machine");
 assert.equal(styles.size, 1);
 // The opponent cannot press anything on the board.

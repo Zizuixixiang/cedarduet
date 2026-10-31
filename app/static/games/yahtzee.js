@@ -1,6 +1,15 @@
 (function registerYahtzeeRenderer() {
   "use strict";
 
+  function ensureStylesheet(doc) {
+    if (!doc.head || doc.getElementById("duel-game-style-yahtzee")) return;
+    const link = doc.createElement("link");
+    link.id = "duel-game-style-yahtzee";
+    link.rel = "stylesheet";
+    link.href = "/static/games/yahtzee.css?v=1";
+    doc.head.appendChild(link);
+  }
+
   const FALLBACK_CATEGORIES = [
     ["ones", "一点", "upper"],
     ["twos", "二点", "upper"],
@@ -111,6 +120,7 @@
       helpers,
     } = context;
     const documentRef = context.document || window.document;
+    ensureStylesheet(documentRef);
     const submitMove = helpers && helpers.submitMove;
     const uiState = context.uiState || {};
     const participants = Array.isArray(context.participants)

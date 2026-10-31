@@ -5,6 +5,7 @@ let pollTimer = null;
 let roomSyncGeneration = 0;
 let roomRequestController = null;
 let roomListRequest = 0;
+let roomListScope = "mine";
 let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
@@ -826,7 +827,7 @@ function renderRooms(rooms) {
   if (!rooms.length) {
     const empty = document.createElement("div");
     empty.className = "room-empty";
-    empty.textContent = $("roomListScope").value === "machines"
+    empty.textContent = roomListScope === "machines"
       ? "暂无可围观的自家小机房间。"
       : "还没有对局。选一个棋种，和你的小机开第一盘吧。";
     list.appendChild(empty);
@@ -936,15 +937,28 @@ function renderRooms(rooms) {
   });
 }
 
+function setRoomListScope(scope) {
+  if (scope !== "mine" && scope !== "machines") return;
+  if (roomListScope !== scope) ++roomListRequest;
+  roomListScope = scope;
+  for (const button of $("roomListScope").querySelectorAll("[data-room-scope]")) {
+    const selected = button.dataset.roomScope === scope;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected) $("roomScopePanel").setAttribute("aria-labelledby", button.id);
+  }
+  $("roomScopeHint").setAttribute("aria-hidden", String(scope !== "machines"));
+}
+
 async function loadSpectatorRooms() {
   const generation = ++roomListRequest;
   $("roomList").textContent = "正在读取房间…";
   try {
     const data = await request("/api/spectating/rooms");
-    if (generation !== roomListRequest || $("roomListScope").value !== "machines") return;
+    if (generation !== roomListRequest || roomListScope !== "machines") return;
     renderRooms(data.rooms || []);
   } catch (error) {
-    if (generation === roomListRequest && $("roomListScope").value === "machines") {
+    if (generation === roomListRequest && roomListScope === "machines") {
       $("roomList").textContent = error.message;
     }
   }
@@ -1798,7 +1812,7 @@ async function loadIdentity({quiet = false} = {}) {
       data.rooms || [], invitations
     );
     renderPendingInvitations(invitations, outgoing);
-    if ($("roomListScope").value === "machines") await loadSpectatorRooms();
+    if (roomListScope === "machines") await loadSpectatorRooms();
     else renderRooms(remainingRooms);
     if (!room) {
       showView("lobbyView");
@@ -3765,7 +3779,7 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
 }
 
 function renderSpectatorPerspective() {
-  if (room.spectating) $("roomListScope").value = "machines";
+  if (room.spectating) setRoomListScope("machines");
   $("gameView").classList.toggle("spectating-view", Boolean(room.spectating));
   $("spectatorPerspective").classList.toggle("hidden", !room.spectating);
   const choices = room.spectator_choices || [];
@@ -4409,10 +4423,27 @@ function renderInviteRoomPanel() {
   if (!waiting) return;
   $("gameView").prepend(panel);
 
+  const addButton = (text, action, parent = panel, primary = false) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `pixel-btn ${primary ? "" : "secondary"} compact invite-room-action`.trim();
+    b.textContent = text;
+    b.dataset.action = text;
+    b.title = text;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await action(); } catch (e) { showNotice(e.message, true); }
+      finally { b.disabled = false; }
+    });
+    parent.appendChild(b);
+    return b;
+  };
+
   const label = document.createElement("h2");
   label.className = "invite-room-title";
   label.textContent = "邀请房";
   panel.appendChild(label);
+  addButton("返回大厅", () => backToLobby());
   if (waiting) {
     const meta = document.createElement("p");
     meta.className = "invite-room-meta";
@@ -4434,21 +4465,6 @@ function renderInviteRoomPanel() {
   }
   panel.appendChild(members);
   if (room.spectating) return;
-  const addButton = (text, action, parent = panel, primary = false) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = `pixel-btn ${primary ? "" : "secondary"} compact invite-room-action`.trim();
-    b.textContent = text;
-    b.dataset.action = text;
-    b.title = text;
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      try { await action(); } catch (e) { showNotice(e.message, true); }
-      finally { b.disabled = false; }
-    });
-    parent.appendChild(b);
-    return b;
-  };
   if (waiting) {
     const invitation = document.createElement("section");
     invitation.className = "invite-code-section";
@@ -4492,18 +4508,18 @@ function renderInviteRoomPanel() {
       actions.appendChild(hint);
     }
     if (owner) {
+      const dissolve = addButton("解散房间", async () => {
+        if (!window.confirm("确定解散邀请房？所有成员将离开房间，无法重新进入。")) return;
+        await request(`/api/rooms/${room.room_id}/leave`, {method: "POST", body: "{}"});
+        await backToLobby();
+      }, actions);
+      dissolve.classList.remove("secondary");
+      dissolve.classList.add("danger");
       const game = identity?.games?.find((g) => g.game_type === room.game_type);
       const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
       if (hasInvitee && room.participants.length < room.target_player_count && canFill) {
         addButton("NPC 补满并开始", () => start(true), actions);
       }
-      const close = addButton("关闭邀请房", async () => {
-        await request(`/api/rooms/${room.room_id}/leave`, {method: "POST", body: "{}"});
-        await backToLobby();
-      });
-      close.classList.add("invite-room-close");
-      close.setAttribute("aria-label", "关闭邀请房");
-      close.textContent = "×";
     }
     const notice = document.createElement("p");
     notice.id = "inviteRoomNotice";
@@ -4699,11 +4715,24 @@ $("stake").addEventListener("input", () => {
   updateCreateButtonState();
   renderSelectedStakeHint();
 });
-$("refreshRoomsButton").addEventListener("click", () => $("roomListScope").value === "machines" ? loadSpectatorRooms() : loadIdentity());
-$("roomListScope").addEventListener("change", () => {
-  ++roomListRequest;
-  if ($("roomListScope").value === "machines") void loadSpectatorRooms();
+$("refreshRoomsButton").addEventListener("click", () => roomListScope === "machines" ? loadSpectatorRooms() : loadIdentity());
+$("roomListScope").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-room-scope]");
+  if (!button || button.dataset.roomScope === roomListScope) return;
+  setRoomListScope(button.dataset.roomScope);
+  if (roomListScope === "machines") void loadSpectatorRooms();
   else void loadIdentity({quiet: true});
+});
+$("roomListScope").addEventListener("keydown", (event) => {
+  const tabs = [...$("roomListScope").querySelectorAll('[role="tab"]')];
+  const index = tabs.indexOf(event.target);
+  if (index < 0) return;
+  const next = {ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
+    Home: 0, End: tabs.length - 1}[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
 });
 $("spectatorSelect").addEventListener("change", () => {
   if (!room?.spectating) return;

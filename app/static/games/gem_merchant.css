@@ -17,7 +17,7 @@
 #battleStage[data-game-type="gem_merchant"] .board-frame,
 #battleStage[data-game-type="gem_merchant"] .board,
 #battleStage[data-game-type="gem_merchant"] .game-controls {
-  width: min(100%, 520px);
+  width: min(100%, var(--gm-layout-max, 520px));
   max-width: 100%;
   min-width: 0;
   margin-inline: auto;
@@ -478,6 +478,27 @@ button.gm-card { cursor: pointer; }
 .gm-tutorial-progress { display: block; margin-top: 4px; color: var(--purple-darker, #8678A0); font-size: 11px; }
 .gm-tutorial-copy { margin: 8px 0 12px; }
 .gm-tutorial .gm-button:focus-visible { outline: 2px solid var(--purple-darker, #8678A0); outline-offset: 3px; }
+
+/* Adapt to the game's column, not the viewport width left over beside chat. */
+@media (min-width: 1024px) {
+  #battleStage[data-game-type="gem_merchant"] { --gm-layout-max: 100%; }
+  .board.gem_merchant { container: gem-merchant / inline-size; }
+  .gm-game > * { min-width: 0; }
+  .gm-pyramid { align-content: start; }
+  .gm-pyramid-cards > .gm-card {
+    flex-basis: min(96px, calc((100% - 16px) / 5));
+    width: min(96px, calc((100% - 16px) / 5));
+  }
+  @container gem-merchant (min-width: 760px) {
+    .gm-game {
+      grid-template-columns: minmax(0, 1fr) 318px;
+      column-gap: 12px;
+    }
+    .gm-game > * { grid-column: 1 / -1; }
+    .gm-game > .gm-pyramid { grid-column: 1; }
+    .gm-game > .gm-board-zone { grid-column: 2; align-self: center; }
+  }
+}
 
 @media (max-width: 599px) {
   .board.gem_merchant { width: 100%; max-width: 100%; }

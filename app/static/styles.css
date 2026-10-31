@@ -477,7 +477,53 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 14px;
 }
 .section-head h2 { margin-top: 5px; }
-.room-list-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.section-panel.room-panel { padding: 0; }
+.room-panel::after { display: none; }
+.room-scope-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.room-scope-tabs button {
+  appearance: none;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 4px solid var(--purple);
+  border-radius: 0;
+  color: var(--text);
+  background: var(--purple-light);
+  font-family: "Silkscreen", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+}
+.room-scope-tabs button + button { border-left: 4px solid var(--purple); }
+.room-scope-tabs button[aria-selected="true"] {
+  background: #fff;
+  border-bottom-color: transparent;
+}
+.room-scope-tabs button:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: -6px; }
+.room-panel-body { padding: 16px; }
+.room-list-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 11px;
+}
+.room-scope-hint {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.room-scope-hint[aria-hidden="true"] { visibility: hidden; }
+.room-list-tools .pixel-btn { flex-shrink: 0; }
 .room-scope-select {
   width: auto;
   min-width: 0;
@@ -3894,20 +3940,22 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .pixel-toast.show { display: block; }
 
-/* Desktop-only game composition. The multiplayer class is based on the room's
-   actual participant count, so two-player rooms retain the stacked chat layout. */
+/* Desktop composition depends on viewport width, independently of seat count. */
 @media (min-width: 1024px) {
   .game-view { gap: 9px; }
-  .battle-stage {
+  .game-view > .battle-stage {
     --desktop-board-max: 500px;
     --desktop-board-viewport-max: clamp(360px, calc(100vh - 390px), 500px);
     --desktop-table-max: 760px;
     --desktop-table-height: clamp(440px, calc(100vh - 500px), 500px);
     --desktop-compact-table-height: clamp(400px, calc(100vh - 560px), 440px);
+    width: min(1200px, 100%);
+    grid-template-columns: minmax(0, 1fr) clamp(240px, 23vw, 300px);
+    align-items: stretch;
     padding: 12px 18px 15px;
-    gap: 9px;
+    gap: 9px 16px;
   }
-  .battle-main-column { gap: 9px; }
+  .battle-main-column { gap: 9px; min-width: 0; grid-column: 1; }
   .player-row {
     min-height: 52px;
     gap: 10px;
@@ -3920,19 +3968,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   .player-name { padding: 6px 9px; font-size: 12px; }
 
-  .battle-stage.multiplayer-presentation {
-    width: min(1200px, 100%);
-    grid-template-columns: minmax(0, 1fr) clamp(240px, 23vw, 300px);
-    align-items: stretch;
-    column-gap: 16px;
-  }
-  .multiplayer-presentation .battle-main-column {
-    min-width: 0;
-    grid-column: 1;
-  }
-  .battle-main-column {
-    min-width: 0;
-  }
   .battle-main-column .board-frame {
     width: 100%;
     max-width: 100%;
@@ -3988,7 +4023,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     max-height: clamp(320px, calc(100vh - 560px), 460px);
     overflow: auto;
   }
-  .multiplayer-presentation .game-chat-area {
+  .battle-stage .game-chat-area {
     width: 100%;
     min-width: 0;
     height: auto;
@@ -4001,23 +4036,23 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     align-self: stretch;
     gap: 8px;
   }
-  .multiplayer-presentation .recent-chat-feed {
+  .battle-stage .recent-chat-feed {
     width: 100%;
     height: auto;
     min-height: 0;
   }
-  .multiplayer-presentation .game-compose {
+  .battle-stage .game-compose {
     width: 100%;
     margin: 0;
   }
 }
 
-/* Wider desktops only widen rooms that actually have the multiplayer rail. */
+/* All game rooms can use the available width on wider desktops. */
 @media (min-width: 1280px) {
-  .duel-main:has(.battle-stage.multiplayer-presentation) {
+  .duel-main:has(> .game-view:not(.hidden)) {
     width: min(1440px, calc(100% - 40px));
   }
-  .battle-stage.multiplayer-presentation {
+  .game-view > .battle-stage {
     width: min(1400px, 100%);
     grid-template-columns: minmax(0, 1fr) clamp(280px, 22vw, 320px);
     align-items: stretch;
@@ -4083,6 +4118,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .lobby-header h1 { line-height: 32px; font-size: 21px; }
   .hero-pair { max-width: 55%; font-size: 12px; }
   .section-panel { padding: 12px; }
+  .room-panel-body { padding: 12px; }
   .create-panel { padding: 10px; }
   .create-form { grid-template-columns: 1fr; }
   .multiplayer-options {
@@ -4528,6 +4564,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .game-view.invite-waiting-view.spectating-view > :not(#inviteRoomPanel):not(.game-header) {
   display: none !important;
 }
+.invite-waiting-view #backButton { display: none; }
 .invite-waiting-view.spectating-view > .game-header { order: -1; width: 100%; max-width: 560px; }
 #inviteRoomPanel {
   grid-column: 1 / -1;
@@ -4545,9 +4582,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   margin: 0 auto;
 }
 #inviteRoomPanel .invite-room-title {
-  flex: 1 0 100%;
+  flex: 1 1 auto;
   margin: 0;
-  padding-right: 38px;
   color: var(--purple-darker);
   font-size: 20px;
   line-height: 1.4;
@@ -4601,18 +4637,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   margin: 0;
   padding: 6px 10px;
   font-size: 12px;
-}
-#inviteRoomPanel .invite-room-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0;
-  font-family: system-ui, sans-serif;
-  font-size: 22px;
-  line-height: 1;
 }
 #inviteRoomNotice { flex: 1 0 100%; margin: 0; }
 #inviteRoomNotice:empty { display: none; }

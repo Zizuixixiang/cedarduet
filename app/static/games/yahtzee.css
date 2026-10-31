@@ -1,0 +1,18 @@
+/* Keep the shared narrow-screen UI; desktop sizing belongs to this game.
+   Six score columns need 682px, plus 38px of panel padding and borders. */
+@media (min-width: 1024px) {
+  .battle-stage[data-game-type="yahtzee"] .board-frame > .board {
+    width: 100%;
+    max-width: 100%;
+    container: yahtzee-board / inline-size;
+  }
+  .board.yahtzee .yahtzee-turn-copy { min-width: 0; overflow-wrap: anywhere; }
+  @container yahtzee-board (max-width: 719px) {
+    .yahtzee-roll-panel { grid-template-columns: minmax(264px, 1fr) minmax(160px, .8fr); }
+    .yahtzee-turn-copy { grid-column: 1 / -1; }
+    .yahtzee-score-heading { flex-wrap: wrap; }
+  }
+  @container yahtzee-board (max-width: 519px) {
+    .yahtzee-roll-panel { grid-template-columns: minmax(0, 1fr); }
+  }
+}

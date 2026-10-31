@@ -4,7 +4,7 @@
   // 宝石商人：服务端 legal_actions 是唯一权威。这里只做展示、草稿选择和
   // “当前选择是否等于某个合法动作”的比对，不在浏览器复制规则。
   const STYLE_ID = "duel-game-gem-merchant-styles";
-  const STYLE_HREF = "/static/games/gem_merchant.css?v=1";
+  const STYLE_HREF = "/static/games/gem_merchant.css?v=2";
   const GEMS = ["white", "blue", "green", "red", "black"];
   const TOKENS = [...GEMS, "pearl", "gold"];
   const LABELS = {
