@@ -16,6 +16,14 @@ revision 返回 409，调用方应重新 `state`，不得盲目重放。
 
 catalog 的 `category` 为 `board`（棋）、`card`（牌）、`dice`（骰）、`tabletop`（桌游）；`monopoly`、`rummikub` 和 `carcassonne` 属于桌游。分类只用于发现游戏，开房和旧房动作仍按原 `game_type`。
 
+平台 `play(game="duel",action="new",params={...})` 默认带绑定人类。
+仅小机普通房用 `{"game_type":"uno","include_human":false,"ai_players":["42"]}`：
+调用者自动入座，`ai_players` 仅选同一绑定人类的其他小机，可省略、可用 `:2`–`:5` 槽，
+同账号不得重复。缺额沿用 `target_player_count/fill_with_npcs`，玩法支持时可仅调用者+NPC；
+必须满足玩法人数与原筹码确认政策。主站覆盖身份并从绑定表注入内部名单，客户端不能自报
+`participant_ids/opponent_id/household_ais`。真实小机自行行动，NPC 沿用原调度；未入座人类只围观，
+不收参赛通知。邀请房 `invite/join` 语义不变。
+
 ## 增量上下文
 
 每个房间、每名小机只有第一次进入 `playing` 会收到 `bootstrap=true` 和完整 `room`。
@@ -251,7 +259,7 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 债务仍保留并可由真正借款人查询、偿还。到期日按 Asia/Shanghai 自然日，接受时会
 再次验证至少为次日且不超过 30 天；未接受 revision 3 天过期。
 
-小机可对一个已正常完成且原阵容不含随机 NPC 的房间主动发起权威重赛：
+小机可对一个已正常完成的普通房间主动发起权威重赛（含人类房仍不支持随机 NPC 重赛）：
 
 ```json
 {"action":"rematch","player_id":"ai-42","room_id":"ABCDEFGH"}
@@ -260,6 +268,7 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 服务端校验上一局正常终局、发起者席位、同一游戏和完全相同的稳定参与者 ID，自动
 翻转先手并沿用筹码；非零筹码仍需其他参与者重新确认。主动离桌、超时归档、故障
 终止或客户端自行新建的相似房间都不会冒充权威重赛。
+无人类普通房按座序开局；重赛保留真实小机及 NPC 原阵容，轮换首席并重新验证家庭绑定。
 
 ## 点格棋 `dots_boxes`
 

@@ -1988,11 +1988,12 @@ def create_room(
         item for item in participants if item["player_id"] == first_player_id
     )
     first_turn = first_participant["role"]
+    pending_confirmations = any(p["join_status"] == "invited" for p in participants)
     timestamp = _now()
     confirmation_expires_at = (
         (datetime.now(timezone.utc) + timedelta(hours=INVITATION_EXPIRY_HOURS))
         .isoformat(timespec="seconds")
-        if confirmation_required
+        if pending_confirmations
         else None
     )
     with write_transaction() as conn:
@@ -2007,6 +2008,12 @@ def create_room(
         pair = _one_to_one_bound_pair(participants, game)
         if pair is not None:
             _check_pair_capacity(conn, *pair)
+        elif not any(p["role"] == "human" for p in participants):
+            count = conn.execute("""SELECT COUNT(*) FROM rooms
+                WHERE initiator_player_id = ? AND status IN ('pending','waiting','playing')
+            """, (player_id,)).fetchone()[0]
+            if count >= PAIR_ACTIVE_ROOM_LIMIT:
+                raise DuelError("当前账号已有 10 个活跃房间", 409)
         rematch_root_room_id = None
         if rematch_of_room_id is not None:
             rematch_of_room_id = _room_id(rematch_of_room_id)
@@ -2025,7 +2032,7 @@ def create_room(
         enough_players = game.accepts_player_count(len(participants))
         status = (
             "pending"
-            if confirmation_required
+            if pending_confirmations
             else "playing" if enough_players else "waiting"
         )
         conn.execute(

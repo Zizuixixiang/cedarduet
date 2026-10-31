@@ -1,7 +1,7 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 
 class StrictBody(BaseModel):
@@ -266,6 +266,9 @@ class McpPlayBody(BaseModel):
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
     participant_ids: list[str] | None = Field(default=None, min_length=1, max_length=6)
+    include_human: StrictBool = True
+    # Loopback-only authorization context, injected from the platform DB.
+    household_ais: dict[str, str] | None = None
     room_id: str | None = None
     game_type: str | None = Field(default=None, min_length=1, max_length=40)
     mode: Literal["human_first", "ai_first"] | None = None

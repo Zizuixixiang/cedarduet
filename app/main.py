@@ -24,6 +24,7 @@ from .database import init_db
 from .full_state import LEGACY_GAMES, full_state_response
 from .framework import (
     DuelError,
+    account_key,
     claim_mcp_bootstrap,
     acknowledge_liars_dice_round,
     create_room,
@@ -1714,6 +1715,19 @@ async def human_delete_room(
     }
 
 
+def _household_ai_participants(body: McpPlayBody, player_ids: list[str]) -> list[dict]:
+    names = body.household_ais or {}
+    if body.player_id not in player_ids:
+        raise DuelError("canonical AI 必须入座", 403)
+    accounts = [account_key(pid) for pid in player_ids]
+    if len(set(accounts)) != len(accounts):
+        raise DuelError("同一账号不能重复入座（含不同槽）")
+    if any(pid.startswith("npc:") or key not in names for pid, key in zip(player_ids, accounts)):
+        raise DuelError("所选小机不在可信家庭绑定清单中", 403)
+    return [{"player_id": pid, "display_name": names[key], "role": "ai",
+             "participant_kind": "bound_machine"} for pid, key in zip(player_ids, accounts)]
+
+
 async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
     """MCP-friendly JSON action endpoint for the bound AI."""
     if body.player_id.startswith("npc:"):
@@ -1782,7 +1796,13 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
 
     if body.action == "new":
         ordered_participants = None
-        if body.participant_ids is not None:
+        if not body.include_human:
+            if body.opponent_id is not None:
+                raise DuelError("不带人类开房不能指定 opponent_id", 403)
+            ordered_participants = _household_ai_participants(
+                body, require(body.participant_ids, "缺少可信参赛小机名单")
+            )
+        elif body.participant_ids is not None:
             opponent_id = require(
                 body.opponent_id,
                 "participant_ids 结构需要由可信上游注入绑定人类身份",
@@ -1805,7 +1825,7 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
         base_count = len(ordered_participants) if ordered_participants else 2
         allowed_counts = game.resolved_allowed_player_counts()
         target_count = body.target_player_count or base_count
-        if allowed_counts == (2,) and (
+        if body.include_human and allowed_counts == (2,) and (
             target_count != 2 or body.fill_with_npcs
         ):
             raise DuelError(f"{game.display_name}只支持双人绑定人机对局")
@@ -1860,7 +1880,7 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             opponent_id=body.opponent_id,
             stake=body.stake,
             ordered_participants=ordered_participants,
-            enforce_trusted_pair=True,
+            enforce_trusted_pair=body.include_human,
         )
         await _schedule_current_system_npc(room)
         if room["status"] == "playing":
@@ -1888,16 +1908,17 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
         previous = get_room(room_id, "ai", body.player_id)
         if previous["status"] not in {"finished", "archived"}:
             raise DuelError("只有已正常结束的对局可以发起权威重赛", 409)
-        if any(
-            item.get("participant_kind") == "system_npc"
-            for item in previous["participants"]
-        ):
-            raise DuelError("含随机 NPC 的房间暂不支持原阵容权威重赛", 409)
         humans = [
             item for item in previous["participants"]
             if item.get("participant_kind") == "human"
         ]
-        if len(humans) != 1:
+        ai_only = not humans and previous.get("room_kind") != "invite"
+        if not ai_only and any(
+            item.get("participant_kind") == "system_npc"
+            for item in previous["participants"]
+        ):
+            raise DuelError("含随机 NPC 的房间暂不支持原阵容权威重赛", 409)
+        if not ai_only and len(humans) != 1:
             raise DuelError("权威重赛需要且只允许一名绑定人类", 409)
         ordered = [
             {
@@ -1905,20 +1926,38 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
                 "display_name": item.get("display_name") or item["player_id"],
                 "role": item["role"],
                 "participant_kind": item.get("participant_kind"),
+                **({"npc_persona_id": item["npc_persona_id"]}
+                   if item.get("participant_kind") == "system_npc" else {}),
             }
             for item in previous["participants"]
         ]
+        if ai_only:
+            trusted = _household_ai_participants(body, [p["player_id"] for p in ordered
+                                                       if p["participant_kind"] == "bound_machine"])
+            names = {p["player_id"]: p["display_name"] for p in trusted}
+            for p in ordered:
+                if p["player_id"] in names:
+                    p["display_name"] = names[p["player_id"]]
+            # All seats have role=ai, so rotating the first seat alternates the
+            # opener without inventing human roles or changing the game engine.
+            ordered = ordered[1:] + ordered[:1]
+            game = get_game(previous["game_type"])
+            if any(p["participant_kind"] == "system_npc" for p in ordered) and not game.uses_local_npc_strategy:
+                capability = npc_provider_capabilities()
+                if not capability["available"]:
+                    raise DuelError(f"NPC 补位当前不可用：{capability['reason']}", 503)
         rematch = create_room(
             previous["game_type"],
             "ai_first" if previous["mode"] == "human_first" else "human_first",
             "ai",
             body.player_id,
-            opponent_id=humans[0]["player_id"],
+            opponent_id=humans[0]["player_id"] if humans else None,
             ordered_participants=ordered,
             stake=previous.get("stake", 0),
-            enforce_trusted_pair=True,
+            enforce_trusted_pair=not ai_only,
             rematch_of_room_id=room_id,
         )
+        await _schedule_current_system_npc(rematch)
         message = f"AI 已发起权威重赛，房间 {rematch['room_id']}。"
         return (
             _bootstrap_ai_response(rematch, body.player_id, message)
