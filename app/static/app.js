@@ -155,7 +155,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : null))
   ));
 }
 
@@ -666,18 +666,27 @@ function renderParticipantAvatar(target, participant, targetRoom = null) {
   target.replaceChildren(avatar);
 }
 
-function turnLabel(turn, aiPlayerId, currentActor = null) {
-  if (!identity) return turn;
-  if (currentActor) {
-    const humanId = (room && room.viewer && room.viewer.player_id)
-      || (identity && identity.human_player_id)
-      || (room && room.human_player_id)
-      || (currentActor.role === "human" ? currentActor.player_id : null);
-    return currentActor.player_id === humanId
+function turnLabel(turn, aiPlayerId, currentActor = null, targetRoom = null) {
+  const actor = currentActor || targetRoom?.participants?.find((p) => p.player_id === targetRoom.current_player_id);
+  if (actor) {
+    const humanId = targetRoom?.viewer?.player_id
+      || identity?.human_player_id || targetRoom?.human_player_id
+      || (actor.role === "human" ? actor.player_id : null);
+    return !targetRoom?.spectating && actor.player_id === humanId
       ? "轮到你"
-      : `轮到 ${currentActor.display_name || currentActor.player_id}`;
+      : `轮到 ${actor.display_name || actor.player_id}`;
   }
-  return turn === "human" ? "轮到你" : `轮到 ${aiNameFor(aiPlayerId)}`;
+  const aiName = targetRoom?.participants?.find((p) => p.player_id === aiPlayerId)?.display_name
+    || identity?.machines?.find((machine) => machine.id === aiPlayerId)?.name
+    || targetRoom?.ai_name || "小机";
+  if (targetRoom?.spectating) {
+    const name = turn === "human"
+      ? targetRoom.participants?.find((p) => p.role === "human")?.display_name || targetRoom.human_name || "人类玩家"
+      : aiName;
+    return `轮到 ${name}`;
+  }
+  if (!identity) return turn;
+  return turn === "human" ? "轮到你" : `轮到 ${aiName}`;
 }
 
 function roomTurnText(targetRoom) {
@@ -691,9 +700,9 @@ function roomTurnText(targetRoom) {
     && targetRoom.board_state
     && targetRoom.board_state.flow
     && targetRoom.board_state.flow.phase === "awaiting_round_acknowledgement"
-  ) return "本轮已结算 · 等待你确认下一轮";
+  ) return targetRoom.spectating ? "本轮已结算 · 等待玩家确认下一轮" : "本轮已结算 · 等待你确认下一轮";
   return turnLabel(
-    targetRoom.turn, targetRoom.ai_player_id, targetRoom.current_actor
+    targetRoom.turn, targetRoom.ai_player_id, targetRoom.current_actor, targetRoom
   );
 }
 
@@ -892,7 +901,7 @@ function renderRooms(rooms) {
       const pending = summary.status === "pending";
       turn.className = `turn${pending ? " pending-confirmations" : ""}`;
       turn.textContent = summary.status === "playing"
-        ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor)
+        ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor, summary)
         : pending
         ? pendingConfirmationText(summary)
         : statusLabel(summary.status);
@@ -1968,7 +1977,7 @@ function ownerDescription(mark) {
   if (!mark || !room) return "空位";
   const owner = participantForOwner(mark);
   if (!owner) return "未知参与者";
-  if (room.viewer && owner.player_id === room.viewer.player_id) return "你";
+  if (!room.spectating && room.viewer && owner.player_id === room.viewer.player_id) return "你";
   return owner.display_name || `座位 ${owner.seat_index + 1}`;
 }
 
@@ -3542,7 +3551,7 @@ function createParticipantBadge(participant, targetRoom) {
   else if (participant.activity_state === "inactive") states.push("暂停行动");
   else if (participant.activity_state === "skipped") states.push("本轮跳过");
   badge.setAttribute("aria-current", isCurrent ? "true" : "false");
-  if (isViewer) badge.setAttribute("aria-label", `${participant.display_name || participant.player_id}，我的席位`);
+  if (isViewer) badge.setAttribute("aria-label", `${participant.display_name || participant.player_id}，${targetRoom.spectating ? "观战视角" : "我的席位"}`);
   const avatarWrap = document.createElement("span");
   avatarWrap.className = "room-participant-avatar";
   renderParticipantAvatar(avatarWrap, participant, targetRoom);
@@ -3764,7 +3773,7 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
   if (targetRoom.status === "playing") return "";
   const renderer = registeredGameUIRenderer(targetRoom.game_type);
   if (renderer && renderer.usesEmbeddedActionFeedback === true) return "";
-  if (isTerminal(targetRoom)) return roomTurnText(targetRoom);
+  if (isTerminal(targetRoom) || targetRoom.spectating) return roomTurnText(targetRoom);
   const humanTurnNotice = ["zhajinhua", "monopoly"].includes(targetRoom.game_type)
     ? "现在轮到你行动"
     : "现在轮到你落子";
@@ -3795,9 +3804,12 @@ function renderSpectatorPerspective() {
     select.dataset.choices = signature;
   }
   select.value = viewerPlayerIdFor(room);
+  select.title = choices.find((choice) => choice.id === select.value)?.name || "";
   select.classList.toggle("hidden", choices.length < 2);
   $("spectatorName").classList.toggle("hidden", choices.length > 1);
   $("spectatorName").textContent = choices[0]?.name || "";
+  $("spectatorName").title = $("spectatorName").textContent;
+  $("spectatorName").setAttribute("aria-label", `${$("spectatorName").textContent}，查看完整姓名`);
 }
 
 function renderGame(nextRoom, message = "", timeline = []) {
@@ -3852,6 +3864,14 @@ function renderGame(nextRoom, message = "", timeline = []) {
       : (room.winner ? ` · ${room.winner === "human" ? "你" : aiNameFor()} 胜` : ""));
   $("status").textContent = `${statusLabel(room.status)}${winner}`;
   $("turn").textContent = roomTurnText(room);
+  $("turn").title = $("turn").textContent;
+  if (room.spectating) {
+    $("turn").setAttribute("role", "button");
+    $("turn").tabIndex = 0;
+    $("turn").setAttribute("aria-label", `${$("turn").textContent}，查看完整姓名`);
+  } else {
+    for (const attribute of ["role", "tabindex", "aria-label"]) $("turn").removeAttribute(attribute);
+  }
   $("turn").classList.toggle("my-turn", humanCanMove);
   const roomStakeLabel = room.stake_label
     || (room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局");
@@ -4734,6 +4754,15 @@ $("roomListScope").addEventListener("keydown", (event) => {
   tabs[next].focus();
   tabs[next].click();
 });
+for (const id of ["turn", "spectatorName"]) {
+  $(id).addEventListener("click", () => { if (room?.spectating) toast($(id).textContent); });
+  $(id).addEventListener("keydown", (event) => {
+    if (room?.spectating && ["Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      toast($(id).textContent);
+    }
+  });
+}
 $("spectatorSelect").addEventListener("change", () => {
   if (!room?.spectating) return;
   const perspective = $("spectatorSelect").value;

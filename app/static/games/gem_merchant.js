@@ -356,7 +356,7 @@
     panel.dataset.playerId = playerId;
     const head = el(doc, "div", "gm-player-head");
     const title = el(doc, "div", "gm-player-name");
-    title.appendChild(el(doc, "strong", "", isViewer ? `${nameOf(context, playerId)}（你）` : nameOf(context, playerId)));
+    title.appendChild(el(doc, "strong", "", isViewer && !context.room?.spectating ? `${nameOf(context, playerId)}（你）` : nameOf(context, playerId)));
     if (state.first_player_id === playerId) title.appendChild(el(doc, "span", "gm-tag", "先手"));
     if (acting) title.appendChild(el(doc, "span", "gm-tag is-acting", "行动中"));
     head.appendChild(title);
@@ -439,7 +439,7 @@
     }
     const turn = (state.flow || {}).turn_number || 0;
     const actor = (context.room || {}).current_player_id;
-    const who = actor === viewerId(context) ? "你" : nameOf(context, actor);
+    const who = !context.room?.spectating && actor === viewerId(context) ? "你" : nameOf(context, actor);
     line.appendChild(el(doc, "strong", "", `第 ${turn + 1} 回合 · ${who}`));
     const note = state.last_action_note || "";
     if (note) line.appendChild(el(doc, "span", "gm-last-note", note));

@@ -479,6 +479,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .section-head h2 { margin-top: 5px; }
 .section-panel.room-panel { padding: 0; }
 .room-panel::after { display: none; }
+.room-list-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 44px; }
 .room-scope-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -507,23 +508,29 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .room-scope-tabs button:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: -6px; }
 .room-panel-body { padding: 16px; }
-.room-list-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 11px;
+.room-list-refresh {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-left: 2px solid var(--purple);
+  border-bottom: 4px solid var(--purple);
+  border-radius: 0;
+  color: var(--purple-darker);
+  background: var(--purple-light);
 }
+.room-list-refresh:hover { background: var(--bg); }
+.room-list-refresh:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: -4px; }
 .room-scope-hint {
-  min-width: 0;
-  margin: 0;
+  margin: 0 0 8px;
   color: var(--text);
   font-family: system-ui, sans-serif;
   font-size: 12px;
   line-height: 1.5;
 }
-.room-scope-hint[aria-hidden="true"] { visibility: hidden; }
-.room-list-tools .pixel-btn { flex-shrink: 0; }
+.room-scope-hint[aria-hidden="true"] { display: none; }
 .room-scope-select {
   width: auto;
   min-width: 0;
@@ -1309,6 +1316,40 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-color: rgba(204, 112, 132, .55);
   box-shadow: 2px 2px 0 rgba(134, 120, 160, .22);
 }
+.spectating-view .game-meta-secondary { justify-content: flex-start; gap: 8px; }
+.spectating-view .spectator-perspective { flex: 0 1 45%; max-width: 240px; justify-content: flex-start; gap: 4px; }
+.spectating-view .spectator-perspective .game-meta-label { flex-shrink: 0; }
+.spectating-view #spectatorSelect {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding: 2px 3px;
+  border-width: 1px;
+  box-shadow: none;
+  color: var(--purple-darker);
+  text-overflow: ellipsis;
+}
+.spectating-view #spectatorSelect:focus-visible { outline: 1px solid var(--purple-darker); outline-offset: 1px; }
+.spectating-view .turn-item { flex: 1; }
+.spectating-view #turn {
+  display: block;
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 28px;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.spectating-view #spectatorName { cursor: pointer; }
+.spectating-view #spectatorName:focus-visible,
+.spectating-view #turn:focus-visible { outline: 1px solid var(--purple-darker); outline-offset: 1px; }
 #gameMessage {
   width: min(920px, 100%);
   min-height: 35px;

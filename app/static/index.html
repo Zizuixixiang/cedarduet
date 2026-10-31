@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.22">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.23">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -230,15 +230,17 @@
           </section>
 
           <section class="section-panel pixel-card room-panel" aria-label="房间列表">
-            <div id="roomListScope" class="room-scope-tabs" role="tablist" aria-label="房间列表范围">
-              <button id="roomScopeMine" type="button" role="tab" data-room-scope="mine" aria-selected="true" aria-controls="roomScopePanel" tabindex="0">我的</button>
-              <button id="roomScopeMachines" type="button" role="tab" data-room-scope="machines" aria-selected="false" aria-controls="roomScopePanel" tabindex="-1">自家小机</button>
+            <div class="room-list-topbar">
+              <div id="roomListScope" class="room-scope-tabs" role="tablist" aria-label="房间列表范围">
+                <button id="roomScopeMine" type="button" role="tab" data-room-scope="mine" aria-selected="true" aria-controls="roomScopePanel" tabindex="0">我的</button>
+                <button id="roomScopeMachines" type="button" role="tab" data-room-scope="machines" aria-selected="false" aria-controls="roomScopePanel" tabindex="-1">围观小机</button>
+              </div>
+              <button id="refreshRoomsButton" class="room-list-refresh" type="button" aria-label="刷新房间列表" title="刷新房间列表">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M19 10a7 7 0 0 0-12-4L4 9m16 6-3 3a7 7 0 0 1-12-4"/></svg>
+              </button>
             </div>
             <div id="roomScopePanel" class="room-panel-body" role="tabpanel" aria-labelledby="roomScopeMine">
-              <div class="room-list-tools">
-                <p id="roomScopeHint" class="room-scope-hint" aria-hidden="true">仅可观战，不能操作对局。</p>
-                <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
-              </div>
+              <p id="roomScopeHint" class="room-scope-hint" aria-hidden="true">仅可观战，不能操作对局。</p>
               <div id="roomList" class="room-list"></div>
             </div>
           </section>
@@ -284,12 +286,12 @@
                 <strong id="roomStake">娱乐局</strong>
               </span>
             </div>
-            <div id="spectatorPerspective" class="game-meta-line spectator-perspective hidden">
-              <label for="spectatorSelect" class="game-meta-label">围观视角</label>
-              <select id="spectatorSelect" class="room-scope-select" aria-label="围观小机视角"></select>
-              <span id="spectatorName"></span>
-            </div>
             <div class="game-meta-line game-meta-secondary">
+              <div id="spectatorPerspective" class="game-meta-line spectator-perspective hidden">
+                <label for="spectatorSelect" class="game-meta-label">视角</label>
+                <select id="spectatorSelect" class="room-scope-select" aria-label="围观小机视角"></select>
+                <span id="spectatorName" role="button" tabindex="0"></span>
+              </div>
               <span id="roundMeta" class="game-meta-item hidden">
                 <strong id="roundText"></strong>
               </span>
@@ -488,6 +490,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.1"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.25"></script>
+  <script src="/static/app.js?v=0.9.26"></script>
 </body>
 </html>
