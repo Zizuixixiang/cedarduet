@@ -842,6 +842,15 @@ function renderRooms(rooms) {
     list.appendChild(empty);
     return;
   }
+  // Desktop visual groups only; cards retain the original DOM/data order on touch.
+  for (const [history, label] of [[false, "当前对局"], [true, "历史对局"]]) {
+    if (!rooms.some((summary) => isTerminal(summary) === history)) continue;
+    const heading = document.createElement("h3");
+    heading.className = `room-group-heading${history ? " history" : " current"}`;
+    heading.textContent = label;
+    heading.setAttribute("aria-hidden", "true");
+    list.appendChild(heading);
+  }
   rooms.forEach((summary) => {
     const terminal = isTerminal(summary);
     const activeInvite = summary.room_kind === "invite" && !terminal;

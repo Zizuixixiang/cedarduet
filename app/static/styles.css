@@ -4692,7 +4692,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 
 /* The configuration wrapper has no box in the existing touch layout. */
-.create-form.create-config { display: contents; }
+.create-form.create-config, .create-settings { display: contents; }
+.room-group-heading { display: none; }
 
 /* Fixed mouse/trackpad lobby. Narrow windows scroll the same canvas. */
 @media (hover: hover) and (pointer: fine) {
@@ -4763,7 +4764,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .invite-entry { grid-area: 1 / 2; margin: 0; gap: 12px; }
   #lobbyView > .notice { grid-column: 1 / -1; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .lobby-stack { grid-column: 1 / -1; min-width: 0; gap: 16px; }
-  #lobbyView .lobby-stack > .section-panel:not(.room-panel) { min-width: 0; padding: 24px; }
+  #lobbyView .lobby-stack > .section-panel:not(.room-panel) { min-width: 0; padding: 16px 24px; }
   #lobbyView .section-head { margin-bottom: 12px; }
   #lobbyView .section-head > div { display: flex; align-items: baseline; gap: 12px; }
   #lobbyView .section-head h2 { margin: 0; font-size: 22px; line-height: 1.4; }
@@ -4771,68 +4772,86 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .invite-entry .pixel-btn,
   #lobbyView .create-submit {
     min-width: 0;
-    min-height: 48px;
-    padding: 8px 16px;
+    min-height: 44px;
+    padding: 6px 16px;
     font-size: 16px;
     line-height: 1.5;
     white-space: normal;
     overflow-wrap: anywhere;
   }
 
-  /* 1120 - 8 border - 60 padding = 728 configuration + 24 gap + 300 seats. */
+  /* Section label, related primary selections, then short secondary settings. */
   #lobbyView .lobby-stack > .create-panel {
     display: grid;
-    grid-template-columns: 728px 300px;
-    grid-template-rows: auto min-content min-content minmax(0, 1fr) auto;
-    align-content: start;
+    grid-template-columns: 120px minmax(0, 1fr) 200px;
     column-gap: 24px;
-    padding: 24px 30px;
+    padding: 16px 24px;
+    align-items: start;
   }
-  #lobbyView .create-panel > .section-head { grid-area: 1 / 1 / 2 / -1; }
+  #lobbyView .create-panel > .section-head { grid-area: 1 / 1; margin: 0; }
+  #lobbyView .create-panel > .section-head > div { display: grid; gap: 4px; }
   #lobbyView .create-panel > .create-form { display: contents; }
   #lobbyView .create-config {
     position: relative;
     z-index: 1;
     display: grid;
-    grid-area: 2 / 1 / 5 / 2;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-area: 1 / 2 / 2 / -1;
+    grid-template-columns: 300px 440px minmax(0, 1fr);
     align-content: start;
-    align-items: stretch;
-    gap: 8px 24px;
+    align-items: start;
+    gap: 12px 24px;
   }
-  /* Shared label/control/hint rows keep the two controls aligned even with wrapped labels. */
-  #lobbyView .create-config > .participant-picker,
-  #lobbyView .create-config > .pixel-field,
-  #lobbyView .create-config > .pixel-field:has(#gameType) {
+  #lobbyView .create-config > .participant-picker { grid-column: 1; }
+  #lobbyView .create-config > .pixel-field:has(#gameType) { grid-column: 2; }
+  #lobbyView .create-config .pixel-field {
     min-width: 0;
-    grid-column: auto;
-    grid-row: span 3;
-    display: grid;
-    grid-template-rows: subgrid;
+    gap: 6px;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
   }
-  #lobbyView .participant-picker > .pixel-field { grid-row: 1 / -1; grid-template-rows: subgrid; }
-  #lobbyView .create-config .pixel-field { min-width: 0; font-size: 14px; line-height: 1.5; gap: 8px; }
   #lobbyView .create-config .pixel-field > span { overflow-wrap: anywhere; }
   #lobbyView .create-config .pixel-field select,
   #lobbyView .create-config .pixel-field input,
   #lobbyView .create-config .ai-multi-trigger {
     min-width: 0;
-    height: 48px;
-    min-height: 48px;
+    height: 44px;
+    min-height: 44px;
+    padding: 6px 10px;
+    border-width: 2px;
+    box-shadow: none;
     font-size: 16px;
     line-height: 1.5;
   }
-  #lobbyView .create-config .game-type-selects { grid-template-columns: 76px minmax(0, 1fr); }
+  #lobbyView .create-config .game-type-selects { grid-template-columns: 76px minmax(0, 1fr); gap: 0; }
+  #lobbyView .create-config #gameCategory { border-right-width: 1px; background: var(--purple-light); }
+  #lobbyView .create-config #gameType { border-left-width: 1px; }
+  #lobbyView .create-settings {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: start;
+    gap: 24px;
+  }
+  #lobbyView .create-settings > .pixel-field {
+    display: grid;
+    grid-template-columns: max-content 140px;
+    align-items: center;
+    gap: 8px;
+  }
+  #lobbyView .create-settings > .stake-field {
+    flex: 1;
+    grid-template-columns: max-content 112px minmax(0, 1fr);
+  }
   #lobbyView .create-config > .multiplayer-options {
     grid-column: 1 / -1;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 8px 24px;
-    margin-block: 8px;
+    grid-template-columns: 180px 220px minmax(0, 1fr);
+    align-items: end;
+    gap: 12px;
   }
-  #lobbyView .npc-fill-toggle { min-width: 0; min-height: 48px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .npc-fill-toggle { min-width: 0; min-height: 44px; font-size: 14px; line-height: 1.5; }
   #lobbyView .npc-fill-toggle input { flex: none; }
-  #lobbyView .create-config > .fc-rule-picker { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; margin-block: 8px; }
-  #lobbyView .create-config .fc-rule-card { min-width: 0; }
+  #lobbyView .create-config > .fc-rule-picker { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+  #lobbyView .create-config .fc-rule-card { min-width: 0; padding: 8px 12px; }
   #lobbyView .create-config .fc-rule-card input { flex: none; }
   #lobbyView .create-config .fc-rule-copy { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .create-config .fc-rule-copy strong { font-size: 16px; }
@@ -4844,149 +4863,163 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .stake-game-hint,
   #lobbyView .npc-provider-hint,
   #lobbyView #gameTokenEstimate { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-  /* A grid item paints one shared seat/action region without positioning over content. */
+  #lobbyView .stake-game-hint { min-height: 0; color: var(--text); }
+  #lobbyView .stake-game-hint:empty { display: none; }
+  #lobbyView .npc-provider-hint { grid-column: auto; align-self: center; color: var(--text); }
+  /* One continuous action row; no seat box or fixed-height filler. */
   #lobbyView .create-panel::before {
     content: "";
-    grid-area: 2 / 2 / 4 / 3;
-    border: 2px dashed var(--purple);
-    background: var(--purple-light);
+    grid-area: 2 / 1 / 3 / -1;
+    align-self: start;
+    margin-top: 12px;
+    border-top: 1px solid var(--purple-light);
     pointer-events: none;
   }
   #lobbyView .seat-preview {
-    grid-area: 2 / 2 / 3 / 3;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: 8px;
-    margin: 12px 12px 0;
+    grid-area: 2 / 1 / 3 / 3;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin: 24px 0 0;
+    min-height: 44px;
   }
-  #lobbyView .seat-preview:has(> :nth-child(3)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #lobbyView .seat-preview-item { min-width: 0; padding: 4px 8px; line-height: 1.5; }
+  #lobbyView .seat-preview-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+    max-width: 400px;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    line-height: 1.5;
+  }
   #lobbyView .seat-preview-number,
   #lobbyView .seat-preview-kind,
-  #lobbyView .seat-preview-balance { font-size: 14px; }
-  #lobbyView .seat-preview-name { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
-  #lobbyView .seat-preview:has(> :nth-child(3)) .seat-preview-item {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "number" "name" "kind" "balance";
-  }
-  #lobbyView .seat-preview-balance { min-width: 0; max-width: 100%; }
+  #lobbyView .seat-preview-balance { flex: none; font-size: 14px; color: var(--text); }
+  #lobbyView .seat-preview-name { min-width: 0; max-width: 160px; font-size: 16px; color: var(--text); }
+  #lobbyView .seat-preview-balance { max-width: 120px; }
   #lobbyView .create-submit {
     position: relative;
     z-index: 1;
-    grid-area: 3 / 2 / 4 / 3;
-    align-self: start;
-    justify-self: center;
-    width: 240px;
-    margin: 12px;
+    grid-area: 2 / 3;
+    align-self: center;
+    width: 200px;
+    margin: 24px 0 0;
   }
-  #lobbyView .create-note { grid-area: 5 / 1 / 6 / -1; margin-top: 12px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  #lobbyView .create-note {
+    grid-area: 3 / 1 / 4 / -1;
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
   #lobbyView .create-note p { min-width: 0; }
   #lobbyView .pending-group-title { font-size: 14px; line-height: 1.5; }
   #lobbyView .pending-card { display: flex; flex-wrap: wrap; gap: 12px; }
   #lobbyView .pending-copy { flex: 1 1 280px; }
   #lobbyView .pending-title { font-size: 16px; line-height: 1.5; white-space: normal; }
   #lobbyView .pending-meta { font-size: 14px; line-height: 1.5; white-space: normal; }
-  #lobbyView .pending-card .pixel-btn { width: auto; min-width: 0; min-height: 48px; padding: 8px 12px; font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+  #lobbyView .pending-card .pixel-btn { width: auto; min-width: 0; min-height: 44px; padding: 6px 12px; font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
 
-  #lobbyView .room-panel-body { padding: 24px; }
-  #lobbyView .room-scope-tabs button { min-height: 48px; font-size: 14px; line-height: 1.5; white-space: normal; }
+  #lobbyView .room-panel-body { padding: 16px 24px 24px; }
+  #lobbyView .room-scope-tabs button { min-height: 44px; font-size: 14px; line-height: 1.5; white-space: normal; }
   #lobbyView .room-scope-hint { font-size: 14px; line-height: 1.5; }
   #lobbyView .room-list {
-    grid-template-columns: repeat(3, 344px);
-    grid-auto-rows: 320px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
-    gap: 16px;
+    gap: 12px 16px;
   }
-  #lobbyView .room-list:has(> .room-empty) { grid-auto-rows: auto; }
+  /* CSS order changes only the desktop presentation, never the incoming card order. */
+  #lobbyView .room-group-heading {
+    display: block;
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  #lobbyView .room-group-heading.current { order: 0; }
+  #lobbyView .room-group-heading.history { order: 2; }
+  #lobbyView .room-list:has(.room-card:not(.ended)) .room-group-heading.history { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--purple); }
   #lobbyView .room-empty { grid-column: 1 / -1; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-  /* Border-box 344 x 320; 236px opening + 76px record area + 8px border. */
   #lobbyView .room-card {
-    width: 344px;
-    height: 320px;
+    order: 1;
     min-width: 0;
-    display: grid;
-    grid-template-rows: 236px 76px;
-    align-content: start;
-    overflow: visible;
+    display: flex;
+    flex-direction: column;
   }
+  #lobbyView .room-card.ended { order: 3; background: #f9f7fa; }
+  #lobbyView .room-card.ended .room-title { color: var(--text); }
   #lobbyView .room-open {
+    flex: 1;
     min-height: 0;
-    height: 236px;
-    grid-template-columns: 44px minmax(0, 1fr);
-    grid-template-rows: 66px 40px 42px 48px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
     align-items: start;
     gap: 8px 12px;
-    padding: 8px;
+    padding: 16px;
   }
-  #lobbyView .room-glyph { grid-area: 1 / 1; }
-  #lobbyView .room-copy { display: contents; }
+  #lobbyView .room-glyph { width: 40px; height: 40px; }
   #lobbyView .room-title {
-    grid-area: 1 / 2;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 2;
     overflow: hidden;
+    margin-bottom: 4px;
+    color: var(--text);
     font-size: 16px;
-    line-height: 22px;
+    line-height: 24px;
     overflow-wrap: anywhere;
   }
   #lobbyView .room-meta,
   #lobbyView .room-stake {
-    margin: 0;
-    min-width: 0;
+    display: inline;
+    margin: 0 8px 0 0;
     max-width: 100%;
+    color: var(--text);
     font-size: 14px;
-    line-height: 20px;
+    line-height: 22px;
     overflow-wrap: anywhere;
   }
-  #lobbyView .room-meta { grid-area: 2 / 1 / 3 / -1; }
-  #lobbyView .room-stake { grid-area: 3 / 1 / 4 / -1; padding: 0 4px; justify-self: start; }
+  #lobbyView .room-meta::after { content: " ·"; }
+  #lobbyView .room-stake { padding: 0; border: 0; background: transparent; }
+  #lobbyView .room-card.ended .room-stake { background: transparent; }
   #lobbyView .room-state {
-    position: relative;
-    grid-area: 4 / 1 / 5 / -1;
+    grid-column: 2;
     min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 64px;
+    display: flex;
     align-items: center;
-    align-content: center;
-    justify-items: start;
+    align-self: end;
+    justify-content: space-between;
     gap: 12px;
   }
   #lobbyView .room-state .turn {
     min-width: 0;
     max-width: 100%;
-    max-height: 40px;
-    overflow: hidden;
+    color: var(--text);
     font-size: 14px;
     text-align: left;
-    line-height: 20px;
+    line-height: 22px;
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  /* Full long actor/confirmation text is readable on pointer hover or keyboard focus. */
-  #lobbyView .room-state:hover .turn,
-  #lobbyView .room-open:focus-visible .turn {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    z-index: 3;
-    width: calc(100% - 76px);
-    max-height: none;
-    padding: 8px;
-    background: var(--bg);
-    outline: 2px solid var(--purple);
-  }
-  #lobbyView .room-status-badge { min-height: 28px; padding: 4px 8px; font-size: 14px; line-height: 20px; white-space: normal; }
+  #lobbyView .room-status-badge { color: var(--text); min-height: 24px; padding: 0 6px; font-size: 14px; line-height: 22px; white-space: normal; }
   #lobbyView .room-invite-badge { min-height: 0; padding: 0 4px; font-size: 14px; }
-  #lobbyView .room-enter { grid-column: 2; justify-self: end; font-size: 14px; line-height: 20px; white-space: nowrap; }
+  #lobbyView .room-enter { color: var(--text); flex: none; font-size: 16px; line-height: 24px; white-space: nowrap; }
   #lobbyView .room-record-controls {
-    grid-row: 2;
-    grid-template-columns: minmax(0, 1fr) 88px 76px;
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 8px;
-    padding: 12px;
+    padding: 8px 16px;
+    background: transparent;
+    border-top: 1px solid var(--purple-light);
   }
-  #lobbyView .room-retention { min-width: 0; font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
-  #lobbyView .room-record-button { min-width: 0; min-height: 48px; padding: 8px 4px; font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+  #lobbyView .room-retention { min-width: 0; color: var(--text); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
+  #lobbyView .room-record-button { min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 14px; line-height: 22px; white-space: normal; }
 }
