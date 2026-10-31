@@ -2574,20 +2574,53 @@ def _assert_opponent(room: dict, role: Role, opponent_id: str | None) -> None:
         raise DuelError("房间不属于当前绑定的人机对", 403)
 
 
+def room_spectator_choices(
+    room: dict, ai_names: dict[str, str], perspective: str | None = None
+) -> list[dict]:
+    """Resolve eligible seats using only the trusted proxy's expanded bindings."""
+    choices = [
+        {"id": p["player_id"], "name": ai_names[p["player_id"]]}
+        for p in room["participants"]
+        if p["player_id"] in ai_names and p["role"] == "ai"
+        and p["participant_kind"] == "bound_machine" and p["join_status"] != "left"
+    ]
+    if not choices or (perspective is not None and perspective not in {p["id"] for p in choices}):
+        raise DuelError("当前绑定不允许围观该房间或小机视角", 403)
+    return choices
+
+
 def set_room_preserved(
-    room_id: str, human_player_id: str, preserved: bool
+    room_id: str, human_player_id: str, preserved: bool,
+    *, spectator_ai_names: dict[str, str] | None = None,
+    perspective: str | None = None,
 ) -> dict:
     room_id = _room_id(room_id)
     human_player_id = _player_id(human_player_id)
     result = None
     with write_transaction() as conn:
+        row = conn.execute(
+            "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
+        ).fetchone()
+        if row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(row, conn)
+        participant = _participant_by_id(room, human_player_id)
+        if participant is not None:
+            _assert_player(room, "human", human_player_id)
+            if participant["join_status"] == "left":
+                raise DuelError("当前参与者已经离开房间", 403)
+        else:
+            room_spectator_choices(room, spectator_ai_names or {}, perspective)
+            # A spectator cannot use retention to archive a still-playing room.
+            if room["status"] not in {"finished", "archived"}:
+                raise DuelError("只有已结束或已归档的对局可以设置保留", 409)
+        # Authorize before maintenance so strangers cannot trigger room writes.
         _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
         if row is not None:
             room = decode_room(row, conn)
-            _assert_player(room, "human", human_player_id)
             if room["status"] not in {"finished", "archived"}:
                 raise DuelError("只有已结束或已归档的对局可以设置保留", 409)
             conn.execute(
@@ -2598,7 +2631,7 @@ def set_room_preserved(
                 "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
             ).fetchone()
             result = decode_room(updated, conn)
-            if preserved:
+            if preserved and participant is not None:
                 from .achievements import record_preserved_loss
 
                 result["achievement_unlocks"] = record_preserved_loss(

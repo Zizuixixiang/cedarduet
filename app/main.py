@@ -47,6 +47,7 @@ from .framework import (
     touch_room_presence,
     resign,
     respond_to_invitation,
+    room_spectator_choices,
     set_room_preserved,
     update_participant_display_names,
 )
@@ -1477,14 +1478,7 @@ async def human_spectator_rooms(request: Request):
 def spectator_response(room: dict, request: Request, perspective: str | None) -> dict:
     trusted_human_player(request)
     names = spectator_machine_names(request)
-    choices = [
-        {"id": p["player_id"], "name": names[p["player_id"]]}
-        for p in room["participants"]
-        if p["player_id"] in names and p["role"] == "ai"
-        and p["participant_kind"] == "bound_machine" and p["join_status"] != "left"
-    ]
-    if not choices or (perspective is not None and perspective not in {p["id"] for p in choices}):
-        raise DuelError("当前绑定不允许围观该房间或小机视角", 403)
+    choices = room_spectator_choices(room, names, perspective)
     viewer_id = perspective or choices[0]["id"]
     projected = project_room_for_viewer(room, viewer_id)
     projected["spectating"] = True
@@ -1688,15 +1682,23 @@ async def human_leave(
 
 @app.post("/api/rooms/{room_id}/retention")
 async def human_set_room_retention(
-    room_id: str, request: Request, body: RoomRetentionBody
+    room_id: str, request: Request, body: RoomRetentionBody,
+    perspective: str | None = Query(default=None, min_length=1, max_length=80),
 ):
     human_player_id = trusted_human_player(request)
-    room = set_room_preserved(room_id, human_player_id, body.preserved)
+    room = set_room_preserved(
+        room_id, human_player_id, body.preserved,
+        spectator_ai_names=spectator_machine_names(request), perspective=perspective,
+    )
     message = (
         "已保留此对局，不再自动删除。"
         if room["preserved"]
         else "已取消保留，此对局已恢复自动删除。"
     )
+    if not any(p["player_id"] == human_player_id for p in room["participants"]):
+        payload = spectator_response(room, request, perspective)
+        payload["message"] = message
+        return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
     return human_response(room, message, human_player_id)
 
 

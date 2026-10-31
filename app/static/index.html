@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.30">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.31">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -189,7 +189,7 @@
               </div>
               <div class="create-settings">
               <label class="pixel-field">
-                <span>谁先走</span>
+                <span class="first-player-label">谁先走</span>
                 <select id="mode">
                   <option value="human_first">你先手</option>
                   <option value="ai_first">小机先手</option>
@@ -219,7 +219,7 @@
             <div id="seatPreview" class="seat-preview hidden" aria-label="座位预览" aria-live="polite"></div>
             <div id="participantHint" class="create-note">
               <span>●</span>
-              <p id="stakeHint">筹码必须是大于等于 0 的整数；0 筹码直接开局，非零筹码需对方确认，余额可为负。</p>
+              <p id="stakeHint"><span class="stake-default-copy" style="color:inherit">筹码必须是大于等于 0 的整数；0 筹码直接开局，非零筹码需对方确认，余额可为负。</span></p>
             </div>
           </section>
 
@@ -494,6 +494,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.1"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.30"></script>
+  <script src="/static/app.js?v=0.9.31"></script>
 </body>
 </html>

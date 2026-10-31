@@ -6,6 +6,9 @@ let roomSyncGeneration = 0;
 let roomRequestController = null;
 let roomListRequest = 0;
 let roomListScope = "mine";
+const spectatorPerspectives = new Map();
+const retentionRequests = new Set();
+const spectatorRetentionMedia = window.matchMedia?.("(hover: hover) and (pointer: fine)");
 let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
@@ -923,12 +926,15 @@ function renderRooms(rooms) {
     state.appendChild(enter);
 
     open.append(glyph, copy, state);
-    open.addEventListener("click", () => openRoom(summary.room_id));
+    open.addEventListener("click", () => openRoom(summary.room_id, {
+      perspective: summary.spectating ? (spectatorPerspectives.get(summary.room_id) || "") : "",
+    }));
     card.appendChild(open);
 
-    if (terminal && !summary.spectating) {
+    if (terminal) {
       const controls = document.createElement("div");
-      controls.className = "room-record-controls";
+      controls.className = `room-record-controls${summary.spectating ? " spectator-retention-controls" : ""}`;
+      if (summary.spectating) controls.setAttribute("aria-hidden", "true");
 
       const retention = document.createElement("span");
       retention.className = `room-retention${summary.preserved ? " preserved" : ""}`;
@@ -939,21 +945,28 @@ function renderRooms(rooms) {
       preserve.className = "room-record-button";
       preserve.type = "button";
       preserve.textContent = summary.preserved ? "取消保留" : "保留";
+      preserve.dataset.retentionRoomId = summary.room_id;
       preserve.addEventListener("click", () => {
-        updateRoomPreservation(summary.room_id, !summary.preserved);
+        updateRoomPreservation(summary.room_id, !summary.preserved, {
+          spectating: Boolean(summary.spectating),
+          perspective: spectatorPerspectives.get(summary.room_id) || "",
+        });
       });
 
-      const remove = document.createElement("button");
-      remove.className = "room-record-button danger";
-      remove.type = "button";
-      remove.textContent = "删除对局";
-      remove.addEventListener("click", () => deleteRoom(summary));
-
-      controls.append(retention, preserve, remove);
+      controls.append(retention, preserve);
+      if (!summary.spectating) {
+        const remove = document.createElement("button");
+        remove.className = "room-record-button danger";
+        remove.type = "button";
+        remove.textContent = "删除对局";
+        remove.addEventListener("click", () => deleteRoom(summary));
+        controls.appendChild(remove);
+      }
       card.appendChild(controls);
     }
     list.appendChild(card);
   });
+  syncSpectatorRetentionControls();
 }
 
 function setRoomListScope(scope) {
@@ -1107,13 +1120,54 @@ async function respondToInvitation(roomId, decision) {
   }
 }
 
-async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {}) {
+function syncSpectatorRetentionControls() {
+  const desktop = Boolean(spectatorRetentionMedia?.matches);
+  document.querySelectorAll(".spectator-retention-controls").forEach((controls) => {
+    controls.setAttribute("aria-hidden", String(!desktop));
+    controls.inert = !desktop;
+    const button = controls.querySelector("button");
+    button.disabled = !desktop || retentionRequests.has(button.dataset.retentionRoomId);
+  });
+  if (room?.spectating) {
+    const visible = desktop && isTerminal(room);
+    $("togglePreserveButton").setAttribute("aria-hidden", String(!visible));
+    $("togglePreserveButton").disabled = !visible || retentionRequests.has(room.room_id);
+  }
+}
+
+spectatorRetentionMedia?.addEventListener("change", syncSpectatorRetentionControls);
+
+async function updateRoomPreservation(roomId, preserved, {
+  fromModal = false, spectating = false, perspective = "",
+} = {}) {
+  const previousRoom = room?.room_id === roomId ? room : null;
+  const spectator = Boolean(previousRoom?.spectating || spectating);
+  const selectedPerspective = previousRoom?.spectating
+    ? viewerPlayerIdFor(previousRoom) : perspective;
+  const previousScope = roomListScope;
+  const generation = roomSyncGeneration;
+  if ((spectator && !spectatorRetentionMedia?.matches) || retentionRequests.has(roomId)) return false;
+  retentionRequests.add(roomId);
+  syncSpectatorRetentionControls();
   try {
-    const data = await request(`/api/rooms/${roomId}/retention`, {
+    const query = spectator && selectedPerspective
+      ? `?perspective=${encodeURIComponent(selectedPerspective)}` : "";
+    const data = await request(`/api/rooms/${roomId}/retention${query}`, {
       method: "POST",
       body: JSON.stringify({preserved}),
     });
-    if (room && room.room_id === roomId) {
+    if (spectator) {
+      // Never turn a spectator response into a human view or restore an old perspective.
+      if (!data.room?.spectating || (selectedPerspective && viewerPlayerIdFor(data.room) !== selectedPerspective)) {
+        throw new Error("留存响应视角不一致，请刷新后重试。");
+      }
+      if (previousRoom && room?.room_id === roomId && room.spectating
+          && viewerPlayerIdFor(room) === selectedPerspective && generation === roomSyncGeneration) {
+        renderGame(data.room, data.message, data.timeline);
+      } else if (!previousRoom && !room && previousScope === "machines" && roomListScope === previousScope) {
+        await loadSpectatorRooms();
+      }
+    } else if (room && room.room_id === roomId) {
       renderGame(data.room, data.message, data.timeline);
     } else {
       await loadIdentity({quiet: true});
@@ -1125,6 +1179,9 @@ async function updateRoomPreservation(roomId, preserved, {fromModal = false} = {
     if (fromModal) $("resultModalMessage").textContent = error.message;
     else toast(error.message);
     return false;
+  } finally {
+    retentionRequests.delete(roomId);
+    syncSpectatorRetentionControls();
   }
 }
 
@@ -1554,9 +1611,17 @@ function renderSelectedStakeHint() {
   const copy = metadata.hint
     ? `${metadata.label}（${metadata.hint}）`
     : metadata.label;
-  $("gameStakeHint").textContent = stake > 0
-    ? copy
-    : `0 为娱乐局；非零时：${copy}`;
+  const hint = $("gameStakeHint");
+  // Mark presentation-only copy; touch keeps the original full explanation.
+  hint.dataset.defaultCopy = String(!game?.stake_hint && (!game?.stake_label || game.stake_label === "🪙X/人"));
+  hint.replaceChildren();
+  if (!(stake > 0)) {
+    const prefix = document.createElement("span");
+    prefix.className = "stake-default-copy";
+    prefix.textContent = "0 为娱乐局；非零时：";
+    hint.appendChild(prefix);
+  }
+  hint.append(document.createTextNode(copy));
 }
 
 function selectedTargetPlayerCount() {
@@ -3719,6 +3784,8 @@ function renderRetention(targetRoom) {
     ? "取消保留"
     : "保留此对局";
   $("togglePreserveButton").disabled = !terminal || targetRoom.spectating;
+  $("togglePreserveButton").removeAttribute("aria-hidden");
+  syncSpectatorRetentionControls();
   syncResultPreservationChoice(targetRoom, !terminal || targetRoom.spectating);
 }
 
@@ -3798,7 +3865,10 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
 }
 
 function renderSpectatorPerspective() {
-  if (room.spectating) setRoomListScope("machines");
+  if (room.spectating) {
+    setRoomListScope("machines");
+    spectatorPerspectives.set(room.room_id, viewerPlayerIdFor(room));
+  }
   $("gameView").classList.toggle("spectating-view", Boolean(room.spectating));
   $("spectatorPerspective").classList.toggle("hidden", !room.spectating);
   const choices = room.spectator_choices || [];

@@ -686,6 +686,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: var(--purple-light);
   border-top: 2px dashed var(--purple);
 }
+.room-record-controls.spectator-retention-controls { display: none; }
 .room-retention {
   min-width: 0;
   color: var(--pink-dark);
@@ -4782,6 +4783,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 
   /* Section label, related primary selections, then short secondary settings. */
   #lobbyView .lobby-stack > .create-panel {
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
     display: grid;
     grid-template-columns: 120px minmax(0, 1fr) 200px;
     column-gap: 24px;
@@ -4791,18 +4793,21 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .create-panel > .section-head { grid-area: 1 / 1; margin: 0; }
   #lobbyView .create-panel > .section-head > div { display: grid; gap: 4px; }
   #lobbyView .create-panel > .create-form { display: contents; }
+  #lobbyView .create-panel :is(input, select, button, .seat-preview-item, .stake-game-hint, .npc-provider-hint, .npc-fill-toggle, .ai-multi-option, .create-note, .fc-rule-copy) { font-family: inherit; }
+  #lobbyView .create-panel #gameTokenEstimate { font-family: inherit !important; }
+  #lobbyView .create-panel > .section-head .tag { display: none; }
   #lobbyView .create-config {
     position: relative;
     z-index: 1;
     display: grid;
     grid-area: 1 / 2 / 2 / -1;
-    grid-template-columns: 300px 440px minmax(0, 1fr);
+    grid-template-columns: 140px 136px 180px minmax(0, 1fr);
     align-content: start;
     align-items: start;
-    gap: 12px 24px;
+    gap: 6px 24px;
   }
-  #lobbyView .create-config > .participant-picker { grid-column: 1; }
-  #lobbyView .create-config > .pixel-field:has(#gameType) { grid-column: 2; }
+  #lobbyView .create-config > .participant-picker { grid-area: 1 / 1 / 2 / 3; margin-bottom: 6px; }
+  #lobbyView .create-config > .pixel-field:has(#gameType) { grid-area: 1 / 3 / 2 / -1; margin-bottom: 6px; }
   #lobbyView .create-config .pixel-field {
     min-width: 0;
     gap: 6px;
@@ -4826,28 +4831,30 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .create-config .game-type-selects { grid-template-columns: 76px minmax(0, 1fr); gap: 0; }
   #lobbyView .create-config #gameCategory { border-right-width: 1px; background: var(--purple-light); }
   #lobbyView .create-config #gameType { border-left-width: 1px; }
-  #lobbyView .create-settings {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: start;
-    gap: 24px;
+  /* Two control rows: keep implicit labels on touch; flatten settings only here. */
+  #lobbyView .create-settings,
+  #lobbyView .create-settings > .stake-field,
+  #lobbyView .create-config > .multiplayer-options { display: contents; }
+  #lobbyView .create-settings > .pixel-field:has(#mode) { grid-area: 2 / 1 / 4 / 2; align-self: end; }
+  #lobbyView .first-player-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
-  #lobbyView .create-settings > .pixel-field {
-    display: grid;
-    grid-template-columns: max-content 140px;
-    align-items: center;
-    gap: 8px;
-  }
-  #lobbyView .create-settings > .stake-field {
-    flex: 1;
-    grid-template-columns: max-content 112px minmax(0, 1fr);
-  }
-  #lobbyView .create-config > .multiplayer-options {
-    grid-column: 1 / -1;
-    grid-template-columns: 180px 220px minmax(0, 1fr);
-    align-items: end;
-    gap: 12px;
-  }
+  #lobbyView .create-settings > .stake-field > span { grid-area: 2 / 2; }
+  #lobbyView .create-settings #stake { grid-area: 3 / 2; }
+  #lobbyView .create-config #gameStakeHint { grid-column: 1 / -1; }
+  #lobbyView .multiplayer-options > .pixel-field { grid-area: 2 / 3 / 4 / 4; }
+  #lobbyView .multiplayer-options > .npc-fill-toggle { grid-area: 3 / 4; }
+  #lobbyView .create-panel .stake-default-copy,
+  #lobbyView .create-panel #gameStakeHint[data-default-copy="true"] { display: none; }
+  #lobbyView .create-note:has(#stakeHint > .stake-default-copy:only-child) > span { display: none; }
+  #lobbyView .create-note:has(#stakeHint > .stake-default-copy:only-child) { margin-top: 0; }
   #lobbyView .npc-fill-toggle { min-width: 0; min-height: 44px; font-size: 14px; line-height: 1.5; }
   #lobbyView .npc-fill-toggle input { flex: none; }
   #lobbyView .create-config > .fc-rule-picker { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
@@ -4865,8 +4872,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView #gameTokenEstimate { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .stake-game-hint { min-height: 0; color: var(--text); }
   #lobbyView .stake-game-hint:empty { display: none; }
-  #lobbyView .npc-provider-hint { grid-column: auto; align-self: center; color: var(--text); }
-  /* One continuous action row; no seat box or fixed-height filler. */
+  #lobbyView .npc-provider-hint { grid-column: 1 / -1; align-self: center; color: var(--text); }
+  /* Equal seat groups: title/status above name/balance, with natural row heights. */
   #lobbyView .create-panel::before {
     content: "";
     grid-area: 2 / 1 / 3 / -1;
@@ -4877,30 +4884,32 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   #lobbyView .seat-preview {
     grid-area: 2 / 1 / 3 / 3;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
     gap: 8px 16px;
     margin: 24px 0 0;
-    min-height: 44px;
+    min-height: 0;
   }
+  #lobbyView .seat-preview:has(> :nth-child(5)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #lobbyView .seat-preview-item {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas: "number kind" "name name" "balance balance";
     align-items: baseline;
-    gap: 8px;
+    gap: 4px 8px;
     min-width: 0;
     min-height: 0;
-    max-width: 400px;
-    padding: 4px 0;
-    border: 0;
-    background: transparent;
+    padding: 6px 10px;
+    border: 1px solid var(--purple-light);
+    background: rgba(230, 223, 240, .22);
     line-height: 1.5;
   }
-  #lobbyView .seat-preview-number,
-  #lobbyView .seat-preview-kind,
-  #lobbyView .seat-preview-balance { flex: none; font-size: 14px; color: var(--text); }
-  #lobbyView .seat-preview-name { min-width: 0; max-width: 160px; font-size: 16px; color: var(--text); }
-  #lobbyView .seat-preview-balance { max-width: 120px; }
+  #lobbyView .seat-preview-number { font-size: 14px; font-weight: 700; color: var(--text); }
+  #lobbyView .seat-preview-kind { font-size: 14px; font-weight: 400; color: #756c7d; }
+  #lobbyView .seat-preview-name { min-width: 0; max-width: 100%; font-size: 16px; color: var(--text); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  #lobbyView .seat-preview-balance { min-width: 0; max-width: 100%; font-size: 14px; font-weight: 500; color: var(--text); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
   #lobbyView .create-submit {
     position: relative;
     z-index: 1;
@@ -5020,6 +5029,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     background: transparent;
     border-top: 1px solid var(--purple-light);
   }
+  #lobbyView .room-record-controls.spectator-retention-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   #lobbyView .room-retention { min-width: 0; color: var(--text); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
   #lobbyView .room-record-button { min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 14px; line-height: 22px; white-space: normal; }
 }
@@ -5032,6 +5042,9 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     overflow-x: auto;
     overscroll-behavior-x: contain;
   }
+  .game-view.spectating-view #togglePreserveButton[aria-hidden="false"] { display: inline-flex !important; }
+  .game-view #togglePreserveButton { font: 16px/1.5 system-ui, "Microsoft YaHei", sans-serif; min-height: 40px; padding: 6px 12px; }
+  .game-view .result-banner-copy small { font: 14px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
   .game-view .battle-main-column { grid-row: 1; }
   .game-view .game-chat-area { grid-row: 1; grid-column: 2; }
   .game-view .board-edge-copy strong,
