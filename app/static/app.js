@@ -1624,6 +1624,16 @@ function renderSelectedStakeHint() {
   hint.append(document.createTextNode(copy));
 }
 
+// This wording is desktop-only; keep the original touch label and DOM structure.
+{
+  const media = window.matchMedia?.("(hover: hover) and (pointer: fine)");
+  const label = document.querySelector("#lobbyView .first-player-label");
+  const touchLabel = label.textContent;
+  const syncLabel = () => { label.textContent = media?.matches ? "谁先手" : touchLabel; };
+  syncLabel();
+  media?.addEventListener?.("change", syncLabel);
+}
+
 function selectedTargetPlayerCount() {
   const {maxPlayers} = selectedGameRequirement();
   if (maxPlayers <= 2) return 2;
