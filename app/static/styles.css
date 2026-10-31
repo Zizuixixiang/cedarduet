@@ -4814,7 +4814,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   #lobbyView .npc-fill-toggle { min-width: 0; min-height: 48px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .npc-fill-toggle input { flex: none; }
-  #lobbyView .create-form > .fc-rule-picker { grid-column: 1 / -1; min-width: 0; margin-block: 6px; }
+  #lobbyView .create-form > .fc-rule-picker { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); min-width: 0; margin-block: 6px; }
   #lobbyView .create-form .fc-rule-card { min-width: 0; }
   #lobbyView .create-form .fc-rule-card input { flex: none; }
   #lobbyView .create-form .fc-rule-copy { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
