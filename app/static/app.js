@@ -867,6 +867,7 @@ function renderRooms(rooms) {
     title.textContent = summary.participant_names && (summary.spectating || summary.participant_names.length > 2 || summary.room_kind === "invite")
       ? `${summary.game_name} × ${summary.participant_names.join(" / ")}`
       : `${summary.game_name} × ${summary.ai_name}`;
+    title.title = title.textContent;
     const meta = document.createElement("span");
     meta.className = "room-meta";
     meta.textContent = summary.room_kind === "invite"
