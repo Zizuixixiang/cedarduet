@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from .framework import DuelError, _room_id, get_room
+from .desktop_demo import is_desktop_demo
 from .npc_controller import NpcTurnResult, run_current_npc_turn
 from .npc_limits import MAX_NPC_ACTIONS_PER_TURN, npc_budget_exhausted
 from .npc_runtime import (
@@ -63,7 +64,7 @@ def npc_visible_action_delay_seconds(
 
 
 def is_system_npc_turn(room: dict) -> bool:
-    if room.get("status") != "playing":
+    if is_desktop_demo(room) or room.get("status") != "playing":
         return False
     current_player_id = room.get("current_player_id")
     return any(

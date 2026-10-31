@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .database import connect, decode_room, write_transaction
+from .desktop_demo import desktop_demo_sql
 from .framework import DuelError, _now, _player_id, _record_event, _room_id
 
 
@@ -30,13 +31,14 @@ def list_active_npc_turn_room_ids() -> list[str]:
     conn = connect()
     try:
         rows = conn.execute(
-            """
+            f"""
             SELECT room.room_id
             FROM rooms AS room
             JOIN room_participants AS actor
               ON actor.room_id = room.room_id
              AND actor.player_id = room.current_player_id
             WHERE room.status = 'playing'
+              AND NOT {desktop_demo_sql('room.')}
               AND actor.participant_kind = 'system_npc'
               AND actor.join_status = 'joined'
               AND actor.activity_state = 'active'

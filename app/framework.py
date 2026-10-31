@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from .database import connect, decode_room, write_transaction
+from .desktop_demo import is_desktop_demo, desktop_demo_sql
 from .games import get_game, stake_presentation
 from .games.base import MoveResult
 from .notifications import create_notification, mark_notifications_read
@@ -102,6 +103,9 @@ def _decorate(room: dict) -> dict:
     result["rules_text"] = _room_rules_text(game.rules_text)
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
+    if is_desktop_demo(room):
+        result["demo"] = True
+        result["game_name"] = "【演示】" + game.display_name
     result["min_players"] = allowed_counts[0]
     result["max_players"] = allowed_counts[-1]
     result["allowed_player_counts"] = list(allowed_counts)
@@ -831,6 +835,7 @@ def list_human_rooms(
                    r.status, r.winner, r.created_at, r.updated_at,
                    r.last_move_at, r.preserved, r.terminal_at,
                    r.stake, r.initiator_player_id, r.current_player_id,
+                   {desktop_demo_sql("r.")} AS desktop_demo,
                    r.confirmation_expires_at,
                    (
                        SELECT GROUP_CONCAT(confirmation.player_id)
@@ -917,6 +922,8 @@ def list_human_rooms(
         ]
         item["ai_names"] = ai_labels
         item["game_name"] = get_game(item["game_type"]).display_name
+        if item.pop("desktop_demo", False):
+            item["game_name"] = "【演示】" + item["game_name"]
         pending_csv = item.pop("pending_for_csv", None)
         item["pending_for"] = pending_csv.split(",") if pending_csv else []
         item.update(stake_presentation(item["game_type"], item["stake"]))
@@ -1080,6 +1087,8 @@ def post_message(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if is_desktop_demo(room):
+            raise DuelError("演示房为只读中盘，请创建普通房间开始游戏。", 409)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         if room["status"] not in {"pending", "waiting", "playing", "finished", "archived"}:
@@ -1552,6 +1561,7 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
         SELECT room_id
         FROM rooms
         WHERE status IN ('waiting', 'playing')
+          AND NOT {desktop_demo_sql()}
           AND last_move_at < ?
           {room_clause}
         """,
@@ -2743,6 +2753,8 @@ def play_move(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if is_desktop_demo(room):
+            raise DuelError("演示房为只读中盘，请创建普通房间开始游戏。", 409)
         if room.get("room_kind") == "invite" and expected_revision is None:
             raise DuelError("邀请联机行动必须携带 revision", 409)
         if room["game_type"] == "rummikub" and expected_revision is None:
@@ -3344,6 +3356,8 @@ def leave_room(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if is_desktop_demo(room):
+            raise DuelError("演示房为只读中盘，请创建普通房间开始游戏。", 409)
         participant = _participant_by_id(room, player_id)
         if participant is None or participant["role"] != role:
             raise DuelError("player_id 与该房间席位不匹配", 403)
@@ -3475,6 +3489,8 @@ def resign(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if is_desktop_demo(room):
+            raise DuelError("演示房为只读中盘，请创建普通房间开始游戏。", 409)
         _assert_player(room, role, player_id)
         _assert_opponent(room, role, opponent_id)
         return _forfeit_active_participant(
