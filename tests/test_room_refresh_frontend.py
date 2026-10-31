@@ -43,7 +43,7 @@ class RoomRefreshFrontendContractTests(unittest.TestCase):
         self.assertIn("?wait=true&after_revision=", refresh)
         self.assertIn("signal: controller.signal", refresh)
         self.assertGreaterEqual(refresh.count("roomSyncIsCurrent("), 4)
-        self.assertIn("wait: true", poll)
+        self.assertIn("wait: shouldLongPollRoom()", poll)
         self.assertIn("scheduleRoomPoll(", poll)
         self.assertIn("shouldLongPollRoom()", starter)
         self.assertNotIn("setInterval", starter)
@@ -55,86 +55,11 @@ class RoomRefreshFrontendContractTests(unittest.TestCase):
         self.assertIn("roomSyncGeneration += 1", stopper)
 
     @unittest.skipUnless(NODE, "node is required for polling lifecycle tests")
-    def test_external_revisions_chain_serially_and_human_turn_does_not_poll(self):
-        functions = "\n".join(function_source(name) for name in (
-            "roomSyncIsCurrent",
-            "shouldLongPollRoom",
-            "scheduleRoomPoll",
-            "pollRoom",
-            "startRoomPolling",
-            "stopPolling",
-        ))
-        harness = f"""
-const assert = require("node:assert/strict");
-let room = {{room_id: "ROOM1", revision: 1, status: "playing", current_player_id: "npc:1"}};
-let pollTimer = null;
-let roomSyncGeneration = 0;
-let roomRequestController = null;
-const timers = [];
-const refreshCalls = [];
-const revisions = [
-  {{revision: 2, current_player_id: "npc:2"}},
-  {{revision: 3, current_player_id: "npc:3"}},
-  {{revision: 4, current_player_id: "human-1"}},
-];
-const setTimeout = (callback, delay) => {{
-  const timer = {{callback, delay, cancelled: false}};
-  timers.push(timer);
-  return timer;
-}};
-const clearTimeout = (timer) => {{ timer.cancelled = true; }};
-const isTerminal = (target) => ["finished", "archived"].includes(target.status);
-const canHumanMove = () => (
-  room.status === "playing" && room.current_player_id === "human-1"
-);
-async function refreshRoom(options) {{
-  refreshCalls.push({{...options, afterRevision: room.revision}});
-  const next = revisions.shift();
-  room = {{...room, ...next}};
-  return {{stale: false, retryAfterMs: 0}};
-}}
-{functions}
-
-(async () => {{
-  startRoomPolling();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(refreshCalls.length, 1);
-  assert.equal(refreshCalls[0].wait, true);
-  assert.equal(refreshCalls[0].afterRevision, 1);
-
-  while (timers.some((timer) => !timer.cancelled)) {{
-    const timer = timers.find((candidate) => !candidate.cancelled);
-    timer.cancelled = true;
-    timer.callback();
-    await new Promise((resolve) => setImmediate(resolve));
-  }}
-  assert.deepEqual(refreshCalls.map((call) => call.afterRevision), [1, 2, 3]);
-  assert.equal(room.revision, 4);
-  assert.equal(canHumanMove(), true);
-  assert.equal(timers.filter((timer) => !timer.cancelled).length, 0);
-
-  const beforeHumanStart = refreshCalls.length;
-  startRoomPolling();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(refreshCalls.length, beforeHumanStart);
-
-  let aborted = false;
-  room.current_player_id = "npc:4";
-  roomRequestController = {{abort() {{ aborted = true; }}}};
-  const oldGeneration = roomSyncGeneration;
-  stopPolling();
-  assert.equal(aborted, true);
-  assert.ok(roomSyncGeneration > oldGeneration);
-
-  const callsBeforeRoomSwitch = refreshCalls.length;
-  room = {{...room, room_id: "ROOM2"}};
-  await pollRoom(oldGeneration, "ROOM1");
-  assert.equal(refreshCalls.length, callsBeforeRoomSwitch);
-  scheduleRoomPoll(roomSyncGeneration, "ROOM2", 3000);
-  assert.equal(timers[timers.length - 1].delay, 3000);
-}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
-"""
-        subprocess.run([NODE, "-e", harness], check=True, cwd=ROOT)
+    def test_visible_room_chain_cancellation_and_rate_limit_recovery(self):
+        subprocess.run(
+            [NODE, str(ROOT / "tests" / "room_refresh_lifecycle.cjs")],
+            check=True, cwd=ROOT,
+        )
 
 
 class SharedTurnLayoutContractTests(unittest.TestCase):

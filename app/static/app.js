@@ -4,6 +4,15 @@ let room = null;
 let pollTimer = null;
 let roomSyncGeneration = 0;
 let roomRequestController = null;
+let roomOpenIntent = null;
+let roomRefreshSuspended = false;
+let roomLeaving = false;
+let roomWriteRequests = 0;
+let readRetryAt = 0;
+let rateLimitFailures = 0;
+let roomRetryAt = 0;
+let roomRefreshFailures = 0;
+let unreadRefreshInFlight = false;
 let roomListRequest = 0;
 let roomListScope = "mine";
 const spectatorPerspectives = new Map();
@@ -125,20 +134,69 @@ function ensureInitialRouteState() {
   writeRoomRoute(routeRoomId, {mode: "replace", backToLobby: false});
 }
 
+function retryAfterDelay(value) {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+function roomRefreshDelay() {
+  return Math.max(0, readRetryAt - Date.now(), roomRetryAt - Date.now());
+}
+
+function deferRoomRetry(error) {
+  roomRefreshFailures = Math.min(roomRefreshFailures + 1, 6);
+  const delay = Math.max(error.retryAfterMs || 0,
+    Math.min(60000, ROOM_POLL_RETRY_MS * 2 ** (roomRefreshFailures - 1)));
+  roomRetryAt = Math.max(roomRetryAt, Date.now() + delay);
+  return roomRefreshDelay();
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(apiPath(path), {
-    headers: {"Content-Type": "application/json"},
-    cache: "no-store",
-    ...options,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.message || data.error || "请求失败");
-    error.status = response.status;
+  // Automatic read entry points share the same 429 deadline. Mutations are never retried here.
+  const refreshRead = (options.method || "GET").toUpperCase() === "GET"
+    && /^\/api\/(?:whoami|spectating\/rooms|notifications\/unread|rooms\/[^/?]+)(?:\?|$)/.test(path);
+  if (refreshRead && Date.now() < readRetryAt) {
+    const error = new Error("请求较频繁，请稍后再试");
+    error.status = 429;
+    error.retryAfterMs = readRetryAt - Date.now();
     throw error;
   }
-  applyHumanUnreadState(data);
-  return data;
+  const roomWrite = (options.method || "GET").toUpperCase() !== "GET"
+    && /^\/api\/rooms\/[^/?]+\//.test(path);
+  if (roomWrite) roomWriteRequests += 1;
+  try {
+    const response = await fetch(apiPath(path), {
+      headers: {"Content-Type": "application/json"},
+      cache: "no-store",
+      ...options,
+    });
+    // Gateways may return an HTML/plain-text 429; keep its status and Retry-After.
+    const data = await response.json().catch((error) => {
+      if (response.ok) throw error;
+      return {};
+    });
+    if (!response.ok) {
+      const error = new Error(data?.message || data?.error || "请求失败");
+      error.status = response.status;
+      if (response.status === 429) {
+        rateLimitFailures = Math.min(rateLimitFailures + 1, 6);
+        error.retryAfterMs = Math.max(retryAfterDelay(response.headers?.get("Retry-After")),
+          Math.min(60000, ROOM_POLL_RETRY_MS * 2 ** (rateLimitFailures - 1)));
+        readRetryAt = Math.max(readRetryAt, Date.now() + error.retryAfterMs);
+      }
+      throw error;
+    }
+    applyHumanUnreadState(data);
+    return data;
+  } finally {
+    if (roomWrite) {
+      roomWriteRequests -= 1;
+      startRoomPolling();
+    }
+  }
 }
 
 async function loadCatalogGameRenderers(games) {
@@ -294,7 +352,8 @@ async function markHumanNotificationIdsRead(notificationIds) {
 }
 
 async function refreshHumanUnreadState({autoPopup = true} = {}) {
-  if (document.hidden || !identity) return false;
+  if (document.hidden || !identity || unreadRefreshInFlight || Date.now() < readRetryAt) return false;
+  unreadRefreshInFlight = true;
   const requestId = ++notificationRefreshRequest;
   try {
     const data = await request("/api/notifications/unread");
@@ -329,6 +388,8 @@ async function refreshHumanUnreadState({autoPopup = true} = {}) {
     }
     // A later focus, visibility change, or explicit visit retries the refresh.
     return false;
+  } finally {
+    unreadRefreshInFlight = false;
   }
 }
 
@@ -1916,6 +1977,10 @@ async function loadIdentity({quiet = false} = {}) {
       await refreshHumanUnreadState({autoPopup: true});
     }
   } catch (error) {
+    if (![401, 403].includes(error.status)) {
+      if (!quiet) showNotice(error.message, true);
+      return;
+    }
     identity = null;
     notificationHistory = [];
     room = null;
@@ -1965,15 +2030,36 @@ async function createRoom() {
   }
 }
 
+function scheduleRoomOpen(intent, delayMs = 0) {
+  if (document.hidden || roomRefreshSuspended || roomOpenIntent !== intent || pollTimer !== null) return;
+  pollTimer = setTimeout(() => {
+    pollTimer = null;
+    if (roomOpenIntent === intent && !document.hidden && !roomRefreshSuspended) {
+      void openRoom(intent.roomId, intent.options);
+    }
+  }, Math.min(2147483647, Math.max(delayMs, roomRefreshDelay())));
+}
+
 async function openRoom(roomId, {historyMode = "push", routeRestore = false, perspective = ""} = {}) {
   stopPolling();
+  roomLeaving = false;
+  const intent = {roomId, options: {historyMode, routeRestore, perspective}};
+  roomOpenIntent = intent;
+  if (document.hidden || roomRefreshSuspended || roomRefreshDelay() > 0) {
+    scheduleRoomOpen(intent);
+    return;
+  }
   const generation = roomSyncGeneration;
   const controller = new AbortController();
   roomRequestController = controller;
   try {
     const query = perspective ? `?perspective=${encodeURIComponent(perspective)}` : "";
     const data = await request(`/api/rooms/${roomId}${query}`, {signal: controller.signal});
-    if (generation !== roomSyncGeneration) return;
+    if (generation !== roomSyncGeneration || roomOpenIntent !== intent || document.hidden) return;
+    roomOpenIntent = null;
+    roomRetryAt = 0;
+    roomRefreshFailures = 0;
+    if (Date.now() >= readRetryAt) rateLimitFailures = 0;
     renderGame(data.room, data.message, data.timeline);
     if (historyMode === "push") {
       writeRoomRoute(data.room.room_id, {mode: "push", backToLobby: true});
@@ -1981,11 +2067,15 @@ async function openRoom(roomId, {historyMode = "push", routeRestore = false, per
       writeRoomRoute(data.room.room_id, {mode: "replace", backToLobby: false});
     }
     if (!data.room.spectating) await ackHumanNotifications("game", roomId);
-    if (!roomSyncIsCurrent(generation, roomId)) return;
-    if (!isTerminal(data.room) || data.room.spectating) startRoomPolling();
   } catch (error) {
     if (error.name === "AbortError" || generation !== roomSyncGeneration) return;
-    if (room?.spectating) {
+    if (error.status === 429 || !error.status || error.status >= 500) {
+      scheduleRoomOpen(intent, deferRoomRetry(error));
+      if (!routeRestore) showNotice(error.message, true);
+      return;
+    }
+    roomOpenIntent = null;
+    if (room?.spectating && [401, 403, 404].includes(error.status)) {
       await backToLobby({fromHistory: true});
       writeRoomRoute(null, {mode: "replace"});
       toast(error.message);
@@ -2001,10 +2091,14 @@ async function openRoom(roomId, {historyMode = "push", routeRestore = false, per
     showNotice(error.message, true);
   } finally {
     if (roomRequestController === controller) roomRequestController = null;
+    if (generation === roomSyncGeneration && !roomOpenIntent) startRoomPolling();
   }
 }
 
 async function backToLobby({fromHistory = false} = {}) {
+  // Cancel immediately, including the asynchronous history.back() path.
+  roomLeaving = true;
+  stopPolling();
   if (
     !fromHistory
     && window.history.state
@@ -2016,6 +2110,7 @@ async function backToLobby({fromHistory = false} = {}) {
   }
   const wasSpectating = Boolean(room?.spectating);
   room = null;
+  roomLeaving = false;
   selectedJungleCell = null;
   selectedXiangqiCell = null;
   pendingMove = null;
@@ -4053,12 +4148,18 @@ function roomSyncIsCurrent(generation, roomId) {
 }
 
 async function refreshRoom({quiet = false, wait = false, generation = null} = {}) {
-  if (!room) return;
+  if (!roomIsVisible() || roomRequestController) return {stale: true};
+  if (roomRefreshDelay() > 0) {
+    startRoomPolling();
+    return {stale: false, retryAfterMs: roomRefreshDelay()};
+  }
   const ownsGeneration = generation === null;
   if (ownsGeneration) {
-    stopPolling();
+    if (pollTimer !== null) clearTimeout(pollTimer);
+    pollTimer = null;
     generation = roomSyncGeneration;
   }
+  if (!roomSyncIsCurrent(generation, room.room_id)) return {stale: true};
   const previousRoom = room;
   const previousTimeline = currentTimeline;
   const targetRoomId = room.room_id;
@@ -4074,6 +4175,7 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
       signal: controller.signal,
     });
     if (!roomSyncIsCurrent(generation, targetRoomId)) return {stale: true};
+    if (data.room.revision < room.revision) return {stale: false, retryAfterMs: ROOM_POLL_RETRY_MS};
     const visibleStateChanged = (
       data.room.revision !== previousRevision || data.room.status !== previousStatus
     );
@@ -4081,6 +4183,10 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
       previousRoom, previousTimeline, data.room, data.timeline
     );
     if (!roomSyncIsCurrent(generation, targetRoomId)) return {stale: true};
+    if (data.room.revision < room.revision) return {stale: false, retryAfterMs: ROOM_POLL_RETRY_MS};
+    roomRetryAt = 0;
+    roomRefreshFailures = 0;
+    if (Date.now() >= readRetryAt) rateLimitFailures = 0;
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
     if (!data.room.spectating && (!quiet || visibleStateChanged)) {
       await ackHumanNotifications("game", data.room.room_id);
@@ -4094,14 +4200,14 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
     if (error.name === "AbortError" || !roomSyncIsCurrent(generation, targetRoomId)) {
       return {stale: true};
     }
-    if (previousRoom.spectating && [401, 403, 404].includes(error.status)) {
+    if ([401, 403].includes(error.status) || (previousRoom.spectating && error.status === 404)) {
       await backToLobby({fromHistory: true});
       writeRoomRoute(null, {mode: "replace"});
       toast(error.message);
       return {stale: true};
     }
     if (!quiet) showNotice(error.message, true);
-    return {stale: false, retryAfterMs: ROOM_POLL_RETRY_MS};
+    return {stale: false, retryAfterMs: deferRoomRetry(error)};
   } finally {
     if (roomRequestController === controller) roomRequestController = null;
     if (ownsGeneration && roomSyncIsCurrent(generation, targetRoomId)) {
@@ -4351,43 +4457,73 @@ async function rematch() {
   }
 }
 
+function roomIsVisible() {
+  return Boolean(!document.hidden && !roomRefreshSuspended && !roomLeaving && !roomOpenIntent
+    && roomWriteRequests === 0
+    && room && !$('gameView').classList.contains("hidden"));
+}
+
+function shouldPollRoom() {
+  return roomIsVisible() && (room.spectating || !isTerminal(room));
+}
+
 function shouldLongPollRoom() {
-  return Boolean(room && (room.spectating || (!isTerminal(room) && !canHumanMove())));
+  return shouldPollRoom() && (room.spectating || !canHumanMove());
 }
 
 function scheduleRoomPoll(generation, roomId, delayMs = 0) {
-  if (!roomSyncIsCurrent(generation, roomId) || !shouldLongPollRoom()) return;
+  if (!roomSyncIsCurrent(generation, roomId) || !shouldPollRoom()
+      || pollTimer !== null || roomRequestController) return;
   pollTimer = setTimeout(() => {
     pollTimer = null;
     void pollRoom(generation, roomId);
-  }, delayMs);
+  }, Math.min(2147483647, Math.max(delayMs, roomRefreshDelay())));
 }
 
 async function pollRoom(generation, roomId) {
-  if (!roomSyncIsCurrent(generation, roomId) || !shouldLongPollRoom()) return;
-  const outcome = await refreshRoom({quiet: true, wait: true, generation});
-  if (
-    !roomSyncIsCurrent(generation, roomId)
-    || !shouldLongPollRoom()
-    || outcome?.stale
-  ) return;
-  scheduleRoomPoll(generation, roomId, outcome?.retryAfterMs || 0);
+  if (!roomSyncIsCurrent(generation, roomId) || !shouldPollRoom() || roomRequestController) return;
+  if (roomRefreshDelay() > 0) {
+    scheduleRoomPoll(generation, roomId);
+    return;
+  }
+  const outcome = await refreshRoom({quiet: true, wait: shouldLongPollRoom(), generation});
+  if (!roomSyncIsCurrent(generation, roomId) || !shouldPollRoom() || outcome?.stale) return;
+  scheduleRoomPoll(generation, roomId,
+    Math.max(outcome?.retryAfterMs || 0, shouldLongPollRoom() ? 0 : ROOM_POLL_RETRY_MS));
 }
 
-function startRoomPolling() {
-  stopPolling();
-  if (!shouldLongPollRoom()) return;
-  const generation = roomSyncGeneration;
-  const roomId = room.room_id;
-  void pollRoom(generation, roomId);
+function startRoomPolling({immediate = false} = {}) {
+  if (!shouldPollRoom()) return;
+  scheduleRoomPoll(roomSyncGeneration, room.room_id,
+    immediate || shouldLongPollRoom() ? 0 : ROOM_POLL_RETRY_MS);
 }
 
-function stopPolling() {
+function stopPolling({keepOpen = false} = {}) {
   roomSyncGeneration += 1;
+  if (!keepOpen) roomOpenIntent = null;
   if (pollTimer !== null) clearTimeout(pollTimer);
   pollTimer = null;
   if (roomRequestController) roomRequestController.abort();
   roomRequestController = null;
+}
+
+function suspendRoomRefresh() {
+  roomRefreshSuspended = true;
+  stopPolling({keepOpen: true});
+}
+
+function resumeRoomRefresh() {
+  if (document.hidden) return;
+  roomRefreshSuspended = false;
+  if (roomOpenIntent) {
+    if (!roomRequestController) scheduleRoomOpen(roomOpenIntent);
+  } else {
+    startRoomPolling({immediate: true});
+  }
+  void refreshHumanUnreadState({autoPopup: true}).then(() => {
+    if (identity && !document.hidden && !roomRefreshSuspended
+        && deferredUnreadAcks.size && !room && !roomOpenIntent) void loadIdentity({quiet: true});
+  });
 }
 
 let inviteMode = "create";
@@ -4922,19 +5058,12 @@ window.addEventListener("storage", (event) => {
     void refreshHumanUnreadState({autoPopup: true});
   }
 });
-window.addEventListener("focus", () => {
-  void refreshHumanUnreadState({autoPopup: true});
-});
-window.addEventListener("pageshow", () => {
-  void refreshHumanUnreadState({autoPopup: true});
-});
+window.addEventListener("focus", resumeRoomRefresh);
+window.addEventListener("pageshow", resumeRoomRefresh);
+window.addEventListener("pagehide", suspendRoomRefresh);
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) return;
-  void refreshHumanUnreadState({autoPopup: true}).then(() => {
-    if (!identity || document.hidden || !deferredUnreadAcks.size) return;
-    if (room) void refreshRoom();
-    else void loadIdentity();
-  });
+  if (document.hidden) suspendRoomRefresh();
+  else resumeRoomRefresh();
 });
 
 window.addEventListener("popstate", () => {
@@ -4946,14 +5075,7 @@ window.addEventListener("popstate", () => {
   }
 });
 
-// Gameplay long-poll pauses on our turn. Keep incoming chat and timeout actions
-// observable without clearing the current move selection on an unchanged revision.
-window.setInterval(() => {
-  if (room && !document.hidden && canHumanMove() && !roomRequestController) {
-    void refreshRoom({quiet: true});
-  }
-}, ROOM_POLL_RETRY_MS);
-
+// All room reads, including our-turn chat refreshes, use the single cancellable chain.
 $("chipBalanceLink").href = apiPath("/chips");
 $("chipCenterLink").href = apiPath("/chips");
 ensureInitialRouteState();
