@@ -4781,14 +4781,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     overflow-wrap: anywhere;
   }
 
-  /* Create panel: title above equal-width settings and a compact seat column. */
+  /* Create panel: settings, seats, then the action in one centered content column. */
   #lobbyView .lobby-stack > .create-panel {
     font-family: system-ui, "Microsoft YaHei", sans-serif;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    /* The spare track absorbs settings height without stretching seats or their button. */
-    grid-template-rows: auto max-content max-content minmax(0, 1fr) auto;
-    column-gap: 24px;
+    grid-template-columns: 680px;
+    width: max-content;
+    justify-self: center;
     padding: 16px 24px;
     align-items: start;
   }
@@ -4802,7 +4801,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     position: relative;
     z-index: 1;
     display: grid;
-    grid-area: 2 / 1 / 5 / 2;
+    grid-area: 2 / 1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: start;
     align-items: start;
@@ -4866,24 +4865,25 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .stake-game-hint { min-height: 0; color: var(--text); }
   #lobbyView .stake-game-hint:empty { display: none; }
   #lobbyView .npc-provider-hint { grid-column: 1 / -1; align-self: center; color: var(--text); }
-  /* Two fixed columns; each row fits its content, and each card reads top to bottom. */
+  /* Up to three equal cards; keep two-card rooms compact and rows content-sized. */
   #lobbyView .seat-preview {
-    grid-area: 2 / 2 / 3 / 3;
+    grid-area: 4 / 1;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
     gap: 8px 12px;
-    margin: 0;
+    margin: 16px 0 0;
     min-height: 0;
   }
   #lobbyView .seat-preview-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto auto auto;
+    /* The shared middle track lets each information row use its own column widths. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
     align-content: start;
-    grid-template-areas: "number kind" "name name" "balance balance";
-    align-items: baseline;
-    gap: 2px 8px;
+    grid-template-areas: "number balance balance" "name name kind";
+    align-items: start;
+    gap: 4px 8px;
     min-width: 0;
     min-height: 0;
     padding: 8px 10px;
@@ -4891,21 +4891,21 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     background: rgba(230, 223, 240, .22);
     line-height: 1.5;
   }
-  #lobbyView .seat-preview-number { font-size: 14px; font-weight: 400; color: #756c7d; }
-  #lobbyView .seat-preview-kind { font-size: 14px; font-weight: 400; color: #756c7d; }
+  #lobbyView .seat-preview-number { white-space: nowrap; font-size: 14px; font-weight: 400; color: #756c7d; }
+  #lobbyView .seat-preview-kind { font-size: 16px; font-weight: 400; color: #756c7d; }
   #lobbyView .seat-preview-name { min-width: 0; max-width: 100%; font-size: 16px; font-weight: 700; color: var(--text); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
-  #lobbyView .seat-preview-balance { justify-self: start; min-width: 0; max-width: 100%; font-size: 14px; font-weight: 500; color: var(--text); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  #lobbyView .seat-preview-balance { justify-self: end; min-width: 0; max-width: 100%; font-size: 14px; font-weight: 500; color: var(--text); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
   #lobbyView .create-submit {
     position: relative;
     z-index: 1;
-    grid-area: 3 / 2;
+    grid-area: 5 / 1;
     align-self: start;
-    justify-self: start;
+    justify-self: end;
     width: 200px;
     margin: 12px 0 0;
   }
   #lobbyView .create-note {
-    grid-area: 5 / 1;
+    grid-area: 3 / 1;
     margin-top: 12px;
     padding: 0;
     border: 0;
