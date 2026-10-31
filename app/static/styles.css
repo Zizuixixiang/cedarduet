@@ -3981,8 +3981,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .pixel-toast.show { display: block; }
 
-/* Desktop composition depends on viewport width, independently of seat count. */
-@media (min-width: 1024px) {
+/* Shared room composition: retain wide touch behavior and keep mouse windows side by side. */
+@media (min-width: 1024px), (hover: hover) and (pointer: fine) {
   .game-view { gap: 9px; }
   .game-view > .battle-stage {
     --desktop-board-max: 500px;
@@ -5022,4 +5022,453 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
   #lobbyView .room-retention { min-width: 0; color: var(--text); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
   #lobbyView .room-record-button { min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 14px; line-height: 22px; white-space: normal; }
+}
+
+/* Mouse desktop readability. Explicit semantic selectors leave board glyphs,
+   card faces, coordinates, lobby typography and coarse-pointer phones alone. */
+@media (hover: hover) and (pointer: fine) {
+  .game-view > .battle-stage {
+    grid-template-columns: minmax(600px, 1fr) clamp(260px, 23vw, 320px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .game-view .battle-main-column { grid-row: 1; }
+  .game-view .game-chat-area { grid-row: 1; grid-column: 2; }
+  .game-view .board-edge-copy strong,
+  .game-view .player-name,
+  .game-view .room-participant-copy strong,
+  .game-view .speech-bubble,
+  .game-view .shared-speech-copy strong,
+  .game-view .recent-chat-message,
+  .game-view .chat-compose input,
+  .game-view .game-controls .pixel-btn,
+  .game-view .move-confirm .pixel-btn,
+  .game-view .game-nav-btn,
+  .game-view .game-toolbar-actions .pixel-btn,
+  .game-view .private-state-row,
+  .game-view .liars-turn-line,
+  .game-view .liars-round-heading .liars-turn-line span,
+  .game-view .liars-result-title,
+  .game-view .yahtzee-turn-copy strong,
+  .game-view .yahtzee-score-heading strong,
+  .game-view .yahtzee-score-option-value,
+  .game-view .yahtzee-total-score,
+  .game-view .yahtzee-score-button,
+  .game-view .yahtzee-score-cancel,
+  .game-view .yahtzee-score-submit,
+  .game-view .go-player-copy strong,
+  .game-view .go-phase-status strong,
+  .game-view .junqi-player-name,
+  .game-view .junqi-control,
+  .game-view .aeroplane-board-heading,
+  .game-view .aeroplane-action-copy strong,
+  .game-view .blackjack-seat-identity strong,
+  .game-view .blackjack-action-copy strong,
+  .game-view .blackjack-action strong,
+  .game-view .bp-game .bp-button,
+  .game-view .bp-controls .bp-button,
+  .game-view .cc-heading strong,
+  .game-view .cc-current-copy strong,
+  .game-view .cc-controls .cc-button,
+  .game-view .cc-locate,
+  .game-view .doudizhu-seat-name,
+  .game-view .doudizhu-selection-status strong,
+  .game-view .doudizhu-action-buttons button,
+  .game-view .doudizhu-pattern-choice,
+  .game-view .fc-seat-name,
+  .game-view .fc-turn strong,
+  .game-view .fc-rack > strong,
+  .game-view .gandengyan-opponent-header,
+  .game-view .gandengyan-selection-title,
+  .game-view .gandengyan-play-button,
+  .game-view .gandengyan-pass-button,
+  .game-view .gm-player-name strong,
+  .game-view .gm-actions .gm-button,
+  .game-view .gm-choice,
+  .game-view .gm-prompt,
+  .game-view .guandan-seat-name,
+  .game-view .guandan-center-heading strong,
+  .game-view .guandan-hand-heading strong,
+  .game-view .guandan-selection-status strong,
+  .game-view .guandan-action-buttons button,
+  .game-view .mahjong-seat-name,
+  .game-view .mahjong-round,
+  .game-view .mahjong-action,
+  .game-view .mahjong-confirm-cancel,
+  .game-view .mahjong-confirm-submit,
+  .game-view .mahjong-confirmation,
+  .game-view .monopoly-heading strong,
+  .game-view .monopoly-turn,
+  .game-view .monopoly-action-panel > strong,
+  .game-view .monopoly-button.pixel-btn,
+  .game-view .mp-seat-copy strong,
+  .game-view .mp-turn-copy strong,
+  .game-view .mp-cash,
+  .game-view .mp-actions.main .mp-btn,
+  .game-view .mp-btn.pixel-btn.compact,
+  .game-view .rk-header strong,
+  .game-view .rk-controls .rk-button,
+  .game-view .rk-game .rk-button,
+  .game-view .texas-seat-name,
+  .game-view .texas-control-status,
+  .game-view .texas-confirm-cancel,
+  .game-view .texas-confirm-submit,
+  .game-view .texas-action,
+  .game-view .train-cards-control-copy strong,
+  .game-view .train-cards-flip-button,
+  .game-view .uno-opponent strong,
+  .game-view .uno-play-panel strong,
+  .game-view .uno-action,
+  .game-view .uno-color-choice,
+  .game-view .zhajinhua-seat-name,
+  .game-view .zhajinhua-control-status,
+  .game-view .zhajinhua-confirm-cancel,
+  .game-view .zhajinhua-confirm-submit,
+  .game-view .zhajinhua-action { font-size: 16px; }
+  .game-view .board-edge-copy small,
+  .game-view .game-meta-label,
+  .game-view .room-participant-copy small,
+  .game-view .room-participant-detail,
+  .game-view .recent-chat-heading,
+  .game-view .chat-hint,
+  .game-view .mention-options,
+  .game-view .mention-options button,
+  .game-view .move-confirm span,
+  .game-view .private-state-panel.compact-dice-private .private-state-row,
+  .game-view .liars-round-heading span,
+  .game-view .liars-current-bid span,
+  .game-view .liars-round-result,
+  .game-view .liars-reveal-details summary,
+  .game-view .liars-controls label,
+  .game-view .liars-terminal-summary,
+  .game-view .liars-terminal-row,
+  .game-view .yahtzee-turn-copy span,
+  .game-view .yahtzee-score-heading span,
+  .game-view .yahtzee-scratch-toggle,
+  .game-view .yahtzee-joker-notice,
+  .game-view .yahtzee-score-option-label,
+  .game-view .yahtzee-totals-title,
+  .game-view .yahtzee-total-name,
+  .game-view .yahtzee-scorecard-summary,
+  .game-view .yahtzee-scorecard,
+  .game-view .yahtzee-scorecard thead th,
+  .game-view .yahtzee-score-confirmation,
+  .game-view .go-player-copy small,
+  .game-view .go-phase-status small,
+  .game-view .go-phase-status.finished small,
+  .game-view .go-scoring-hint,
+  .game-view .junqi-player-status,
+  .game-view .junqi-setup-hint,
+  .game-view .junqi-battle-result,
+  .game-view .junqi-legend span,
+  .game-view .cc-edge-participant .cc-edge-meta,
+  .game-view .cc-legend,
+  .game-view .aeroplane-board-heading span,
+  .game-view .aeroplane-activity,
+  .game-view .aeroplane-action-copy span,
+  .game-view .blackjack-eyebrow,
+  .game-view .blackjack-seat-identity-copy span,
+  .game-view .blackjack-seat-result,
+  .game-view .blackjack-action-copy span,
+  .game-view .blackjack-action span,
+  .game-view .bp-game,
+  .game-view .bp-controls,
+  .game-view .bp-help,
+  .game-view .bp-status,
+  .game-view .bp-incoming,
+  .game-view .bp-fleet,
+  .game-view .cc-game,
+  .game-view .cc-controls,
+  .game-view .cc-meta,
+  .game-view .cc-new,
+  .game-view .cc-draft,
+  .game-view .cc-activity,
+  .game-view .cc-skip,
+  .game-view .cc-hint,
+  .game-view .cc-error,
+  .game-view .doudizhu-turn-indicator,
+  .game-view .doudizhu-metric,
+  .game-view .doudizhu-seat-state,
+  .game-view .doudizhu-bottom-label,
+  .game-view .doudizhu-trick-heading span,
+  .game-view .doudizhu-empty-trick,
+  .game-view .doudizhu-empty-hand,
+  .game-view .doudizhu-pass-chip,
+  .game-view .doudizhu-no-pass,
+  .game-view .doudizhu-hand-label,
+  .game-view .doudizhu-selection-status span,
+  .game-view .doudizhu-terminal-title,
+  .game-view .doudizhu-terminal-name,
+  .game-view .doudizhu-terminal-empty,
+  .game-view .fc-game,
+  .game-view .fc-controls,
+  .game-view .fc-meta,
+  .game-view .fc-seat-counts,
+  .game-view .fc-revealed-group > .fc-meta,
+  .game-view .fc-stock-copy strong,
+  .game-view .fc-offer > .fc-meta,
+  .game-view .fc-result-details summary,
+  .game-view .fc-action-cards,
+  .game-view .gandengyan-metric,
+  .game-view .gandengyan-player-state,
+  .game-view .gandengyan-card-count,
+  .game-view .gandengyan-trick-number,
+  .game-view .gandengyan-trick-heading span,
+  .game-view .gandengyan-pass-chip,
+  .game-view .gandengyan-no-pass,
+  .game-view .gandengyan-hand-label,
+  .game-view .gandengyan-selection-detail,
+  .game-view .gandengyan-terminal-title,
+  .game-view .gandengyan-terminal-name,
+  .game-view .gandengyan-terminal-empty,
+  .game-view .gm-game,
+  .game-view .gm-controls,
+  .game-view .gm-status,
+  .game-view .gm-token-chip,
+  .game-view .gm-privileges,
+  .game-view .gm-token-total,
+  .game-view .gm-royal-tag,
+  .game-view .gm-muted,
+  .game-view .gm-reserved-label,
+  .game-view .gm-royal-name,
+  .game-view .gm-royal-ability,
+  .game-view .gm-royal-short,
+  .game-view .gm-deck,
+  .game-view .gm-side-box,
+  .game-view .gm-side-note,
+  .game-view .gm-detail-info,
+  .game-view .guandan-metric,
+  .game-view .guandan-seat-meta,
+  .game-view .guandan-seat-count,
+  .game-view .guandan-tribute-band,
+  .game-view .guandan-center-heading span,
+  .game-view .guandan-center-empty,
+  .game-view .guandan-pass-chip,
+  .game-view .guandan-pass-none,
+  .game-view .guandan-hand-heading span,
+  .game-view .guandan-empty-hand,
+  .game-view .guandan-terminal-summary,
+  .game-view .guandan-terminal-name,
+  .game-view .guandan-terminal-empty,
+  .game-view .guandan-selection-status > span,
+  .game-view .guandan-interpretation,
+  .game-view .mahjong-center-status,
+  .game-view .mahjong-discard-label,
+  .game-view .mahjong-own-hand-head,
+  .game-view .mahjong-waiting,
+  .game-view .mahjong-control-hint,
+  .game-view .mahjong-terminal-review,
+  .game-view .mahjong-terminal-summary,
+  .game-view .mahjong-terminal-name,
+  .game-view .mahjong-terminal-seat,
+  .game-view .mahjong-terminal-note,
+  .game-view .monopoly-heading > span,
+  .game-view .monopoly-cash,
+  .game-view .monopoly-assets,
+  .game-view .monopoly-event-label,
+  .game-view .monopoly-event-copy,
+  .game-view .monopoly-event-detail,
+  .game-view .monopoly-trade-task > p,
+  .game-view .monopoly-trade-task > small,
+  .game-view .monopoly-center-label,
+  .game-view .monopoly-center-hint,
+  .game-view .monopoly-location,
+  .game-view .monopoly-activity,
+  .game-view .monopoly-context,
+  .game-view .monopoly-help,
+  .game-view .monopoly-pending-trades > summary,
+  .game-view .monopoly-trade-parties,
+  .game-view .monopoly-offer-side > small,
+  .game-view .monopoly-offer-side > p,
+  .game-view .mp-turn-copy small,
+  .game-view .mp-bet-tag,
+  .game-view .mp-seat-tags small,
+  .game-view .mp-center-kicker,
+  .game-view .mp-center-feed li,
+  .game-view .mp-center-feed li em,
+  .game-view .mp-event-bar,
+  .game-view .mp-history,
+  .game-view .mp-context,
+  .game-view .mp-help,
+  .game-view .mp-edition small,
+  .game-view .mp-card small,
+  .game-view .mp-loan,
+  .game-view .rk-game,
+  .game-view .rk-controls,
+  .game-view .rk-meta,
+  .game-view .rk-help,
+  .game-view .rk-empty,
+  .game-view .rk-meld-meta,
+  .game-view .rk-kind,
+  .game-view .rk-draft-status,
+  .game-view .rk-error,
+  .game-view .texas-seat-meta span,
+  .game-view .texas-street,
+  .game-view .texas-side-pots span,
+  .game-view .texas-result,
+  .game-view .texas-range-action label,
+  .game-view .texas-confirmation,
+  .game-view .train-cards-metric,
+  .game-view .train-cards-status,
+  .game-view .train-cards-empty,
+  .game-view .train-cards-terminal-summary,
+  .game-view .train-cards-terminal-name,
+  .game-view .train-cards-terminal-empty,
+  .game-view .train-cards-control-copy span,
+  .game-view .uno-hand-count,
+  .game-view .uno-status > span,
+  .game-view .uno-pile,
+  .game-view .uno-alert,
+  .game-view .uno-hand-heading,
+  .game-view .uno-terminal-title,
+  .game-view .uno-terminal-name,
+  .game-view .uno-terminal-empty,
+  .game-view .uno-control-hint,
+  .game-view .zhajinhua-metric,
+  .game-view .zhajinhua-status,
+  .game-view .zhajinhua-contribution,
+  .game-view .zhajinhua-center-label,
+  .game-view .zhajinhua-compare,
+  .game-view .zhajinhua-private-label,
+  .game-view .zhajinhua-confirmation { font-size: 14px; }
+  .game-view .recent-chat-reply,
+  .game-view .go-player-turn,
+  .game-view .junqi-camp-chip,
+  .game-view .cc-edge-participant .cc-current-turn-label,
+  .game-view .aeroplane-home-count,
+  .game-view .blackjack-badge,
+  .game-view .doudizhu-role-badge,
+  .game-view .doudizhu-terminal-count,
+  .game-view .fc-dealer,
+  .game-view .fc-turn-indicator,
+  .game-view .gm-tag,
+  .game-view .gm-meter,
+  .game-view .gm-bonus-box small,
+  .game-view .gm-royal-emblem,
+  .game-view .guandan-team-chip,
+  .game-view .mahjong-seat-badges i,
+  .game-view .mahjong-turn-indicator,
+  .game-view .mahjong-winner-badge,
+  .game-view .mp-mod,
+  .game-view .mp-vote-tag,
+  .game-view .mp-chip small,
+  .game-view .rk-meld-label,
+  .game-view .texas-role-badges b,
+  .game-view .uno-player-state,
+  .game-view .zhajinhua-acting-state,
+  .game-view .yahtzee-hold-badge,
+  .game-view .yahtzee-total-action { font-size: 12px; }
+
+  .game-view .game-meta strong, .game-view #turn, .game-view #gameMessage,
+  .game-view #spectatorName, .game-view #spectatorSelect { font-size: 16px; }
+  .game-view .game-heading h1 { font-size: 22px; }
+  .game-view .recent-chat-heading { color: var(--text); letter-spacing: .03em; }
+  .game-view .recent-chat-message { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px; padding: 7px; }
+  .game-view .recent-chat-speaker { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .game-view .recent-chat-copy { grid-column: 1 / -1; }
+  .game-view .recent-chat-reply { grid-column: 2; grid-row: 1; width: auto; min-width: 32px; height: 26px; margin: 0; }
+  .game-view .chat-compose input, .game-view .game-compose .pixel-btn { font-size: 16px; }
+  .game-view .chat-compose { gap: 6px; }
+  .game-view .game-compose .pixel-btn { padding-inline: 10px; }
+  .game-view .move-confirm { flex-wrap: wrap; }
+  .game-view #battleStage[data-game-type="dots_boxes"] .move-confirm span { font-size: 14px; }
+  .game-view .room-participant-copy strong { overflow-wrap: anywhere; }
+  .game-view .board.chess .chess-check-notice,
+  .game-view .board.chess .chess-promotion-title,
+  .game-view .chess-claim-copy,
+  .game-view .board.xiangqi .xiangqi-check-notice,
+  .game-view .board.checkers[data-forced="true"]::after { font-size: 14px; }
+  .game-view .aeroplane-board-heading { flex-wrap: wrap; }
+  .game-view .player-name[data-aeroplane-home-count]::after { font-size: 12px; }
+  .game-view .go-player-rail { flex-wrap: wrap; }
+  .game-view .mahjong-seat-identity { flex-wrap: wrap; }
+  .game-view .mahjong-seat-name { line-height: 1.25; }
+  .game-view .mahjong-center-status { grid-template-columns: minmax(0, 1fr); }
+  .game-view .mahjong-wall-count { text-align: left; }
+  .game-view .mahjong-discard-label { opacity: 1; line-height: 1.35; overflow-wrap: anywhere; }
+  .game-view .mahjong-seat.position-bottom.current .mahjong-seat-identity { padding-right: 60px; }
+  .game-view .texas-table { min-width: 680px; min-height: 650px; }
+  .game-view .texas-seat { width: 160px; padding: 8px; }
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="2"] { transform: translate(-50%, -38%); }
+  .game-view .texas-seat.is-viewer { width: 190px; top: 85%; }
+  .game-view .texas-seat-meta { gap: 3px; }
+  .game-view .texas-seat-head { align-items: flex-start; }
+  .game-view .texas-center { width: 280px; }
+  .game-view .texas-pot { font-size: 22px; }
+  .game-view .guandan-seat { min-width: 0; }
+  .game-view .guandan-table { grid-template-columns: minmax(110px, .8fr) minmax(0, 2.5fr) minmax(110px, .8fr); }
+  .game-view .guandan-seat-meta { line-height: 1.35; white-space: normal; flex-wrap: wrap; }
+  .game-view .guandan-seat.position-left .guandan-seat-identity,
+  .game-view .guandan-seat.position-right .guandan-seat-identity { flex-direction: column; width: 100%; }
+  .game-view .guandan-seat-title { flex-wrap: wrap; }
+  .game-view .fc-table { min-height: 500px; }
+  .game-view .fc-table[data-seats="5"] { height: 520px; }
+  .game-view .fc-seat-identity { width: 140px; height: 48px; }
+  .game-view .fc-seat-header { height: 48px; }
+  .game-view .fc-seat-counts { flex-wrap: wrap; white-space: normal; }
+  .game-view .fc-position-north .fc-seat-identity,
+  .game-view .fc-position-south .fc-seat-identity { left: calc(50% - 70px); }
+  .game-view .fc-position-north .fc-seat-public { top: 64px; height: 76px; }
+  .game-view .fc-position-south .fc-seat-public { bottom: 60px; height: 68px; }
+  .game-view .fc-seat-side .fc-seat-public { top: 198px; }
+  .game-view .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-identity { left: calc(25% - 70px); }
+  .game-view .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { right: calc(25% - 70px); }
+  .game-view .fc-table[data-seats="5"] .fc-position-south .fc-seat-identity { left: calc(50% - 70px); }
+  .game-view .fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 72px; height: 76px; }
+  .game-view .fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: calc(var(--fc-middle-y) + 52px); }
+  .game-view .fc-table[data-seats="5"] .fc-position-south .fc-seat-public { bottom: 64px; height: 64px; }
+  /* Intrinsic rows keep the stock count clear of the turn label in all three rules. */
+  .game-view .fc-table[data-seats] .fc-table-center {
+    height: auto;
+    grid-template-rows: auto auto;
+    row-gap: 8px;
+    align-content: start;
+  }
+  .game-view .fc-table .fc-live-cards { min-height: 64px; }
+  .game-view .fc-table .fc-turn { align-self: start; line-height: 1.4; }
+  .game-view .fc-seat-name { line-height: 1.35; }
+  .game-view .fc-turn-indicator { white-space: normal; }
+  /* A full identity row, followed by count / backs and optional turn status. */
+  .game-view .uno-opponents { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .game-view .uno-opponent { grid-template-rows: auto auto; gap: 6px 8px; padding: 8px; }
+  .game-view .uno-opponent-identity { grid-column: 1 / -1; grid-row: 1; }
+  .game-view .uno-opponent strong { line-height: 1.4; }
+  .game-view .uno-opponent-backs { grid-column: 2; grid-row: 2; }
+  .game-view .uno-hand-count { grid-column: 1; grid-row: 2; align-self: center; }
+  .game-view .uno-opponent > .uno-player-state { position: static; grid-column: 1 / -1; justify-self: start; }
+  /* Six-seat edge rails need a real text row, rather than the old 8px slot. */
+  .game-view .cc-edge-participant {
+    height: auto;
+    min-height: 68px;
+    max-width: 100%;
+    grid-template-rows: minmax(24px, auto) auto;
+    row-gap: 5px;
+    padding: 6px;
+  }
+  .game-view .cc-edge-participant .cc-edge-meta { flex-wrap: wrap; gap: 2px 4px; line-height: 1.4; }
+  .game-view .cc-edge-participant .board-edge-copy strong { flex-wrap: wrap; gap: 3px; line-height: 1.4; }
+  .game-view .rk-meld-label { line-height: 1.4; }
+  /* Board-square labels stay compact; larger labels must not cover tokens. */
+  .game-view .monopoly-tile-name,
+  .game-view .monopoly-tile:not(.kind-property) .monopoly-tile-name,
+  .game-view .monopoly-tile.occupied .monopoly-tile-name { font-size: 12px; }
+  .game-view .mp-tile-name { font-size: 12px; }
+  .game-view .yahtzee-hold-badge { min-height: 18px; }
+  .game-view .board-frame > .board.monopoly,
+  .game-view .board-frame > .board.monopoly_plus,
+  .game-view .board-frame > .board.aeroplane_chess,
+  .game-view .board-frame > .board.carcassonne,
+  .game-view .board-frame > .board.rummikub { width: min(100%, 760px); }
+  /* Game-owned dialogs live outside game-view; explicit scopes avoid lobby changes. */
+  .monopoly-dialog, .mp-dialog, .gm-tutorial, .mp-tutorial { font-size: 16px; }
+  .monopoly-dialog :is(.monopoly-button, input, select),
+  .mp-dialog :is(.mp-btn, input, select), .gm-tutorial .gm-button,
+  .mp-tutorial .mp-btn { font-size: 16px; }
+  .monopoly-dialog :is(.monopoly-player-wealth dt, .monopoly-player-stats dt,
+    .monopoly-player-stats dd, .monopoly-detail-summary, .monopoly-values dt,
+    .monopoly-values dd, .monopoly-rents, .monopoly-field, .monopoly-asset-summary,
+    .monopoly-asset > small, .monopoly-trade-preview, .monopoly-check, .monopoly-form-error),
+  .mp-dialog :is(.mp-detail-summary, .mp-motto, .mp-values dt, .mp-rents,
+    .mp-field, .mp-error, .mp-check),
+  .gm-tutorial-progress, .mp-tutorial-progress { font-size: 14px; }
 }

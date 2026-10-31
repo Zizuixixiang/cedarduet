@@ -162,6 +162,7 @@
       identity.className = "uno-opponent-identity";
       const heading = documentRef.createElement("strong");
       heading.textContent = participant.display_name || participant.player_id;
+      heading.title = heading.textContent;
       identity.append(renderAvatar(documentRef, context, participant), heading);
       const cards = documentRef.createElement("div");
       cards.className = "uno-opponent-backs";

@@ -503,7 +503,7 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 
 /* Mahjong owns its desktop table sizing: the shared board/card caps leave
    much of the main column unused. Keep tile proportions independent of it. */
-@media (min-width: 1024px) {
+@media (min-width: 1024px), (hover: hover) and (pointer: fine) {
   .battle-stage[data-game-type="mahjong"] .board-frame > .board {
     width: 100%;
     max-width: 100%;
