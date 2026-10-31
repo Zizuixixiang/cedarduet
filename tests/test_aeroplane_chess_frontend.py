@@ -86,7 +86,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.9";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.10";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -499,7 +499,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.9");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.10");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -1035,6 +1035,92 @@ assert.equal(
             text=True,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_stack_counts_cell_colours_and_rerender_cleanup(self):
+        self.run_node(r'''
+const harness = makeContext("human-1", false);
+function draw() {
+  // Match app.js's clear-before-render lifecycle.
+  harness.board.replaceChildren();
+  renderer.renderBoard(harness.context);
+  return descendants(harness.board);
+}
+const reds = state.planes["human-1"];
+for (const [zone, extra, key] of [
+  ["track", {ring_index: 1}, "track:1"],
+  ["launch", {}, "launch:red"],
+  ["home_lane", {home_lane_index: 2}, "lane:red:2"],
+]) {
+  for (const count of [4, 3, 2, 1, 0]) {
+    reds.forEach((plane, index) => Object.assign(plane, {
+      zone: index < count ? zone : "home", ring_index: null, home_lane_index: null,
+    }, index < count ? extra : {}));
+    const nodes = draw();
+    const badges = nodes.filter((node) => hasClass(node, "aeroplane-stack-count"));
+    assert.equal(badges.length, count > 1 ? 1 : 0);
+    if (count > 1) {
+      assert.equal(badges[0].textContent, String(count));
+      assert.equal(badges[0].dataset.cellKey, key);
+    }
+    const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token") && node.dataset.playerId === "human-1");
+    assert.equal(tokens.length, count);
+    assert.ok(tokens.every((node) => node.dataset.stackSize === String(count)));
+    const edges = nodes.filter((node) => hasClass(node, "aeroplane-cell-edge"));
+    assert.equal(edges.length, count ? 1 : 0);
+    if (count) {
+      assert.equal(edges[0].dataset.cellKey, key);
+      assert.equal(edges[0].style.color, zone === "track" ? "var(--aero-yellow)" : "var(--aero-red)");
+    }
+  }
+}
+// Adjacent cells remain separate; equal lane indices in separate colours do too.
+Object.assign(reds[0], {zone: "track", ring_index: 2});
+Object.assign(reds[1], {zone: "track", ring_index: 3});
+Object.assign(reds[2], {zone: "home_lane", home_lane_index: 1});
+Object.assign(state.planes["ai-1"][0], {zone: "home_lane", home_lane_index: 1});
+assert.equal(draw().filter((n) => hasClass(n, "aeroplane-stack-count")).length, 0);
+// Defensive mixed snapshot: impossible after engine capture resolution, but
+// the renderer must still preserve both colours and one total if supplied.
+Object.assign(state.planes["ai-1"][0], {zone: "track", ring_index: 2});
+const mixed = draw();
+assert.equal(mixed.filter((n) => hasClass(n, "aeroplane-stack-count")).length, 1);
+const group = mixed.filter((n) => hasClass(n, "aeroplane-token") && n.dataset.cellKey === "track:2");
+assert.equal(group.length, 2);
+assert.ok(group.some((n) => hasClass(n, "color-red")));
+assert.ok(group.some((n) => hasClass(n, "color-blue")));
+assert.notEqual(group[0].style.top, group[1].style.top);
+''')
+
+    def test_overlapping_stack_pointer_targets_preserve_plane_id_and_keyboard(self):
+        self.run_node(r'''
+(async () => {
+const harness = makeContext("human-1", true);
+state.planes["human-1"].forEach((p) => Object.assign(p, {zone: "launch", route_step: 0}));
+renderer.renderBoard(harness.context);
+const tokens = descendants(harness.board).filter((n) => hasClass(n, "legal"));
+assert.equal(tokens.length, 4);
+tokens.forEach((token, index) => {
+  token.getBoundingClientRect = () => ({x: 78, y: 78 + index * 4, width: 44, height: 44});
+  token.children[0].getBoundingClientRect = () => ({width: 13.14});
+  token.click = () => token.listeners.click({detail: 0});
+});
+// A tap over the exposed rear plane lands in the front button's 44px box.
+await tokens[3].listeners.click({detail: 1, clientX: 100, clientY: 94.5});
+assert.equal(harness.submitted[0].plane_id, "red-0");
+assert.equal(harness.submitted[0].plane_index, 0);
+// A painted front disc owns its overlap, rather than a hidden rear centre.
+await tokens[3].listeners.click({detail: 1, clientX: 100, clientY: 108});
+assert.equal(harness.submitted[1].plane_id, "red-3");
+// Enter / AT click keeps the focused plane, irrespective of overlap.
+await tokens[2].listeners.click({detail: 0});
+assert.equal(harness.submitted[2].plane_id, "red-2");
+assert.equal(harness.submitted[2].plane_index, 2);
+// Stale permission prevents a queued activation.
+harness.context.helpers.canMove = () => false;
+await tokens[1].listeners.click({detail: 0});
+assert.equal(harness.submitted.length, 3);
+})().catch((error) => { console.error(error); process.exit(1); });
+''')
 
 
 if __name__ == "__main__":

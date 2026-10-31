@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.9";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.10";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -107,17 +107,44 @@
     );
   }
 
+  // Fan across the route, never along it into the next square. Values are
+  // fractions of a bounded visual spread, independent of the 44px hit target.
   function stackOffsets(size) {
-    if (size <= 1) return [[0, 0]];
-    if (size === 2) return [[-.28, -.18], [.28, .18]];
-    if (size === 3) return [[0, -.3], [-.3, .2], [.3, .2]];
-    if (size === 4) {
-      return [[-.3, -.3], [.3, -.3], [-.3, .3], [.3, .3]];
+    return Array.from({length: size}, (_, index) => (
+      size <= 1 ? 0 : 2 * index / (size - 1) - 1
+    ));
+  }
+
+  function stackDirection(plane, color, quarterTurns) {
+    let direction;
+    if (plane.zone === "track") {
+      const before = ringPoint(Number(plane.ring_index) - 1);
+      const after = ringPoint(Number(plane.ring_index) + 1);
+      direction = [after[1] - before[1], before[0] - after[0]];
+      const point = ringPoint(plane.ring_index);
+      if (direction[0] * (point[0] - 50) + direction[1] * (point[1] - 50) < 0) {
+        direction = direction.map((value) => -value);
+      }
+      // The diagonal cuts border the airports: put their badge inward.
+      if ([6, 7, 8].includes(Number(plane.ring_index) % 13)) {
+        direction = direction.map((value) => -value);
+      }
+    } else {
+      // Launch badges point inward; lane badges face away from the launch pad.
+      const directions = plane.zone === "launch"
+        ? {red: [0, -1], yellow: [1, 0], blue: [0, 1], green: [-1, 0]}
+        : {red: [1, 0], yellow: [0, 1], blue: [-1, 0], green: [0, -1]};
+      direction = directions[color];
     }
-    return Array.from({length: size}, (_, index) => {
-      const angle = -Math.PI / 2 + index * Math.PI * 2 / size;
-      return [Math.cos(angle) * .35, Math.sin(angle) * .35];
-    });
+    const length = Math.hypot(...direction);
+    const rotated = rotatePoint([50 + direction[0] / length, 50 + direction[1] / length], quarterTurns);
+    return rotated.map((value) => Number((value - 50).toFixed(6)));
+  }
+
+  function stackPosition(point, direction, offset, extra = "0px") {
+    return point.map((value, axis) => (
+      `calc(${value}% + (min(calc(var(--aeroplane-token-size) * .42), 1.4%) * ${offset} + ${extra}) * ${direction[axis]})`
+    ));
   }
 
   function playerName(participant) {
@@ -675,7 +702,7 @@
     });
     const grouped = new Map();
     entries.forEach((entry) => {
-      const {plane, color, point} = entry;
+      const {plane, color} = entry;
       const key = plane.zone === "track"
         ? `track:${plane.ring_index}`
         : plane.zone === "home_lane"
@@ -686,13 +713,13 @@
       const group = grouped.get(key) || [];
       group.push(entry);
       grouped.set(key, group);
-      entry.point = point;
+      entry.groupKey = key;
     });
     grouped.forEach((group) => {
       const offsets = stackOffsets(group.length);
       group.forEach((entry, index) => {
-        const offset = offsets[index] || [0, 0];
-        entry.point = [entry.point[0] + offset[0], entry.point[1] + offset[1]];
+        entry.offset = offsets[index];
+        entry.direction = stackDirection(entry.plane, entry.color, quarterTurns);
         entry.stackIndex = index;
         entry.stackSize = group.length;
       });
@@ -714,6 +741,7 @@
     );
     const lastAction = state.last_action || {};
     const returnedIds = new Set(lastAction.returned_plane_ids || []);
+    const groupButtons = new Map();
     collectPlaneEntries(state, quarterTurns).forEach((entry) => {
       const {playerId, color, plane, point} = entry;
       const legal = Boolean(context.canMove) && legalIds.has(plane.plane_id);
@@ -734,18 +762,40 @@
       token.dataset.logicalRouteStep = String(plane.route_step);
       token.dataset.stackIndex = String(entry.stackIndex || 0);
       token.dataset.stackSize = String(entry.stackSize || 1);
+      token.dataset.cellKey = entry.groupKey;
       token.style.setProperty("--stack-order", String(entry.stackIndex || 0));
-      token.style.left = `${point[0]}%`;
-      token.style.top = `${point[1]}%`;
+      const position = entry.stackSize > 1
+        ? stackPosition(point, entry.direction, entry.offset)
+        : point.map((value) => `${value}%`);
+      [token.style.left, token.style.top] = position;
       token.disabled = !legal;
       const participant = participantMap.get(playerId);
       token.setAttribute(
         "aria-label",
-        `${playerName(participant)}的${COLOR_LABELS[color]} ${plane.plane_index + 1} 号机，${positionLabel(plane)}${legal ? "，可以移动" : ""}`
+        `${playerName(participant)}的${COLOR_LABELS[color]} ${plane.plane_index + 1} 号机，${positionLabel(plane)}${entry.stackSize > 1 ? `，同格共 ${entry.stackSize} 架` : ""}${legal ? "，可以移动" : ""}`
       );
       token.appendChild(createPlaneGraphic(documentRef));
       if (legal) {
-        token.addEventListener("click", async () => {
+        const buttons = groupButtons.get(entry.groupKey) || [];
+        buttons.push(token);
+        groupButtons.set(entry.groupKey, buttons);
+        token.addEventListener("click", async (event) => {
+          // Overlapping transparent hit boxes must not swallow an exposed plane.
+          // Keyboard/AT clicks still activate the focused, real plane button.
+          if (event && event.detail > 0 && buttons.length > 1) {
+            const targets = buttons.filter((button) => !button.disabled).map((button) => {
+              const rect = button.getBoundingClientRect();
+              const distance = Math.hypot(event.clientX - rect.x - rect.width / 2, event.clientY - rect.y - rect.height / 2);
+              return {button, distance, radius: button.children[0].getBoundingClientRect().width / 2};
+            });
+            // Respect the painted order inside a disc; use nearest-centre
+            // only in the transparent padding around the stack.
+            const painted = targets.slice().reverse().find((target) => target.distance <= target.radius);
+            const target = painted || targets.reduce((best, item) => (
+              item.distance < best.distance ? item : best
+            ), {button: token, distance: Infinity});
+            if (target.button !== token) { target.button.click(); return; }
+          }
           if (!helpers || typeof helpers.submitMove !== "function") return;
           if (typeof helpers.canMove === "function" && !helpers.canMove()) return;
           token.disabled = true;
@@ -761,6 +811,43 @@
         token.dataset.currentPlayer = "true";
       }
       shell.appendChild(token);
+      if (entry.stackIndex !== 0) return;
+      if (["track", "launch", "home_lane"].includes(plane.zone)) {
+        // These small corner strokes use the underlying square's colour, not
+        // the occupying plane's. They stay within its original footprint.
+        const cellColor = plane.zone === "track" ? COLORS[plane.ring_index % 4] : color;
+        const shortcut = Object.values(state.path_mappings || {}).some((mapping) => (
+          (mapping.shortcut || {}).from_ring_index === plane.ring_index
+        ));
+        const size = plane.zone === "launch" ? 5.6 : plane.zone === "home_lane" ? 5 : shortcut ? 5.7 : 5.2;
+        const edge = svgNode(documentRef, "svg", {
+          viewBox: "0 0 100 100", "aria-hidden": "true", focusable: "false",
+          class: "aeroplane-cell-edge",
+        });
+        edge.dataset.cellKey = entry.groupKey;
+        edge.style.left = `${point[0]}%`;
+        edge.style.top = `${point[1]}%`;
+        edge.style.width = `${size}%`;
+        edge.style.color = `var(--aero-${cellColor})`;
+        edge.appendChild(svgNode(documentRef, "path", {
+          d: plane.zone === "launch"
+            ? "M12 30 A43 43 0 0 1 30 12 M70 12 A43 43 0 0 1 88 30 M88 70 A43 43 0 0 1 70 88 M30 88 A43 43 0 0 1 12 70"
+            : "M7 34 V27 Q7 7 27 7 H34 M66 7 H73 Q93 7 93 27 V34 M93 66 V73 Q93 93 73 93 H66 M34 93 H27 Q7 93 7 73 V66",
+        }));
+        shell.appendChild(edge);
+      }
+      if (entry.stackSize > 1) {
+        const count = documentRef.createElement("span");
+        count.className = "aeroplane-stack-count";
+        count.dataset.cellKey = entry.groupKey;
+        count.setAttribute("aria-hidden", "true");
+        count.textContent = String(entry.stackSize);
+        [count.style.left, count.style.top] = stackPosition(
+          point, entry.direction, 1,
+          "var(--aeroplane-token-size) * .5 + var(--aeroplane-count-size) * .5 + 1px"
+        );
+        shell.appendChild(count);
+      }
     });
   }
 
