@@ -250,6 +250,110 @@
 .fc-controls .pixel-btn:not(:disabled) { color: var(--text); background: var(--purple-light); border-color: var(--purple-darker); }
 .fc-action-cards { display: block; font-size: 11px; }
 .fc-result { font-weight: 600; }
+/* Mouse tables: one geometry for identities, public rails and the entire
+   transformed history ring. Phones retain the original rules above. */
+@media (hover: hover) and (pointer: fine) {
+  .game-view > #battleStage[data-game-type^="four_color_"] {
+    grid-template-columns: minmax(760px, 1fr) clamp(260px, 23vw, 320px);
+    --desktop-table-max: 880px;
+  }
+  .game-view .fc-game { container-type: inline-size; gap: 12px; }
+  .game-view :is(.fc-game, .fc-controls, .fc-meta, .fc-seat-counts,
+    .fc-revealed-group > .fc-meta, .fc-stock-copy strong, .fc-offer > .fc-meta,
+    .fc-result-details summary, .fc-action-cards) { font-size: 14px; }
+  .game-view :is(.fc-seat-name, .fc-turn strong, .fc-rack > strong) { font-size: 16px; }
+  .game-view :is(.fc-dealer, .fc-turn-indicator) { font-size: 12px; }
+  .game-view .fc-table[data-seats] {
+    --fc-public-w: 24px; --fc-public-h: 62px; --fc-step: 24px;
+    --fc-ring-edge: clamp(180px, 24cqw, 204px);
+    --fc-ring-apothem: calc(var(--fc-ring-edge) * .68819096);
+    --fc-ring-room: calc(var(--fc-ring-edge) * 1.54 + 32px);
+    display: grid;
+    grid-template-columns: minmax(190px, 1fr) minmax(320px, 1.7fr) minmax(190px, 1fr);
+    grid-template-rows: minmax(120px, auto) var(--fc-ring-room) minmax(120px, auto);
+    gap: 8px 12px; padding: 12px;
+    height: auto; min-height: 0;
+  }
+  .game-view .fc-seat {
+    position: relative; display: flex; flex-direction: column; gap: 8px;
+    min-height: 0; align-self: stretch;
+  }
+  .game-view .fc-position-north { grid-area: 1 / 2; }
+  .game-view .fc-position-north-west { grid-area: 1 / 1 / 2 / 3; width: 72%; justify-self: start; }
+  .game-view .fc-position-north-east { grid-area: 1 / 2 / 2 / 4; width: 72%; justify-self: end; }
+  .game-view .fc-position-west { grid-area: 2 / 1; justify-content: center; }
+  .game-view .fc-position-east { grid-area: 2 / 3; justify-content: center; }
+  .game-view .fc-position-south { grid-area: 3 / 2; flex-direction: column-reverse; }
+  .game-view .fc-table[data-seats] .fc-seat .fc-seat-identity {
+    position: static; width: 100%; height: auto; flex: none;
+  }
+  .game-view .fc-seat-header { height: auto; min-height: 40px; align-items: flex-start; gap: 6px; }
+  .game-view .fc-seat .room-participant-avatar { margin-top: 2px; }
+  .game-view .fc-seat-name {
+    overflow: visible; text-overflow: clip; white-space: normal;
+    overflow-wrap: anywhere; line-height: 1.35;
+  }
+  .game-view .fc-seat-counts { flex-wrap: wrap; white-space: normal; gap: 2px 5px; }
+  .game-view .fc-table[data-seats] .fc-seat .fc-seat-public {
+    position: static; width: 100%; height: auto; min-height: 62px; max-height: 88px;
+    flex: 1 1 62px; justify-content: safe center;
+    scrollbar-width: thin; scrollbar-color: #79aa99 transparent;
+  }
+  .game-view .fc-table[data-seats] .fc-seat-side .fc-seat-public {
+    flex: 0 1 190px; max-height: 190px; justify-content: flex-start;
+  }
+  .game-view .fc-seat-public .fc-card { --fc-glyph: 17px; }
+  .game-view .fc-seat-public .fc-card small { font-size: 9px; }
+  .game-view .fc-table[data-seats] .fc-table-center {
+    position: relative; grid-area: 2 / 2; align-self: center; justify-self: center;
+    top: auto; left: auto; transform: none;
+    width: 156px; height: auto; display: grid; grid-template-rows: auto auto;
+    gap: 12px; align-content: center; pointer-events: none;
+  }
+  .game-view .fc-table .fc-live-cards { align-items: flex-start; gap: 24px; padding-top: 24px; }
+  .game-view .fc-stock { gap: 8px; }
+  .game-view .fc-card-back { width: 24px; height: 62px; }
+  .game-view .fc-table .fc-turn { align-self: start; justify-self: center; line-height: 1.4; }
+  .game-view .fc-offer > .fc-meta { right: 50%; transform: translateX(50%); bottom: calc(100% + 6px); }
+  .game-view :is(.fc-discard-history, .fc-offer) .fc-card { --fc-width: 24px; --fc-height: 62px; --fc-glyph: 18px; }
+  .game-view :is(.fc-discard-history, .fc-offer) .fc-card small { font-size: 9px; }
+  .game-view .fc-history-card { width: 62px; height: 24px; }
+  .game-view .fc-discard-history[data-axis="x"] > .fc-history-card + .fc-history-card { margin-left: -36px; }
+  .game-view .fc-discard-history[data-axis="y"] > .fc-card { flex-basis: 62px; }
+  .game-view .fc-discard-history[data-axis="y"] > .fc-card + .fc-card { margin-top: -36px; }
+  .game-view .fc-table[data-seats] .fc-history {
+    position: relative; grid-area: 2 / 2; align-self: center; justify-self: center;
+    top: auto; left: auto; right: auto; bottom: auto;
+  }
+  .game-view .fc-table[data-seats="5"] .fc-history {
+    width: calc(var(--fc-ring-edge) - 24px); height: 28px;
+    transform: rotate(var(--fc-ring-angle)) translateY(calc(-1 * var(--fc-ring-apothem)));
+  }
+  .game-view .fc-table:not([data-seats="5"]) :is(.fc-history-north, .fc-history-south) {
+    width: calc(100% - 40px); height: 28px;
+  }
+  .game-view .fc-table:not([data-seats="5"]) .fc-history-north { align-self: start; margin-top: 8px; }
+  .game-view .fc-table:not([data-seats="5"]) .fc-history-south { align-self: end; margin-bottom: 8px; }
+  .game-view .fc-table:not([data-seats="5"]) :is(.fc-history-west, .fc-history-east) {
+    height: calc(100% - 88px); width: 28px;
+  }
+  .game-view .fc-table:not([data-seats="5"]) .fc-history-west { justify-self: start; }
+  .game-view .fc-table:not([data-seats="5"]) .fc-history-east { justify-self: end; }
+  /* Unowned cards have a separate strip below the complete rotated ring. */
+  .game-view .fc-table[data-seats] .fc-discards {
+    position: relative; grid-area: 3 / 2; align-self: start; justify-self: center;
+    left: auto; right: auto; top: 16px; transform: none; width: 130px; pointer-events: none;
+  }
+  .game-view .fc-table[data-seats="5"] .fc-discards {
+    position: absolute; grid-area: auto; left: 50%; transform: translateX(-50%);
+    top: calc(50% + var(--fc-ring-room) / 2 + 24px);
+  }
+  .game-view .fc-table:has(.fc-neutral-pile) .fc-position-south { padding-top: 48px; }
+  .game-view .fc-neutral-pile { grid-template-rows: 28px; }
+  .game-view .fc-neutral-label { font-size: 12px; }
+  .game-view .fc-rack { padding: 10px 8px; gap: 6px; border: 1px solid var(--purple-light); border-radius: 4px; background: #faf6fc; }
+  .game-view .fc-action-slot { padding-top: 6px; border-top: 1px solid var(--purple-light); }
+}
 @media (min-width: 1101px) {
   .create-form:has(> .fc-rule-picker) > .participant-picker { grid-column: 1 / 4; }
   .create-form:has(> .fc-rule-picker) > .pixel-field:has(#gameType) { grid-column: 4 / -1; }

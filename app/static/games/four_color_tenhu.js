@@ -13,7 +13,7 @@
     if (doc.getElementById("four-color-styles")) return;
     const link = el(doc, "link");
     link.id = "four-color-styles"; link.rel = "stylesheet";
-    link.href = "/static/games/four_color_tenhu.css";
+    link.href = "/static/games/four_color_tenhu.css?v=0.9.30";
     doc.head.append(link);
   }
   function renderRulePicker(target, select) {

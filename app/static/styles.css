@@ -5075,9 +5075,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .doudizhu-selection-status strong,
   .game-view .doudizhu-action-buttons button,
   .game-view .doudizhu-pattern-choice,
-  .game-view .fc-seat-name,
-  .game-view .fc-turn strong,
-  .game-view .fc-rack > strong,
   .game-view .gandengyan-opponent-header,
   .game-view .gandengyan-selection-title,
   .game-view .gandengyan-play-button,
@@ -5200,15 +5197,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .doudizhu-terminal-title,
   .game-view .doudizhu-terminal-name,
   .game-view .doudizhu-terminal-empty,
-  .game-view .fc-game,
-  .game-view .fc-controls,
-  .game-view .fc-meta,
-  .game-view .fc-seat-counts,
-  .game-view .fc-revealed-group > .fc-meta,
-  .game-view .fc-stock-copy strong,
-  .game-view .fc-offer > .fc-meta,
-  .game-view .fc-result-details summary,
-  .game-view .fc-action-cards,
   .game-view .gandengyan-metric,
   .game-view .gandengyan-player-state,
   .game-view .gandengyan-card-count,
@@ -5339,8 +5327,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .blackjack-badge,
   .game-view .doudizhu-role-badge,
   .game-view .doudizhu-terminal-count,
-  .game-view .fc-dealer,
-  .game-view .fc-turn-indicator,
   .game-view .gm-tag,
   .game-view .gm-meter,
   .game-view .gm-bonus-box small,
@@ -5401,33 +5387,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .guandan-seat.position-left .guandan-seat-identity,
   .game-view .guandan-seat.position-right .guandan-seat-identity { flex-direction: column; width: 100%; }
   .game-view .guandan-seat-title { flex-wrap: wrap; }
-  .game-view .fc-table { min-height: 500px; }
-  .game-view .fc-table[data-seats="5"] { height: 520px; }
-  .game-view .fc-seat-identity { width: 140px; height: 48px; }
-  .game-view .fc-seat-header { height: 48px; }
-  .game-view .fc-seat-counts { flex-wrap: wrap; white-space: normal; }
-  .game-view .fc-position-north .fc-seat-identity,
-  .game-view .fc-position-south .fc-seat-identity { left: calc(50% - 70px); }
-  .game-view .fc-position-north .fc-seat-public { top: 64px; height: 76px; }
-  .game-view .fc-position-south .fc-seat-public { bottom: 60px; height: 68px; }
-  .game-view .fc-seat-side .fc-seat-public { top: 198px; }
-  .game-view .fc-table[data-seats="5"] .fc-position-north-west .fc-seat-identity { left: calc(25% - 70px); }
-  .game-view .fc-table[data-seats="5"] .fc-position-north-east .fc-seat-identity { right: calc(25% - 70px); }
-  .game-view .fc-table[data-seats="5"] .fc-position-south .fc-seat-identity { left: calc(50% - 70px); }
-  .game-view .fc-table[data-seats="5"] :is(.fc-position-north-west, .fc-position-north-east) .fc-seat-public { top: 72px; height: 76px; }
-  .game-view .fc-table[data-seats="5"] .fc-seat-side .fc-seat-public { top: calc(var(--fc-middle-y) + 52px); }
-  .game-view .fc-table[data-seats="5"] .fc-position-south .fc-seat-public { bottom: 64px; height: 64px; }
-  /* Intrinsic rows keep the stock count clear of the turn label in all three rules. */
-  .game-view .fc-table[data-seats] .fc-table-center {
-    height: auto;
-    grid-template-rows: auto auto;
-    row-gap: 8px;
-    align-content: start;
-  }
-  .game-view .fc-table .fc-live-cards { min-height: 64px; }
-  .game-view .fc-table .fc-turn { align-self: start; line-height: 1.4; }
-  .game-view .fc-seat-name { line-height: 1.35; }
-  .game-view .fc-turn-indicator { white-space: normal; }
   /* A full identity row, followed by count / backs and optional turn status. */
   .game-view .uno-opponents { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .game-view .uno-opponent { grid-template-rows: auto auto; gap: 6px 8px; padding: 8px; }
