@@ -501,6 +501,60 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 .mahjong-confirm-cancel { color: #46564e; background: #e6ece8; }
 .mahjong-confirm-submit { color: #fff; background: #b74f48; }
 
+/* Mahjong owns its desktop table sizing: the shared board/card caps leave
+   much of the main column unused. Keep tile proportions independent of it. */
+@media (min-width: 1024px) {
+  .duel-main:has(.battle-stage[data-game-type="mahjong"]) {
+    width: calc(100% - 40px);
+  }
+  .battle-stage[data-game-type="mahjong"] {
+    width: 100%;
+  }
+  .battle-stage[data-game-type="mahjong"] .board-frame > .board {
+    width: 100%;
+    max-width: 100%;
+    container-type: inline-size;
+  }
+  .mahjong-table {
+    --mj-side: clamp(80px, 10cqw, 128px);
+    --mj-tile-w: clamp(23px, 2.8cqw, 32px);
+    --mj-tile-h: calc(var(--mj-tile-w) * 1.4);
+    --mj-back-w: clamp(16px, 1.8cqw, 22px);
+    --mj-back-h: calc(var(--mj-back-w) * 1.55);
+    min-height: clamp(440px, calc(100dvh - 285px), 760px);
+    grid-template-rows: auto minmax(250px, 1fr) auto auto;
+  }
+  .mahjong-seat.position-bottom.viewer { min-height: 0; }
+  .mahjong-center { min-height: min-content; }
+  .mahjong-discard-table {
+    flex: 1 0 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(min-content, 1fr));
+    grid-template-areas: "dt dr" "dl db";
+    gap: 6px;
+  }
+  .mahjong-discard-grid {
+    /* Full rows keep later discards from covering earlier tile faces. */
+    --mj-discard-row-step: var(--mj-discard-h);
+    flex: 0 0 auto;
+    row-gap: 2px;
+    padding: 2px;
+  }
+  .mahjong-discard-label { font-size: 10px; margin-bottom: 4px; }
+  .mahjong-discard-grid .mahjong-tile-face { font-size: calc(var(--mj-discard-w) * 1.25); }
+  .mahjong-meld .mahjong-tile-face { font-size: calc(var(--mj-tile-w) * 1.18); }
+  .mahjong-own-hand-scroll {
+    justify-content: safe center;
+    gap: 3px;
+    padding-block: 6px;
+  }
+  .mahjong-own-hand-scroll .mahjong-tile {
+    width: clamp(36px, 4.6cqw, 54px);
+    height: clamp(51px, 6.5cqw, 76px);
+  }
+  .mahjong-own-hand-scroll .mahjong-tile-face { font-size: clamp(47px, 6cqw, 70px); }
+}
+
 @media (max-width: 600px) {
   /* The compact review must not make its fit-content board frame shrink on wider phones. */
   .board-frame:has(> .mahjong-board-layout .mahjong-terminal-review) { width: 100%; }

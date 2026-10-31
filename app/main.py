@@ -1439,7 +1439,9 @@ async def human_invitation_decision(
 
 
 @app.post("/api/rooms/{room_id}/join")
-async def human_join(room_id: str, body: JoinRoomBody):
+async def human_join(room_id: str, request: Request, body: JoinRoomBody):
+    if body.player_id != trusted_human_player(request):
+        raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
     room = join_room(
         room_id,
         "human",
@@ -1453,6 +1455,50 @@ async def human_join(room_id: str, body: JoinRoomBody):
     return human_response(room, message, body.player_id)
 
 
+def spectator_machine_names(request: Request) -> dict[str, str]:
+    names = {}
+    for machine in _trusted_bound_ais(request):
+        player_id = machine["id"]
+        names[player_id] = machine["name"]
+        # The main site binds accounts; an AI may be seated using save slot 2–5.
+        if ":" not in player_id:
+            names.update({f"{player_id}:{slot}": machine["name"] for slot in range(2, 6)})
+    return names
+
+
+@app.get("/api/spectating/rooms")
+async def human_spectator_rooms(request: Request):
+    return JSONResponse({"ok": True, "rooms": list_human_rooms(
+        trusted_human_player(request), spectator_machine_names(request), spectating=True
+    )}, headers={"Cache-Control": "private, no-store"})
+
+
+def spectator_response(room: dict, request: Request, perspective: str | None) -> dict:
+    trusted_human_player(request)
+    names = spectator_machine_names(request)
+    choices = [
+        {"id": p["player_id"], "name": names[p["player_id"]]}
+        for p in room["participants"]
+        if p["player_id"] in names and p["role"] == "ai"
+        and p["participant_kind"] == "bound_machine" and p["join_status"] != "left"
+    ]
+    if not choices or (perspective is not None and perspective not in {p["id"] for p in choices}):
+        raise DuelError("当前绑定不允许围观该房间或小机视角", 403)
+    viewer_id = perspective or choices[0]["id"]
+    projected = project_room_for_viewer(room, viewer_id)
+    projected["spectating"] = True
+    projected["spectator_choices"] = choices
+    # This is the web projection, including games with specialized MCP wire
+    # protocols. Never bootstrap/consume an AI's incremental protocol context.
+    timeline = list_timeline(room["room_id"], viewer_player_id=viewer_id)
+    return {
+        "ok": True, "status": "ok", "message": "", "room": projected,
+        "timeline": [e for e in timeline if e.get("revision_at_send", room["revision"]) <= room["revision"]],
+        # Short polling reauthenticates at the main proxy on every refresh.
+        "poll_after_ms": 3000,
+    }
+
+
 @app.get("/api/rooms/{room_id}")
 async def human_state(
     room_id: str,
@@ -1461,11 +1507,18 @@ async def human_state(
     opponent_id: str | None = Query(default=None, min_length=1, max_length=80),
     wait: bool = Query(default=False),
     after_revision: int | None = Query(default=None, ge=0),
+    perspective: str | None = Query(default=None, min_length=1, max_length=80),
 ):
     canonical_viewer = trusted_human_player(request)
     if player_id is not None and player_id != canonical_viewer:
         raise DuelError("viewer 必须是主站认证的人类身份", 403)
     player_id = canonical_viewer
+    # Inspect without maintenance first: a spectator must never touch presence,
+    # consume the machine's events/notifications or trigger NPC/takeover work.
+    snapshot = get_room(room_id, read_only=True)
+    if not any(p["player_id"] == player_id for p in snapshot["participants"]):
+        return JSONResponse(spectator_response(snapshot, request, perspective),
+                            headers={"Cache-Control": "private, no-store"})
     latest_room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
@@ -1522,13 +1575,8 @@ async def human_state(
 
 @app.post("/api/rooms/{room_id}/move")
 async def human_move(room_id: str, request: Request, body: MoveBody):
-    if get_room(room_id)["game_type"] in (
-        "four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"
-    ):
-        # The main proxy already overwrites body identity. Keep this game's
-        # hidden-hand boundary enforced at the internal HTTP route as well.
-        if body.player_id != trusted_human_player(request):
-            raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
+    if body.player_id != trusted_human_player(request):
+        raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
     move = body.move
     if move is None:
         move = {
@@ -1577,7 +1625,9 @@ async def human_move(room_id: str, request: Request, body: MoveBody):
 
 
 @app.post("/api/rooms/{room_id}/messages")
-async def human_message(room_id: str, body: MessageBody):
+async def human_message(room_id: str, request: Request, body: MessageBody):
+    if body.player_id != trusted_human_player(request):
+        raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
     room = post_message(
         room_id,
         "human",
@@ -1593,7 +1643,9 @@ async def human_message(room_id: str, body: MessageBody):
 
 
 @app.post("/api/rooms/{room_id}/resign")
-async def human_resign(room_id: str, body: ResignBody):
+async def human_resign(room_id: str, request: Request, body: ResignBody):
+    if body.player_id != trusted_human_player(request):
+        raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
     room = resign(
         room_id,
         "human",

@@ -793,15 +793,40 @@ def _invite_list_metadata(items):
 
 
 def list_human_rooms(
-    human_player_id: str, ai_names: dict[str, str] | None = None
+    human_player_id: str, ai_names: dict[str, str] | None = None,
+    *, spectating: bool = False,
 ) -> list[dict]:
-    """Return every room owned by a trusted human, active rooms first."""
+    """Return owned rooms, or read-only rooms of trusted bound AI seats."""
     human_player_id = _player_id(human_player_id)
     ai_names = ai_names or {}
-    with write_transaction() as conn:
-        _maintain_rooms(conn)
+    if spectating and not ai_names:
+        return []
+    # Spectator discovery must not expire invitations, settle chips or delete
+    # records. EXISTS deduplicates rooms shared by several household machines.
+    membership = """
+        JOIN room_participants AS human ON human.room_id = r.room_id
+        AND human.role = 'human' AND human.participant_kind = 'human'
+        AND human.player_id = ? AND human.join_status <> 'left'
+    """
+    parameters = [human_player_id]
+    if spectating:
+        membership = """
+            WHERE NOT EXISTS (SELECT 1 FROM room_participants h
+                WHERE h.room_id = r.room_id AND h.player_id = ?)
+            AND EXISTS (SELECT 1 FROM room_participants a
+                WHERE a.room_id = r.room_id AND a.role = 'ai'
+                AND a.participant_kind = 'bound_machine'
+                AND a.join_status <> 'left'
+                AND a.player_id IN (SELECT value FROM json_each(?)))
+        """
+        parameters.append(json.dumps(list(ai_names)))
+    with (closing(connect()) if spectating else write_transaction()) as conn:
+        if spectating:
+            conn.execute("BEGIN")
+        else:
+            _maintain_rooms(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT r.room_id, r.game_type, r.mode, r.turn, r.revision,
                    r.status, r.winner, r.created_at, r.updated_at,
                    r.last_move_at, r.preserved, r.terminal_at,
@@ -814,12 +839,7 @@ def list_human_rooms(
                          AND confirmation.decision = 'pending'
                    ) AS pending_for_csv
             FROM rooms AS r
-            JOIN room_participants AS human
-              ON human.room_id = r.room_id
-             AND human.role = 'human'
-             AND human.participant_kind = 'human'
-             AND human.player_id = ?
-             AND human.join_status <> 'left'
+            {membership}
             ORDER BY
                 CASE r.status
                     WHEN 'playing' THEN 0
@@ -832,7 +852,7 @@ def list_human_rooms(
                 r.created_at DESC
             LIMIT 100
             """,
-            (human_player_id,),
+            parameters,
         ).fetchall()
         result = []
         for row in rows:
@@ -868,6 +888,8 @@ def list_human_rooms(
             item["ai_player_id"] = ai_ids[0] if ai_ids else None
             result.append(item)
     for item in result:
+        if spectating:
+            item["spectating"] = True
         ai_player_id = item.get("ai_player_id")
         base_ai_id = ai_player_id.split(":", 1)[0] if ai_player_id else None
         item["ai_name"] = (
@@ -2480,11 +2502,15 @@ def get_room(
     role: Role | None = None,
     player_id: str | None = None,
     opponent_id: str | None = None,
+    *, read_only: bool = False,
 ) -> dict:
     room_id = _room_id(room_id)
     room = None
-    with write_transaction() as conn:
-        _maintain_rooms(conn, room_id)
+    with (closing(connect()) if read_only else write_transaction()) as conn:
+        if read_only:
+            conn.execute("BEGIN")
+        else:
+            _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()

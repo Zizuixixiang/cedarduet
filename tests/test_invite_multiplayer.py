@@ -583,14 +583,14 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
         try:
             await asyncio.sleep(.03)
             for text in ("普通聊天", "@同名", "@不存在"):
-                sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
+                sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages', headers=self.household_headers(),
                     json={"player_id": "owner", "message": text})
                 self.assertEqual(sent.status_code, 200, sent.text)
                 await asyncio.sleep(.03)
                 self.assertFalse(any(t.done() for t in waits))
             member=next(p for p in room["participants"] if p["player_id"]=="ai1")
             self.assertEqual(member["participant_kind"], "bound_machine")
-            sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
+            sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages', headers=self.household_headers(),
                                           json={"player_id":"owner", "message":f'@{member["handle"]} 来看看'})
             self.assertEqual(sent.status_code, 200, sent.text)
             reply=await asyncio.wait_for(waits[0],1)
@@ -608,7 +608,7 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
             await asyncio.gather(waits[1], return_exceptions=True)
             self.assertEqual(main_module.revision_events._waiting_count, 0)
             cancelled_member = next(p for p in room["participants"] if p["player_id"] == "ai2")
-            sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages',
+            sent = await self.client.post(f'/api/rooms/{room["room_id"]}/messages', headers=self.household_headers(),
                 json={"player_id": "owner", "message": f'@{member["handle"]} @{cancelled_member["handle"]} 离线提醒'})
             self.assertEqual(sent.status_code, 200, sent.text)
             self.assertEqual(main_module.revision_events._waiting_count, 0)
@@ -638,7 +638,7 @@ assert takeover.is_due(room) == (sys.argv[3] == 'True')
         self.assertFalse(main_module._participant_response_due(room, ai))
         with database.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM room_mentions").fetchone()[0], 0)
-        response = await self.client.post(f"/api/rooms/{rid}/messages",
+        response = await self.client.post(f"/api/rooms/{rid}/messages", headers=self.household_headers(),
                                           json={"player_id": "owner", "message": "@123 @123 来看看"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(invites.has_targeted_chat(rid, ai))

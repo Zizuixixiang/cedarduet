@@ -4,6 +4,7 @@ let room = null;
 let pollTimer = null;
 let roomSyncGeneration = 0;
 let roomRequestController = null;
+let roomListRequest = 0;
 let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
@@ -127,7 +128,11 @@ async function request(path, options = {}) {
     ...options,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.message || data.error || "请求失败");
+  if (!response.ok) {
+    const error = new Error(data.message || data.error || "请求失败");
+    error.status = response.status;
+    throw error;
+  }
   applyHumanUnreadState(data);
   return data;
 }
@@ -821,7 +826,9 @@ function renderRooms(rooms) {
   if (!rooms.length) {
     const empty = document.createElement("div");
     empty.className = "room-empty";
-    empty.textContent = "还没有对局。选一个棋种，和你的小机开第一盘吧。";
+    empty.textContent = $("roomListScope").value === "machines"
+      ? "暂无可围观的自家小机房间。"
+      : "还没有对局。选一个棋种，和你的小机开第一盘吧。";
     list.appendChild(empty);
     return;
   }
@@ -847,7 +854,7 @@ function renderRooms(rooms) {
     copy.className = "room-copy";
     const title = document.createElement("span");
     title.className = "room-title";
-    title.textContent = summary.participant_names && (summary.participant_names.length > 2 || summary.room_kind === "invite")
+    title.textContent = summary.participant_names && (summary.spectating || summary.participant_names.length > 2 || summary.room_kind === "invite")
       ? `${summary.game_name} × ${summary.participant_names.join(" / ")}`
       : `${summary.game_name} × ${summary.ai_name}`;
     const meta = document.createElement("span");
@@ -892,14 +899,14 @@ function renderRooms(rooms) {
     }
     const enter = document.createElement("span");
     enter.className = "room-enter";
-    enter.textContent = "进入 →";
+    enter.textContent = summary.spectating ? "围观 →" : "进入 →";
     state.appendChild(enter);
 
     open.append(glyph, copy, state);
     open.addEventListener("click", () => openRoom(summary.room_id));
     card.appendChild(open);
 
-    if (terminal) {
+    if (terminal && !summary.spectating) {
       const controls = document.createElement("div");
       controls.className = "room-record-controls";
 
@@ -927,6 +934,20 @@ function renderRooms(rooms) {
     }
     list.appendChild(card);
   });
+}
+
+async function loadSpectatorRooms() {
+  const generation = ++roomListRequest;
+  $("roomList").textContent = "正在读取房间…";
+  try {
+    const data = await request("/api/spectating/rooms");
+    if (generation !== roomListRequest || $("roomListScope").value !== "machines") return;
+    renderRooms(data.rooms || []);
+  } catch (error) {
+    if (generation === roomListRequest && $("roomListScope").value === "machines") {
+      $("roomList").textContent = error.message;
+    }
+  }
 }
 
 function isOutgoingPendingRoom(summary) {
@@ -1777,7 +1798,8 @@ async function loadIdentity({quiet = false} = {}) {
       data.rooms || [], invitations
     );
     renderPendingInvitations(invitations, outgoing);
-    renderRooms(remainingRooms);
+    if ($("roomListScope").value === "machines") await loadSpectatorRooms();
+    else renderRooms(remainingRooms);
     if (!room) {
       showView("lobbyView");
     }
@@ -1835,13 +1857,14 @@ async function createRoom() {
   }
 }
 
-async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {}) {
+async function openRoom(roomId, {historyMode = "push", routeRestore = false, perspective = ""} = {}) {
   stopPolling();
   const generation = roomSyncGeneration;
   const controller = new AbortController();
   roomRequestController = controller;
   try {
-    const data = await request(`/api/rooms/${roomId}`, {signal: controller.signal});
+    const query = perspective ? `?perspective=${encodeURIComponent(perspective)}` : "";
+    const data = await request(`/api/rooms/${roomId}${query}`, {signal: controller.signal});
     if (generation !== roomSyncGeneration) return;
     renderGame(data.room, data.message, data.timeline);
     if (historyMode === "push") {
@@ -1849,11 +1872,17 @@ async function openRoom(roomId, {historyMode = "push", routeRestore = false} = {
     } else if (historyMode === "replace") {
       writeRoomRoute(data.room.room_id, {mode: "replace", backToLobby: false});
     }
-    await ackHumanNotifications("game", roomId);
+    if (!data.room.spectating) await ackHumanNotifications("game", roomId);
     if (!roomSyncIsCurrent(generation, roomId)) return;
-    if (!isTerminal(data.room)) startRoomPolling();
+    if (!isTerminal(data.room) || data.room.spectating) startRoomPolling();
   } catch (error) {
     if (error.name === "AbortError" || generation !== roomSyncGeneration) return;
+    if (room?.spectating) {
+      await backToLobby({fromHistory: true});
+      writeRoomRoute(null, {mode: "replace"});
+      toast(error.message);
+      return;
+    }
     if (routeRestore) {
       room = null;
       writeRoomRoute(null, {mode: "replace"});
@@ -1877,6 +1906,7 @@ async function backToLobby({fromHistory = false} = {}) {
     window.history.back();
     return;
   }
+  const wasSpectating = Boolean(room?.spectating);
   room = null;
   selectedJungleCell = null;
   selectedXiangqiCell = null;
@@ -1888,10 +1918,12 @@ async function backToLobby({fromHistory = false} = {}) {
   closeNotificationModal();
   if (!fromHistory) writeRoomRoute(null, {mode: "replace"});
   showView("lobbyView");
-  await loadIdentity({quiet: true});
+  if (wasSpectating && identity) await loadSpectatorRooms();
+  else await loadIdentity({quiet: true});
 }
 
 function canHumanMove() {
+  if (room?.spectating) return false;
   const human = participantFor("human");
   if (!room || !human || room.status !== "playing") return false;
   if (room.game_type === "bomb_plane" && room.board_state?.phase === "setup") {
@@ -2919,6 +2951,7 @@ function registeredGameUIStateFor(targetRoom) {
     targetRoom.game_type,
     targetRoom.room_id,
     targetRoom.revision,
+    viewerPlayerIdFor(targetRoom),
   ].join(":");
   if (stateKey !== registeredGameUIStateKey) {
     registeredGameUIStateKey = stateKey;
@@ -2937,6 +2970,7 @@ function createGameUIContext(board, controls, timeline = currentTimeline) {
     && room.game_type === targetRoom.game_type
     && room.room_id === targetRoom.room_id
     && room.revision === targetRoom.revision
+    && viewerPlayerIdFor(room) === viewerPlayerIdFor(targetRoom)
   );
   const rerender = () => {
     if (!contextIsCurrent()) return false;
@@ -3045,6 +3079,11 @@ function renderRegisteredGameUI(renderer, board, timeline = currentTimeline) {
   const hasCustomControls = typeof renderer.renderControls === "function";
   controls.classList.toggle("hidden", !hasCustomControls);
   if (hasCustomControls) renderer.renderControls(context);
+  if (room.spectating) {
+    controls.querySelectorAll("button, input, select").forEach((control) => {
+      control.disabled = true;
+    });
+  }
   syncMoveConfirmationVisibility(renderer);
   updateMoveConfirmation();
 }
@@ -3246,7 +3285,7 @@ function renderRecentChat(timeline = []) {
     copy.className = "recent-chat-copy";
     copy.textContent = event.text;
     item.append(speaker, copy);
-    if (room.room_kind === "invite" && participant?.handle && ["human", "bound_machine"].includes(participant.participant_kind)
+    if (!room.spectating && room.room_kind === "invite" && participant?.handle && ["human", "bound_machine"].includes(participant.participant_kind)
         && participant.player_id !== viewerPlayerIdFor(room) && speechSenderRole(event) !== "system") {
       const reply = document.createElement("button");
       reply.type = "button";
@@ -3646,8 +3685,8 @@ function renderRetention(targetRoom) {
   $("togglePreserveButton").textContent = targetRoom.preserved
     ? "取消保留"
     : "保留此对局";
-  $("togglePreserveButton").disabled = !terminal;
-  syncResultPreservationChoice(targetRoom, !terminal);
+  $("togglePreserveButton").disabled = !terminal || targetRoom.spectating;
+  syncResultPreservationChoice(targetRoom, !terminal || targetRoom.spectating);
 }
 
 function renderRulesText(value) {
@@ -3725,8 +3764,30 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
   return message || (humanCanMove ? humanTurnNotice : "");
 }
 
+function renderSpectatorPerspective() {
+  if (room.spectating) $("roomListScope").value = "machines";
+  $("gameView").classList.toggle("spectating-view", Boolean(room.spectating));
+  $("spectatorPerspective").classList.toggle("hidden", !room.spectating);
+  const choices = room.spectator_choices || [];
+  const select = $("spectatorSelect");
+  const signature = JSON.stringify(choices);
+  if (select.dataset.choices !== signature) {
+    select.replaceChildren(...choices.map((choice) => {
+      const option = document.createElement("option");
+      option.value = choice.id;
+      option.textContent = choice.name;
+      return option;
+    }));
+    select.dataset.choices = signature;
+  }
+  select.value = viewerPlayerIdFor(room);
+  select.classList.toggle("hidden", choices.length < 2);
+  $("spectatorName").classList.toggle("hidden", choices.length > 1);
+  $("spectatorName").textContent = choices[0]?.name || "";
+}
+
 function renderGame(nextRoom, message = "", timeline = []) {
-  if (!room || room.room_id !== nextRoom.room_id) {
+  if (!room || room.room_id !== nextRoom.room_id || viewerPlayerIdFor(room) !== viewerPlayerIdFor(nextRoom)) {
     delete $("recentChatMessages").dataset.roomId;
     $("chatInput").value = "";
     $("mentionOptions").replaceChildren();
@@ -3744,6 +3805,8 @@ function renderGame(nextRoom, message = "", timeline = []) {
     || room.room_id !== nextRoom.room_id
     || room.revision !== nextRoom.revision
     || room.status !== nextRoom.status
+    || viewerPlayerIdFor(room) !== viewerPlayerIdFor(nextRoom)
+    || Boolean(room.spectating) !== Boolean(nextRoom.spectating)
   );
   if (boardStateChanged) {
     selectedJungleCell = null;
@@ -3751,6 +3814,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     pendingMove = null;
   }
   room = nextRoom;
+  renderSpectatorPerspective();
   syncChatRoomMode();
   currentTimeline = timeline;
   const humanCanMove = canHumanMove();
@@ -3760,16 +3824,6 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("reclaimControl").classList.toggle("hidden", !(room.room_kind === "invite"
     && room.status === "playing" && room.viewer?.temporary_takeover_active === true
     && room.current_player_id === viewerPlayerIdFor(room)));
-  if (isInviteWaiting(room)) {
-    closeHistory();
-    closeRules();
-    closeResultModal();
-    hideWaitModeModal();
-    closeMentionOptions();
-    $("board").replaceChildren();
-    if (message) showNotice(message);
-    return;
-  }
   syncMoveConfirmationVisibility();
   $("gameBadge").textContent = room.game_type.startsWith("four_color_") ? "四色牌" : room.game_type.toUpperCase();
   $("gameTitle").textContent = room.game_name;
@@ -3796,8 +3850,18 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("roundSeparator").classList.toggle("hidden", !roundText);
   $("rulesTitle").textContent = `${room.game_name}规则`;
   renderRulesText(room.rules_text);
+  if (isInviteWaiting(room)) {
+    closeHistory();
+    closeRules();
+    closeResultModal();
+    hideWaitModeModal();
+    closeMentionOptions();
+    $("board").replaceChildren();
+    if (message) showNotice(message);
+    return;
+  }
   $("resignButton").disabled = room.status !== "playing";
-  $("sendMessageButton").disabled = false;
+  $("sendMessageButton").disabled = Boolean(room.spectating);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
   const settlementEntries = isTerminal(room) && Array.isArray(room.participants)
     ? room.participants.filter(
@@ -3814,7 +3878,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     ? `${resultText} · ${settlementText}`
     : resultText;
   renderRetention(room);
-  if (room.room_kind !== "invite") showWaitModeModalOnce(room);
+  if (!room.spectating && room.room_kind !== "invite") showWaitModeModalOnce(room);
   $("gameMessage").classList.toggle(
     "embedded-action-feedback",
     Boolean(renderer && renderer.usesEmbeddedActionFeedback === true)
@@ -3830,8 +3894,8 @@ function renderGame(nextRoom, message = "", timeline = []) {
   renderRecentChat(timeline);
   if (boardStateChanged) renderBoard(timeline);
   renderTimeline(timeline);
-  if (isTerminal(room)) stopPolling();
-  if (becameTerminal) openResultModal(resultText);
+  if (isTerminal(room) && !room.spectating) stopPolling();
+  if (becameTerminal && !room.spectating) openResultModal(resultText);
 }
 
 async function showRoomTransitionFeedback(
@@ -3840,6 +3904,8 @@ async function showRoomTransitionFeedback(
   if (
     !previousRoom
     || !nextRoom
+    || previousRoom.spectating
+    || nextRoom.spectating
     || previousRoom.room_id !== nextRoom.room_id
     || previousRoom.revision === nextRoom.revision
   ) return;
@@ -3877,9 +3943,9 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
   const controller = new AbortController();
   roomRequestController = controller;
   try {
-    const query = wait
-      ? `?wait=true&after_revision=${encodeURIComponent(previousRevision)}`
-      : "";
+    const query = previousRoom.spectating
+      ? `?perspective=${encodeURIComponent(viewerPlayerIdFor(previousRoom))}`
+      : wait ? `?wait=true&after_revision=${encodeURIComponent(previousRevision)}` : "";
     const data = await request(`/api/rooms/${targetRoomId}${query}`, {
       signal: controller.signal,
     });
@@ -3892,16 +3958,22 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
     );
     if (!roomSyncIsCurrent(generation, targetRoomId)) return {stale: true};
     renderGame(data.room, quiet ? "" : data.message, data.timeline);
-    if (!quiet || visibleStateChanged) {
+    if (!data.room.spectating && (!quiet || visibleStateChanged)) {
       await ackHumanNotifications("game", data.room.room_id);
     }
-    if (["finished", "archived"].includes(room.status)) stopPolling();
+    if (["finished", "archived"].includes(room.status) && !room.spectating) stopPolling();
     return {
       stale: false,
-      retryAfterMs: data.wait_downgraded ? ROOM_POLL_RETRY_MS : 0,
+      retryAfterMs: data.room.spectating ? ROOM_POLL_RETRY_MS : data.wait_downgraded ? ROOM_POLL_RETRY_MS : 0,
     };
   } catch (error) {
     if (error.name === "AbortError" || !roomSyncIsCurrent(generation, targetRoomId)) {
+      return {stale: true};
+    }
+    if (previousRoom.spectating && [401, 403, 404].includes(error.status)) {
+      await backToLobby({fromHistory: true});
+      writeRoomRoute(null, {mode: "replace"});
+      toast(error.message);
       return {stale: true};
     }
     if (!quiet) showNotice(error.message, true);
@@ -3917,7 +3989,7 @@ async function refreshRoom({quiet = false, wait = false, generation = null} = {}
 async function submitMove(movePayload, {sideAction = false} = {}) {
   // Side actions (e.g. spectator bets) are validated by the plugin/server;
   // they never require or change the turn holder.
-  if (!movePayload || (!sideAction && !canHumanMove())) return false;
+  if (room?.spectating || !movePayload || (!sideAction && !canHumanMove())) return false;
   const targetRoomId = room.room_id;
   stopPolling();
   const generation = roomSyncGeneration;
@@ -3984,7 +4056,7 @@ async function confirmMove() {
 }
 
 async function sendMessage() {
-  if (!room) return;
+  if (!room || room.spectating) return;
   const message = $("chatInput").value.trim();
   if (!message) {
     showNotice("请先输入留言内容。", true);
@@ -4039,7 +4111,7 @@ async function sendMessage() {
 }
 
 async function resign() {
-  if (!room || !window.confirm("确认认输并结束本局？")) return;
+  if (!room || room.spectating || !window.confirm("确认认输并结束本局？")) return;
   const targetRoomId = room.room_id;
   stopPolling();
   const generation = roomSyncGeneration;
@@ -4106,7 +4178,7 @@ function oppositeMode(mode) {
 }
 
 async function rematch() {
-  if (!room || !isTerminal(room)) return;
+  if (!room || room.spectating || !isTerminal(room)) return;
   const previousRoom = room;
   $("rematchButton").disabled = true;
   $("resultModalMessage").textContent = "";
@@ -4156,7 +4228,7 @@ async function rematch() {
 }
 
 function shouldLongPollRoom() {
-  return Boolean(room && !isTerminal(room) && !canHumanMove());
+  return Boolean(room && (room.spectating || (!isTerminal(room) && !canHumanMove())));
 }
 
 function scheduleRoomPoll(generation, roomId, delayMs = 0) {
@@ -4361,6 +4433,7 @@ function renderInviteRoomPanel() {
     members.appendChild(tag);
   }
   panel.appendChild(members);
+  if (room.spectating) return;
   const addButton = (text, action, parent = panel, primary = false) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -4626,7 +4699,18 @@ $("stake").addEventListener("input", () => {
   updateCreateButtonState();
   renderSelectedStakeHint();
 });
-$("refreshRoomsButton").addEventListener("click", () => loadIdentity());
+$("refreshRoomsButton").addEventListener("click", () => $("roomListScope").value === "machines" ? loadSpectatorRooms() : loadIdentity());
+$("roomListScope").addEventListener("change", () => {
+  ++roomListRequest;
+  if ($("roomListScope").value === "machines") void loadSpectatorRooms();
+  else void loadIdentity({quiet: true});
+});
+$("spectatorSelect").addEventListener("change", () => {
+  if (!room?.spectating) return;
+  const perspective = $("spectatorSelect").value;
+  $("spectatorSelect").value = viewerPlayerIdFor(room);
+  void openRoom(room.room_id, {historyMode: "none", perspective});
+});
 $("notificationBell").addEventListener("click", openNotificationList);
 $("closeNotificationModalButton").addEventListener("click", closeNotificationModal);
 $("backButton").addEventListener("click", backToLobby);

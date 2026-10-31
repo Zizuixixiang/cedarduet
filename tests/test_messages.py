@@ -24,6 +24,7 @@ class MessageApiTests(unittest.IsolatedAsyncioTestCase):
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=main_module.app),
             base_url="http://duel.test",
+            headers={"X-Duel-Human-Player": "human-one"},
         )
 
     async def asyncTearDown(self):

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.18">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.19">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -233,7 +233,13 @@
             <div class="section-head">
               <div>
                 <span class="tag">ROOM LOG</span>
-                <h2>我的全部房间</h2>
+                <div class="room-list-heading">
+                  <h2>我的全部房间</h2>
+                  <select id="roomListScope" class="room-scope-select" aria-label="房间列表范围">
+                    <option value="mine">我的</option>
+                    <option value="machines">自家小机</option>
+                  </select>
+                </div>
               </div>
               <button id="refreshRoomsButton" class="pixel-btn secondary compact" type="button">刷新</button>
             </div>
@@ -280,6 +286,11 @@
                 <span class="game-meta-label">筹码</span>
                 <strong id="roomStake">娱乐局</strong>
               </span>
+            </div>
+            <div id="spectatorPerspective" class="game-meta-line spectator-perspective hidden">
+              <label for="spectatorSelect" class="game-meta-label">围观视角</label>
+              <select id="spectatorSelect" class="room-scope-select" aria-label="围观小机视角"></select>
+              <span id="spectatorName"></span>
             </div>
             <div class="game-meta-line game-meta-secondary">
               <span id="roundMeta" class="game-meta-item hidden">
@@ -480,6 +491,6 @@
   <script src="/static/game_ui_registry.js?v=0.9.1"></script>
   <script src="/static/games/liars_dice.js?v=0.1.1"></script>
   <!-- Non-legacy game renderers autoload from catalog before app interaction. -->
-  <script src="/static/app.js?v=0.9.21"></script>
+  <script src="/static/app.js?v=0.9.22"></script>
 </body>
 </html>

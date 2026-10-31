@@ -151,7 +151,7 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
             with self.subTest(tall_board=tall_board):
                 self.assertIn(f".board.{tall_board} {{", desktop)
         for table in (
-            ".mahjong-table", ".guandan-table", ".texas-table",
+            ".guandan-table", ".texas-table",
             ".zhajinhua-table",
         ):
             with self.subTest(table=table):
@@ -208,6 +208,8 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         self.assertIn("aspect-ratio: auto;", outer)
         self.assertIn("height: auto;", outer)
         self.assertIn("overflow: visible;", outer)
+        desktop = styles[styles.index("@media (min-width: 1024px)") :]
+        self.assertIn("min-height:", css_rule(desktop, ".mahjong-table"))
         mobile = styles[styles.index("@media (max-width: 600px)") :]
         self.assertIn("min-height: 0;", mobile)
         self.assertIn("grid-template-rows: auto minmax(270px, auto) auto auto;", mobile)

@@ -477,6 +477,30 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   gap: 14px;
 }
 .section-head h2 { margin-top: 5px; }
+.room-list-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.room-scope-select {
+  width: auto;
+  min-width: 0;
+  max-width: 180px;
+  min-height: 28px;
+  padding: 3px 5px;
+  border: 2px solid var(--purple);
+  border-radius: 0;
+  color: var(--text);
+  background: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.room-scope-select:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: 2px; }
+.spectator-perspective { color: var(--purple-darker); font-size: 12px; }
+#spectatorName { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spectating-view #resignButton,
+.spectating-view #reclaimControl,
+.spectating-view .chat-compose,
+.spectating-view .chat-hint,
+.spectating-view #moveConfirm,
+.spectating-view #togglePreserveButton { display: none !important; }
 
 .room-list { display: grid; gap: 8px; }
 .room-card {
@@ -3949,10 +3973,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .battle-stage .board-frame > .board.junqi {
     width: min(310px, 30vh);
   }
-  .battle-stage .mahjong-table {
-    min-height: var(--desktop-table-height);
-    grid-template-rows: auto minmax(260px, 1fr) auto auto;
-  }
   .battle-stage .guandan-table {
     min-height: var(--desktop-table-height);
     grid-template-rows:
@@ -4504,9 +4524,11 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   justify-items: center;
   align-content: start;
 }
-.game-view.invite-waiting-view > :not(#inviteRoomPanel) {
+.game-view.invite-waiting-view:not(.spectating-view) > :not(#inviteRoomPanel),
+.game-view.invite-waiting-view.spectating-view > :not(#inviteRoomPanel):not(.game-header) {
   display: none !important;
 }
+.invite-waiting-view.spectating-view > .game-header { order: -1; width: 100%; max-width: 560px; }
 #inviteRoomPanel {
   grid-column: 1 / -1;
   min-width: 0;
