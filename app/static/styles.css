@@ -4701,13 +4701,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .app:has(#lobbyView:not(.hidden)) {
     display: grid;
     grid-template-rows: auto 1fr;
-    min-width: 1152px;
+    grid-template-columns: minmax(0, 1fr);
   }
   .duel-main:has(> #lobbyView:not(.hidden)) {
-    width: 1120px;
+    width: 736px;
     max-width: none;
     min-height: 0;
-    margin-inline: auto;
+    margin-inline: max(16px, calc((100% - 736px) / 2));
     padding: 16px 0 24px;
   }
   .app:has(#lobbyView:not(.hidden)) > .topbar {
@@ -4747,7 +4747,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .app:has(#lobbyView:not(.hidden)) > .topbar .chip-wallet-icon { width: 22px; height: 22px; font-size: 14px; }
 
   #lobbyView {
-    width: 1120px;
+    width: 100%;
     max-width: none;
     min-width: 0;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -5519,33 +5519,36 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .texas-range-action { grid-template-columns: minmax(180px, 1fr) auto; }
   .game-view .texas-range-action label { flex-wrap: wrap; gap: 5px; }
   .game-view .texas-confirmation { width: min(100%, 560px); }
-  /* Four seats share three rows: identity, team/relation/level, status/hand.
-     Flatten presentation wrappers only; the renderer and phone DOM stay intact. */
+  /* Two information rows: avatar/name/count, then team/relation/level/status.
+     Presentation only: keep the renderer and phone DOM intact. */
   .game-view > .battle-stage[data-game-type="guandan"] {
     grid-template-columns: minmax(760px, 1fr) clamp(260px, 23vw, 320px);
   }
   .game-view .guandan-table {
-    grid-template-columns: minmax(180px, .8fr) minmax(0, 2.5fr) minmax(180px, .8fr);
+    grid-template-columns: 256px minmax(0, 1fr) 256px;
   }
   .game-view .guandan-seat {
-    display: grid; grid-template-columns: max-content max-content minmax(0, 1fr);
-    min-width: 0; width: 100%; gap: 6px 8px; padding: 8px;
+    display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content;
+    min-width: 0; width: 100%; gap: 6px; padding: 8px;
     align-items: center; justify-items: start; justify-content: normal;
     font: 14px/1.4 system-ui, "Microsoft YaHei", sans-serif;
   }
   .game-view .guandan-seat.position-top,
-  .game-view .guandan-seat.position-bottom { width: min(100%, 420px); }
+  .game-view .guandan-seat.position-bottom {
+    grid-column: 1 / -1; width: min(100%, 272px); justify-self: center;
+  }
   .game-view .guandan-seat-identity,
   .game-view .guandan-seat-words,
-  .game-view .guandan-seat-title,
-  .game-view .guandan-seat-meta { display: contents; }
+  .game-view .guandan-seat-title { display: contents; }
   .game-view .guandan-avatar { grid-area: 1 / 1; align-self: start; }
-  .game-view .guandan-seat-name { grid-area: 1 / 2 / auto / -1; align-self: center; }
+  .game-view .guandan-seat-name { grid-area: 1 / 2; align-self: center; }
+  .game-view .guandan-seat-hand { grid-area: 1 / 3; min-width: 0; }
+  .game-view .guandan-seat-hand .guandan-mini-backs { display: none; }
   .game-view .guandan-team-chip { grid-area: 2 / 1; }
-  .game-view .guandan-seat-relation { grid-area: 2 / 2; }
-  .game-view .guandan-seat-level { grid-area: 2 / 3; }
-  .game-view .guandan-seat-status { grid-area: 3 / 1 / auto / 3; }
-  .game-view .guandan-seat-hand { grid-area: 3 / 3; min-width: 0; }
+  .game-view .guandan-seat-meta {
+    grid-area: 2 / 2 / auto / -1; display: flex; flex-wrap: wrap;
+    gap: 4px 8px; margin-top: 0; line-height: 1.4;
+  }
   .game-view .guandan-seat-meta > span,
   .game-view .guandan-team-chip,
   .game-view .guandan-seat-count { font-size: 14px; line-height: 1.4; white-space: nowrap; }
