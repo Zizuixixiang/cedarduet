@@ -5225,6 +5225,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .gm-side-note,
   .game-view .gm-detail-info,
   .game-view .guandan-metric,
+  .game-view .guandan-team-chip,
   .game-view .guandan-seat-meta,
   .game-view .guandan-seat-count,
   .game-view .guandan-tribute-band,
@@ -5330,7 +5331,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .gm-meter,
   .game-view .gm-bonus-box small,
   .game-view .gm-royal-emblem,
-  .game-view .guandan-team-chip,
   .game-view .mahjong-seat-badges i,
   .game-view .mahjong-turn-indicator,
   .game-view .mahjong-winner-badge,
@@ -5357,35 +5357,217 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .game-compose .pixel-btn { padding-inline: 10px; }
   .game-view .move-confirm { flex-wrap: wrap; }
   .game-view #battleStage[data-game-type="dots_boxes"] .move-confirm span { font-size: 14px; }
-  .game-view .room-participant-copy strong { overflow-wrap: anywhere; }
+  /* Variable-height identity rows. Four-color owns its already-reviewed rails.
+     Carcassonne's two-player ID scope otherwise forces this roster back to flex. */
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participants,
+  .game-view #battleStage[data-game-type="carcassonne"] .layout-duel .room-participants {
+    width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px; padding: 4px; overflow: visible; align-items: stretch;
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participants:is(.count-2, .count-3, .count-5),
+  .game-view #battleStage[data-game-type="carcassonne"] .layout-duel .room-participants:is(.count-2, .count-3, .count-5) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* Carcassonne's ID-scoped phone baseline fixes the first row at 26px.
+     Match that scope here so desktop identity content determines row height. */
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participant,
+  .game-view #battleStage[data-game-type="carcassonne"] .room-participant {
+    width: 100%; height: auto; min-height: 0; padding: 10px;
+    grid-template-columns: 28px minmax(0, 1fr); grid-template-rows: auto auto;
+    align-items: start; align-content: start; gap: 7px 10px;
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participant-copy { gap: 5px; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) :is(.room-participant-copy strong, .room-participant-copy small, .room-participant-detail) {
+    overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participant-copy small { color: var(--text); }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .room-participant-detail {
+    grid-column: 1 / -1; padding-top: 6px; border-top: 1px solid var(--seat-color); color: var(--seat-ink);
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .viewer-participant-row { width: 100%; align-items: start; flex-wrap: wrap; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .viewer-participant-slot {
+    width: min(420px, 100%); max-width: 420px; flex: 0 1 420px;
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .player-row { width: 100%; align-items: start; flex-wrap: wrap; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .player-identity { max-width: 100%; flex: 0 1 auto; align-items: start; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .player-avatar { flex: 0 0 48px; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .player-name {
+    max-width: 420px; min-width: 0; overflow: visible; text-overflow: clip;
+    white-space: normal; overflow-wrap: anywhere; font: 16px/1.5 system-ui, "Microsoft YaHei", sans-serif;
+  }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .speech-bubble { max-width: 100%; flex: 1 1 220px; }
+
+  /* Full names in each independent renderer; never resize card glyphs here. */
+  .game-view .board-edge-copy strong,
+  .game-view .cc-edge-participant .cc-edge-player-name,
+  .game-view .hand-player-identity > strong,
+  .game-view .go-player-copy strong,
+  .game-view .junqi-player-name,
+  .game-view .aeroplane-board-heading strong,
+  .game-view .blackjack-seat-identity-copy strong,
+  .game-view .texas-seat-name,
+  .game-view .zhajinhua-seat-name,
+  .game-view .doudizhu-seat-name,
+  .game-view .gandengyan-opponent-name,
+  .game-view .guandan-seat-name,
+  .game-view .mahjong-seat .mahjong-seat-name,
+  .game-view .uno-opponent strong,
+  .game-view .gm-player-name strong,
+  .game-view .mp-seat-copy strong,
+  .game-view .mp-turn-copy strong,
+  .game-view .monopoly-turn,
+  .game-view .monopoly-player-tabs .monopoly-button,
+  .game-view .yahtzee-total-name,
+  .game-view .yahtzee-player-name,
+  .game-view .liars-turn-name,
+  .game-view .shared-speech-copy strong,
+  .game-view .liars-terminal-owner,
+  .game-view .liars-dice-owner {
+    min-width: 0; max-width: 100%; overflow: visible; text-overflow: clip;
+    white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
+    font-family: system-ui, "Microsoft YaHei", sans-serif; font-size: 16px;
+  }
+  .game-view .board-edge-copy small,
+  .game-view .mp-turn-copy small,
+  .game-view .doudizhu-seat-state,
+  .game-view .doudizhu-turn-indicator,
+  .game-view .guandan-tribute-band span,
+  .game-view .guandan-selection-status > span,
+  .game-view .blackjack-action-copy span,
+  .game-view .train-cards-status,
+  .game-view .train-cards-control-copy strong,
+  .game-view .train-cards-control-copy span,
+  .game-view .gandengyan-selection-title,
+  .game-view .gandengyan-selection-detail,
+  .game-view .liars-turn-line,
+  .game-view :is(.doudizhu, .gandengyan, .guandan, .uno, .train_cards) [class$="-terminal-name"] {
+    overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
+  }
+  .game-view .board-edge-copy small { color: var(--text); }
+  .game-view .board-edge-participant { align-items: start; gap: 8px; padding: 8px; }
+  .game-view .board-edge-copy { gap: 5px; }
+  .game-view .hand-player-identity { align-items: start; gap: 10px; }
+  .game-view .hand-player-identity > .board-edge-avatar { flex-shrink: 0; }
+  .game-view .battle-stage:not([data-game-type^="four_color_"]) .game-controls :is(.pixel-btn, input, select),
+  .game-view .liars-controls :is(button, select),
+  .game-view .liars-round-acknowledgement .pixel-btn {
+    font-family: system-ui, "Microsoft YaHei", sans-serif; font-size: 16px; line-height: 1.4;
+  }
+  .game-view .liars-controls :is(button, select) { min-height: 44px; padding: 7px 10px; }
+  .game-view .liars-terminal-row,
+  .game-view .liars-revealed-player { flex-wrap: wrap; gap: 8px; }
+  .game-view .train-cards-status { height: auto; min-height: 30px; }
+  .game-view .liars-controls { grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) auto auto; }
+
   .game-view .board.chess .chess-check-notice,
   .game-view .board.chess .chess-promotion-title,
   .game-view .chess-claim-copy,
   .game-view .board.xiangqi .xiangqi-check-notice,
   .game-view .board.checkers[data-forced="true"]::after { font-size: 14px; }
   .game-view .aeroplane-board-heading { flex-wrap: wrap; }
-  .game-view .player-name[data-aeroplane-home-count]::after { font-size: 12px; }
+  .game-view .aeroplane-edge-participant { max-width: 100%; overflow: visible; }
+  .game-view .aeroplane-edge-name-row { flex-wrap: wrap; align-items: start; gap: 6px; }
+  .game-view .battle-stage:has(.board.aeroplane_chess) .player-name[data-aeroplane-home-count] { padding-right: 9px; }
+  .game-view .battle-stage:has(.board.aeroplane_chess) .player-name[data-aeroplane-home-count]::after {
+    position: static; display: block; width: fit-content; margin-top: 5px; transform: none; font-size: 14px;
+  }
   .game-view .go-player-rail { flex-wrap: wrap; }
+  .game-view .mahjong-table { --mj-side: clamp(130px, 18cqw, 170px); }
   .game-view .mahjong-seat-identity { flex-wrap: wrap; }
-  .game-view .mahjong-seat-name { line-height: 1.25; }
+  .game-view .mahjong-seat .mahjong-seat-name { writing-mode: horizontal-tb; }
+  .game-view .mahjong-seat-badges { flex-wrap: wrap; }
+  .game-view .mahjong-seat.position-left .mahjong-seat-identity,
+  .game-view .mahjong-seat.position-right .mahjong-seat-identity { grid-template-rows: auto auto auto; align-content: start; gap: 6px; }
+  .game-view .mahjong-seat.position-top .mahjong-turn-indicator,
+  .game-view .mahjong-seat.position-bottom .mahjong-turn-indicator { position: static; align-self: start; width: fit-content; }
   .game-view .mahjong-center-status { grid-template-columns: minmax(0, 1fr); }
   .game-view .mahjong-wall-count { text-align: left; }
   .game-view .mahjong-discard-label { opacity: 1; line-height: 1.35; overflow-wrap: anywhere; }
-  .game-view .mahjong-seat.position-bottom.current .mahjong-seat-identity { padding-right: 60px; }
-  .game-view .texas-table { min-width: 680px; min-height: 650px; }
-  .game-view .texas-seat { width: 160px; padding: 8px; }
-  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="2"] { transform: translate(-50%, -38%); }
-  .game-view .texas-seat.is-viewer { width: 190px; top: 85%; }
-  .game-view .texas-seat-meta { gap: 3px; }
-  .game-view .texas-seat-head { align-items: flex-start; }
-  .game-view .texas-center { width: 280px; }
+  .game-view .mahjong-seat.position-bottom.current .mahjong-seat-identity { padding-right: 0; }
+  /* Preserve clockwise seat order; normal-flow rows grow with names and status. */
+  .game-view .texas-table {
+    min-width: 700px; min-height: 0; padding: 16px; border-radius: 28px;
+    display: grid; grid-template-columns: minmax(180px, 1fr) minmax(250px, 1.3fr) minmax(180px, 1fr);
+    gap: 14px; align-items: center;
+  }
+  .game-view .texas-table::after { display: none; }
+  .game-view .texas-seat { position: static; transform: none; width: 100%; padding: 10px; }
+  .game-view .texas-seat[data-ring-index="0"] { grid-area: 1 / 1; }
+  .game-view .texas-seat[data-ring-index="1"] { grid-area: 1 / 3; }
+  .game-view .texas-table[data-player-count="2"] .texas-seat[data-ring-index="0"] { grid-area: 1 / 2; }
+  .game-view .texas-table[data-player-count="4"] .texas-seat[data-ring-index="0"],
+  .game-view .texas-table[data-player-count="5"] .texas-seat[data-ring-index="0"],
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="0"] { grid-area: 2 / 1; }
+  .game-view .texas-table[data-player-count="4"] .texas-seat[data-ring-index="1"],
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="2"] { grid-area: 1 / 2; }
+  .game-view .texas-table[data-player-count="4"] .texas-seat[data-ring-index="2"],
+  .game-view .texas-table[data-player-count="5"] .texas-seat[data-ring-index="3"],
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="4"] { grid-area: 2 / 3; }
+  .game-view .texas-table[data-player-count="5"] .texas-seat[data-ring-index="1"],
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="1"] { grid-area: 1 / 1; }
+  .game-view .texas-table[data-player-count="5"] .texas-seat[data-ring-index="2"],
+  .game-view .texas-table[data-player-count="6"] .texas-seat[data-ring-index="3"] { grid-area: 1 / 3; }
+  .game-view .texas-seat.is-viewer { grid-area: 3 / 1 / auto / -1; width: min(360px, 100%); justify-self: center; }
+  .game-view .texas-seat-meta { gap: 5px; }
+  .game-view .texas-seat-meta span { white-space: normal; overflow-wrap: anywhere; }
+  .game-view .texas-seat-head { align-items: start; gap: 10px; }
+  .game-view .texas-role-badges { flex-wrap: wrap; }
+  .game-view .texas-center { grid-area: 2 / 2; position: static; transform: none; width: 100%; }
   .game-view .texas-pot { font-size: 22px; }
-  .game-view .guandan-seat { min-width: 0; }
-  .game-view .guandan-table { grid-template-columns: minmax(110px, .8fr) minmax(0, 2.5fr) minmax(110px, .8fr); }
-  .game-view .guandan-seat-meta { line-height: 1.35; white-space: normal; flex-wrap: wrap; }
-  .game-view .guandan-seat.position-left .guandan-seat-identity,
-  .game-view .guandan-seat.position-right .guandan-seat-identity { flex-direction: column; width: 100%; }
-  .game-view .guandan-seat-title { flex-wrap: wrap; }
+  .game-view .texas-card-rank { font-size: 20px; }
+  .game-view .texas-card-suit { font-size: 14px; }
+  .game-view .texas-range-action { grid-template-columns: minmax(180px, 1fr) auto; }
+  .game-view .texas-range-action label { flex-wrap: wrap; gap: 5px; }
+  .game-view .texas-confirmation { width: min(100%, 560px); }
+  /* Four seats share three rows: identity, team/relation/level, status/hand.
+     Flatten presentation wrappers only; the renderer and phone DOM stay intact. */
+  .game-view > .battle-stage[data-game-type="guandan"] {
+    grid-template-columns: minmax(760px, 1fr) clamp(260px, 23vw, 320px);
+  }
+  .game-view .guandan-table {
+    grid-template-columns: minmax(180px, .8fr) minmax(0, 2.5fr) minmax(180px, .8fr);
+  }
+  .game-view .guandan-seat {
+    display: grid; grid-template-columns: max-content max-content minmax(0, 1fr);
+    min-width: 0; width: 100%; gap: 6px 8px; padding: 8px;
+    align-items: center; justify-items: start; justify-content: normal;
+    font: 14px/1.4 system-ui, "Microsoft YaHei", sans-serif;
+  }
+  .game-view .guandan-seat.position-top,
+  .game-view .guandan-seat.position-bottom { width: min(100%, 420px); }
+  .game-view .guandan-seat-identity,
+  .game-view .guandan-seat-words,
+  .game-view .guandan-seat-title,
+  .game-view .guandan-seat-meta { display: contents; }
+  .game-view .guandan-avatar { grid-area: 1 / 1; align-self: start; }
+  .game-view .guandan-seat-name { grid-area: 1 / 2 / auto / -1; align-self: center; }
+  .game-view .guandan-team-chip { grid-area: 2 / 1; }
+  .game-view .guandan-seat-relation { grid-area: 2 / 2; }
+  .game-view .guandan-seat-level { grid-area: 2 / 3; }
+  .game-view .guandan-seat-status { grid-area: 3 / 1 / auto / 3; }
+  .game-view .guandan-seat-hand { grid-area: 3 / 3; min-width: 0; }
+  .game-view .guandan-seat-meta > span,
+  .game-view .guandan-team-chip,
+  .game-view .guandan-seat-count { font-size: 14px; line-height: 1.4; white-space: nowrap; }
+  .game-view .guandan-seat-meta > span + span::before { content: none; }
+  .game-view .doudizhu-seat-heading { flex-wrap: wrap; gap: 6px; }
+  .game-view .doudizhu-title { flex-wrap: wrap; }
+  .game-view .doudizhu-seat-name { flex-basis: 100%; }
+  .game-view .doudizhu-seat-copy { flex: 1 1 0; }
+  .game-view .gandengyan-opponent-header { flex-direction: column; align-items: stretch; gap: 7px; }
+  .game-view .gandengyan-opponent-identity,
+  .game-view .zhajinhua-seat-identity { align-items: start; gap: 9px; }
+  .game-view .gandengyan-opponents,
+  .game-view .zhajinhua-opponents { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .game-view .zhajinhua-seat-badges { flex-wrap: wrap; }
+  .game-view .blackjack-player-region { max-height: none; overflow: visible; }
+  .game-view .blackjack-seat > header { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; align-items: start; gap: 8px; }
+  .game-view .blackjack-seat-identity { align-items: start; gap: 10px; }
+  .game-view .blackjack-hand-meta { justify-content: start; }
+  .game-view .blackjack-action-bar { position: static; flex-wrap: wrap; gap: 10px; }
+  .game-view .blackjack-action-copy { flex: 1 1 240px; }
+  .game-view .blackjack-action-buttons { flex-wrap: wrap; }
+
   /* A full identity row, followed by count / backs and optional turn status. */
   .game-view .uno-opponents { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .game-view .uno-opponent { grid-template-rows: auto auto; gap: 6px 8px; padding: 8px; }
@@ -5397,20 +5579,46 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   /* Six-seat edge rails need a real text row, rather than the old 8px slot. */
   .game-view .cc-edge-participant {
     height: auto;
-    min-height: 68px;
+    min-height: 0;
     max-width: 100%;
     grid-template-rows: minmax(24px, auto) auto;
     row-gap: 5px;
     padding: 6px;
   }
   .game-view .cc-edge-participant .cc-edge-meta { flex-wrap: wrap; gap: 2px 4px; line-height: 1.4; }
-  .game-view .cc-edge-participant .board-edge-copy strong { flex-wrap: wrap; gap: 3px; line-height: 1.4; }
+  .game-view .cc-edge-participant .board-edge-copy strong { flex-direction: column; align-items: start; gap: 6px; line-height: 1.4; }
+  .game-view .cc-edge-participant .cc-edge-meta > span { white-space: normal; flex-shrink: 1; }
+  .game-view .cc-edge-roster { gap: 8px; align-items: start; }
+  .game-view .yahtzee-roll-panel { grid-template-columns: minmax(0, 1fr) 264px minmax(132px, .65fr); }
+  .game-view .yahtzee-turn-copy { min-width: 0; overflow-wrap: anywhere; }
+  .game-view .yahtzee-totals-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .game-view .yahtzee-totals-grid:not(:has(> :nth-child(3))),
+  .game-view .yahtzee-totals-grid:has(> :nth-child(4)):not(:has(> :nth-child(5))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .game-view .yahtzee-total-player { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 10px; padding: 9px; }
+  .game-view .yahtzee-total-copy { gap: 5px; }
+  .game-view .yahtzee-total-action { max-width: 100%; white-space: normal; }
+  .game-view .yahtzee-scorecard { min-width: max(640px, calc(150px + var(--yahtzee-player-count) * 180px)); }
+  .game-view .yahtzee-player-heading { align-items: start; gap: 9px; white-space: normal; }
+  .game-view .yahtzee-scorecard thead th { white-space: normal; vertical-align: top; }
+  .game-view .monopoly-seats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+  .game-view .monopoly-player { width: 100%; max-width: 100%; }
+  .game-view .monopoly-player-tabs { flex-wrap: wrap; }
+  .game-view .monopoly-player-tabs .monopoly-button { flex: 1 1 180px; }
+  .game-view .mp-seat { align-items: start; gap: 12px; }
+  .game-view .mp-seat-tags small { line-height: 1.4; }
+  /* Width remains bounded; the field's 5 / 10.35 ratio and all coordinates stay intact. */
+  .game-view > .battle-stage .board-frame > .board.junqi { width: clamp(300px, 36vh, 340px); }
+  .game-view .junqi-player-title { flex-wrap: wrap; gap: 5px; }
+  .game-view .junqi-piece-face { font-size: 16px; letter-spacing: 0; }
+  .game-view .junqi-control { min-height: 42px; }
+
   .game-view .rk-meld-label { line-height: 1.4; }
   /* Board-square labels stay compact; larger labels must not cover tokens. */
   .game-view .monopoly-tile-name,
   .game-view .monopoly-tile:not(.kind-property) .monopoly-tile-name,
-  .game-view .monopoly-tile.occupied .monopoly-tile-name { font-size: 12px; }
-  .game-view .mp-tile-name { font-size: 12px; }
+  .game-view .monopoly-tile.occupied .monopoly-tile-name { font-size: 14px; }
+  .game-view .mp-tile-name { font-size: 14px; }
+  .game-view .monopoly-tile.occupied.kind-property:is(.edge-left, .edge-right) .monopoly-tile-name { max-width: 100%; }
   .game-view .yahtzee-hold-badge { min-height: 18px; }
   .game-view .board-frame > .board.monopoly,
   .game-view .board-frame > .board.monopoly_plus,

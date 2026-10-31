@@ -59,7 +59,8 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
         self.assertNotIn(
             'window.DuelGameUI.register("aeroplane_chess"', APP_SCRIPT
         )
-        self.assertNotIn("aeroplane", PUBLIC_STYLES.lower())
+        # Desktop identity typography is shared; token presentation stays game-local.
+        self.assertNotIn(".aeroplane-token", PUBLIC_STYLES)
         self.assertNotIn("/static/games/aeroplane_chess.js", HTML)
         self.assertEqual(APP_SCRIPT.count("await showRoomTransitionFeedback("), 2)
         action_notice = APP_SCRIPT[
@@ -85,7 +86,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.8";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.9";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -179,7 +180,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             STYLES.index(".aeroplane-token::before {"):
             STYLES.index(".aeroplane-token.color-red")
         ]
-        self.assertIn("background: transparent;", token_base)
+        self.assertIn("background: #fff;", token_base)
         self.assertIn("border: 1.5px solid var(--plane-dark);", token_base)
         self.assertIn("0 0 0 1px rgba(255, 255, 255, .76)", token_base)
         self.assertNotIn("rgba(255, 253, 247, .72)", token_base)
@@ -187,7 +188,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             STYLES.index(".aeroplane-token.legal::before {"):
             STYLES.index(".aeroplane-token.legal:hover")
         ]
-        self.assertIn("background: transparent;", legal_base)
+        self.assertNotIn("background:", legal_base)
         self.assertIn("border: 2px solid #a96516;", legal_base)
         self.assertIn("0 0 0 2px", legal_base)
         last_moved = STYLES[
@@ -498,7 +499,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.8");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.9");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')

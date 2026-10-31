@@ -367,7 +367,7 @@
   transform: translate(-50%, -50%);
   border: 1.5px solid var(--plane-dark);
   border-radius: 50%;
-  background: transparent;
+  background: #fff;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .76);
   pointer-events: none;
 }
@@ -395,7 +395,6 @@
 
 .aeroplane-token.legal::before {
   border: 2px solid #a96516;
-  background: transparent;
   box-shadow: 0 0 0 2px rgba(255, 237, 154, .88);
 }
 
@@ -595,6 +594,12 @@
 @keyframes aeroplane-return-flash {
   0%, 100% { filter: drop-shadow(0 1px .5px rgba(54, 38, 50, .38)); }
   50% { filter: drop-shadow(0 0 1px #d34754); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .aeroplane-game {
+    --aeroplane-token-size: clamp(15.6px, 3.84vw, 25.2px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
