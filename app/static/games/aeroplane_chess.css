@@ -39,7 +39,6 @@
   --aero-green: #45a873;
   --aero-green-dark: #236d49;
   --aeroplane-token-size: clamp(13px, 3.2vw, 21px);
-  --aeroplane-count-size: 12px;
   width: 100%;
   min-width: 0;
   display: grid;
@@ -336,6 +335,8 @@
 }
 
 .aeroplane-token {
+  /* Board-level group hit testing prevents transparent targets stealing taps. */
+  pointer-events: none;
   --plane-main: #777;
   --plane-dark: #444;
   width: var(--aeroplane-token-size);
@@ -462,21 +463,6 @@
   height: var(--aeroplane-token-size);
   border-width: 1px;
   box-shadow: none;
-}
-
-.aeroplane-stack-count {
-  width: var(--aeroplane-count-size);
-  height: var(--aeroplane-count-size);
-  position: absolute;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  color: #fff;
-  background: #49384a;
-  font: 800 10px/1 system-ui, sans-serif;
-  pointer-events: none;
 }
 
 .aeroplane-cell-edge {
@@ -653,7 +639,6 @@
 
   .aeroplane-game {
     --aeroplane-token-size: clamp(12px, 3.65vw, 17px);
-    --aeroplane-count-size: 10px;
     gap: 6px;
   }
 
@@ -703,7 +688,6 @@
   }
 
   .aeroplane-token.last-moved::before { border-color: #c88b49; }
-  .aeroplane-stack-count { font-size: 9px; }
   .aeroplane-cell-edge { display: block; }
 
   .aeroplane-activity { min-height: 35px; padding: 3px 6px; gap: 6px; }

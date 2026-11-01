@@ -86,7 +86,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.10";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.11";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -108,6 +108,9 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
             self.assertIn(required, SCRIPT)
         self.assertNotIn("<img", SCRIPT.lower())
         self.assertNotIn("background-image: url", STYLES.lower())
+        self.assertNotIn("aeroplane-stack-count", SCRIPT)
+        self.assertNotIn("aeroplane-stack-count", STYLES)
+        self.assertNotIn("--aeroplane-count-size", STYLES)
         self.assertNotIn("aeroplane-token-cockpit", SCRIPT + STYLES)
         self.assertIn(
             'd: "M32 4 C35 4 37 8 37 13 L37 23 L58 34 L58 40 L37 35 '
@@ -499,7 +502,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.10");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.11");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -745,7 +748,7 @@ assert.equal(stacked.every((node) => node.dataset.stackSize === "4"), true);
 assert.equal(new Set(stacked.map((node) => `${node.style.left}:${node.style.top}`)).size, 4);
 ''', state=state)
 
-    def test_legal_planes_below_disabled_stack_tokens_keep_exact_click_targets(self):
+    def test_mixed_stack_keeps_own_real_identity_and_blocks_duplicate_submit(self):
         state = rolled_state()
         for plane_id, route_step, ring_index in (
             ("red-0", 5, 5),
@@ -793,8 +796,9 @@ await legal.find((node) => node.dataset.planeId === "red-0").listeners.click();
 await legal.find((node) => node.dataset.planeId === "red-1").listeners.click();
 assert.equal(JSON.stringify(harness.submitted), JSON.stringify([
   {action: "move", plane_id: "red-0", plane_index: 0},
-  {action: "move", plane_id: "red-1", plane_index: 1},
 ]));
+assert.equal(legal.find(n => n.dataset.planeId === "red-0").tabIndex, 0);
+assert.equal(legal.find(n => n.dataset.planeId === "red-1").tabIndex, -1);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''', state=state)
 
@@ -1036,7 +1040,7 @@ assert.equal(
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
-    def test_stack_counts_cell_colours_and_rerender_cleanup(self):
+    def test_accessible_stack_counts_cell_colours_and_rerender_cleanup(self):
         self.run_node(r'''
 const harness = makeContext("human-1", false);
 function draw() {
@@ -1057,14 +1061,11 @@ for (const [zone, extra, key] of [
     }, index < count ? extra : {}));
     const nodes = draw();
     const badges = nodes.filter((node) => hasClass(node, "aeroplane-stack-count"));
-    assert.equal(badges.length, count > 1 ? 1 : 0);
-    if (count > 1) {
-      assert.equal(badges[0].textContent, String(count));
-      assert.equal(badges[0].dataset.cellKey, key);
-    }
+    assert.equal(badges.length, 0);
     const tokens = nodes.filter((node) => hasClass(node, "aeroplane-token") && node.dataset.playerId === "human-1");
     assert.equal(tokens.length, count);
     assert.ok(tokens.every((node) => node.dataset.stackSize === String(count)));
+    if (count > 1) assert.ok(tokens.every(n => n.attributes["aria-label"].includes(`同格共 ${count} 架`)));
     const edges = nodes.filter((node) => hasClass(node, "aeroplane-cell-edge"));
     assert.equal(edges.length, count ? 1 : 0);
     if (count) {
@@ -1080,10 +1081,10 @@ Object.assign(reds[2], {zone: "home_lane", home_lane_index: 1});
 Object.assign(state.planes["ai-1"][0], {zone: "home_lane", home_lane_index: 1});
 assert.equal(draw().filter((n) => hasClass(n, "aeroplane-stack-count")).length, 0);
 // Defensive mixed snapshot: impossible after engine capture resolution, but
-// the renderer must still preserve both colours and one total if supplied.
+// the renderer must preserve both colours and an accessible total if supplied.
 Object.assign(state.planes["ai-1"][0], {zone: "track", ring_index: 2});
 const mixed = draw();
-assert.equal(mixed.filter((n) => hasClass(n, "aeroplane-stack-count")).length, 1);
+assert.equal(mixed.filter((n) => hasClass(n, "aeroplane-stack-count")).length, 0);
 const group = mixed.filter((n) => hasClass(n, "aeroplane-token") && n.dataset.cellKey === "track:2");
 assert.equal(group.length, 2);
 assert.ok(group.some((n) => hasClass(n, "color-red")));
@@ -1091,36 +1092,160 @@ assert.ok(group.some((n) => hasClass(n, "color-blue")));
 assert.notEqual(group[0].style.top, group[1].style.top);
 ''')
 
-    def test_overlapping_stack_pointer_targets_preserve_plane_id_and_keyboard(self):
+    def test_group_hit_arbitration_permissions_and_pending_submission(self):
         self.run_node(r'''
 (async () => {
+const reds = state.planes["human-1"], blues = state.planes["ai-1"];
+[...reds, ...blues].forEach(p => { p.zone = "home"; });
+for (const p of [reds[0], reds[1], blues[0], blues[1]]) Object.assign(p, {zone: "track", ring_index: 2});
+Object.assign(reds[2], {zone: "track", ring_index: 3});
+Object.assign(blues[2], {zone: "track", ring_index: 4});
+// Red 0 is present but not legal. Choose real Red 1 consistently.
+state.legal_actions = [1, 2].map(i => ({action: "move", plane_id: `red-${i}`, plane_index: i}));
+// Defensive input: a foreign identity in the list must still never become legal.
+state.legal_actions.push({action: "move", plane_id: "blue-0", plane_index: 0});
 const harness = makeContext("human-1", true);
-state.planes["human-1"].forEach((p) => Object.assign(p, {zone: "launch", route_step: 0}));
-renderer.renderBoard(harness.context);
-const tokens = descendants(harness.board).filter((n) => hasClass(n, "legal"));
-assert.equal(tokens.length, 4);
-tokens.forEach((token, index) => {
-  token.getBoundingClientRect = () => ({x: 78, y: 78 + index * 4, width: 44, height: 44});
-  token.children[0].getBoundingClientRect = () => ({width: 13.14});
-  token.click = () => token.listeners.click({detail: 0});
-});
-// A tap over the exposed rear plane lands in the front button's 44px box.
-await tokens[3].listeners.click({detail: 1, clientX: 100, clientY: 94.5});
-assert.equal(harness.submitted[0].plane_id, "red-0");
-assert.equal(harness.submitted[0].plane_index, 0);
-// A painted front disc owns its overlap, rather than a hidden rear centre.
-await tokens[3].listeners.click({detail: 1, clientX: 100, clientY: 108});
-assert.equal(harness.submitted[1].plane_id, "red-3");
-// Enter / AT click keeps the focused plane, irrespective of overlap.
-await tokens[2].listeners.click({detail: 0});
-assert.equal(harness.submitted[2].plane_id, "red-2");
-assert.equal(harness.submitted[2].plane_index, 2);
-// Stale permission prevents a queued activation.
-harness.context.helpers.canMove = () => false;
-await tokens[1].listeners.click({detail: 0});
-assert.equal(harness.submitted.length, 3);
-})().catch((error) => { console.error(error); process.exit(1); });
+harness.context.helpers.submitMove = async move => { harness.submitted.push(move); return false; };
+let focused;
+function draw() {
+  harness.board.replaceChildren(); renderer.renderBoard(harness.context);
+  const nodes = descendants(harness.board);
+  const tokens = nodes.filter(n => hasClass(n, "aeroplane-token"));
+  for (const n of tokens) {
+    const x = {"track:2": 100, "track:3": 120, "track:4": 140}[n.dataset.cellKey];
+    const y = 100 + (+n.dataset.stackSize > 1 ? (+n.dataset.stackIndex - 1.5) * 1.5 : 0);
+    n.getBoundingClientRect = () => ({x: x-22, y: y-22, width: 44, height: 44});
+    n.children[0].getBoundingClientRect = () => ({width: 13});
+    n.focus = () => { focused = n.dataset.planeId; };
+  }
+  return {shell: nodes.find(n => hasClass(n, "aeroplane-board-shell")), tokens};
+}
+let {shell,tokens} = draw();
+const click = (x,y) => shell.listeners.click({detail:1,clientX:x,clientY:y});
+for (const [x,y] of [[100,100],[100,102],[100,92],[100,116],[100,124],[79,100]]) {
+  const before = harness.submitted.length;
+  await click(x,y); assert.equal(harness.submitted.length,before+1);
+  assert.equal(harness.submitted.at(-1).plane_id,"red-1");
+  assert.equal(focused,"red-1");
+}
+await click(120,100); assert.equal(harness.submitted.at(-1).plane_id,"red-2");
+assert.equal(focused,"red-2");
+// Transparent padding overlap: stable tie, then either side of the boundary.
+await click(110,100); assert.equal(harness.submitted.at(-1).plane_id,"red-1");
+await click(110.01,100); assert.equal(harness.submitted.at(-1).plane_id,"red-2");
+await click(109.99,100); assert.equal(harness.submitted.at(-1).plane_id,"red-1");
+let count = harness.submitted.length;
+for (const [x,y] of [[140,100],[131,100],[77,100],[400,400]]) await click(x,y);
+assert.equal(harness.submitted.length,count,"opponent visible/padding and empty board must not submit a neighbour");
+const primary = tokens.find(n => n.dataset.planeId === "red-1");
+assert.equal(primary.tabIndex,0);
+await primary.listeners.click({detail:0});
+assert.equal(harness.submitted.at(-1).plane_id,"red-1");
+// Pointer activation on a token must not double-submit before board bubbling.
+count=harness.submitted.length; await primary.listeners.click({detail:1});
+assert.equal(harness.submitted.length,count);
+assert.ok(tokens.filter(n => !hasClass(n,"legal")).every(n => n.disabled && !n.listeners.click && n.tabIndex === -1));
+// Pending, successful, failed and stale actions do not select a different plane.
+let release;
+harness.context.helpers.submitMove = move => { harness.submitted.push(move); return new Promise(r => {release=r;}); };
+const first=click(100,100); await click(120,100);
+assert.equal(harness.submitted.length,count+1); release(false); await first;
+assert.equal(primary.disabled,false);
+assert.equal(primary.attributes["aria-busy"],"false");
+harness.context.helpers.submitMove = async () => { throw Error("local failure"); };
+await assert.rejects(click(100,100), /local failure/);
+assert.equal(primary.attributes["aria-busy"],"false");
+harness.context.helpers.canMove=()=>false; await click(100,100); await primary.listeners.click({detail:0});
+assert.equal(harness.submitted.length,count+1);
+harness.context.helpers.canMove=()=>true;
+for (const mode of ["no-actions","other-turn","spectator","no-can-move"]) {
+  harness.context.legalActions=mode==="no-actions"?[]:state.legal_actions;
+  harness.context.viewer=mode==="spectator"?null:{player_id:"human-1"};
+  harness.context.room.current_player_id=mode==="other-turn"?"ai-1":"human-1";
+  harness.context.canMove=mode!=="no-can-move";
+  ({shell,tokens}=draw()); await click(100,100);
+  assert.ok(tokens.every(n=>n.disabled && n.tabIndex===-1 && !n.listeners.click));
+}
+assert.equal(harness.submitted.length,count+1);
+})().catch(error=>{console.error(error);process.exit(1);});
 ''')
+
+    def test_compact_stack_envelope_and_owned_targets_through_six_planes(self):
+        self.run_node(r"""
+(async () => {
+const all = [...state.planes["human-1"], ...state.planes["ai-1"]];
+// Five/six and mixed groups are defensive renderer input, not legal game states.
+for (const [tokenSize, boardSize] of [[13.14, 310], [15.695, 380], [25.2, 746]]) {
+  const project = (value) => Function("Math", `return ${String(value)
+    .replaceAll("var(--aeroplane-token-size)", String(tokenSize))
+    .replace(/([\d.]+)%/g, (_, n) => `(${n} * ${boardSize} / 100)`)
+    .replaceAll("px", "").replaceAll("calc(", "(").replaceAll("min(", "Math.min(")}`)(Math);
+  let previousEnvelope = null;
+  for (const size of [2, 3, 4, 5, 6]) {
+    all.forEach((p, index) => Object.assign(p, {zone: index < size ? "track" : "home", ring_index: 49}));
+    const harness = makeContext("human-1", true);
+    harness.context.helpers.submitMove = async (move) => { harness.submitted.push(move); return false; };
+    renderer.renderBoard(harness.context);
+    const nodes = descendants(harness.board);
+    const tokens = nodes.filter((n) => hasClass(n, "aeroplane-token"));
+    const badges = nodes.filter((n) => hasClass(n, "aeroplane-stack-count"));
+    assert.equal(tokens.length, size);
+    assert.equal(badges.length, 0);
+    assert.ok(tokens.every((n) => +n.dataset.stackSize === size));
+    const ys = tokens.map(n => project(n.style.top));
+    const envelope = Math.max(...ys) - Math.min(...ys) + tokenSize;
+    assert.ok(Math.abs(envelope / tokenSize - (size === 2 ? 1.2 : 1.28)) < 1e-8);
+    if (size > 3) assert.ok(Math.abs(envelope - previousEnvelope) < 1e-8);
+    previousEnvelope = envelope;
+    for (let i = 1; i < ys.length; i++) assert.ok(ys[i] - ys[i - 1] < tokenSize * .4);
+    const legal = tokens.filter(n => !n.disabled);
+    const others = tokens.filter(n => n.dataset.playerId !== "human-1");
+    assert.ok(others.every(n => n.disabled && !n.listeners.click));
+    tokens.forEach(n => {
+      n.getBoundingClientRect = () => ({x: project(n.style.left) - 22, y: project(n.style.top) - 22, width: 44, height: 44});
+      n.children[0].getBoundingClientRect = () => ({width: tokenSize});
+      n.click = () => n.listeners.click && n.listeners.click({detail: 0});
+    });
+    const shell = nodes.find(n => hasClass(n, "aeroplane-board-shell"));
+    const click = (x,y) => shell.listeners.click({detail:1,clientX:x,clientY:y});
+    for (const n of tokens) {
+      const before = harness.submitted.length;
+      await click(project(n.style.left),project(n.style.top));
+      assert.equal(harness.submitted.length,before+1);
+      assert.equal(harness.submitted.at(-1).plane_id,"red-0");
+    }
+    const x = project(tokens[0].style.left), y = (Math.min(...ys)+Math.max(...ys))/2;
+    for (const [px,py] of [[x,Math.min(...ys)-tokenSize/2],[x-21,y],[x+21,y],
+      // Previous count area stays clickable after the visible count is removed.
+      [x,y+tokenSize*.68+(tokenSize<20?10:12)+1+3]]) {
+      const before = harness.submitted.length;
+      await click(px,py); assert.equal(harness.submitted.length,before+1);
+      assert.equal(harness.submitted.at(-1).plane_id,"red-0");
+    }
+    // Keep all four corners of the previous candidate's padded target,
+    // not only the new smaller visible discs and a nominal 44px minimum.
+    const oldEndSize = tokenSize < 20 ? 10 : 12;
+    const oldCenterY = y + (oldEndSize + 1) / 2;
+    const oldHalfHeight = Math.max(22, (tokenSize * 1.36 + oldEndSize + 1) / 2 + 4);
+    for (const dx of [-21.99, 21.99]) for (const dy of [-1, 1]) {
+      const before = harness.submitted.length;
+      await click(x+dx,oldCenterY+dy*(oldHalfHeight-.01));
+      assert.equal(harness.submitted.length,before+1);
+      assert.equal(harness.submitted.at(-1).plane_id,"red-0");
+    }
+    assert.equal(legal.filter(n=>n.tabIndex===0).length,1);
+    for (const n of legal) {
+      await n.listeners.click({detail:0});
+      assert.equal(harness.submitted.at(-1).plane_id,"red-0");
+    }
+    assert.ok(harness.submitted.every(move => state.legal_actions.some(action => action.plane_id === move.plane_id && action.plane_index === move.plane_index)));
+    const viewer = makeContext("ai-1", false);
+    renderer.renderBoard(viewer.context);
+    assert.ok(descendants(viewer.board).filter(n => hasClass(n, "aeroplane-token")).every(n => n.disabled && !n.listeners.click));
+  }
+}
+})().catch(error => { console.error(error); process.exit(1); });
+""")
 
 
 if __name__ == "__main__":

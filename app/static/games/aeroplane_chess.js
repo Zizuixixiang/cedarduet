@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.10";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.11";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -125,12 +125,12 @@
       if (direction[0] * (point[0] - 50) + direction[1] * (point[1] - 50) < 0) {
         direction = direction.map((value) => -value);
       }
-      // The diagonal cuts border the airports: put their badge inward.
+      // The diagonal cuts border the airports: keep their spread inward.
       if ([6, 7, 8].includes(Number(plane.ring_index) % 13)) {
         direction = direction.map((value) => -value);
       }
     } else {
-      // Launch badges point inward; lane badges face away from the launch pad.
+      // Launch stacks point inward; lane stacks face away from the launch pad.
       const directions = plane.zone === "launch"
         ? {red: [0, -1], yellow: [1, 0], blue: [0, 1], green: [-1, 0]}
         : {red: [1, 0], yellow: [0, 1], blue: [-1, 0], green: [0, -1]};
@@ -141,9 +141,12 @@
     return rotated.map((value) => Number((value - 50).toFixed(6)));
   }
 
-  function stackPosition(point, direction, offset, extra = "0px") {
+  // Two planes span 1.20 tokens; larger stacks stay at 1.28, regardless of
+  // count. Only the spacing between planes decreases as the stack grows.
+  function stackPosition(point, direction, offset, size) {
+    const spread = size === 2 ? .1 : .14;
     return point.map((value, axis) => (
-      `calc(${value}% + (min(calc(var(--aeroplane-token-size) * .42), 1.4%) * ${offset} + ${extra}) * ${direction[axis]})`
+      `calc(${value}% + min(calc(var(--aeroplane-token-size) * ${spread}), 1.4%) * ${offset} * ${direction[axis]})`
     ));
   }
 
@@ -727,6 +730,64 @@
     return entries;
   }
 
+  // Resolve all occupied cells, including ineligible ones, before permission
+  // checks. An opponent's visible group must not fall through to a nearby move.
+  function planeGroupAtPoint(groups, x, y) {
+    const hits = [];
+    groups.forEach((group) => {
+      const discs = group.entries.map(({token, stackIndex}) => {
+        const rect = token.getBoundingClientRect();
+        const graphic = token.children[0].getBoundingClientRect();
+        const diameter = typeof window.getComputedStyle === "function"
+          ? parseFloat(window.getComputedStyle(token, "::before").width)
+          : graphic.width;
+        return {
+          x: rect.x + rect.width / 2, y: rect.y + rect.height / 2,
+          radius: (diameter || graphic.width) / 2,
+          order: (token.classList.contains("legal") ? 40 : 8) + stackIndex,
+        };
+      });
+      let left = Math.min(...discs.map((d) => d.x - d.radius));
+      let right = Math.max(...discs.map((d) => d.x + d.radius));
+      let top = Math.min(...discs.map((d) => d.y - d.radius));
+      let bottom = Math.max(...discs.map((d) => d.y + d.radius));
+      let paintOrder = -1;
+      discs.forEach((d) => {
+        if (Math.hypot(x - d.x, y - d.y) <= d.radius) paintOrder = Math.max(paintOrder, d.order);
+      });
+      const anchorX = discs.reduce((sum, d) => sum + d.x, 0) / discs.length;
+      const anchorY = discs.reduce((sum, d) => sum + d.y, 0) / discs.length;
+      if (discs.length > 1) {
+        // Keep the previous stack's hit envelope, even though its visible
+        // discs are closer and its count is gone. This is padding, not paint.
+        const diameter = discs[0].radius * 2;
+        const direction = group.entries[0].direction;
+        const boardWidth = group.entries[0].token.parentElement?.clientWidth || Infinity;
+        const spread = Math.min(diameter * .18, boardWidth * .014);
+        const compact = typeof window.matchMedia === "function"
+          ? window.matchMedia("(max-width: 599px)").matches : diameter < 20;
+        const endPadding = compact ? 10 : 12;
+        const halfX = diameter / 2 + spread * Math.abs(direction[0]);
+        const halfY = diameter / 2 + spread * Math.abs(direction[1]);
+        const reach = spread + diameter / 2 + 1 + endPadding / 2;
+        const tipX = anchorX + direction[0] * reach;
+        const tipY = anchorY + direction[1] * reach;
+        left = Math.min(left, anchorX - halfX, tipX - endPadding / 2);
+        right = Math.max(right, anchorX + halfX, tipX + endPadding / 2);
+        top = Math.min(top, anchorY - halfY, tipY - endPadding / 2);
+        bottom = Math.max(bottom, anchorY + halfY, tipY + endPadding / 2);
+      }
+      // Four pixels of padding, with a 44px minimum in both dimensions.
+      const cx = (left + right) / 2, cy = (top + bottom) / 2;
+      const halfWidth = Math.max(22, (right - left) / 2 + 4);
+      const halfHeight = Math.max(22, (bottom - top) / 2 + 4);
+      if (Math.abs(x - cx) > halfWidth || Math.abs(y - cy) > halfHeight) return;
+      hits.push({group, paintOrder, distance: Math.hypot(x - anchorX, y - anchorY)});
+    });
+    hits.sort((a, b) => b.paintOrder - a.paintOrder || a.distance - b.distance || a.group.key.localeCompare(b.group.key));
+    return hits.length ? hits[0].group : null;
+  }
+
   function appendPlanes(documentRef, shell, context, quarterTurns) {
     const {state, helpers, room} = context;
     const legalIds = new Set(
@@ -741,10 +802,38 @@
     );
     const lastAction = state.last_action || {};
     const returnedIds = new Set(lastAction.returned_plane_ids || []);
-    const groupButtons = new Map();
+    const groups = new Map();
+    const viewerId = context.viewer && context.viewer.player_id;
+    const canPlay = (entry) => Boolean(context.canMove)
+      && !isTerminalState(context)
+      && viewerId === room.current_player_id && entry.playerId === viewerId
+      && legalIds.has(entry.plane.plane_id);
+    let pending = false;
+    const activate = async (group) => {
+      if (!group || pending || !helpers || typeof helpers.submitMove !== "function") return;
+      if (typeof helpers.canMove === "function" && !helpers.canMove()) return;
+      const choice = group.entries.find(canPlay);
+      if (!choice) return;
+      pending = true;
+      choice.token.setAttribute("aria-busy", "true");
+      let submitted = false;
+      try {
+        submitted = await helpers.submitMove({
+          action: "move", plane_id: choice.plane.plane_id, plane_index: choice.plane.plane_index,
+        });
+      } finally {
+        if (!submitted) {
+          pending = false;
+          choice.token.setAttribute("aria-busy", "false");
+        }
+      }
+    };
     collectPlaneEntries(state, quarterTurns).forEach((entry) => {
       const {playerId, color, plane, point} = entry;
-      const legal = Boolean(context.canMove) && legalIds.has(plane.plane_id);
+      const legal = canPlay(entry);
+      const group = groups.get(entry.groupKey) || {key: entry.groupKey, entries: []};
+      group.entries.push(entry);
+      groups.set(entry.groupKey, group);
       const token = documentRef.createElement("button");
       token.type = "button";
       token.className = [
@@ -765,7 +854,7 @@
       token.dataset.cellKey = entry.groupKey;
       token.style.setProperty("--stack-order", String(entry.stackIndex || 0));
       const position = entry.stackSize > 1
-        ? stackPosition(point, entry.direction, entry.offset)
+        ? stackPosition(point, entry.direction, entry.offset, entry.stackSize)
         : point.map((value) => `${value}%`);
       [token.style.left, token.style.top] = position;
       token.disabled = !legal;
@@ -775,36 +864,12 @@
         `${playerName(participant)}的${COLOR_LABELS[color]} ${plane.plane_index + 1} 号机，${positionLabel(plane)}${entry.stackSize > 1 ? `，同格共 ${entry.stackSize} 架` : ""}${legal ? "，可以移动" : ""}`
       );
       token.appendChild(createPlaneGraphic(documentRef));
+      entry.token = token;
       if (legal) {
-        const buttons = groupButtons.get(entry.groupKey) || [];
-        buttons.push(token);
-        groupButtons.set(entry.groupKey, buttons);
-        token.addEventListener("click", async (event) => {
-          // Overlapping transparent hit boxes must not swallow an exposed plane.
-          // Keyboard/AT clicks still activate the focused, real plane button.
-          if (event && event.detail > 0 && buttons.length > 1) {
-            const targets = buttons.filter((button) => !button.disabled).map((button) => {
-              const rect = button.getBoundingClientRect();
-              const distance = Math.hypot(event.clientX - rect.x - rect.width / 2, event.clientY - rect.y - rect.height / 2);
-              return {button, distance, radius: button.children[0].getBoundingClientRect().width / 2};
-            });
-            // Respect the painted order inside a disc; use nearest-centre
-            // only in the transparent padding around the stack.
-            const painted = targets.slice().reverse().find((target) => target.distance <= target.radius);
-            const target = painted || targets.reduce((best, item) => (
-              item.distance < best.distance ? item : best
-            ), {button: token, distance: Infinity});
-            if (target.button !== token) { target.button.click(); return; }
-          }
-          if (!helpers || typeof helpers.submitMove !== "function") return;
-          if (typeof helpers.canMove === "function" && !helpers.canMove()) return;
-          token.disabled = true;
-          const submitted = await helpers.submitMove({
-            action: "move",
-            plane_id: plane.plane_id,
-            plane_index: plane.plane_index,
-          });
-          if (!submitted) token.disabled = false;
+        // Native Enter/Space/AT activation has detail 0. Pointer clicks are
+        // arbitrated across every group by the board, never by a 44px overlay.
+        token.addEventListener("click", (event) => {
+          if (!event || event.detail === 0) return activate(group);
         });
       }
       if (!isTerminalState(context) && room.current_player_id === playerId) {
@@ -836,19 +901,30 @@
         }));
         shell.appendChild(edge);
       }
-      if (entry.stackSize > 1) {
-        const count = documentRef.createElement("span");
-        count.className = "aeroplane-stack-count";
-        count.dataset.cellKey = entry.groupKey;
-        count.setAttribute("aria-hidden", "true");
-        count.textContent = String(entry.stackSize);
-        [count.style.left, count.style.top] = stackPosition(
-          point, entry.direction, 1,
-          "var(--aeroplane-token-size) * .5 + var(--aeroplane-count-size) * .5 + 1px"
-        );
-        shell.appendChild(count);
+    });
+    groups.forEach((group) => {
+      group.entries.sort((a, b) => a.plane.plane_index - b.plane.plane_index || a.plane.plane_id.localeCompare(b.plane.plane_id));
+      const primary = group.entries.find(canPlay);
+      group.entries.forEach((entry) => {
+        entry.token.tabIndex = entry === primary ? 0 : -1;
+        if (entry !== primary && canPlay(entry)) entry.token.setAttribute("aria-hidden", "true");
+      });
+      if (primary && group.entries.length > 1) {
+        primary.token.setAttribute("aria-label", `${positionLabel(primary.plane)}，同格共 ${group.entries.length} 架，移动一架己方飞机`);
       }
     });
+    shell.addEventListener("click", (event) => {
+      if (event.detail <= 0) return;
+      const group = planeGroupAtPoint(groups, event.clientX, event.clientY);
+      const primary = group && group.entries.find(canPlay);
+      if (!pending && primary && typeof primary.token.focus === "function") primary.token.focus({preventScroll: true});
+      return activate(group);
+    });
+    shell.addEventListener("pointermove", (event) => {
+      const group = planeGroupAtPoint(groups, event.clientX, event.clientY);
+      shell.style.cursor = !pending && group && group.entries.some(canPlay) ? "pointer" : "";
+    });
+    shell.addEventListener("pointerleave", () => { shell.style.cursor = ""; });
   }
 
   function turnCopy(context) {
