@@ -1,4 +1,4 @@
-"""Retention is the only write granted by current household spectating rights."""
+"""Terminal-room management uses current household spectating rights."""
 import base64
 import json
 import tempfile
@@ -201,7 +201,7 @@ class SpectatorRetentionTests(unittest.IsolatedAsyncioTestCase):
         for player_id in ("human:owner", "human:other", "101"):
             for action, extra in (
                 ("move", {"move": {"action": "draw"}, "revision": room["revision"]}),
-                ("messages", {"message": "forged"}), ("resign", {}), ("delete", {}),
+                ("messages", {"message": "forged"}), ("resign", {}),
             ):
                 response = await self.client.post(
                     f"/api/rooms/{room['room_id']}/{action}", headers=self.headers(),
@@ -209,3 +209,89 @@ class SpectatorRetentionTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(response.status_code, 403, response.text)
         self.assertEqual(self.dump(), before)
+
+    async def delete(self, room, headers=None, **body):
+        return await self.client.post(
+            f"/api/rooms/{room['room_id']}/delete",
+            headers=self.headers() if headers is None else headers, json=body,
+        )
+
+    async def test_bound_terminal_delete_including_slots_preserved_and_archived(self):
+        for status in ("finished", "archived"):
+            for pid in ("101", "101:2", "101:5"):
+                with self.subTest(status=status, pid=pid):
+                    room = self.create((pid, "999"), status)
+                    self.assertEqual((await self.retain(room)).status_code, 200)
+                    tables = ("rooms", "room_participants", "room_messages", "room_event_cursors")
+                    with closing(database.connect()) as conn:
+                        for table in tables:
+                            self.assertGreater(conn.execute(
+                                f"SELECT COUNT(*) FROM {table} WHERE room_id=?", (room["room_id"],)
+                            ).fetchone()[0], 0)
+                    # Deletion never returns another player's room projection.
+                    response = await self.delete(room)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(set(response.json()), {"ok", "status", "message", "room_id"})
+                    with closing(database.connect()) as conn:
+                        for table in tables:
+                            self.assertEqual(conn.execute(
+                                f"SELECT COUNT(*) FROM {table} WHERE room_id=?", (room["room_id"],)
+                            ).fetchone()[0], 0)
+                    self.assertEqual((await self.delete(room)).status_code, 404)
+        room = self.create()
+        self.assertEqual((await self.delete(room)).status_code, 200)
+
+    async def test_delete_rejects_untrusted_revoked_npc_and_departed_seats(self):
+        room = self.create()
+        for headers, body, expected in (
+            ({}, {}, 403), (self.headers(()), {}, 403),
+            (self.headers(("888",)), {}, 403),
+            (self.headers(()), {"player_id": "101"}, 403),
+            (self.headers(()), {"ai_player_id": "101"}, 422),
+            ({**self.headers(), "X-Duel-Bound-Ais": "malformed"}, {}, 403),
+        ):
+            before = self.dump()
+            response = await self.delete(room, headers, **body)
+            self.assertEqual(response.status_code, expected, response.text)
+            self.assertEqual(self.dump(), before)
+        for change in ("participant_kind='system_npc'", "join_status='left'"):
+            room = self.create()
+            with database.write_transaction() as conn:
+                conn.execute(f"UPDATE room_participants SET {change} WHERE room_id=? AND player_id='101'", (room["room_id"],))
+            before = self.dump()
+            self.assertEqual((await self.delete(room)).status_code, 403)
+            self.assertEqual(self.dump(), before)
+        for pid in ("101:1", "101:6"):
+            room = self.create((pid, "999"))
+            before = self.dump()
+            self.assertEqual((await self.delete(room)).status_code, 403)
+            self.assertEqual(self.dump(), before)
+        room = self.create(("101", "human:owner"))
+        with database.write_transaction() as conn:
+            conn.execute("UPDATE room_participants SET join_status='left' WHERE room_id=? AND role='human'", (room["room_id"],))
+        before = self.dump()
+        self.assertEqual((await self.delete(room)).status_code, 403)
+        self.assertEqual(self.dump(), before)
+
+    async def test_delete_checks_stored_active_state_without_any_maintenance(self):
+        for owner in (False, True):
+            for status in ("pending", "waiting", "playing"):
+                for stale in (False, True):
+                    with self.subTest(owner=owner, status=status, stale=stale):
+                        room = self.create(("101", "human:owner" if owner else "999"))
+                        # Simulate a stale terminal summary: the database's state wins.
+                        with database.write_transaction() as conn:
+                            conn.execute("UPDATE rooms SET status=? WHERE room_id=?", (status, room["room_id"]))
+                            if stale:
+                                conn.execute("UPDATE rooms SET last_move_at='2020-01-01T00:00:00+00:00', updated_at='2020-01-01T00:00:00+00:00' WHERE room_id=?", (room["room_id"],))
+                        before = self.dump()
+                        with patch.object(framework, "_maintain_rooms", side_effect=AssertionError("delete must not maintain")):
+                            response = await self.delete(room)
+                            self.assertEqual(response.status_code, 409, response.text)
+                            outsider = await self.delete(room, self.headers((), human="human:outsider"))
+                            self.assertEqual(outsider.status_code, 403, outsider.text)
+                        self.assertEqual(self.dump(), before)
+                        # Remove only this isolated fixture before the next case;
+                        # otherwise the normal ten-active-room creation cap applies.
+                        with database.write_transaction() as conn:
+                            conn.execute("DELETE FROM rooms WHERE room_id=?", (room["room_id"],))

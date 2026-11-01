@@ -2642,24 +2642,31 @@ def set_room_preserved(
     return _decorate(result)
 
 
-def delete_terminal_room(room_id: str, human_player_id: str) -> str:
+def delete_terminal_room(
+    room_id: str, human_player_id: str, *,
+    spectator_ai_names: dict[str, str] | None = None,
+) -> str:
     room_id = _room_id(room_id)
     human_player_id = _player_id(human_player_id)
-    found = False
     with write_transaction() as conn:
-        _maintain_rooms(conn, room_id)
         row = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?", (room_id,)
         ).fetchone()
-        if row is not None:
-            found = True
-            room = decode_room(row, conn)
+        if row is None:
+            raise DuelError("房间不存在", 404)
+        room = decode_room(row, conn)
+        participant = _participant_by_id(room, human_player_id)
+        if participant is not None:
             _assert_player(room, "human", human_player_id)
-            if room["status"] not in {"finished", "archived"}:
-                raise DuelError("进行中或等待中的对局不能直接删除", 409)
-            conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
-    if not found:
-        raise DuelError("房间不存在", 404)
+            if participant["join_status"] == "left":
+                raise DuelError("已离开该房间，不能删除对局", 403)
+        else:
+            room_spectator_choices(room, spectator_ai_names or {})
+        # Check the stored state under the writer lock. Maintenance must not
+        # turn a stale active room into a terminal room eligible for deletion.
+        if room["status"] not in {"finished", "archived"}:
+            raise DuelError("进行中或等待中的对局不能直接删除", 409)
+        conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
     return room_id
 
 

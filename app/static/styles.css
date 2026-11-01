@@ -5052,7 +5052,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     background: transparent;
     border-top: 1px solid var(--purple-light);
   }
-  #lobbyView .room-record-controls.spectator-retention-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  #lobbyView .room-record-controls.spectator-retention-controls { display: grid; }
   #lobbyView .room-retention { min-width: 0; color: #756c7d; font-size: 14px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .room-record-button { color: #655176; min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 16px; font-weight: 600; line-height: 1.5; white-space: normal; }
   #lobbyView .room-record-button.danger { color: #fff; background: #9b4961; border-color: #9b4961; }

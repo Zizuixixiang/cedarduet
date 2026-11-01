@@ -1707,7 +1707,9 @@ async def human_delete_room(
     room_id: str, request: Request, _body: RoomDeleteBody
 ):
     human_player_id = trusted_human_player(request)
-    deleted_room_id = delete_terminal_room(room_id, human_player_id)
+    deleted_room_id = delete_terminal_room(
+        room_id, human_player_id, spectator_ai_names=spectator_machine_names(request)
+    )
     revision_events.notify(deleted_room_id)
     return {
         "ok": True,
