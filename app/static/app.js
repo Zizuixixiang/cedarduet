@@ -217,7 +217,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.39" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (["mahjong", "uno"].includes(gameType) ? `/static/games/${gameType}.js?v=0.9.29` : null))))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (["mahjong", "uno"].includes(gameType) ? `/static/games/${gameType}.js?v=0.9.29` : null))))
   ));
 }
 

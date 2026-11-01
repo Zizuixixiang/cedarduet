@@ -3,7 +3,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const STYLE_ID = "duel-game-aeroplane-chess-styles";
-  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.11";
+  const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.12";
   const COLORS = ["red", "yellow", "blue", "green"];
   const COLOR_LABELS = {
     red: "红方",
@@ -107,11 +107,11 @@
     );
   }
 
-  // Fan across the route, never along it into the next square. Values are
-  // fractions of a bounded visual spread, independent of the 44px hit target.
+  // A .37-diameter step overlaps 63% along the axis and keeps each face visible.
+  // The stack grows with its count so rear planes keep a visible body.
   function stackOffsets(size) {
     return Array.from({length: size}, (_, index) => (
-      size <= 1 ? 0 : 2 * index / (size - 1) - 1
+      (index - (size - 1) / 2) * .37
     ));
   }
 
@@ -141,12 +141,9 @@
     return rotated.map((value) => Number((value - 50).toFixed(6)));
   }
 
-  // Two planes span 1.20 tokens; larger stacks stay at 1.28, regardless of
-  // count. Only the spacing between planes decreases as the stack grows.
-  function stackPosition(point, direction, offset, size) {
-    const spread = size === 2 ? .1 : .14;
+  function stackPosition(point, direction, offset) {
     return point.map((value, axis) => (
-      `calc(${value}% + min(calc(var(--aeroplane-token-size) * ${spread}), 1.4%) * ${offset} * ${direction[axis]})`
+      `calc(${value}% + var(--aeroplane-token-size) * ${offset} * ${direction[axis]})`
     ));
   }
 
@@ -735,7 +732,7 @@
   function planeGroupAtPoint(groups, x, y) {
     const hits = [];
     groups.forEach((group) => {
-      const discs = group.entries.map(({token, stackIndex}) => {
+      const discs = group.entries.map(({token, stackIndex, stackSize}) => {
         const rect = token.getBoundingClientRect();
         const graphic = token.children[0].getBoundingClientRect();
         const diameter = typeof window.getComputedStyle === "function"
@@ -744,7 +741,7 @@
         return {
           x: rect.x + rect.width / 2, y: rect.y + rect.height / 2,
           radius: (diameter || graphic.width) / 2,
-          order: (token.classList.contains("legal") ? 40 : 8) + stackIndex,
+          order: (stackSize === 1 && token.classList.contains("legal") ? 40 : 8) + stackIndex,
         };
       });
       let left = Math.min(...discs.map((d) => d.x - d.radius));
@@ -758,8 +755,8 @@
       const anchorX = discs.reduce((sum, d) => sum + d.x, 0) / discs.length;
       const anchorY = discs.reduce((sum, d) => sum + d.y, 0) / discs.length;
       if (discs.length > 1) {
-        // Keep the previous stack's hit envelope, even though its visible
-        // discs are closer and its count is gone. This is padding, not paint.
+        // Retain the existing padded target while the visible stack expands.
+        // This envelope is interaction space, not a visible count or disc.
         const diameter = discs[0].radius * 2;
         const direction = group.entries[0].direction;
         const boardWidth = group.entries[0].token.parentElement?.clientWidth || Infinity;
@@ -772,10 +769,18 @@
         const reach = spread + diameter / 2 + 1 + endPadding / 2;
         const tipX = anchorX + direction[0] * reach;
         const tipY = anchorY + direction[1] * reach;
-        left = Math.min(left, anchorX - halfX, tipX - endPadding / 2);
-        right = Math.max(right, anchorX + halfX, tipX + endPadding / 2);
-        top = Math.min(top, anchorY - halfY, tipY - endPadding / 2);
-        bottom = Math.max(bottom, anchorY + halfY, tipY + endPadding / 2);
+        const oldLeft = Math.min(anchorX - halfX, tipX - endPadding / 2);
+        const oldRight = Math.max(anchorX + halfX, tipX + endPadding / 2);
+        const oldTop = Math.min(anchorY - halfY, tipY - endPadding / 2);
+        const oldBottom = Math.max(anchorY + halfY, tipY + endPadding / 2);
+        // Preserve the old 44px target before unioning the wider visible fan.
+        const oldX = (oldLeft + oldRight) / 2, oldY = (oldTop + oldBottom) / 2;
+        const oldHalfWidth = Math.max(18, (oldRight - oldLeft) / 2);
+        const oldHalfHeight = Math.max(18, (oldBottom - oldTop) / 2);
+        left = Math.min(left, oldX - oldHalfWidth);
+        right = Math.max(right, oldX + oldHalfWidth);
+        top = Math.min(top, oldY - oldHalfHeight);
+        bottom = Math.max(bottom, oldY + oldHalfHeight);
       }
       // Four pixels of padding, with a 44px minimum in both dimensions.
       const cx = (left + right) / 2, cy = (top + bottom) / 2;
@@ -854,7 +859,7 @@
       token.dataset.cellKey = entry.groupKey;
       token.style.setProperty("--stack-order", String(entry.stackIndex || 0));
       const position = entry.stackSize > 1
-        ? stackPosition(point, entry.direction, entry.offset, entry.stackSize)
+        ? stackPosition(point, entry.direction, entry.offset)
         : point.map((value) => `${value}%`);
       [token.style.left, token.style.top] = position;
       token.disabled = !legal;

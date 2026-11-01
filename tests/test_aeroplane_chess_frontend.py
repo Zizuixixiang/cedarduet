@@ -86,7 +86,7 @@ class AeroplaneChessFrontendStructureTests(unittest.TestCase):
     def test_stylesheet_is_loaded_idempotently_from_the_renderer(self):
         self.assertIn("function ensureStylesheet(documentRef)", SCRIPT)
         self.assertIn(
-            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.11";',
+            'const STYLE_HREF = "/static/games/aeroplane_chess.css?v=0.2.12";',
             SCRIPT,
         )
         self.assertIn('link.rel = "stylesheet";', SCRIPT)
@@ -502,7 +502,7 @@ function makeContext(viewerId, canMove = true) {
   assert.equal(rotated.board.dataset.viewerRotation, "180");
   assert.equal(styleNodes.size, 1);
   const stylesheet = styleNodes.get("duel-game-aeroplane-chess-styles");
-  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.11");
+  assert.equal(stylesheet.href, "/static/games/aeroplane_chess.css?v=0.2.12");
   assert.equal(stylesheet.dataset.duelGameStyle, "aeroplane_chess");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 ''')
@@ -1170,7 +1170,7 @@ assert.equal(harness.submitted.length,count+1);
 })().catch(error=>{console.error(error);process.exit(1);});
 ''')
 
-    def test_compact_stack_envelope_and_owned_targets_through_six_planes(self):
+    def test_overlapping_stack_faces_and_owned_targets_through_six_planes(self):
         self.run_node(r"""
 (async () => {
 const all = [...state.planes["human-1"], ...state.planes["ai-1"]];
@@ -1180,7 +1180,6 @@ for (const [tokenSize, boardSize] of [[13.14, 310], [15.695, 380], [25.2, 746]])
     .replaceAll("var(--aeroplane-token-size)", String(tokenSize))
     .replace(/([\d.]+)%/g, (_, n) => `(${n} * ${boardSize} / 100)`)
     .replaceAll("px", "").replaceAll("calc(", "(").replaceAll("min(", "Math.min(")}`)(Math);
-  let previousEnvelope = null;
   for (const size of [2, 3, 4, 5, 6]) {
     all.forEach((p, index) => Object.assign(p, {zone: index < size ? "track" : "home", ring_index: 49}));
     const harness = makeContext("human-1", true);
@@ -1194,10 +1193,8 @@ for (const [tokenSize, boardSize] of [[13.14, 310], [15.695, 380], [25.2, 746]])
     assert.ok(tokens.every((n) => +n.dataset.stackSize === size));
     const ys = tokens.map(n => project(n.style.top));
     const envelope = Math.max(...ys) - Math.min(...ys) + tokenSize;
-    assert.ok(Math.abs(envelope / tokenSize - (size === 2 ? 1.2 : 1.28)) < 1e-8);
-    if (size > 3) assert.ok(Math.abs(envelope - previousEnvelope) < 1e-8);
-    previousEnvelope = envelope;
-    for (let i = 1; i < ys.length; i++) assert.ok(ys[i] - ys[i - 1] < tokenSize * .4);
+    assert.ok(Math.abs(envelope / tokenSize - (1 + (size-1)*.37)) < 1e-8);
+    for (let i = 1; i < ys.length; i++) assert.ok(Math.abs(ys[i]-ys[i-1]-tokenSize*.37) < 1e-8);
     const legal = tokens.filter(n => !n.disabled);
     const others = tokens.filter(n => n.dataset.playerId !== "human-1");
     assert.ok(others.every(n => n.disabled && !n.listeners.click));

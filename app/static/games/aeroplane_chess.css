@@ -388,7 +388,7 @@
   width: 44px;
   min-width: 44px;
   min-height: 44px;
-  /* Above every possible 6-player × 4-plane visual stack (non-legal max 31). */
+  /* Single legal planes stay above stacks; stacks use their shared order below. */
   z-index: calc(40 + var(--stack-order, 0));
   cursor: pointer;
   background: transparent;
@@ -455,6 +455,12 @@
 
 .aeroplane-token.last-moved::before {
   box-shadow: 0 0 0 1px #fffdf2, 0 0 0 3px #c88b49;
+}
+
+/* One continuous paint order exposes each plane, including non-legal colours.
+   Pointer/keyboard permissions are handled by the existing group target. */
+.aeroplane-token:not([data-stack-size="1"]) {
+  z-index: calc(8 + var(--stack-order, 0));
 }
 
 /* Stacks retain full-size plane graphics; only the surplus white rim shrinks. */
