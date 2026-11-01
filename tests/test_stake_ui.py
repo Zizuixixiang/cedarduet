@@ -399,7 +399,7 @@ assert.equal(machinePickerSummary([]), "请选择对手");
         )
         self.assertIn("余额可为负", HTML)
         self.assertIn("<h2>待确认</h2>", HTML)
-        self.assertLess(HTML.index('id="pendingPanel"'), HTML.index("我的全部房间"))
+        self.assertLess(HTML.index('id="pendingPanel"'), HTML.index('id="roomList"'))
         pending = function_source("renderPendingInvitations")
         for copy in (
             "待你确认", "等待对方确认", "发起方", "棋种", "stake_label",
@@ -694,7 +694,8 @@ assert.equal(byClass(preview.children[3], "seat-preview-balance"), undefined);
         rooms = function_source("renderRooms")
         self.assertIn('summary.stake_label', rooms)
         self.assertIn('"娱乐局"', rooms)
-        self.assertIn('controls.append(retention, preserve, remove)', rooms)
+        self.assertIn('controls.append(retention, preserve)', rooms)
+        self.assertIn('controls.appendChild(remove)', rooms)
         self.assertIn('preserve.textContent = summary.preserved ? "取消保留" : "保留"', rooms)
         self.assertIn('remove.textContent = "删除对局"', rooms)
         self.assertIn(
@@ -703,7 +704,7 @@ assert.equal(byClass(preview.children[3], "seat-preview-balance"), undefined);
         self.assertNotIn(".room-retention { width: 100%;", STYLES)
 
     def test_readability_hierarchy_is_larger_without_touching_timeline_branches(self):
-        self.assertIn(".room-title { display: block; color: var(--purple-darker); font-size: 14px; }", STYLES)
+        self.assertIn(".room-title { display: block; color: var(--purple-darker); font-size: 14px; font-weight: 400; }", STYLES)
         self.assertIn(".player-name { max-width: 132px; padding: 6px 8px; font-size: 12px; }", STYLES)
         self.assertIn("timelineEventKind", SCRIPT)
         self.assertIn('if (eventKind === "chat")', SCRIPT)

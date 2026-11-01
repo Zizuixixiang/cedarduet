@@ -283,6 +283,7 @@ class GuandanMcpTests(unittest.IsolatedAsyncioTestCase):
         )[0]
         moved = await self.client.post(
             f"/api/rooms/{self.room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={
                 "player_id": "human-1",
                 "move": {"action": "act", "action_id": human_legal["action_id"]},

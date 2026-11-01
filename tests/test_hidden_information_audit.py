@@ -1,3 +1,5 @@
+import json
+import random
 from copy import deepcopy
 import unittest
 
@@ -25,6 +27,9 @@ FULL_TERMINAL_REVIEW_REASONS = {
 }
 
 RULE_SCOPED_REVEAL_REASONS = {
+    "four_color_tenhu": "exposed melds/discards/offers and rule-scoped winning/scoring cards are public; other concealed cards and unrevealed wall stay private at terminal",
+    "four_color_jiuzhi": "exposed melds/discards/offers and rule-scoped winning/scoring cards are public; other concealed cards and unrevealed wall stay private at terminal",
+    "four_color_qunhu": "exposed melds/discards/offers and rule-scoped winning/scoring cards are public; other concealed cards and unrevealed wall stay private at terminal",
     "carcassonne": "placed/current terrain is public; the server deck order stays hidden even after resignation or terminal scoring",
     "monopoly": "cash, assets and revealed events are public; future decks, internal continuations and held jail-card sources stay hidden even at terminal",
     "monopoly_plus": "cash, assets, bets, loans and revealed events are public; held item cards show only a count and, like future decks and bus tickets order, stay hidden even at terminal",
@@ -85,6 +90,36 @@ class HiddenInformationCatalogAuditTests(unittest.TestCase):
                     type(GAMES[game_type]).terminal_public_state,
                     GamePlugin.terminal_public_state,
                 )
+
+    def test_four_color_departure_does_not_reveal_hands_or_future_draws(self):
+        for name in ("four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"):
+            game = type(GAMES[name])(random.Random(37))
+            participants = [{"player_id": f"audit-{i}", "role": "human"}
+                            for i in range(game.min_players)]
+            initial = game.initialize(participants)
+            terminal = deepcopy(initial)
+            game.apply_resignation(terminal, participants[0]["player_id"], participants)
+            for state, finished in ((initial, False), (terminal, True)):
+                with self.subTest(game=name, terminal=finished):
+                    before = deepcopy(state)
+                    public = (game.terminal_public_state if finished else game.public_state)(state, participants)
+                    self.assertNotIn("hands", public)
+                    self.assertNotIn("wall", public)
+                    self.assertNotIn("reserve", public)
+                    for viewer in participants:
+                        pid = viewer["player_id"]
+                        private = game.private_state(state, viewer, participants)
+                        self.assertEqual({c["id"] for c in private["hand"]}, set(state["hands"][pid]))
+                        encoded = json.dumps({"public": public, "private": private})
+                        secrets = list(state["wall"]) + list(state.get("reserve", []))
+                        for other, hand in state["hands"].items():
+                            if other != pid:
+                                secrets += hand + sum(state.get("closed_pairs", {}).get(other, []), [])
+                        for card in secrets:
+                            self.assertNotIn(json.dumps(card), encoded)
+                        if finished:
+                            self.assertEqual(private["legal_actions"], [])
+                    self.assertEqual(state, before)
 
     def test_monopoly_terminal_and_viewer_projections_keep_future_information_hidden(self):
         game = GAMES["monopoly"]

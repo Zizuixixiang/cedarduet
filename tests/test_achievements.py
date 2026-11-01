@@ -840,6 +840,7 @@ class AchievementApiTests(unittest.IsolatedAsyncioTestCase):
             )
         response = await self.client.post(
             f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "api-human"},
             json={"player_id": "api-human", "move": {"row": 0, "col": 2}},
         )
         self.assertEqual(response.status_code, 200, response.text)

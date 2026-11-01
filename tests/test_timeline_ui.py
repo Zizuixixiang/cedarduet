@@ -101,11 +101,16 @@ let room = {{
   preserved: false,
   auto_delete_at: "2026-09-07T00:00:00+08:00",
 }};
+let roomListScope = "mine";
+let roomSyncGeneration = 0;
+const retentionRequests = new Set();
+const deletionRequests = new Set();
+const syncSpectatorRetentionControls = () => {{}};
 let shouldFail = true;
 let requested = null;
 const elements = {{
   roomRetentionStatus: {{textContent: "", title: ""}},
-  togglePreserveButton: {{textContent: "", disabled: false}},
+  togglePreserveButton: {{textContent: "", disabled: false, removeAttribute() {{}}}},
   resultPreserveCheckbox: {{checked: false, disabled: false}},
   resultRetentionHint: {{textContent: ""}},
   resultModalMessage: {{textContent: ""}},
@@ -485,9 +490,9 @@ assert.equal(elements.selectionHint.textContent, "对局已结束");
 assert.equal(elements.confirmMoveButton.classList.contains("ready-to-submit"), false);
 assert.doesNotMatch(elements.selectionHint.textContent, /等待|轮到/);
 room = {{status: "archived", turn: "ai", ai_player_id: "ai-1"}};
-assert.equal(roomTurnText(room), "对局已归档");
+assert.equal(roomTurnText(room), "对局已结束");
 updateMoveConfirmation();
-assert.equal(elements.selectionHint.textContent, "对局已归档");
+assert.equal(elements.selectionHint.textContent, "对局已结束");
 assert.equal(elements.confirmMoveButton.classList.contains("ready-to-submit"), false);
 assert.doesNotMatch(elements.selectionHint.textContent, /等待|轮到/);
 """

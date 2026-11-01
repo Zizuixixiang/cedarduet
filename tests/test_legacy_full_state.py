@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from app import database, framework, full_state, main
 from app.games import GAMES
-from tests.full_state_support import LEGACY, choose
+from tests.full_state_support import LEGACY, choose, isolated_scenario_database
 from tests import test_mcp_compact as compact
 
 
@@ -39,7 +39,7 @@ class LegacyFullStateTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_25_safe_information_and_submit_ready_actions(self):
         self.assertEqual(set(LEGACY), full_state.LEGACY_GAMES)
         for name in LEGACY:
-            with self.subTest(game=name):
+            with self.subTest(game=name), isolated_scenario_database():
                 game = GAMES[name]
                 if hasattr(game, '_rng'):
                     rng_patch = patch.object(game, '_rng', random.Random(37))

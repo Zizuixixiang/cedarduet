@@ -11,6 +11,7 @@ from tests.doudizhu_junqi_compact_support import (
     doudizhu_cases, junqi_cases, junqi_position, seats,
 )
 from tests import test_legacy_full_state as legacy
+from tests.full_state_support import isolated_scenario_database
 
 
 def moves_from_documented_examples(move_format, private):
@@ -164,7 +165,7 @@ class CompactHttpTests(unittest.IsolatedAsyncioTestCase):
         fixtures = [('doudizhu', name, state) for name, state in doudizhu_cases(2)]
         fixtures += [('junqi', name, state) for name, state in junqi_cases()]
         for game_name, position, state in fixtures:
-            with self.subTest(game=game_name, position=position):
+            with self.subTest(game=game_name, position=position), isolated_scenario_database():
                 game = GAMES[game_name]
                 room = self.replace(self.room(game_name), state, 'p0')
                 boot = await self.call(room, action='state')

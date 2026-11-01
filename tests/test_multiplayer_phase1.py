@@ -257,7 +257,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 31)
+        self.assertEqual(len(production), 34)
         self.assertEqual(production["rummikub"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(production["rummikub"]["category"], "tabletop")
         self.assertFalse(production["rummikub"]["supports_stakes"])
@@ -1232,6 +1232,7 @@ class MultiplayerApiTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.02)
             sent = await self.client.post(
                 f"/api/rooms/{room_id}/messages",
+                headers={"X-Duel-Human-Player": "human-1"},
                 json={"player_id": "human-1", "message": "大家可见"},
             )
             self.assertEqual(sent.status_code, 200, sent.text)

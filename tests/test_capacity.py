@@ -77,13 +77,23 @@ class CapacityFrameworkTests(unittest.TestCase):
             "X",
         )
 
+        # Human creation avoids masking the pair join boundary with the
+        # separate account creation quota.
         eleventh = framework.create_room(
-            "tictactoe", "human_first", "ai", "ai-join-pair"
+            "tictactoe", "human_first", "human", "human-join-pair"
         )
         with self.assertRaisesRegex(framework.DuelError, "已有 10 个活跃房间"):
             framework.join_room(
-                eleventh["room_id"], "human", "human-join-pair"
+                eleventh["room_id"], "ai", "ai-join-pair"
             )
+
+    def test_ai_account_cannot_create_eleventh_active_room(self):
+        for _ in range(10):
+            framework.create_room("tictactoe", "ai_first", "ai", "ai-owner")
+        with self.assertRaisesRegex(framework.DuelError, "当前账号已有 10 个活跃房间"):
+            framework.create_room("tictactoe", "ai_first", "ai", "ai-owner")
+        independent = framework.create_room("tictactoe", "ai_first", "ai", "ai-other")
+        self.assertEqual(independent["status"], "waiting")
 
     def test_ten_pair_rooms_still_allow_creating_and_joining_multiplayer_rooms(self):
         human_id = "human-multiplayer-after-limit"
@@ -499,6 +509,7 @@ class WaitCapacityApiTests(unittest.IsolatedAsyncioTestCase):
 
         human_move = await self.client.post(
             f"/api/rooms/{first_room}/move",
+            headers={"X-Duel-Human-Player": "human-wait-1"},
             json={"player_id": "human-wait-1", "row": 1, "col": 0},
         )
         self.assertEqual(human_move.status_code, 200)

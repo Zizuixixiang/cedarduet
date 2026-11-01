@@ -907,7 +907,7 @@ class NotificationFrontendTests(unittest.TestCase):
             "body: JSON.stringify({notification_ids: uniqueIds})", app_js
         )
         self.assertIn('await ackHumanNotifications("game", roomId)', app_js)
-        self.assertIn("if (!quiet || visibleStateChanged)", app_js)
+        self.assertIn("if (!data.room.spectating && (!quiet || visibleStateChanged))", app_js)
         self.assertIn("if (!identity) return", app_js)
         self.assertIn("if (document.hidden)", app_js)
         self.assertIn("if (!summary) return false", chips_js)
@@ -1011,6 +1011,8 @@ let latestUnreadRevision = -1;
 let latestUnreadSummary = null;
 let notificationHistory = [];
 let notificationRefreshRequest = 0;
+let unreadRefreshInFlight = false;
+let readRetryAt = 0;
 let notificationHistoryError = "";
 let notificationModalOpenedManually = false;
 const pendingNotificationIdAcks = new Map();

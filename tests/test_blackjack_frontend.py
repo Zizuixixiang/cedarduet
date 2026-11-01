@@ -27,7 +27,7 @@ class BlackjackFrontendTests(unittest.TestCase):
         self.assertIn("getElementById(STYLE_ID)", RENDERER)
         self.assertNotIn("renderBlackjack", APP)
         self.assertNotIn('"blackjack"', APP)
-        self.assertIn("registry.load(gameType)", APP)
+        self.assertIn("registry.load(gameType,", APP)
         self.assertIn("loadCatalogGameRenderers", APP)
         self.assertNotIn("/static/games/blackjack.js", HTML)
         self.assertNotIn("/static/games/blackjack.css", HTML)

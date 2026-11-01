@@ -66,6 +66,7 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         room_id = await self.new_room("web", mode="human_first")
         response = await self.client.post(
             f"/api/rooms/{room_id}/move",
+            headers={"X-Duel-Human-Player": "human-web"},
             json={
                 "player_id": "human-web",
                 "move": '{"row":1,"col":1}',
@@ -93,6 +94,7 @@ class StringFieldCompatibilityTests(unittest.IsolatedAsyncioTestCase):
 
         human = await self.client.post(
             f"/api/rooms/{room_id}/move",
+            headers={"X-Duel-Human-Player": "human-wait"},
             json={
                 "player_id": "human-wait",
                 "move": {"row": 1, "col": 0},

@@ -6,7 +6,7 @@ from unittest.mock import patch
 from app import framework, full_state
 from app.games import GAMES
 from tests import test_legacy_full_state as legacy
-from tests.full_state_support import LEGACY, choose
+from tests.full_state_support import LEGACY, choose, isolated_scenario_database
 
 
 # Every field omitted by the previous app/full_state.py, recorded independently
@@ -70,7 +70,7 @@ class FullStateCompletenessTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_previous_deletion_restored_for_each_viewer_midgame(self):
         self.assertEqual(full_state.STATIC_FIELDS, {}, 'Any new omission needs a tested repeatable query contract')
         for name in sorted(LEGACY):
-            with self.subTest(game=name):
+            with self.subTest(game=name), isolated_scenario_database():
                 room = await self.midgame(name)
                 for player in room['participants']:
                     if player['role'] != 'ai':

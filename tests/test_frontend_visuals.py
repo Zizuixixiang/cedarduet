@@ -1144,7 +1144,7 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn('id="moveConfirm" class="move-confirm"', HTML)
         self.assertIn('<option value="dice">骰</option>', HTML)
         self.assertIn(
-            'return "本轮已结算 · 等待你确认下一轮"',
+            '"本轮已结算 · 等待你确认下一轮"',
             function_source("roomTurnText"),
         )
 
@@ -1158,6 +1158,8 @@ class BoardPollingRenderTests(unittest.TestCase):
             function_source("syncMoveConfirmationVisibility"),
             function_source("roomActionNotice"),
             function_source("isInviteWaiting"),
+            function_source("viewerPlayerIdFor"),
+            function_source("renderSpectatorPerspective"),
             function_source("renderGame"),
         ))
         harness = f"""
@@ -1182,6 +1184,7 @@ class Element {{
   }}
   replaceChildren(...children) {{ this.children = children; }}
   setAttribute() {{}}
+  removeAttribute() {{}}
 }}
 const elements = {{board: new Element(), timeline: new Element()}};
 const $ = (id) => elements[id] || (elements[id] = new Element());
@@ -1862,6 +1865,7 @@ assert.equal(oBoard.children.every((cell) => cell.disabled), true);
 
     def test_two_through_six_players_apply_stable_layout_classes(self):
         functions = "\n".join((
+            function_source("isFourColorGame"),
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
             function_source("participantPresentationFor"),
@@ -2273,6 +2277,7 @@ assert.match(pendingRoomCreatedNotice(null), /^房间创建成功。等待参与
         helpers = "\n".join((
             function_source("pendingConfirmationDetails"),
             function_source("pendingConfirmationText"),
+            function_source("selectedGameType"),
             function_source("pendingRoomCreatedNotice"),
         ))
         start = SCRIPT.index("async function createRoom(")
@@ -2345,7 +2350,7 @@ const startRoomPolling = () => {{}};
             function_source("pendingConfirmationDetails"),
             function_source("pendingConfirmationText"),
         ))
-        renderer = function_source("renderRooms")
+        renderer = function_source("appendRoomTextUnits") + "\n" + function_source("renderRooms")
         harness = f"""
 const assert = require("node:assert/strict");
 class Element {{
@@ -2355,6 +2360,7 @@ class Element {{
     this.className = "";
     this.textContent = "";
     this.attributes = {{}};
+    this.dataset = {{}};
   }}
   replaceChildren(...children) {{ this.children = children; }}
   appendChild(child) {{ this.children.push(child); return child; }}
@@ -2364,7 +2370,7 @@ class Element {{
 }}
 const list = new Element("div");
 const $ = (id) => id === "roomList" ? list : null;
-const document = {{createElement: (tagName) => new Element(tagName)}};
+const document = {{createElement: (tagName) => new Element(tagName), createTextNode: (text) => ({{textContent: text}})}};
 const GAME_GLYPHS = {{gomoku: "五"}};
 const statusLabel = (status) => ({{
   pending: "待确认", waiting: "等待加入", playing: "对局中",
@@ -2376,6 +2382,7 @@ const isTerminal = (room) => ["finished", "archived"].includes(room.status);
 const retentionTextFor = () => "7 天后自动删除";
 const retentionDeadlineTitle = () => "";
 const updateRoomPreservation = () => {{}};
+const syncSpectatorRetentionControls = () => {{}};
 const deleteRoom = () => {{}};
 const openRoom = () => {{}};
 {helpers}
@@ -2400,8 +2407,11 @@ renderRooms([
     ],
   }},
 ]);
-assert.equal(list.children.length, 4);
-const [endedCard, playingCard, waitingCard, pendingCard] = list.children;
+const cards = list.children.filter((child) => child.className.split(" ").includes("room-card"));
+assert.equal(cards.length, 4);
+const headings = list.children.filter((child) => child.className.includes("room-group-heading"));
+assert.deepEqual(headings.map((child) => child.textContent), ["当前对局", "历史对局"]);
+const [endedCard, playingCard, waitingCard, pendingCard] = cards;
 assert.equal(endedCard.className, "room-card ended");
 assert.equal(playingCard.className, "room-card");
 assert.equal(waitingCard.className, "room-card");
@@ -2856,6 +2866,11 @@ for (const count of [3, 4, 5, 6]) {{
         functions = "\n".join((
             function_source("allowedPlayerCountsForGame"),
             function_source("gamePlayerCountLabel"),
+            function_source("gameOptionLabel"),
+            function_source("isFourColorGame"),
+            function_source("selectedGameType"),
+            function_source("registeredGameUIRenderer"),
+            function_source("renderGameRulePicker"),
             function_source("gameCategoryLabel"),
             function_source("gameCategoryFor"),
             function_source("compareGamePlayerCounts"),
@@ -2882,6 +2897,7 @@ class Select {{
     this.value = value;
     this.disabled = false;
     this.dispatchedEvents = [];
+    this.dataset = {{}};
   }}
   get options() {{ return this.children; }}
   replaceChildren() {{ this.children = []; this.value = ""; }}
@@ -2894,7 +2910,8 @@ class Select {{
 const categorySelect = new Select("board");
 const gameSelect = new Select("othello");
 const gameTokenEstimate = {{textContent: ""}};
-const document = {{createElement: () => new Option()}};
+const window = {{}};
+const document = {{createElement: () => new Option(), getElementById: () => null}};
 const elements = {{gameCategory: categorySelect, gameType: gameSelect, gameTokenEstimate}};
 const $ = (id) => elements[id];
 {functions}
@@ -3018,7 +3035,7 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
             "grid-template-columns: minmax(68px, .38fr) minmax(0, 1.62fr)",
             game_type_styles,
         )
-        self.assertEqual(STYLES.count(".game-type-selects {"), 1)
+        self.assertEqual(len(re.findall(r"(?m)^\.game-type-selects \{", STYLES)), 1)
         loader = function_source("loadIdentity")
         self.assertIn("syncGameTypeOptions(data.games || [], {preserveSelection: !initialIdentityLoad})", loader)
         self.assertLess(
@@ -3034,7 +3051,7 @@ assert.deepEqual(gameSelect.dispatchedEvents, ["change"]);
         self.assertIn("configureParticipantPicker();", SCRIPT)
 
     def test_empty_game_category_disables_creation_safely(self):
-        update_state = function_source("updateCreateButtonState")
+        update_state = function_source("selectedGameType") + "\n" + function_source("updateCreateButtonState")
         harness = f"""
 const assert = require("node:assert/strict");
 let identity = {{bound: true}};
@@ -3134,6 +3151,7 @@ assert.ok(renderCount >= 3);
 
     def test_roster_marks_current_actor_and_keeps_game_values_compact(self):
         functions = "\n".join((
+            function_source("isFourColorGame"),
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
             function_source("participantPresentationFor"),
@@ -3252,6 +3270,7 @@ for (const presentation of ["embedded", "board-edge"]) {{
 
     def test_three_through_six_player_rosters_never_duplicate_viewer(self):
         functions = "\n".join((
+            function_source("isFourColorGame"),
             function_source("actualPlayerCount"),
             function_source("isMultiplayerRoom"),
             function_source("participantPresentationFor"),

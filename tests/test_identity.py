@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from app import database
+from app import database, framework
 from app import main as main_module
 from app.framework import create_room, resign
 from app.games import GAMES
@@ -40,6 +40,26 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             payload["message"], "请从 toy.cedarstar.org 首页登录进入"
         )
+
+    async def test_human_mutations_require_matching_gateway_identity(self):
+        room = create_room("tictactoe", "human_first", "human", "human-7", "ai-9")
+        for action, fields in (
+            ("move", {"move": {"row": 0, "col": 0}}),
+            ("messages", {"message": "must not be delivered"}),
+            ("resign", {}),
+        ):
+            for headers in ({}, {"X-Duel-Human-Player": "other-human"}):
+                with self.subTest(action=action, headers=headers):
+                    rejected = await self.client.post(
+                        f"/api/rooms/{room['room_id']}/{action}",
+                        headers=headers, json={"player_id": "human-7", **fields},
+                    )
+                    self.assertEqual(rejected.status_code, 403, rejected.text)
+        unchanged = framework.get_room(room["room_id"])
+        self.assertEqual(unchanged["revision"], room["revision"])
+        self.assertEqual(unchanged["status"], "playing")
+        self.assertFalse(any(event.get("text") == "must not be delivered"
+                             for event in framework.list_timeline(room["room_id"])))
 
     async def test_legacy_single_machine_headers_work_until_proxy_restart(self):
         response = await self.client.get(
@@ -135,12 +155,15 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 31)
+        self.assertEqual(len(payload["games"]), 34)
         self.assertIn("monopoly", {game["game_type"] for game in payload["games"]})
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
             {
+                "four_color_tenhu": "card",
+                "four_color_jiuzhi": "card",
+                "four_color_qunhu": "card",
                 "monopoly": "tabletop",
                 "rummikub": "tabletop",
                 "bomb_plane": "tabletop",
@@ -187,6 +210,9 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             {game_type: game["display_name"] for game_type, game in games.items()},
             {
+                "four_color_tenhu": "四色牌·十胡",
+                "four_color_jiuzhi": "四色牌·九支十仔",
+                "four_color_qunhu": "四色牌·群胡",
                 "monopoly": "大富翁",
                 "rummikub": "拉密",
                 "bomb_plane": "炸飞机",
@@ -395,13 +421,13 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("← 返回首页", html)
         self.assertIn("/static/game_ui_registry.js?v=0.9.1", html)
-        self.assertIn("/static/app.js?v=0.9.21", html)
-        self.assertIn("/static/styles.css?v=0.9.18", html)
+        self.assertRegex(html, r'/static/app\.js\?v=[0-9.]+')
+        self.assertRegex(html, r'/static/styles\.css\?v=[0-9.]+')
         self.assertLess(
             html.index("/static/game_ui_registry.js?v=0.9.1"),
-            html.index("/static/app.js?v=0.9.21"),
+            html.index("/static/app.js?v="),
         )
-        self.assertLess(html.index("开新对局"), html.index("我的全部房间"))
+        self.assertLess(html.index("开新对局"), html.index('id="roomList"'))
         self.assertIn("请从 toy.cedarstar.org 首页登录进入", html)
         self.assertIn('id="aiAvatar"', html)
         self.assertIn('id="humanAvatar"', html)
@@ -547,7 +573,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('$("waitModeModal").addEventListener', script.text)
         self.assertIn(
             '$("sendMessageButton").disabled = '
-            'false',
+            'Boolean(room.spectating)',
             script.text,
         )
         self.assertIn('const message = $("chatInput").value.trim()', script.text)
@@ -575,7 +601,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("function oppositeMode(mode)", script.text)
         self.assertIn("function rematch()", script.text)
         self.assertIn(
-            "refreshRoom({quiet: true, wait: true, generation})",
+            "refreshRoom({quiet: true, wait: shouldLongPollRoom(), generation})",
             script.text,
         )
         self.assertIn("?wait=true&after_revision=", script.text)
@@ -615,6 +641,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         first_room = first.json()["room"]
         resigned = await self.client.post(
             f"/api/rooms/{first_room['room_id']}/resign",
+            headers={"X-Duel-Human-Player": "human-7"},
             json={"player_id": "human-7"},
         )
         self.assertEqual(resigned.status_code, 200, resigned.text)

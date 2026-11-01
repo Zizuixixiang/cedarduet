@@ -296,6 +296,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         human_move = {"row": 1, "col": 1}
         human = await self.client.post(
             f"/api/rooms/{room_id}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={"player_id": "human-1", "move": human_move, "message": "守中。"},
         )
         self.assertEqual(human.status_code, 200, human.text)
@@ -534,6 +535,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(moved.status_code, 200, moved.text)
         sent = await self.client.post(
             f"/api/rooms/{room_id}/messages",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={"player_id": "human-1", "message": "仍在思考。"},
         )
         self.assertEqual(sent.status_code, 200, sent.text)
@@ -557,6 +559,7 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
 
         human = await self.client.post(
             f"/api/rooms/{room_id}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={
                 "player_id": "human-1",
                 "move": {"row": 1, "col": 1},

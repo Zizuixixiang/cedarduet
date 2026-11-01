@@ -156,9 +156,15 @@ class FullStateCompleteness(unittest.IsolatedAsyncioTestCase):
             roles={j:r for m,k in zip(b['melds'],b['meld_kinds']) for j,r in meld_info(m,k)['joker_roles'].items()}
         self.assertEqual(roles,b['joker_roles'])
         visible=json.dumps(s)
-        for owner,hand in raw['hands'].items():
-            if owner!=pid:
-                for tid in hand:self.assertNotIn(json.dumps(tid),visible)
+        if s['status'] in ('finished', 'archived'):
+            self.assertEqual(b['terminal_hands'], {
+                owner: [TILES[tid] for tid in hand] for owner, hand in raw['hands'].items()
+            })
+        else:
+            self.assertNotIn('terminal_hands', b)
+            for owner,hand in raw['hands'].items():
+                if owner!=pid:
+                    for tid in hand:self.assertNotIn(json.dumps(tid),visible)
         for tid in raw['pool']:self.assertNotIn(json.dumps(tid),visible)
 
     async def test_plane_geometry_all_directions_shots_setup_and_terminal(self):

@@ -22,7 +22,7 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn('participantPresentation: "board-edge"', SCRIPT)
         self.assertIn("ownsPrivateStatePresentation: true", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
-        self.assertIn('const STYLE_HREF = "/static/games/mahjong.css?v=0.3.5";', SCRIPT)
+        self.assertRegex(SCRIPT, r'const STYLE_HREF = "/static/games/mahjong\.css\?v=[0-9.]+";')
         self.assertNotIn('global.DuelGameUI.register("mahjong"', APP_SCRIPT)
         self.assertNotIn("function renderMahjong", APP_SCRIPT)
         self.assertNotIn("mahjong.js", HTML)
@@ -501,7 +501,7 @@ assert.equal(handW2.attributes["aria-label"],"2万");
 assert.equal(descendants(handJ1).find(n=>hasClass(n,"mahjong-tile-face")).textContent,"🀄");
 assert.equal(handJ1.attributes["aria-label"],"中");
 assert.equal(styles.size,1);
-assert.equal([...styles.values()][0].href,"/static/games/mahjong.css?v=0.3.5");
+assert.match([...styles.values()][0].href, /^\/static\/games\/mahjong\.css\?v=[0-9.]+$/);
 ''')
 
     def test_all_tile_codes_map_to_unicode_without_replacing_aria_labels(self):

@@ -29,7 +29,10 @@ class UnoFrontendContractTests(unittest.TestCase):
         self.assertIn("terminal_hands", SCRIPT)
         self.assertIn(".uno-terminal-cards", STYLES)
         self.assertNotIn('window.DuelGameUI.register("uno"', APP_SCRIPT)
-        self.assertNotIn("uno", PUBLIC_STYLES.lower())
+        # Shared accessibility/layout overrides may target UNO, but card art
+        # and the renderer's dedicated stylesheet remain independently loaded.
+        self.assertNotIn(".uno-card {", PUBLIC_STYLES)
+        self.assertNotIn("uno.css", PUBLIC_STYLES)
         self.assertNotIn("/static/games/uno.js", HTML)
         self.assertNotIn("uno.css", HTML)
 

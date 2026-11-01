@@ -14,6 +14,7 @@ from app.games.monopoly import Monopoly
 from app.games.rummikub import Rummikub, meld_info
 from app.games.bomb_plane import BombPlane
 from app.games.carcassonne import Carcassonne
+from tests.full_state_support import isolated_scenario_database
 
 
 class FourGameIncremental(unittest.IsolatedAsyncioTestCase):
@@ -230,19 +231,20 @@ class FourGameIncremental(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_full_state_unknown_context_bootstraps_once(self):
         for name,n in [('monopoly',4),('rummikub',4),('bomb_plane',2),('carcassonne',5)]:
             for version in (None,1,999):
-                room=self.room(name,n)
-                if version is not None:
-                    with database.write_transaction() as conn:
-                        conn.execute('INSERT INTO mcp_minimal_contexts VALUES(?,?,?)',
-                                     (room['room_id'],'p0',json.dumps({'v':version})))
-                reply=await self.call(room,action='state',full_state=True)
-                self.assertTrue(reply['bootstrap']); self.assertEqual(reply['protocol'],2)
-                self.assertIn('protocol_guide',reply); self.assertIn('rules_text',reply['room'])
-                self.assertNotIn('events',reply)
-                full=await self.call(room,action='state',full_state=True)
-                self.assertTrue(full['full_state']); self.assertNotIn('bootstrap',full)
-                self.assertNotIn('protocol_guide',full)
-                self.assertNotIn('events',await self.call(room,action='state'))
+                with self.subTest(game=name, version=version), isolated_scenario_database():
+                    room=self.room(name,n)
+                    if version is not None:
+                        with database.write_transaction() as conn:
+                            conn.execute('INSERT INTO mcp_minimal_contexts VALUES(?,?,?)',
+                                         (room['room_id'],'p0',json.dumps({'v':version})))
+                    reply=await self.call(room,action='state',full_state=True)
+                    self.assertTrue(reply['bootstrap']); self.assertEqual(reply['protocol'],2)
+                    self.assertIn('protocol_guide',reply); self.assertIn('rules_text',reply['room'])
+                    self.assertNotIn('events',reply)
+                    full=await self.call(room,action='state',full_state=True)
+                    self.assertTrue(full['full_state']); self.assertNotIn('bootstrap',full)
+                    self.assertNotIn('protocol_guide',full)
+                    self.assertNotIn('events',await self.call(room,action='state'))
 
     async def test_full_state_preserves_unread_text_without_replaying_actions(self):
         for name in ('monopoly','rummikub','bomb_plane','carcassonne'):

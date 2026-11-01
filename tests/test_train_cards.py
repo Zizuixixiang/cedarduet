@@ -583,6 +583,7 @@ class TrainCardsMcpTests(unittest.IsolatedAsyncioTestCase):
 
         human_move = await self.client.post(
             f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-train"},
             json={
                 "player_id": "human-train",
                 "move": {"action": "flip"},

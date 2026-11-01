@@ -4,7 +4,7 @@ from unittest.mock import patch
 from app import database, framework, invites
 from app.games import GAMES
 from tests import test_legacy_full_state as legacy
-from tests.full_state_support import choose
+from tests.full_state_support import choose, isolated_scenario_database
 
 
 def nodes(value, path=()):
@@ -25,7 +25,7 @@ class MergeFullStateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recursive_privacy_all_29_after_discarding_bootstrap(self):
         for name in sorted(GAMES):
-            with self.subTest(game=name):
+            with self.subTest(game=name), isolated_scenario_database():
                 room = self.room(name, 4 if name=='blackjack' else None)
                 for p in room['participants']:
                     if p['role']=='ai':

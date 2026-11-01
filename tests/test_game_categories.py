@@ -17,7 +17,7 @@ class GameCategoryTests(unittest.TestCase):
             'board': {'aeroplane_chess', 'banqi', 'checkers', 'chess', 'chinese_checkers',
                       'connect4', 'dots_boxes', 'go', 'gomoku', 'jungle', 'junqi',
                       'othello', 'tictactoe', 'xiangqi'},
-            'card': {'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
+            'card': {'four_color_tenhu', 'four_color_jiuzhi', 'four_color_qunhu', 'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
                      'texas_holdem', 'train_cards', 'uno', 'zhajinhua'},
             'dice': {'liars_dice', 'yahtzee'},
             'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne', 'gem_merchant', 'monopoly_plus'},

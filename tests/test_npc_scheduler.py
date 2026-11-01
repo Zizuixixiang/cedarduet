@@ -60,6 +60,7 @@ class BlockingProvider(DeterministicProvider):
 
 class NpcVisibleActionPacingTests(unittest.IsolatedAsyncioTestCase):
     SUPPORTED_NPC_GAME_TYPES = {
+        "four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu",
         "aeroplane_chess",
         "banqi",
         "blackjack",
@@ -471,6 +472,7 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         room = self.create_room()
         human_move = await self.client.post(
             f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={
                 "player_id": "human-1",
                 "revision": 0,
@@ -523,6 +525,7 @@ class NpcHttpRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         )
         response = await self.client.post(
             f"/api/rooms/{room['room_id']}/move",
+            headers={"X-Duel-Human-Player": "human-1"},
             json={
                 "player_id": "human-1",
                 "revision": 0,

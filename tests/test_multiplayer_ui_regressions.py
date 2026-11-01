@@ -43,8 +43,8 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         self.assertIn("max-height: min(164px, 35dvh);", menu)
         self.assertIn("font-family: system-ui, sans-serif;", menu)
         desktop = STYLES[STYLES.index("@media (min-width: 1024px)"):]
-        self.assertIn("height: auto;", css_rule(desktop, ".multiplayer-presentation .recent-chat-feed"))
-        rail = css_rule(desktop, ".multiplayer-presentation .game-chat-area")
+        self.assertIn("height: auto;", css_rule(desktop, ".battle-stage .recent-chat-feed"))
+        rail = css_rule(desktop, ".battle-stage .game-chat-area")
         self.assertIn("align-self: stretch;", rail)
         self.assertIn("contain: size;", rail)
         self.assertIn("grid-template-rows: minmax(0, 1fr) auto auto;", rail)
@@ -54,7 +54,7 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         recent_speech = APP_SCRIPT[APP_SCRIPT.index("function recentSpeechEvents"):APP_SCRIPT.index("function timelineSpeakerName")]
         self.assertNotIn(".slice(", recent_speech)
 
-    def test_desktop_chat_rail_is_multiplayer_only_at_every_width(self):
+    def test_desktop_chat_rail_is_shared_and_mobile_remains_contained(self):
         desktop_start = STYLES.index("@media (min-width: 1024px)")
         wide_start = STYLES.index("@media (min-width: 1280px)", desktop_start)
         desktop_end = wide_start
@@ -68,15 +68,15 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
             HTML.index('class="battle-main-column"'),
             HTML.index('id="gameChatArea"'),
         )
-        self.assertIn(".battle-stage.multiplayer-presentation {", desktop)
+        self.assertIn(".game-view > .battle-stage {", desktop)
         self.assertIn(
             "grid-template-columns: minmax(0, 1fr) "
             "clamp(240px, 23vw, 300px);",
             desktop,
         )
-        self.assertIn(".multiplayer-presentation .game-chat-area {", desktop)
+        self.assertIn(".battle-stage .game-chat-area {", desktop)
         self.assertIn("grid-column: 2;", desktop)
-        self.assertIn(".battle-stage.multiplayer-presentation {", wide)
+        self.assertIn(".game-view > .battle-stage {", wide)
         self.assertIn(
             "grid-template-columns: minmax(0, 1fr) "
             "clamp(280px, 22vw, 320px);",
@@ -93,7 +93,7 @@ class MultiplayerUiRegressionTests(unittest.TestCase):
         ]
         self.assertTrue(mobile_chat_selectors)
         for selector in mobile_chat_selectors:
-            self.assertIn(".multiplayer-presentation", selector)
+            self.assertRegex(selector, r"\.(?:multiplayer-presentation|game-view)\b")
 
         render_recent = APP_SCRIPT[
             APP_SCRIPT.index("function renderRecentChat") :

@@ -1,5 +1,21 @@
 """Deterministic, snapshot-only action chooser for resync acceptance tests."""
 from copy import deepcopy
+from contextlib import contextmanager
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
+
+from app import database
+
+
+@contextmanager
+def isolated_scenario_database():
+    """Keep independent matrix scenarios from consuming each other's room quota."""
+    with tempfile.TemporaryDirectory(prefix="duel-scenario-") as temporary:
+        with patch.object(database, "DB_PATH", Path(temporary) / "test.db"):
+            database.init_db()
+            yield
+
 
 LEGACY = '''aeroplane_chess banqi blackjack tictactoe texas_holdem train_cards
 gomoku go gandengyan guandan othello connect4 checkers chess chinese_checkers
