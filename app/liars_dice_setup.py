@@ -59,14 +59,14 @@ def remember_profiles(room, profiles):
     """Only server-authenticated display metadata; never accepts seat assignments."""
     from . import framework as f
     from .database import write_transaction, decode_room
-    if not is_selecting(room):
+    if not has_selection(room) or room.get("status") not in {"pending", "waiting"}:
         return room
     with write_transaction() as conn:
         row = conn.execute("SELECT * FROM rooms WHERE room_id=?", (room['room_id'],)).fetchone()
         if row is None:
             raise f.DuelError("房间已关闭", 409)
         current = decode_room(row, conn)
-        if not is_selecting(current):
+        if not has_selection(current) or current.get("status") not in {"pending", "waiting"}:
             return f._decorate(current)
         avatars = current['board_state'].setdefault('participant_avatars', {})
         changed = False
@@ -147,6 +147,13 @@ def start_regular(room_id, role, player_id, fill_with_npcs=False):
             raise f.DuelError("该房间没有待开始的手动组队", 409)
         if player_id != room["initiator_player_id"]:
             raise f.DuelError("只有房主可以开始", 403)
+        decisions = {c["player_id"]: c["decision"] for c in room.get("confirmations", [])}
+        if any(p.get("join_status") != "joined" or (
+                room.get("confirmation_required") and decisions.get(p["player_id"]) != "accepted")
+                for p in room["participants"] if p["participant_kind"] != "system_npc"):
+            raise f.DuelError("请等待所有真实参与者确认筹码后再开始", 409)
+        from .chips import validate_stake_budget
+        validate_stake_budget(conn, room)
         selection = room["board_state"]["team_selection"]
         if not ready(selection):
             raise f.DuelError("组队开始约20秒后可开局", 409)

@@ -39,7 +39,7 @@ class LiarsDice(GamePlugin):
     )
 
     party_rules = (
-        "【酒桌大话骰】每盅始终5骰，基础败方本局-1，胜方不加分；不淘汰、0平台筹码。普通2–6点时1百搭，斋不百搭。"
+        "【酒桌大话骰】每盅始终5骰，基础败方本局-1，胜方不加分；不淘汰；0筹码为娱乐局，非0筹码仅整桌结束时结算。普通2–6点时1百搭，斋不百搭。"
         "普通起叫按ceil(1.5×盅数)，5人默认8起（向上取整，可在房规改7）；斋/叫1至少盅数。"
         "加叫数量递增或同数点数递增；叫斋/1后本轮锁斋，切斋也须加叫，不实现飞斋。\n"
         "默认围骰：5骰借1凑所叫实点计6；全围：5骰同一实点且正叫此点计7。全1叫2–6仅计5。"
@@ -57,7 +57,7 @@ class LiarsDice(GamePlugin):
         "以上处罚/投降选项默认关闭，积分以整数半分单位存储。\n"
         "败方先叫，当前行动者acknowledge_round后开始下一轮。任一真实在场参与者可end_session结束整桌；"
         "离场/房间认输也结束，不结算未完成轮次。结束按累计个人/队分从高到低排名，同分并列；"
-        "零个已结算回合无胜负，胜方无额外奖励。不涉及实际饮酒、真钱或平台币扣款。"
+        "零个已结算回合无胜负。非0筹码时真实败者各付一份stake，真实第一名平分实际败者池，余数按座位顺序分配；NPC不收付。无真实赢家/输家则筹码退回，不发成就奖励。不涉及实际饮酒或真钱。"
     )
 
     pairs_rules = (
@@ -107,8 +107,6 @@ class LiarsDice(GamePlugin):
             raise ValueError("投降不重摇须同时开启允许投降")
         if mode == "classic" and (any(options.get(k) for k in party.BOOL_OPTIONS) or teams != "none" or "opening_five" in options):
             raise ValueError("有骰计骰和组队仅适用于酒桌版")
-        if mode == "party" and stake != 0:
-            raise ValueError("酒桌大话骰仅支持0筹码")
         random_teams = options.get("random_teams", True)
         if not isinstance(random_teams, bool):
             raise ValueError("random_teams 须为布尔值")
@@ -739,7 +737,8 @@ class LiarsDice(GamePlugin):
         participants: list[dict[str, Any]],
         stake: int,
     ) -> dict[str, int]:
-        del state
+        if self.is_party(state):
+            return party.platform_deltas(result, participants, stake)
         player_ids = [str(item["player_id"]) for item in participants]
         winner = result.get("winner_player_id")
         if winner not in player_ids:

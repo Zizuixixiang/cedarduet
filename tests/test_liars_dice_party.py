@@ -30,8 +30,7 @@ class PartyRulesTests(unittest.TestCase):
         for options in ({'mode':'bad'}, {'mode':'party','literal_dice':1}, {'mode':'classic','literal_dice':True}, {'mode':'party','team':True}):
             with self.assertRaises(ValueError):
                 self.game.normalize_options(options)
-        with self.assertRaises(ValueError):
-            self.game.normalize_options({'mode':'party'}, 1)
+        self.assertEqual(self.game.normalize_options({'mode':'party'}, 1)['mode'], 'party')
 
     def test_wild_exact_literal_and_challenge_outcomes(self):
         # Ten dice: five ones + two twos. A bid of four twos holds only with wild ones.
@@ -177,12 +176,12 @@ class PartyRoomTests(support.MultiplayerGameTestCase):
         self.assertIsNone(room['board_state']['pending_next_round'])
         self.assertEqual(len(room['board_state']['round_results']),1)
 
-    def test_no_stakes_and_npc_request_privacy(self):
-        with self.assertRaises(framework.DuelError):
-            framework.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',
+    def test_positive_stakes_and_npc_request_privacy(self):
+        created = framework.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',
                                   game_options={'mode':'party'},stake=1)
-        with self.assertRaises(framework.DuelError):
-            invites.create_invite('liars_dice','ai','ai-1',target_player_count=2,game_options={'mode':'party'},stake=1)
+        self.assertEqual(created['status'], 'pending')
+        invited = invites.create_invite('liars_dice','ai','ai-1',target_player_count=2,game_options={'mode':'party'},stake=1)
+        self.assertEqual(invited['stake'], 1)
         room = self.create()
         actor = room['participants'][1]
         actions = self.game.npc_legal_actions(room['board_state'],actor,room['participants'])
@@ -401,17 +400,18 @@ class PartyMcpTests(support.LiarsDiceMcpTests):
             'player_id':'human-1', 'revision':room['revision'], 'move':{'action':'challenge'}})
         self.assertEqual(response.status_code, 200, response.text)
         room = response.json()['room']
-        self.assertEqual(room['current_player_id'], 'ai-1')
+        self.assertEqual(room['current_player_id'], 'human-1')
         revision = room['revision']
         response = await self.client.post(path, headers=headers, json={
             'player_id':'human-1', 'revision':revision, 'move':{'action':'acknowledge_round'}})
-        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
         with self.assertRaises(framework.DuelError):
             framework.acknowledge_liars_dice_round(room['room_id'], 'human-1', revision)
         response = await self.client.post('/mcp/play', json={'action':'move','player_id':'ai-1',
             'room_id':room['room_id'],'revision':revision,'move':{'action':'acknowledge_round'}})
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 409, response.text)
         updated = framework.get_room(room['room_id'])
+        self.assertEqual(updated['current_player_id'], 'ai-1')
         self.assertEqual(updated['board_state']['flow']['round_number'], 2)
         self.assertEqual(updated['board_state']['scores'], {'ai-1':-1, 'human-1':0})
 

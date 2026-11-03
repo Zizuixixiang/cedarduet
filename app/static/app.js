@@ -1729,8 +1729,7 @@ function resolvedStakeMetadata(game, stake) {
 
 function renderSelectedStakeHint() {
   const party = selectedGameOptions($("gameType"))?.mode === "party";
-  $("stake").disabled = party;
-  if (party) $("stake").value = "0";
+  $("stake").disabled = false;
   const gameType = selectedGameType($("gameType"));
   const game = identity && Array.isArray(identity.games)
     ? identity.games.find((item) => item.game_type === gameType)
@@ -1738,7 +1737,7 @@ function renderSelectedStakeHint() {
   const stake = Number($("stake").value);
   const previewStake = Number.isInteger(stake) && stake > 0 ? stake : "X";
   const metadata = resolvedStakeMetadata(game, previewStake);
-  const copy = party ? "酒桌大话骰扣本局积分，固定0平台筹码。" : metadata.hint
+  const copy = party ? "每人最多亏一份本局筹码，整桌结束时按累计积分结算。" : metadata.hint
     ? `${metadata.label}（${metadata.hint}）`
     : metadata.label;
   const hint = $("gameStakeHint");
@@ -2616,6 +2615,17 @@ function liarsRoundResultLines(outcome) {
   const eliminated = outcome.eliminated
     || Boolean(outcome.eliminated_player_id)
     || outcome.loser_remaining_dice === 0;
+  if (outcome.mode === "party") {
+    const team = outcome.loser_team_id === "red" ? "红队"
+      : outcome.loser_team_id === "blue" ? "蓝队" : loser;
+    const called = `叫 ${bid.quantity} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}`;
+    return {
+      outcome: `${called} · ${outcome.phase === "surrendered" ? "投降认罚"
+        : `实际 ${outcome.actual_count} 个 · 叫点${outcome.bid_holds ? "成功" : "失败"}`}`,
+      loss: `${team} ${outcome.score_delta ?? -1} 分${Number.isFinite(outcome.score_after)
+        ? ` · 累计 ${outcome.score_after} 分` : ""}`,
+    };
+  }
   return {
     outcome: outcome.phase === "surrendered" ? "本轮投降认罚" : (
       `实际 ${outcome.actual_count} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}`
@@ -2868,6 +2878,18 @@ function createLiarsDie(documentRef, value) {
   return die;
 }
 
+function canAcknowledgeLiarsRound() {
+  if (room?.spectating) return false;
+  if (room?.board_state?.mode === "party") {
+    const viewer = participantFor("human");
+    return canHumanMove() && viewer?.role === "human"
+      && (!viewer.participant_kind || viewer.participant_kind === "human")
+      && viewer.join_status === "joined" && viewer.active !== false
+      && (!viewer.activity_state || viewer.activity_state === "active");
+  }
+  return room?.room_kind !== "invite" || canHumanMove();
+}
+
 function renderLiarsDice(board, state) {
   const flow = state.flow || {};
   const terminal = Boolean(
@@ -2915,10 +2937,6 @@ function renderLiarsDice(board, state) {
     lossLine.className = "liars-result-line liars-result-loss";
     lossLine.textContent = resultLines.loss;
     result.append(title, outcomeLine, lossLine);
-    if (outcome.mode === "party" && window.DuelDiceRules) {
-      window.DuelDiceRules.appendPenaltyReview(result, {participants: room.participants}, outcome);
-    }
-
     if (awaitingRoundAcknowledgement) {
       const pending = state.pending_next_round || {};
       const nextRound = Number.isInteger(pending.round_number)
@@ -2931,14 +2949,24 @@ function renderLiarsDice(board, state) {
       const acknowledgeButton = document.createElement("button");
       acknowledgeButton.type = "button";
       acknowledgeButton.className = "pixel-btn";
-      acknowledgeButton.textContent = `知道了，开始第 ${nextRound} 轮`;
-      acknowledgeButton.disabled = (room.room_kind === "invite" || state.mode === "party") && !canHumanMove();
+      acknowledgeButton.textContent = state.mode === "party"
+        ? `确认，开始第 ${nextRound} 轮` : `知道了，开始第 ${nextRound} 轮`;
+      acknowledgeButton.disabled = !canAcknowledgeLiarsRound();
       acknowledgeButton.addEventListener("click", async () => {
         acknowledgeButton.disabled = true;
         await acknowledgeLiarsRound(acknowledgeButton);
       });
-      acknowledgement.append(prompt, acknowledgeButton);
+      if (state.mode === "party" && !canAcknowledgeLiarsRound()) {
+        prompt.textContent = `本轮已结算，等待 ${liarsParticipantName(room.current_player_id)} 确认开始第 ${nextRound} 轮。`;
+        acknowledgement.append(prompt);
+      } else {
+        acknowledgement.append(prompt, acknowledgeButton);
+      }
       result.appendChild(acknowledgement);
+    }
+
+    if (outcome.mode === "party" && window.DuelDiceRules) {
+      window.DuelDiceRules.appendPenaltyReview(result, {participants: room.participants}, outcome);
     }
 
     const reveal = document.createElement("details");
@@ -4390,7 +4418,7 @@ async function acknowledgeLiarsRound(button) {
     || !room.board_state
     || !room.board_state.flow
     || room.board_state.flow.phase !== "awaiting_round_acknowledgement"
-    || ((room.room_kind === "invite" || room.board_state.mode === "party") && !canHumanMove())
+    || !canAcknowledgeLiarsRound()
   ) return false;
   try {
     const data = await request(`/api/rooms/${room.room_id}/move`, {
@@ -4473,7 +4501,7 @@ async function sendMessage() {
 
 async function resign() {
   if (room?.game_type === "liars_dice" && room.board_state.mode === "party") {
-    if (!room.spectating && window.confirm("结束整桌酒桌局？已完成的积分和回合记录会保留，本轮未开骰不扣分。")) {
+    if (!room.spectating && window.confirm("结束整桌酒桌局？已完成的积分和回合记录会保留，本轮未开骰不扣分。" + (room.stake > 0 ? "将按当前分数结算平台筹码。" : ""))) {
       await submitMove({action: "end_session"}, {sideAction: true});
     }
     return;
@@ -4670,6 +4698,15 @@ function resumeRoomRefresh() {
 }
 
 let inviteMode = "create";
+let previewedInviteCode = null;
+function showInviteStakePreview(code, invitation) {
+  const i = invitation;
+  const seconds = Number(i.timeout_takeover_seconds || (i.timeout_takeover ? 90 : 0));
+  $("invitePreview").textContent = `${i.game_name} · ${i.participant_count}/${i.target_player_count} · 本局筹码 ${i.stake}/人${seconds ? ` · ${seconds} 秒超时接管` : ""}`;
+  previewedInviteCode = code;
+  $("inviteSubmit").textContent = i.stake > 0 ? `同意押注 ${i.stake} 筹码并加入` : "确认加入";
+}
+
 let inviteMachineIds = new Set();
 function setInviteMachinePickerOpen(open) {
   open = open && !$("inviteAiTrigger").disabled;
@@ -4723,7 +4760,7 @@ function updateInviteStakeAvailability() {
   const target = Number($("inviteCount").value || 2);
   const supportsStake = Boolean(game?.supports_stakes);
   const supportsTable = target === 2 || Boolean(game?.supports_multiplayer_stakes);
-  const enabled = supportsStake && supportsTable && selectedGameOptions($("inviteGame"))?.mode !== "party";
+  const enabled = supportsStake && supportsTable;
   $("inviteStake").disabled = !enabled;
   if (!enabled) $("inviteStake").value = "0";
   $("inviteStakeHint").textContent = enabled
@@ -4772,6 +4809,7 @@ function inviteCategoryChanged() {
 }
 async function showInviteDialog(mode, code = "") {
   inviteMode = mode;
+  previewedInviteCode = null;
   inviteMachineIds.clear();
   setInviteMachinePickerOpen(false);
   $("inviteError").textContent = "";
@@ -4785,12 +4823,15 @@ async function showInviteDialog(mode, code = "") {
   $("invitePreview").textContent = "";
   $("inviteDialog").showModal();
   if (code) {
+    const normalized = code.trim().toUpperCase();
+    $("inviteSubmit").disabled = true;
     try {
-      const data = await request(`/api/invites/${encodeURIComponent(code)}`);
-      const i = data.invitation;
-      const timeoutSeconds = Number(i.timeout_takeover_seconds || (i.timeout_takeover ? 90 : 0));
-      $("invitePreview").textContent = `${i.game_name} · ${i.participant_count}/${i.target_player_count} · ${i.stake} 筹码${timeoutSeconds ? ` · ${timeoutSeconds} 秒超时接管` : ""}`;
+      const data = await request(`/api/invites/${encodeURIComponent(normalized)}`);
+      if (inviteMode === "join" && $("inviteCodeInput").value.trim().toUpperCase() === normalized) {
+        showInviteStakePreview(normalized, data.invitation);
+      }
     } catch (error) { $("inviteError").textContent = error.message; }
+    finally { $("inviteSubmit").disabled = false; }
   }
 }
 function isInviteWaiting(targetRoom) {
@@ -5022,9 +5063,28 @@ document.addEventListener("click", (event) => {
   const path = typeof event.composedPath === "function" ? event.composedPath() : [];
   if (!path.includes(field) && !field.contains(event.target)) setInviteMachinePickerOpen(false);
 });
+$("inviteCodeInput").addEventListener("input", () => {
+  previewedInviteCode = null;
+  $("invitePreview").textContent = "";
+  $("inviteSubmit").textContent = "确认加入";
+});
 $("inviteSubmit").addEventListener("click", async () => {
   $("inviteSubmit").disabled = true;
   try {
+    if (inviteMode === "join") {
+      const code = $("inviteCodeInput").value.trim().toUpperCase();
+      if (previewedInviteCode !== code) {
+        const data = await request(`/api/invites/${encodeURIComponent(code)}`);
+        showInviteStakePreview(code, data.invitation);
+        // For a paid invite, the first click previews the amount; the next
+        // explicit click agrees to that displayed stake and joins.
+        if (data.invitation.stake > 0) {
+          $("inviteError").textContent = "请核对本局筹码，再点击同意押注加入。";
+          return;
+        }
+      }
+    }
+    $("inviteError").textContent = "";
     if (inviteMode === "create") renderInviteMachinePicker();
     const body = inviteMode === "create"
       ? {game_type: selectedGameType($("inviteGame")), game_options: selectedGameOptions($("inviteGame")), target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}

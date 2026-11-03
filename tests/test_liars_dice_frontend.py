@@ -22,7 +22,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.10', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.12', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -34,7 +34,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for Liars Dice renderer tests")
 class LiarsDiceFrontendRuntimeTests(unittest.TestCase):
-    def test_party_team_scores_render_once_with_members_and_preserve_solo_history(self):
+    def test_party_team_and_solo_scores_without_duplicate_history(self):
         harness = r'''
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
 class Element {
@@ -68,8 +68,8 @@ for(const count of [4,6]) {
    assert.deepEqual(members.children.map(n=>n.textContent),teams[team].map(id=>participants.find(p=>p.player_id===id).display_name));
    assert.ok(members.children.every(n=>n.tag==="li" && n.children.length===0));
  }
- assert.equal(find(board,"liars-reveal-details")[0].children[0].textContent,"回合扣分记录（1轮）");
- assert.ok(find(board,"liars-result-line")[0].textContent.includes("投降认罚"));
+ assert.equal(find(board,"liars-reveal-details").length,0);
+ assert.equal(find(board,"liars-result-line").length,0);
  delete state.team_scores;
  delete scores.p0; // Compatibility fallback takes a known member score, not a sum.
  board=render(state);
@@ -80,7 +80,7 @@ for(const teams of [undefined,{}]) {
  assert.equal(find(board,"liars-team-score-card").length,0);
  assert.equal(find(board,"liars-score-row").length,2);
  assert.deepEqual(find(board,"liars-score-value").map(n=>n.textContent),["-0.5分","0分"]);
- assert.equal(find(board,"liars-reveal-details").length,1);
+ assert.equal(find(board,"liars-reveal-details").length,0);
 }
 assert.equal(find(render({mode:"classic"}),"liars-party-scores").length,0);
 '''
@@ -113,7 +113,7 @@ assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-fa
 assert.equal(rows[1].children[0].textContent,"小机：");
 assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
 assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.10");
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.12");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,

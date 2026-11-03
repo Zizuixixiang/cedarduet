@@ -2,6 +2,7 @@
 import json
 import re
 import secrets
+from datetime import datetime, timedelta, timezone
 from . import liars_dice_setup
 from contextlib import closing
 from .database import connect, decode_room, write_transaction
@@ -9,7 +10,7 @@ from .chips import validate_stake_budget
 from .framework import (
     DuelError, _now, _player_id, _room_id, _new_room_id, _decorate,
     _check_global_capacity, _initialize_opening_state, normalize_game_options, _record_event,
-    _assert_player, account_key, _stake, _touch_room_presence,
+    _assert_player, account_key, _stake, _touch_room_presence, INVITATION_EXPIRY_HOURS,
 )
 from .games import get_game
 from .npc_personas import select_personas, PersonaConfigError
@@ -115,6 +116,18 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
         _insert_member(conn, room_id, player_id, role, display_name, 0)
         for seat, ai in enumerate(selected, start=1):
             _insert_member(conn, room_id, ai, "ai", machines[ai]["name"], seat)
+        # Paid party tables require each selected real machine's own consent.
+        # Joining by invite code is already an explicit acceptance of the shown stake.
+        if game_type == "liars_dice" and game_options.get("mode") == "party" and stake > 0:
+            expires = (datetime.now(timezone.utc) + timedelta(hours=INVITATION_EXPIRY_HOURS)).isoformat() if selected else None
+            conn.execute("UPDATE rooms SET confirmation_required=1, status=?, confirmation_expires_at=? WHERE room_id=?",
+                         ("pending" if selected else "waiting", expires, room_id))
+            for pid in [player_id, *selected]:
+                accepted = pid == player_id
+                conn.execute("INSERT INTO room_confirmations (room_id,player_id,decision,decided_at,created_at) VALUES (?,?,?,?,?)",
+                             (room_id, pid, "accepted" if accepted else "pending", now if accepted else None, now))
+                if not accepted:
+                    conn.execute("UPDATE room_participants SET join_status='invited' WHERE room_id=? AND player_id=?", (room_id, pid))
         _touch_room_presence(conn, room_id, player_id)
         return _decorate(decode_room(conn.execute("SELECT * FROM rooms WHERE room_id = ?", (room_id,)).fetchone(), conn))
 
@@ -152,6 +165,9 @@ def join_invite(code, role, player_id, *, display_name=None):
                                       {"player_id": player_id, "role": role}],
         })
         _insert_member(conn, room["room_id"], player_id, role, display_name, len(room["participants"]))
+        if room.get("confirmation_required"):
+            conn.execute("INSERT INTO room_confirmations (room_id,player_id,decision,decided_at,created_at) VALUES (?,?,'accepted',?,?)",
+                         (room["room_id"], player_id, _now(), _now()))
         _touch_room_presence(conn, room["room_id"], player_id)
         conn.execute("UPDATE rooms SET revision = revision + 1, updated_at = ? WHERE room_id = ?", (_now(), room["room_id"]))
         _record_event(conn, room["room_id"], role, player_id, room["revision"] + 1,
@@ -174,6 +190,11 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
         if liars_dice_setup.is_selecting(room) and not liars_dice_setup.ready(room["board_state"]["team_selection"]):
             raise DuelError("组队开始约20秒后可开局", 409)
         members = room["participants"]
+        if room.get("confirmation_required"):
+            decisions = {c["player_id"]: c["decision"] for c in room.get("confirmations", [])}
+            if any(p.get("join_status") != "joined" or decisions.get(p["player_id"]) != "accepted"
+                   for p in members if p["participant_kind"] != "system_npc"):
+                raise DuelError("请等待所有真实参与者确认筹码后再开始", 409)
         # Before start, only join_invite can add seats; leaving closes the room.
         # The persisted initial count excludes household AIs from invitees.
         real_count = sum(p["participant_kind"] != "system_npc" and p["join_status"] == "joined" for p in members)

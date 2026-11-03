@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-liars-dice-review-styles";
-  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.10";
+  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.12";
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -99,15 +99,18 @@
       ensureStylesheet(doc);
       const advanced = element(doc, "details", "liars-advanced");
       advanced.appendChild(element(doc, "summary", "", "可选房规"));
+      const sections = element(doc, "div", "liars-rule-sections");
+      advanced.appendChild(sections);
       const group = (title) => {
         const fieldset = element(doc, "fieldset", "liars-rule-group");
         fieldset.appendChild(element(doc, "legend", "", title));
-        advanced.appendChild(fieldset);
+        sections.appendChild(fieldset);
         return fieldset;
       };
       const counting = group("计数与起叫");
       const penalties = group("开骰结算");
       const surrender = group("投降");
+      surrender.className += " liars-rule-surrender";
       const literalLabel = element(doc, "label", "pixel-field");
       literalLabel.appendChild(element(doc, "span", "", "有骰计骰"));
       const literal = element(doc, "select");
@@ -246,11 +249,11 @@
     const details = element(doc, "details", "liars-reveal-details liars-penalty-details");
     details.appendChild(element(doc, "summary", "", "扣分明细"));
     penalties.forEach(p => {
-      const label = penalties.length === 1 ? "实际倍率" : `${participantName(context, p.player_id)}${p.team_id ? "所在队" : ""} ${p.score_delta}分 ·`;
-      result.appendChild(element(doc, "p", "liars-result-line liars-penalty-summary",
-        `${label} ×${p.multiplier}${p.raw_multiplier > p.multiplier ? "（已封顶）" : ""}`));
       details.appendChild(element(doc, "p", "liars-result-line liars-penalty", penaltyText(context, p)));
     });
+    if (outcome.dark_reversed) {
+      details.appendChild(element(doc, "p", "liars-result-line", "天黑黑：无所叫实点，反转输赢"));
+    }
     if (outcome.companion) {
       details.appendChild(element(doc, "p", "liars-result-line", `陪扣骰 ${outcome.companion.rolls.join("、")} → 第${outcome.companion.seat}位 ${participantName(context, outcome.companion.player_id)}`));
     }
@@ -322,17 +325,6 @@
       });
     }
     panel.appendChild(scoreGrid);
-    const history = element(doc, "details", "liars-reveal-details");
-    history.appendChild(element(doc, "summary", "", `回合扣分记录（${(context.state.round_results || []).length}轮）`));
-    (context.state.round_results || []).forEach((r) => {
-      const loser = participantName(context, r.loser_player_id) + (r.loser_team_id ? "所在队" : "");
-      const detail = r.phase === "surrendered" ? "投降认罚" : `${r.bid.quantity}个${r.bid.face}点${r.bid.exact ? "（斋）" : ""} · 实际${r.actual_count}`;
-      history.appendChild(element(doc, "p", "liars-result-line", `第${r.round}轮 · ${detail} · ${loser} ${r.score_delta ?? -1}分，累计${r.score_after}分`));
-      (r.penalties || []).forEach(p => history.appendChild(element(doc, "p", "liars-result-line", penaltyText(context, p))));
-      if (r.dark_reversed) history.appendChild(element(doc, "p", "liars-result-line", "天黑黑：无所叫实点，反转输赢"));
-      if (r.companion) history.appendChild(element(doc, "p", "liars-result-line", `陪扣骰${r.companion.rolls.join("、")} → 第${r.companion.seat}位 ${participantName(context, r.companion.player_id)}`));
-    });
-    panel.appendChild(history);
     context.board.appendChild(panel);
   }
 
@@ -342,8 +334,11 @@
     if (typeof global.renderLiarsDice !== "function") {
       throw new Error("吹牛骰子原桌面 renderer 尚未就绪");
     }
-    appendPartyRecords(context);
+    const awaiting = context.state?.mode === "party"
+      && context.state.flow?.phase === "awaiting_round_acknowledgement";
+    if (!awaiting) appendPartyRecords(context);
     global.renderLiarsDice(context.board, context.state);
+    if (awaiting) appendPartyRecords(context);
     appendTerminalReview(context);
     return true;
   }

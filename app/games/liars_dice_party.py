@@ -140,7 +140,7 @@ def final_result(game, state, reason='session_ended'):
                ('并列第一' if len(leaders) > 1 else '排名已确定'))
     result = {
         # Compatibility sentinel for the shared terminal/payout framework only.
-        # Competition outcomes live below; this is not a platform draw/reward.
+        # Rankings below define the outcome; explicit deltas settle paid tables.
         'draw': True, 'mode': 'party', 'reason': reason,
         'outcome': 'ranked' if completed else 'no_contest',
         'completed_rounds': completed, 'rankings': rankings,
@@ -153,3 +153,21 @@ def final_result(game, state, reason='session_ended'):
         result.update(team_scores={key: value / 2 for key, value in values.items()},
                       winner_team_ids=[row['team_id'] for row in leaders])
     return result
+
+
+def platform_deltas(result, participants, stake):
+    """One table, one bounded zero-sum payout; NPCs never own a wallet."""
+    deltas = {p['player_id']: 0 for p in participants}
+    if not result.get('completed_rounds'):
+        return deltas
+    real = sorted((p for p in participants if p.get('participant_kind') != 'system_npc'),
+                  key=lambda p: p.get('seat_index', 0))
+    leaders = set(result.get('winner_player_ids', []))
+    winners = [p['player_id'] for p in real if p['player_id'] in leaders]
+    losers = [p['player_id'] for p in real if p['player_id'] not in leaders]
+    if not winners or not losers:
+        return deltas
+    share, remainder = divmod(stake * len(losers), len(winners))
+    deltas.update({pid: -stake for pid in losers})
+    deltas.update({pid: share + int(i < remainder) for i, pid in enumerate(winners)})
+    return deltas

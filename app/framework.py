@@ -1476,6 +1476,10 @@ def _attach_multiplayer_settlement(
         raise DuelError("多人房间尚未定义筹码结算规则")
     result = dict(game_result)
     deltas = result.get("settlement_deltas")
+    if game.game_type == "liars_dice" and state.get("mode") == "party" and deltas is None:
+        deltas = game.settlement_deltas(state, result, room["participants"], room["stake"])
+        result["result_text"] = result.get("result_text", "酒桌局结束。") + (
+            " 平台筹码已按当前积分结算。" if any(deltas.values()) else " 本局筹码退回（无可转移输赢）。")
     legacy_two_player = False
     if deltas is None:
         if participant_count == 2 and not game.uses_custom_stake_settlement:
@@ -1849,6 +1853,9 @@ def _normalize_ordered_participants(
 
 def _room_can_start(room: dict, game) -> bool:
     participants = room.get("participants", [])
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite"
+            and room["game_type"] == "liars_dice" and room["board_state"].get("mode") == "party"):
+        return False
     if not game.accepts_player_count(len(participants)):
         return False
     if not all(
@@ -2341,6 +2348,12 @@ def respond_to_invitation(
         ).fetchone()
         refreshed = decode_room(refreshed_row, conn)
         game = get_game(refreshed["game_type"])
+        if pending_count == 0 and liars_dice_setup.has_selection(refreshed):
+            state = refreshed["board_state"]
+            state["team_selection"]["start_after"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=20)).isoformat()
+            conn.execute("UPDATE rooms SET board_state=? WHERE room_id=?",
+                         (json.dumps(state, ensure_ascii=False), room_id))
         new_status = (
             "pending" if pending_count > 0
             else "playing" if _room_can_start(refreshed, game)
@@ -2394,7 +2407,7 @@ def join_room(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
-        if liars_dice_setup.is_selecting(room):
+        if liars_dice_setup.has_selection(room):
             raise DuelError("组队房请使用已有参赛席位；跨账号加入请使用邀请码", 409)
         if room.get("room_kind") == "invite":
             raise DuelError("邀请房请使用 invite_code 加入，由房主 start 开局", 409)
@@ -2765,6 +2778,32 @@ def _assert_expected_revision(room: dict, expected_revision: int | None) -> None
         )
 
 
+def _party_round_confirmer(room: dict) -> str | None:
+    """A joined, actionable human owns party round review, preferably the host."""
+    if room["game_type"] != "liars_dice" or room["board_state"].get("mode") != "party":
+        return None
+    humans = [p["player_id"] for p in room["participants"]
+              if p["role"] == "human" and p.get("participant_kind", "human") == "human"
+              and p.get("join_status") == "joined" and p.get("active", True)
+              and p.get("activity_state", "active") == "active"]
+    host = room.get("initiator_player_id")
+    return host if host in humans else next(iter(humans), None)
+
+
+def _assert_party_round_confirmation(room: dict, player_id: str, *, takeover: bool = False) -> None:
+    if room["game_type"] != "liars_dice" or room["board_state"].get("mode") != "party":
+        return
+    confirmer = _party_round_confirmer(room)
+    if confirmer is not None and (takeover or player_id != confirmer):
+        raise DuelError("本轮须由指定真人亲自确认，不能代为确认", 409)
+    if room.get("current_player_id") != player_id:
+        raise DuelError("应由当前行动者确认下一轮", 409)
+    actor = _participant_by_id(room, player_id)
+    if (actor is None or actor.get("join_status") != "joined" or not actor.get("active", True)
+            or actor.get("activity_state", "active") != "active"):
+        raise DuelError("当前参与者已不可行动", 409)
+
+
 def acknowledge_liars_dice_round(
     room_id: str,
     human_player_id: str,
@@ -2788,8 +2827,7 @@ def acknowledge_liars_dice_round(
             raise DuelError("当前房间不在对局中", 409)
         if room["game_type"] != "liars_dice":
             raise DuelError("只有吹牛骰子可以确认下一轮", 409)
-        if room["board_state"].get("mode") == "party" and room.get("current_player_id") != human_player_id:
-            raise DuelError("应由当前行动者确认下一轮", 409)
+        _assert_party_round_confirmation(room, human_player_id)
         game = get_game(room["game_type"])
         try:
             applied = game.acknowledge_round(room["board_state"])
@@ -2889,6 +2927,8 @@ def play_move(
         if room["game_type"] == "liars_dice" and room["board_state"].get("mode") == "party" and expected_revision is None:
             raise DuelError("酒桌大话骰行动必须携带 revision", 409)
         _assert_expected_revision(room, expected_revision)
+        if move == {"action": "acknowledge_round"}:
+            _assert_party_round_confirmation(room, player_id, takeover=takeover)
         if takeover and (not room.get("timeout_takeover") or
                          not has_live_room_participant(room, conn) or
                          room.get("reclaim_revision") == room["revision"]):
@@ -3077,9 +3117,11 @@ def play_move(
             winner = None
         if pause_turn and (room.get("room_kind") == "invite" or room["board_state"].get("mode") == "party") and room["game_type"] == "liars_dice":
             pause_turn = False
-            # In invitations the next real seat confirms; AI-only rooms must
-            # never wait for a nonexistent human. NPC turns use the same ack.
-            explicit_next_player_id = state["pending_next_round"]["starter_player_id"]
+            # Review belongs to a real human in party mode. Keep the loser in
+            # pending_next_round so acknowledgement still starts with that seat.
+            # Classic invitations and AI-only party rooms keep their prior flow.
+            explicit_next_player_id = (_party_round_confirmer(room)
+                                       or state["pending_next_round"]["starter_player_id"])
         next_player_id = None
         next_turn: Role = role
         if status == "playing":
