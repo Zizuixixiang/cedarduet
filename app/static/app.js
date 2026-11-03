@@ -973,9 +973,13 @@ function renderRooms(rooms) {
     title.title = title.textContent;
     const meta = document.createElement("span");
     meta.className = "room-meta";
+    const waitingLabel = summary.team_selection_pending ? "等待组队"
+      : summary.room_kind === "invite" && summary.status === "waiting" ? "等待开局" : statusLabel(summary.status);
     const metaParts = summary.room_kind === "invite"
-      ? [...(activeInvite ? [] : ["邀请房"]), `${summary.participant_count}/${summary.target_player_count}`, summary.status === "waiting" ? "等待开局" : statusLabel(summary.status)]
-      : [String(summary.room_id), statusLabel(summary.status), `更新于 ${relativeTime(summary.updated_at)}`];
+      ? [...(activeInvite ? [] : ["邀请房"]), `${summary.participant_count}/${summary.target_player_count}`, waitingLabel]
+      : [String(summary.room_id), waitingLabel,
+        ...(summary.team_selection_pending ? [`${summary.participant_count}/${summary.target_player_count}`] : []),
+        `更新于 ${relativeTime(summary.updated_at)}`];
     appendRoomTextUnits(meta, metaParts, " · ");
     const tags = document.createElement("span");
     tags.className = "room-tags";
@@ -1001,7 +1005,7 @@ function renderRooms(rooms) {
       const statusBadge = document.createElement("span");
       statusBadge.className = "room-status-badge pale";
       statusBadge.textContent = (
-        `${statusLabel(summary.status)}${summary.winner === "draw" ? " · 和棋" : ""}`
+        `${statusLabel(summary.status)}${summary.winner === "draw" && !summary.party_dice ? " · 和棋" : ""}`
       );
       state.appendChild(statusBadge);
     } else {
@@ -1012,7 +1016,7 @@ function renderRooms(rooms) {
         ? turnLabel(summary.turn, summary.ai_player_id, summary.current_actor, summary)
         : pending
         ? pendingConfirmationText(summary)
-        : statusLabel(summary.status);
+        : waitingLabel;
       state.appendChild(turn);
     }
     const enter = document.createElement("span");
@@ -1853,8 +1857,6 @@ function updateCreateButtonState() {
     && validStake
   );
   $("createButton").disabled = !ready;
-  const teamButton = document.querySelector("#gameTypeRulePicker .liars-open-teams");
-  if (teamButton) teamButton.disabled = !ready;
   return ready;
 }
 
@@ -3867,7 +3869,7 @@ function createParticipantBadge(participant, targetRoom) {
     score: "得分",
     dice_count: "剩余骰子",
     hand_count: "剩余手牌",
-    ...(targetRoom.game_type === "liars_dice" && targetRoom.board_state.mode === "party"
+    ...(targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party"
       ? {score: targetRoom.board_state.teams ? "共用队分" : "本局积分", team: "队伍", dice_count: targetRoom.board_state.teams ? "共用骰子" : "骰子"} : {}),
   };
   const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
@@ -3976,7 +3978,7 @@ function renderPrivateState(targetRoom) {
 
 function resultTextFor(targetRoom, timeline = []) {
   if (targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party" && isTerminal(targetRoom)) {
-    return "酒桌局已结束，本局积分和回合记录已保留。";
+    return targetRoom.result?.result_text || "酒桌局已结束，本局积分和回合记录已保留。";
   }
   const resultEvent = [...timeline].reverse().find(
     (event) => event.event_type === "result"
@@ -4132,10 +4134,11 @@ function renderGame(nextRoom, message = "", timeline = []) {
   }
   const renderer = registeredGameUIRenderer(nextRoom.game_type);
   const becameTerminal = Boolean(
-    room
-    && room.room_id === nextRoom.room_id
-    && !isTerminal(room)
-    && isTerminal(nextRoom)
+    isTerminal(nextRoom) && (
+      (room && room.room_id === nextRoom.room_id && !isTerminal(room))
+      || (nextRoom.game_type === "liars_dice" && nextRoom.board_state?.mode === "party"
+        && (!room || room.room_id !== nextRoom.room_id))
+    )
   );
   const boardStateChanged = (
     !room
@@ -4524,6 +4527,11 @@ function closeHistory() {
 
 function openResultModal(resultText) {
   $("resultModalText").textContent = resultText;
+  const party = room?.game_type === "liars_dice" && room.board_state?.mode === "party";
+  $("resultModal").classList.toggle("liars-result-active", party);
+  $("partyResultRanking").replaceChildren();
+  $("partyResultRanking").classList.toggle("hidden", !party);
+  if (party) window.DuelDiceResults.render($("partyResultRanking"), room, renderParticipantAvatar);
   $("resultModalMessage").textContent = "";
   renderRetention(room);
   $("resultModal").classList.remove("hidden");
@@ -4802,14 +4810,9 @@ async function chooseDiceTeamSeat(team, seat) {
     renderGame(data.room, data.message, data.timeline);
   } catch (error) { showNotice(error.message, true); }
 }
-function openDiceTeamSelection(select) {
-  window.DuelDiceTeams.openNext = true;
-  if (select.id === "inviteGame") $("inviteSubmit").click();
-  else createRoom();
-}
 function renderInviteRoomPanel() {
   const panel = $("inviteRoomPanel");
-  const signature = JSON.stringify([room?.room_id, room?.revision, room?.status, room?.team_selection?.can_start, room?.spectating, viewerPlayerIdFor(room)]);
+  const signature = JSON.stringify([room?.room_id, room?.revision, room?.status, room?.team_selection?.can_start, room?.spectating, viewerPlayerIdFor(room), identity?.npc_provider?.available]);
   if (room?.team_selection && panel.dataset.diceSignature === signature) return;
   panel.dataset.diceSignature = signature;
   clearTimeout(diceSetupRefreshTimer);
@@ -4898,15 +4901,27 @@ function renderInviteRoomPanel() {
       startRoomPolling();
     };
     const selectionReady = !room.team_selection || room.team_selection.can_start;
-    const ready = owner && hasInvitee && room.room_ready && selectionReady;
-    const startButton = addButton("开始游戏", () => start(false), actions, true);
+    const teamSetup = room.game_type === "liars_dice" && Boolean(room.team_selection);
+    const game = identity?.games?.find((g) => g.game_type === room.game_type);
+    const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
+    const missing = room.target_player_count - room.participants.length;
+    const npcCountAfterFill = missing + room.participants.filter(p => p.participant_kind === "system_npc").length;
+    const ready = owner && hasInvitee && selectionReady
+      && (room.room_ready || (teamSetup && missing > 0 && npcCountAfterFill <= 4 && canFill));
+    const startButton = addButton("开始游戏", () => start(teamSetup && missing > 0), actions, true);
     startButton.disabled = !ready;
-    if (!ready) startButton.title = !selectionReady ? "组队开始约20秒后可开局" : owner ? "等待玩家坐满后开始" : "等待房主开始";
-    if (!owner) {
+    const blockedReason = !owner ? "等待房主开始游戏"
+      : !hasInvitee ? "至少需要1名外部受邀玩家加入"
+      : !selectionReady ? "组队开始约20秒后可开局"
+      : teamSetup && missing > 0 && npcCountAfterFill > 4 ? "每桌最多4名NPC，请等待更多玩家加入"
+      : teamSetup && missing > 0 && !canFill ? (game?.supports_npcs ? "NPC补位当前不可用，请等待玩家坐满" : "该游戏不支持NPC补位，请等待玩家坐满")
+      : "等待玩家坐满后开始";
+    if (!ready) startButton.title = blockedReason;
+    if (!owner || (teamSetup && !ready)) {
       const hint = document.createElement("span");
       hint.id = "inviteStartHint";
       hint.className = "invite-note";
-      hint.textContent = "等待房主开始游戏";
+      hint.textContent = blockedReason;
       startButton.setAttribute("aria-describedby", hint.id);
       actions.appendChild(hint);
     }
@@ -4918,9 +4933,7 @@ function renderInviteRoomPanel() {
       }, actions);
       dissolve.classList.remove("secondary");
       dissolve.classList.add("danger");
-      const game = identity?.games?.find((g) => g.game_type === room.game_type);
-      const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
-      if (hasInvitee && room.participants.length < room.target_player_count && canFill) {
+      if (!teamSetup && hasInvitee && room.participants.length < room.target_player_count && canFill) {
         const fillButton = addButton("NPC 补满并开始", () => start(true), actions);
         fillButton.disabled = !selectionReady;
       }

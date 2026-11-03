@@ -108,7 +108,9 @@ def response(room_id, pid, *, full=False, source_room=None, **unused):
             if patch:
                 out['private'] = patch
             if now['status'] in ('finished','archived') and ctx.get('public',{}).get('status') != now['status']:
-                out['result'] = deepcopy(room.get('result'))
+                out['result'] = {key: deepcopy(value) for key, value in (room.get('result') or {}).items()
+                                 if key in ('draw', 'mode', 'reason', 'outcome', 'completed_rounds',
+                                            'winner_player_ids', 'winner_team_ids', 'result_text')}
         if events:
             out['events'] = events
         if room['status'] == 'playing' and not f.participant_can_act(room,pid):

@@ -22,7 +22,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.5', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.7', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -34,6 +34,60 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for Liars Dice renderer tests")
 class LiarsDiceFrontendRuntimeTests(unittest.TestCase):
+    def test_party_team_scores_render_once_with_members_and_preserve_solo_history(self):
+        harness = r'''
+const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
+class Element {
+ constructor(tag,doc){this.tag=tag;this.ownerDocument=doc;this.children=[];this.dataset={};this.attributes={};this.className="";this.textContent="";}
+ appendChild(node){this.children.push(node);return node;} append(...nodes){nodes.forEach(n=>this.appendChild(n));}
+ setAttribute(k,v){this.attributes[k]=String(v);}
+}
+const document={head:{appendChild(){}},createElement(t){return new Element(t,document);},getElementById(){return null;}};
+let renderer;
+const window={document,renderLiarsDice(){},DuelGameUI:{register(type,r){renderer=r;}}};
+vm.runInNewContext(fs.readFileSync("app/static/games/liars_dice.js","utf8"),{window,document});
+const participants=Array.from({length:6},(_,i)=>({player_id:`p${i}`,display_name:["南杉的很长昵称".repeat(8),"CodexLongName".repeat(8),"<Sirius>长昵称".repeat(8)][i%3]}));
+const find=(node,cls)=>[...(node.className.split(" ").includes(cls)?[node]:[]),...node.children.flatMap(c=>find(c,cls))];
+const render=state=>{const board=new Element("div",document),before=JSON.stringify(state);renderer.renderBoard({board,state,participants});assert.equal(JSON.stringify(state),before);return board;};
+const history=[{round:1,phase:"surrendered",loser_player_id:"p0",loser_team_id:"red",score_delta:-.5,score_after:-.5}];
+for(const count of [4,6]) {
+ const ids=participants.slice(0,count).map(p=>p.player_id);
+ const teams={red:ids.slice(0,count/2),blue:ids.slice(count/2)};
+ const scores=Object.fromEntries(ids.map(id=>[id,-7]));
+ const state={mode:"party",teams,scores,team_scores:{red:0,blue:-1.5},round_results:history};
+ let board=render(state),cards=find(board,"liars-team-score-card");
+ assert.equal(cards.length,2);
+ assert.equal(find(board,"liars-score-row").length,0);
+ assert.deepEqual(find(board,"liars-team-score-value").map(n=>n.textContent),["0分","-1.5分"]);
+ assert.deepEqual(find(board,"liars-team-score-name").map(n=>n.textContent),["红队","蓝队"]);
+ for(const [i,team] of ["red","blue"].entries()) {
+   assert.ok(cards[i].className.includes(`liars-team-${team}`));
+   assert.equal(cards[i].attributes["aria-label"],`${i===0?"红":"蓝"}队共享积分`);
+   const members=find(cards[i],"liars-team-score-members")[0];
+   assert.equal(members.tag,"ul");
+   assert.deepEqual(members.children.map(n=>n.textContent),teams[team].map(id=>participants.find(p=>p.player_id===id).display_name));
+   assert.ok(members.children.every(n=>n.tag==="li" && n.children.length===0));
+ }
+ assert.equal(find(board,"liars-reveal-details")[0].children[0].textContent,"回合扣分记录（1轮）");
+ assert.ok(find(board,"liars-result-line")[0].textContent.includes("投降认罚"));
+ delete state.team_scores;
+ delete scores.p0; // Compatibility fallback takes a known member score, not a sum.
+ board=render(state);
+ assert.deepEqual(find(board,"liars-team-score-value").map(n=>n.textContent),["-7分","-7分"]);
+}
+for(const teams of [undefined,{}]) {
+ const board=render({mode:"party",teams,scores:{p0:-.5,p1:0},round_results:history});
+ assert.equal(find(board,"liars-team-score-card").length,0);
+ assert.equal(find(board,"liars-score-row").length,2);
+ assert.deepEqual(find(board,"liars-score-value").map(n=>n.textContent),["-0.5分","0分"]);
+ assert.equal(find(board,"liars-reveal-details").length,1);
+}
+assert.equal(find(render({mode:"classic"}),"liars-party-scores").length,0);
+'''
+        completed = subprocess.run([NODE, "-e", harness], cwd=ROOT,
+                                   text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_terminal_dice_append_compact_named_review_only_at_terminal(self):
         harness = r'''
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
@@ -59,7 +113,7 @@ assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-fa
 assert.equal(rows[1].children[0].textContent,"小机：");
 assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
 assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.5");
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.7");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,

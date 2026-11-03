@@ -113,3 +113,43 @@ def history_result(result):
     # Reveals belong to the current result. History does not duplicate all cups.
     return {k:deepcopy(v) for k,v in result.items()
             if k not in ('revealed_dice_by_player', 'summary', 'result_summary')}
+
+
+def final_result(game, state, reason='session_ended'):
+    """Snapshot the existing ledger, never score an unfinished round or pay chips."""
+    teams = state.get('teams') or {}
+    members = teams or {pid: [pid] for pid in state['participant_order']}
+    scores = game.party_scores(state)
+    units = state.get('score_half_units', {})
+    values = {key: units.get(key, int(scores[people[0]] * 2))
+              for key, people in members.items()}
+    completed = max(len(state.get('round_results', [])), sum(
+        record.get('losses', 0) for record in state.get('records', {}).values()))
+    rankings = []
+    previous = None
+    rank = None
+    for index, key in enumerate(sorted(values, key=values.get, reverse=True), 1):
+        if completed and values[key] != previous:
+            rank = index
+        rankings.append({'rank': rank, 'score': values[key] / 2,
+                         'player_ids': list(members[key]),
+                         **({'team_id': key} if teams else {'player_id': key})})
+        previous = values[key]
+    leaders = [row for row in rankings if row['rank'] == 1]
+    verdict = ('未结算回合，无胜负' if not completed else
+               ('并列第一' if len(leaders) > 1 else '排名已确定'))
+    result = {
+        # Compatibility sentinel for the shared terminal/payout framework only.
+        # Competition outcomes live below; this is not a platform draw/reward.
+        'draw': True, 'mode': 'party', 'reason': reason,
+        'outcome': 'ranked' if completed else 'no_contest',
+        'completed_rounds': completed, 'rankings': rankings,
+        'winner_player_ids': [pid for row in leaders for pid in row['player_ids']],
+        'scores': {pid: values[key] / 2 for key, people in members.items() for pid in people},
+        'records': deepcopy(state.get('records', {})),
+        'result_text': f'酒桌局结束 · 完成 {completed} 轮 · {verdict}。',
+    }
+    if teams:
+        result.update(team_scores={key: value / 2 for key, value in values.items()},
+                      winner_team_ids=[row['team_id'] for row in leaders])
+    return result

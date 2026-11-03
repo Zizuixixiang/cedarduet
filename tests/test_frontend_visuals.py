@@ -30,7 +30,7 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.5"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.7"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
@@ -2278,6 +2278,7 @@ assert.match(pendingRoomCreatedNotice(null), /^房间创建成功。等待参与
             function_source("pendingConfirmationDetails"),
             function_source("pendingConfirmationText"),
             function_source("selectedGameType"),
+            function_source("selectedGameOptions"),
             function_source("pendingRoomCreatedNotice"),
         ))
         start = SCRIPT.index("async function createRoom(")
@@ -2290,6 +2291,8 @@ let room = {{room_id: "old-room"}};
 const identity = {{human_player_id: "human-1"}};
 let loadIdentityOptions = null;
 let shownNotice = null;
+let noticeIsError = null;
+let requestedPath = null;
 let renderGameCalled = false;
 const elements = {{
   createButton: {{disabled: false}},
@@ -2303,7 +2306,11 @@ const updateCreateButtonState = () => {{ buttonStateChecks += 1; return true; }}
 const selectedParticipantIds = () => ["ai-1", "ai-2", "ai-3"];
 const selectedTargetPlayerCount = () => 4;
 const selectedFillWithNpcs = () => false;
-const request = async () => ({{
+const request = async (path, options) => {{
+  requestedPath = path;
+  assert.equal(options.method, "POST");
+  assert.equal(JSON.parse(options.body).game_type, "mahjong");
+  return ({{
   message: "等待对方确认",
   room: {{
     room_id: "4X3T437D",
@@ -2322,14 +2329,17 @@ const request = async () => ({{
     ],
   }},
 }});
+}};
 const loadIdentity = async (options) => {{ loadIdentityOptions = options; }};
-const showNotice = (text) => {{ shownNotice = text; }};
+const showNotice = (text, isError = false) => {{ shownNotice = text; noticeIsError = isError; }};
 const renderGame = () => {{ renderGameCalled = true; }};
 const startRoomPolling = () => {{}};
 {create_room}
 
 (async () => {{
   await createRoom();
+  assert.equal(requestedPath, "/api/rooms");
+  assert.equal(noticeIsError, false, shownNotice);
   assert.equal(room, null);
   assert.deepEqual(loadIdentityOptions, {{quiet: true}});
   assert.match(shownNotice, /^房间 4X3T437D 创建成功。/);
@@ -3245,6 +3255,19 @@ assert.equal(viewerSlot.children.length, 1);
 assert.equal(viewerSlot.children[0].children[1].children[0].textContent, "甲（你）");
 assert.ok(!viewerSlot.classList.contains("hidden"));
 assert.ok(!viewerRow.classList.contains("hidden"));
+
+for (const [state, diceLabel, scoreLabel] of [
+  [null, "剩余骰子", "得分"],
+  [{{}}, "剩余骰子", "得分"],
+  [{{mode: "classic"}}, "剩余骰子", "得分"],
+  [{{mode: "party"}}, "骰子", "本局积分"],
+  [{{mode: "party", teams: {{red: ["p1"], blue: ["p2"]}}}}, "共用骰子", "共用队分"],
+]) {{
+  targetRoom.board_state = state;
+  renderParticipantRoster(targetRoom);
+  assert.ok(roster.children[0].children[2].textContent.includes(`${{diceLabel}} 4`));
+  assert.ok(viewerSlot.children[0].children[2].textContent.includes(`${{scoreLabel}} 2`));
+}}
 
 targetRoom.status = "finished";
 renderParticipantRoster(targetRoom);

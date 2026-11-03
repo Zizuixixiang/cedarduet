@@ -51,7 +51,7 @@
 `move={action:challenge}`：计数达到叫数，通常质疑者败，否则叫点者败。基础败方-1分，胜方不加分。加倍相乘后**每受罚个人/队每轮至多4倍、4分**，陪扣也封顶4。抽中同队只加倍同一份队分，不产生多次队分扣款。
 权威 `round_result.penalties` 每项含 `hits/raw_multiplier/multiplier/cap/capped/base_half_units/deduction_half_units/score_delta/score_after`；`companion` 记录虚拟骰与映射座位，`dark_reversed` 记录反转，`cup_bonuses` 记录各盅加数。内部 `score_half_units` 使用整数半分单位运算；对外以0.5分精确显示，胜负记录只辅助。
 
-结算后仍各5骰，不淘汰。败方成为当前行动者，提交 `move={action:acknowledge_round}` 开始下一轮并先叫。正常全盅重摇；投降不重摇保留骰面。所有酒桌行动须带最新 `revision`，旧版本/重复结算拒绝。任一真实在场参与者可 `move={action:end_session}` 结束整桌，保留积分和记录，未结算轮次不计分，无总冠军；NPC/超时接管不可结束整桌。
+结算后仍各5骰，不淘汰。败方成为当前行动者，提交 `move={action:acknowledge_round}` 开始下一轮并先叫。正常全盅重摇；投降不重摇保留骰面。所有酒桌行动须带最新 `revision`，旧版本/重复结算拒绝。任一真实在场参与者可 `move={action:end_session}` 结束整桌，保留积分和记录，未结算轮次不计分；按本局累计积分从高到低排名（红蓝组队只按队分排名），同分并列第一，零个已结算回合则无胜负。结束弹窗展示完整排名和已完成轮数，不发放平台筹码或成就奖励；NPC/超时接管不可结束整桌。
 
 旧开发稿已开局酒桌房没有 `party_rules_version:2` 时保持无围骰加数/无单骰重摇；修正有骰计骰的1百搭含义。原版存档不变。
 

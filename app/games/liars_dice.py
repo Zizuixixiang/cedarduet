@@ -56,7 +56,8 @@ class LiarsDice(GamePlugin):
         "不触发开骰加倍/反转/陪扣。surrender_no_reroll须同时开投降：不揭骰且确认后保留各盅；否则揭盅重摇。"
         "以上处罚/投降选项默认关闭，积分以整数半分单位存储。\n"
         "败方先叫，当前行动者acknowledge_round后开始下一轮。任一真实在场参与者可end_session结束整桌；"
-        "离场/房间认输也结束，不结算未完成轮次。不涉及实际饮酒、真钱或平台币扣款。"
+        "离场/房间认输也结束，不结算未完成轮次。结束按累计个人/队分从高到低排名，同分并列；"
+        "零个已结算回合无胜负，胜方无额外奖励。不涉及实际饮酒、真钱或平台币扣款。"
     )
 
     pairs_rules = (
@@ -189,19 +190,19 @@ class LiarsDice(GamePlugin):
         return state["team_next_speakers"][next_team]
 
     def _finish_party(self, state, reason="session_ended"):
-        state["scores"] = self.party_scores(state)
+        state["session_result"] = party.final_result(self, state, reason)
+        state["scores"] = deepcopy(state["session_result"]["scores"])
+        if state.get("teams"):
+            state["team_scores"] = deepcopy(state["session_result"]["team_scores"])
         state["flow"]["phase"] = "finished"
         state["pending_next_round"] = None
         state["current_bid"] = None
         state["turn_player_id"] = None
-        state["session_result"] = {"draw": True, "mode": "party", "reason": reason,
-                                   "result_text": "酒桌局已结束，本局积分和回合记录已保留。",
-                                   "scores": deepcopy(state["scores"]),
-                                   "records": deepcopy(state["records"])}
-        if state.get("teams"):
-            state["session_result"]["team_scores"] = deepcopy(state["team_scores"])
-        return MoveResult(state=state, note="酒桌局已结束，保留本局积分和回合记录。",
+        return MoveResult(state=state, note=state["session_result"]["result_text"],
                           result=deepcopy(state["session_result"]))
+
+    def party_final_result(self, state, reason="session_ended"):
+        return party.final_result(self, state, reason)
 
     def _is_exact(self, state, face, exact=False):
         return bool(exact or face == 1 or (state.get("current_bid") or {}).get("exact"))
@@ -797,7 +798,7 @@ class LiarsDice(GamePlugin):
                              records=deepcopy(state.get("records", {})),
                              round_results=deepcopy(state.get("round_results", [])))
         projected["bid_ranges"] = self.bid_ranges(state)
-        if terminal:
+        if terminal and not self.is_party(state):
             projected["terminal_dice"] = {
                 player_id: deepcopy(state.get("dice_by_player", {}).get(player_id, []))
                 for player_id in (state.get("dice_by_player", {}) if state.get("teams") else state.get("participant_order", []))

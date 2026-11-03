@@ -107,6 +107,12 @@ def _decorate(room: dict) -> dict:
     if game.game_type == "liars_dice":
         result["game_options"] = game.normalize_options(game.saved_options(room["board_state"]))
         result["game_name"] += "·酒桌大话骰" if game.is_party(room["board_state"]) else "·原版淘汰赛"
+        saved_result = room.get("result") or {}
+        if (room["status"] in {"finished", "archived"} and saved_result.get("mode") == "party"
+                and "rankings" not in saved_result):
+            # Older finished rooms are upgraded in the read projection only.
+            result["result"] = {**saved_result, **game.party_final_result(
+                room["board_state"], saved_result.get("reason", "session_ended"))}
     if is_desktop_demo(room):
         result["demo"] = True
         result["game_name"] = "【演示】" + game.display_name
@@ -850,6 +856,15 @@ def list_human_rooms(
                    r.stake, r.initiator_player_id, r.current_player_id,
                    {desktop_demo_sql("r.")} AS desktop_demo,
                    r.confirmation_expires_at,
+                   CASE WHEN r.game_type = 'liars_dice'
+                       THEN json_extract(r.board_state, '$.mode') = 'party'
+                       ELSE 0 END AS party_dice,
+                   CASE WHEN r.game_type = 'liars_dice' AND r.status = 'waiting'
+                       THEN json_type(r.board_state, '$.team_selection') = 'object'
+                       ELSE 0 END AS team_selection_pending,
+                   CASE WHEN r.game_type = 'liars_dice' AND r.status = 'waiting'
+                       THEN json_extract(r.board_state, '$.team_selection.target_player_count')
+                       END AS team_selection_target_count,
                    (
                        SELECT GROUP_CONCAT(confirmation.player_id)
                        FROM room_confirmations AS confirmation
@@ -859,6 +874,8 @@ def list_human_rooms(
             FROM rooms AS r
             {membership}
             ORDER BY
+                CASE WHEN {int(not spectating)} AND team_selection_pending AND party_dice
+                    THEN 0 ELSE 1 END,
                 CASE r.status
                     WHEN 'playing' THEN 0
                     WHEN 'pending' THEN 1
@@ -875,6 +892,13 @@ def list_human_rooms(
         result = []
         for row in rows:
             item = dict(row)
+            if item.pop("party_dice", False):
+                item["party_dice"] = True
+            if item.pop("team_selection_pending", False):
+                item["team_selection_pending"] = True
+            target_count = item.pop("team_selection_target_count", None)
+            if target_count is not None:
+                item["target_player_count"] = target_count
             participant_rows = conn.execute(
                 """
                 SELECT player_id, display_name, role, participant_kind,
@@ -886,6 +910,8 @@ def list_human_rooms(
                 (row["room_id"],),
             ).fetchall()
             participants = [dict(participant) for participant in participant_rows]
+            if item.get("team_selection_pending"):
+                item["participant_count"] = len(participants)
             for participant in participants:
                 participant["active"] = bool(participant["active"])
                 participant["seat"] = participant["seat_index"]

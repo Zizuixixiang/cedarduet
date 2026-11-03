@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-liars-dice-review-styles";
-  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.5";
+  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.7";
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -112,12 +112,17 @@
       literalLabel.appendChild(element(doc, "span", "", "有骰计骰"));
       const literal = element(doc, "select");
       literal.setAttribute("aria-label", "有骰计骰");
-      [["false", "关闭 · 围骰加数、单骰可重摇"], ["true", "开启 · 不加数、不重摇，1仍百搭"]].forEach(([value, text]) => {
+      [["false", "关闭"], ["true", "开启"]].forEach(([value, text]) => {
         const option = element(doc, "option", "", text); option.value = value; literal.appendChild(option);
       });
       literal.value = select.dataset.literalDice || "false";
-      literal.addEventListener("change", () => { select.dataset.literalDice = literal.value; });
-      literalLabel.appendChild(literal); counting.appendChild(literalLabel);
+      const literalHint = element(doc, "small", "invite-note");
+      const updateLiteralHint = () => {
+        literalHint.textContent = literal.value === "true" ? "不加数、不重摇，1仍百搭。" : "围骰加数、单骰可重摇。";
+      };
+      updateLiteralHint();
+      literal.addEventListener("change", () => { select.dataset.literalDice = literal.value; updateLiteralHint(); });
+      literalLabel.append(literal, literalHint); counting.appendChild(literalLabel);
       const rules = JSON.parse(select.dataset.diceRules || "{}");
       const persist = () => { select.dataset.diceRules = JSON.stringify(rules); };
       const inputs = {};
@@ -145,50 +150,34 @@
         (key === "allow_surrender" || key === "surrender_no_reroll" ? surrender : penalties).appendChild(row);
       });
       inputs.surrender_no_reroll.disabled = !rules.allow_surrender;
-      const openingLabel = element(doc, "label", "pixel-field liars-opening-field");
+      const openingLabel = element(doc, "label", "pixel-field");
       openingLabel.appendChild(element(doc, "span", "", "5人普通起叫"));
       const opening = element(doc, "select"); opening.setAttribute("aria-label", "5人普通起叫");
       [8, 7].forEach(n => { const option = element(doc, "option", "", `${n}起${n === 8 ? " · 向上取整" : " · 地区约定"}`); option.value = n; opening.appendChild(option); });
       opening.value = rules.opening_five || 8;
       opening.addEventListener("change", () => { rules.opening_five = Number(opening.value); persist(); });
-      openingLabel.appendChild(opening); counting.appendChild(openingLabel);
-      counting.appendChild(element(doc, "small", "invite-note", "其他人数起叫数量向上取整。"));
+      openingLabel.append(opening, element(doc, "small", "invite-note", "其他人数起叫数量向上取整。"));
+      counting.appendChild(openingLabel);
       penalties.appendChild(element(doc, "small", "invite-note", "每个受罚人/队每轮最多扣4分。"));
       surrender.appendChild(element(doc, "small", "invite-note", "投降固定扣0.5分，不叠加其他处罚。"));
       const teamsLabel = element(doc, "label", "pixel-field");
       teamsLabel.appendChild(element(doc, "span", "", "组队玩法（可选）"));
       const teams = element(doc, "select");
       teams.setAttribute("aria-label", "组队玩法");
-      [["none", "不组队 · 每人一盅"], ["teams", "红蓝两队 · 每队一盅（4/6人）"]].forEach(([value, text]) => {
+      [["none", "不组队"], ["random", "随机组队"], ["manual", "手动组队"]].forEach(([value, text]) => {
         const option = element(doc, "option", "", text); option.value = value; teams.appendChild(option);
       });
-      teams.value = select.dataset.diceTeams || "none";
+      teams.value = select.dataset.diceTeams === "teams"
+        ? (select.dataset.randomTeams === "false" ? "manual" : "random") : "none";
       teams.addEventListener("change", () => {
-        select.dataset.diceTeams = teams.value;
+        select.dataset.diceTeams = teams.value === "none" ? "none" : "teams";
+        select.dataset.randomTeams = String(teams.value !== "manual");
         select.dispatchEvent(new Event("change"));
         doc.querySelector(`#${target.id} select[aria-label="组队玩法"]`)?.focus({preventScroll: true});
       });
       teamsLabel.appendChild(teams); target.appendChild(teamsLabel);
-      if (teams.value === "teams") {
-        ensureStylesheet(doc);
-        const randomLabel = element(doc, "label", "liars-random-toggle");
-        const random = element(doc, "input");
-        random.type = "checkbox";
-        random.checked = select.dataset.randomTeams !== "false";
-        random.setAttribute("aria-label", "随机组队");
-        random.addEventListener("change", () => {
-          select.dataset.randomTeams = String(random.checked);
-          select.dispatchEvent(new Event("change"));
-        });
-        randomLabel.append(random, element(doc, "span", "", "随机组队"));
-        target.appendChild(randomLabel);
-        if (!random.checked) {
-          const setup = element(doc, "button", "pixel-btn secondary compact liars-open-teams", "组队");
-          setup.type = "button";
-          setup.addEventListener("click", () => global.openDiceTeamSelection(select));
-          target.appendChild(setup);
-        }
-        target.appendChild(element(doc, "small", "invite-note", random.checked
+      if (teams.value !== "none") {
+        target.appendChild(element(doc, "small", "invite-note", teams.value === "random"
           ? "开局随机分成红蓝两队，每队共享5骰和队分。"
           : "开房后本人选座，约20秒后可开始；未选者随机补位。"));
       }
@@ -202,37 +191,14 @@
     return key === "red" ? "红队" : key === "blue" ? "蓝队" : `第${Object.keys(teams).indexOf(key) + 1}队`;
   }
 
-  const panels = new Map();
   global.DuelDiceTeams = {
-    openNext: false,
     renderSelection(target, room, helpers) {
       const doc = target.ownerDocument;
       ensureStylesheet(doc);
       const selection = room.team_selection;
-      let view = panels.get(room.room_id);
-      if (!view) {
-        view = {open: this.openNext, collapsed: false};
-        panels.set(room.room_id, view);
-        this.openNext = false;
-      }
-      if (selection.can_start && !view.collapsed) {
-        view.open = false;
-        view.collapsed = true;
-      }
       const section = element(doc, "section", "liars-team-selection");
-      const toggle = element(doc, "button", "pixel-btn secondary compact", "组队");
-      toggle.type = "button";
-      toggle.setAttribute("aria-expanded", String(view.open));
-      toggle.setAttribute("aria-controls", "liars-team-seats");
       const seats = element(doc, "div", "liars-team-seats");
-      seats.id = "liars-team-seats";
-      seats.classList.toggle("hidden", !view.open);
-      toggle.addEventListener("click", () => {
-        view.open = !view.open;
-        toggle.setAttribute("aria-expanded", String(view.open));
-        seats.classList.toggle("hidden", !view.open);
-      });
-      section.append(toggle, element(doc, "p", "invite-note", selection.can_start
+      section.appendChild(element(doc, "p", "invite-note", selection.can_start
         ? "可以开始了；未选座的成员将随机补位。"
         : "点击空位加入或换位；约20秒后房主可以开始。"));
       for (const [team, members] of Object.entries(selection.seats)) {
@@ -293,6 +259,35 @@
 
   global.DuelDiceRules = {penaltyText, appendPenaltyReview};
 
+  function renderFinalRanking(container, room, renderAvatar) {
+    const doc = container.ownerDocument || global.document;
+    ensureStylesheet(doc);
+    const result = room.result || {};
+    const rows = result.rankings || [];
+    const tied = rows.filter(row => row.rank === 1).length > 1;
+    rows.forEach(row => {
+      const leader = result.outcome === "ranked" && row.rank === 1;
+      const item = element(doc, "div", `liars-final-row${leader ? " is-leader" : ""}`);
+      item.appendChild(element(doc, "strong", "liars-final-place",
+        row.rank == null ? "—" : leader ? (tied ? "并列第一" : "冠军") : `第${row.rank}名`));
+      const people = element(doc, "div", "liars-final-people");
+      if (row.team_id) people.appendChild(element(doc, "strong", `liars-final-team ${row.team_id === "red" ? "red" : "blue"}`,
+        row.team_id === "red" ? "红队" : "蓝队"));
+      (row.player_ids || []).forEach(id => {
+        const person = (room.participants || []).find(p => p.player_id === id);
+        const member = element(doc, "div", "liars-final-member");
+        const avatar = element(doc, "span", "room-participant-avatar");
+        renderAvatar(avatar, person, room);
+        member.append(avatar, element(doc, "span", "liars-final-name", person?.display_name || "玩家"));
+        people.appendChild(member);
+      });
+      item.append(people, element(doc, "strong", "liars-final-score", `${row.score}分`));
+      container.appendChild(item);
+    });
+  }
+
+  global.DuelDiceResults = {render: renderFinalRanking};
+
   function appendPartyRecords(context) {
     if (context.state?.mode !== "party") return;
     const doc = context.board.ownerDocument || global.document;
@@ -301,15 +296,31 @@
     panel.appendChild(element(doc, "strong", "liars-result-title", "本局积分"));
     const scoreGrid = element(doc, "div", "liars-score-grid");
     const scores = context.state.scores || {};
-    Object.entries(scores).forEach(([id, score]) => {
-      const team = Object.entries(context.state.teams || {}).find(([,members]) => members.includes(id));
-      const teamLabel = team ? ` · ${teamName(context.state.teams, id)}共用` : "";
-      const row = element(doc, "div", "liars-score-row");
-      row.append(element(doc, "span", "liars-score-name", participantName(context, id)),
-        element(doc, "strong", "liars-score-value", `${score}分`));
-      if (teamLabel) row.appendChild(element(doc, "small", "liars-score-team", teamLabel.slice(3)));
-      scoreGrid.appendChild(row);
-    });
+    const teams = Object.entries(context.state.teams || {});
+    if (teams.length) {
+      scoreGrid.className += " liars-team-score-grid";
+      teams.forEach(([team, members]) => {
+        const score = context.state.team_scores?.[team]
+          ?? members.map(id => scores[id]).find(Number.isFinite) ?? 0;
+        const card = element(doc, "section", `liars-team-score-card liars-team-${team}`);
+        const name = team === "red" ? "红队" : "蓝队";
+        card.setAttribute("aria-label", `${name}共享积分`);
+        const heading = element(doc, "div", "liars-team-score-heading");
+        heading.append(element(doc, "strong", "liars-team-score-name", name),
+          element(doc, "strong", "liars-team-score-value", `${score}分`));
+        const names = element(doc, "ul", "liars-team-score-members");
+        members.forEach(id => names.appendChild(element(doc, "li", "", participantName(context, id))));
+        card.append(heading, names);
+        scoreGrid.appendChild(card);
+      });
+    } else {
+      Object.entries(scores).forEach(([id, score]) => {
+        const row = element(doc, "div", "liars-score-row");
+        row.append(element(doc, "span", "liars-score-name", participantName(context, id)),
+          element(doc, "strong", "liars-score-value", `${score}分`));
+        scoreGrid.appendChild(row);
+      });
+    }
     panel.appendChild(scoreGrid);
     const history = element(doc, "details", "liars-reveal-details");
     history.appendChild(element(doc, "summary", "", `回合扣分记录（${(context.state.round_results || []).length}轮）`));

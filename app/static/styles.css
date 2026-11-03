@@ -1171,11 +1171,26 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 }
 .private-state-panel.compact-dice-private .my-dice { gap: 4px; }
 .private-state-panel.compact-dice-private .my-dice .liars-die {
-  --liars-pip-radius: 2px;
-  width: 27px;
-  height: 27px;
+  --liars-pip-radius: 2.5px;
+  width: 34px;
+  height: 34px;
   border-width: 2px;
   box-shadow: 1px 1px 0 rgba(92, 84, 99, .18);
+}
+/* Five private dice stay readable on phones and grow further on desktop. */
+@media (min-width: 900px) {
+  .game-view .private-state-panel.compact-dice-private .private-state-row:has(.my-dice) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .game-view .private-state-panel.compact-dice-private .my-dice {
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+  .game-view .private-state-panel.compact-dice-private .my-dice .liars-die {
+    --liars-pip-radius: 3px;
+    width: 44px;
+    height: 44px;
+  }
 }
 .create-submit {
   min-width: 150px;
