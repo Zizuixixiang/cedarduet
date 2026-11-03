@@ -4875,8 +4875,6 @@ function renderInviteRoomPanel() {
   }
   const members = document.createElement("section");
   members.className = "invite-room-members";
-  const teamMembers = room.game_type === "liars_dice" && Boolean(room.team_selection);
-  if (teamMembers) members.classList.add("liars-waiting-members");
   const memberLabel = document.createElement("h3");
   memberLabel.textContent = "已加入";
   members.appendChild(memberLabel);
@@ -4884,24 +4882,7 @@ function renderInviteRoomPanel() {
     const tag = document.createElement("span");
     tag.className = "invite-member-tag";
     const id = participantAccountId(p);
-    if (teamMembers) {
-      tag.className = "liars-waiting-member";
-      const avatar = document.createElement("span");
-      avatar.className = "room-participant-avatar";
-      renderParticipantAvatar(avatar, p, room);
-      const copy = document.createElement("span");
-      copy.className = "liars-waiting-member-copy";
-      const name = document.createElement("strong");
-      name.textContent = p.display_name;
-      const detail = document.createElement("small");
-      const team = Object.entries(room.team_selection.seats).find(([, seats]) => seats.includes(p.player_id))?.[0];
-      const status = team === "red" ? "红队" : team === "blue" ? "蓝队" : "待选座";
-      detail.textContent = `${id ? `ID ${id} · ` : ""}${status}`;
-      copy.append(name, detail);
-      tag.append(avatar, copy);
-    } else {
-      tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
-    }
+    tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
     members.appendChild(tag);
   }
   panel.appendChild(members);

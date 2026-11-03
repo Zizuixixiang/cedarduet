@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-liars-dice-review-styles";
-  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.9";
+  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.10";
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;

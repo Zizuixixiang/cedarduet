@@ -98,13 +98,6 @@
 
 .invite-waiting-view > #inviteRoomPanel.liars-team-waiting { max-width: 880px; padding: 24px; gap: 16px; }
 #inviteRoomPanel.liars-team-waiting .invite-room-action { min-height: 44px; }
-#inviteRoomPanel .liars-waiting-members { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; }
-.liars-waiting-members > h3 { grid-column: 1 / -1; }
-.liars-waiting-member { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid var(--purple-light); background: #faf8fd; }
-.liars-waiting-member .room-participant-avatar { width: 36px; height: 36px; border: 1px solid var(--purple-light); color: var(--text); font-size: 24px; line-height: 1; white-space: nowrap; overflow-wrap: normal; overflow: visible; }
-.liars-waiting-member-copy { display: grid; min-width: 0; gap: 3px; font-family: system-ui, sans-serif; line-height: 1.5; overflow-wrap: anywhere; }
-.liars-waiting-member-copy strong { font-size: 13px; color: var(--text); }
-.liars-waiting-member-copy small { font-size: 11px; color: var(--muted); }
 .liars-team-selection { flex: 1 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .liars-team-selection > .invite-note { color: var(--text); }
 .liars-team-seats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -114,7 +107,17 @@
 #inviteRoomPanel .liars-team-row h3 { color: var(--seat-ink); margin-bottom: 12px; }
 .liars-team-cells { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
 .liars-team-seat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 104px; padding: 8px 4px; border: 2px solid var(--seat-color); background: #fff; white-space: normal; overflow-wrap: anywhere; }
-.liars-team-seat .room-participant-avatar { width: 30px; height: 30px; font-size: 21px; }
+.liars-team-seat .room-participant-avatar {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 40px;
+  min-width: 0;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: -1px;
+  white-space: nowrap;
+  overflow: visible;
+}
 .liars-team-name { max-width: 100%; font: 12px/1.4 system-ui, sans-serif; color: var(--text); }
 .liars-team-id { max-width: 100%; font: 10px/1.4 system-ui, sans-serif; color: var(--muted); }
 .liars-my-seat { outline: 2px solid var(--seat-color); outline-offset: 2px; }
@@ -136,6 +139,17 @@
 .liars-penalty-details { color: var(--text); overflow-wrap: anywhere; }
 .liars-penalty-details[open] { padding-bottom: 4px; }
 .liars-penalty-details .liars-result-line + .liars-result-line { margin-top: 6px; }
+/* Desktop-only readability for the entire team waiting room. */
+@media (min-width: 900px) {
+  #inviteRoomPanel.liars-team-waiting .invite-room-title { font-size: 26px; }
+  #inviteRoomPanel.liars-team-waiting .invite-room-meta { font-size: 17px; }
+  #inviteRoomPanel.liars-team-waiting h3 { font-size: 20px; }
+  #inviteRoomPanel.liars-team-waiting .invite-member-tag { font-size: 17px; }
+  #inviteRoomPanel.liars-team-waiting .invite-note { font-size: 16px; }
+  #inviteRoomPanel.liars-team-waiting .liars-team-name { font-size: 18px; }
+  #inviteRoomPanel.liars-team-waiting .liars-team-id { font-size: 15px; }
+  #inviteRoomPanel.liars-team-waiting .invite-room-action { font-size: 16px; }
+}
 @media (max-width: 700px) {
   .invite-waiting-view > #inviteRoomPanel.liars-team-waiting { padding: 14px; gap: 12px; }
   .liars-team-seats { grid-template-columns: 1fr; gap: 12px; }

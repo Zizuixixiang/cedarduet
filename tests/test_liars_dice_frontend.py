@@ -22,7 +22,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.9', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.10', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -113,7 +113,7 @@ assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-fa
 assert.equal(rows[1].children[0].textContent,"小机：");
 assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
 assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.9");
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.10");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,
