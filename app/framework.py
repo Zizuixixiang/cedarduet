@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from .database import connect, decode_room, write_transaction
+from . import liars_dice_setup
 from .desktop_demo import is_desktop_demo, desktop_demo_sql
 from .games import get_game, stake_presentation
 from .games.base import MoveResult
@@ -100,9 +101,12 @@ def _decorate(room: dict) -> dict:
     game = get_game(room["game_type"])
     allowed_counts = game.resolved_allowed_player_counts()
     result = dict(room)
-    result["rules_text"] = _room_rules_text(game.rules_text)
+    result["rules_text"] = _room_rules_text(game.room_rules(room["board_state"]) if game.game_type == "liars_dice" else game.rules_text)
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
+    if game.game_type == "liars_dice":
+        result["game_options"] = game.normalize_options(game.saved_options(room["board_state"]))
+        result["game_name"] += "·酒桌大话骰" if game.is_party(room["board_state"]) else "·原版淘汰赛"
     if is_desktop_demo(room):
         result["demo"] = True
         result["game_name"] = "【演示】" + game.display_name
@@ -168,6 +172,8 @@ def _decorate(room: dict) -> dict:
         if not is_npc:
             participant["handle"] = participant_handle(participant)
 
+        if game.game_type == "liars_dice":
+            participant["avatar"] = room["board_state"].get("participant_avatars", {}).get(participant["player_id"])
         participant["wallet_label"] = "???" if is_npc else None
         participant["avatar_url"] = (
             avatar_urls.get(participant.get("npc_persona_id")) if is_npc else None
@@ -181,6 +187,11 @@ def _decorate(room: dict) -> dict:
         result["invite_link"] = (
             "/duel/?invite=" + result["invite_code"] if result.get("invite_code") else None
         )
+    if liars_dice_setup.is_selecting(room):
+        selection = liars_dice_setup.public_selection(room["board_state"])
+        result["team_selection"] = selection
+        result["target_player_count"] = selection["target_player_count"]
+        result["room_ready"] = selection["can_start"] and len(result["participants"]) == selection["target_player_count"]
     _add_retention_metadata(result)
     return result
 
@@ -290,11 +301,13 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         raise DuelError("当前参与者已经离开房间", 403)
     game = get_game(room["game_type"])
     participants = deepcopy(room.get("participants", []))
-    if room.get("room_kind") == "invite" and not room["board_state"]:
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
         projected = deepcopy(room)
         projected.pop("npc_unattended_turns", None)
         projected.pop("npc_turn_actions", None)
-        projected["board_state"] = {}
+        projected["board_state"] = ({**game.saved_options(room["board_state"]),
+            "team_selection": liars_dice_setup.public_selection(room["board_state"])}
+            if liars_dice_setup.has_selection(room) else {})
         projected["private_state"] = {}
         projected["viewer"] = {"player_id": viewer_player_id, "role": viewer["role"],
                                "seat": viewer["seat_index"], "token": viewer.get("token")}
@@ -338,7 +351,7 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         participant["game_metadata"] = summary
     projected["participants"] = projected_participants
     projected["board_state"] = public_state
-    if (room.get("room_kind") == "invite" and room["game_type"] == "liars_dice"
+    if ((room.get("room_kind") == "invite" or room["board_state"].get("mode") == "party") and room["game_type"] == "liars_dice"
             and room["board_state"].get("pending_next_round")
             and room.get("current_player_id") == viewer_player_id):
         private_state["legal_actions"] = [{"action": "acknowledge_round"}]
@@ -368,7 +381,7 @@ def project_mcp_snapshot_for_viewer(
     used by Web/bootstrap responses.
     """
     projected = project_room_for_viewer(room, viewer_player_id)
-    if room.get("room_kind") == "invite" and not room["board_state"]:
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
         return projected
     game = get_game(room["game_type"])
     viewer = _participant_by_id(projected, viewer_player_id)
@@ -437,7 +450,7 @@ def project_mcp_room_for_viewer(
 ) -> dict:
     """Return the one-time/turn MCP projection without changing Web state."""
     projected = project_room_for_viewer(room, viewer_player_id)
-    if room.get("room_kind") == "invite" and not room["board_state"]:
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
         return projected
     game = get_game(room["game_type"])
     if getattr(game, 'mcp_move_format', None):
@@ -1831,10 +1844,23 @@ def _room_can_start(room: dict, game) -> bool:
     return True
 
 
+def normalize_game_options(game, options=None, stake=0):
+    try:
+        if game.game_type == "liars_dice":
+            return game.normalize_options(options, stake)
+        if options:
+            raise ValueError("该游戏不支持开房选项")
+        return {}
+    except ValueError as exc:
+        raise DuelError(str(exc)) from exc
+
+
 def _initialize_opening_state(
     game,
     participants: list[dict],
     proposed_first_player_id: str,
+    game_options: dict | None = None,
+    team_assignments: dict | None = None,
 ) -> tuple[dict, str]:
     """Run the shared opener-aware initialization pipeline for every room shape."""
     # A room-local hint lets hidden-information plugins align their first
@@ -1849,6 +1875,8 @@ def _initialize_opening_state(
     )
     if not isinstance(state, dict):
         raise TypeError("游戏插件初始化必须返回 state 对象")
+    if game.game_type == "liars_dice":
+        state = game.configure(state, game_options, teams=team_assignments)
     first_player_id = game.resolve_opening_player_id(
         state, proposed_first_player_id, participants
     )
@@ -1877,6 +1905,8 @@ def create_room(
     enforce_trusted_pair: bool = False,
     first_player_id: str | None = None,
     rematch_of_room_id: str | None = None,
+    game_options: dict | None = None,
+    target_player_count: int | None = None,
 ) -> dict:
     try:
         game = get_game(game_type)
@@ -1887,6 +1917,7 @@ def create_room(
     player_id = _player_id(player_id)
     opponent_id = _player_id(opponent_id) if opponent_id is not None else None
     stake = _stake(stake)
+    game_options = normalize_game_options(game, game_options, stake)
     participant_names = participant_names or {}
     participants = _normalize_ordered_participants(
         role=role,
@@ -1895,6 +1926,19 @@ def create_room(
         ordered_participants=ordered_participants,
         participant_names=participant_names,
     )
+    team_setup = game_type == "liars_dice" and liars_dice_setup.manual_teams(game_options)
+    rematch_roster = [p["player_id"] for p in participants]
+    deferred_npcs = []
+    if team_setup:
+        target_player_count = target_player_count or len(participants)
+        try:
+            game.validate_player_count(game_options, target_player_count)
+        except ValueError as exc:
+            raise DuelError(str(exc)) from exc
+        if len(participants) > target_player_count:
+            raise DuelError("参赛人数超过组队席位")
+        deferred_npcs = [p for p in participants if p["participant_kind"] == "system_npc"]
+        participants = [p for p in participants if p["participant_kind"] != "system_npc"]
     explicit_opener = None
     if first_player_id is not None:
         first_player_id = _player_id(first_player_id)
@@ -1938,6 +1982,8 @@ def create_room(
     confirmation_required = (
         stake > 0 if require_confirmations is None else bool(require_confirmations)
     )
+    if team_setup:
+        confirmation_required = False
     if stake > 0:
         confirmation_required = True
     for participant in participants:
@@ -1976,9 +2022,14 @@ def create_room(
     try:
         if first_player_id is None:
             first_player_id = game.first_player_id(participants, mode)
-        state, first_player_id = _initialize_opening_state(
-            game, participants, first_player_id
-        )
+        if team_setup:
+            state = liars_dice_setup.initial_selection(game_options, target_player_count, first_player_id)
+            if deferred_npcs:
+                state["team_selection"]["deferred_npcs"] = deferred_npcs
+        else:
+            state, first_player_id = _initialize_opening_state(
+                game, participants, first_player_id, game_options
+            )
     except (KeyError, TypeError, ValueError) as exc:
         raise DuelError(f"游戏插件初始化失败：{exc}") from exc
     state["marks_by_player"] = {
@@ -2033,7 +2084,7 @@ def create_room(
                 rematch_of_room_id, rematch_root_room_id = validate_rematch(
                     conn,
                     rematch_of_room_id,
-                    (item["player_id"] for item in participants),
+                    rematch_roster,
                     game_type,
                 )
             except ValueError as exc:
@@ -2043,7 +2094,7 @@ def create_room(
         status = (
             "pending"
             if pending_confirmations
-            else "playing" if enough_players else "waiting"
+            else "playing" if enough_players and not team_setup else "waiting"
         )
         conn.execute(
             """
@@ -2317,6 +2368,8 @@ def join_room(
         if row is None:
             raise DuelError("房间不存在", 404)
         room = decode_room(row, conn)
+        if liars_dice_setup.is_selecting(room):
+            raise DuelError("组队房请使用已有参赛席位；跨账号加入请使用邀请码", 409)
         if room.get("room_kind") == "invite":
             raise DuelError("邀请房请使用 invite_code 加入，由房主 start 开局", 409)
         _assert_opponent(room, role, opponent_id)
@@ -2430,7 +2483,7 @@ def join_room(
                 prospective, room["mode"]
             )
             state, first_player_id = _initialize_opening_state(
-                game, prospective, proposed_first_player_id
+                game, prospective, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type == "liars_dice" else None
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
@@ -2709,6 +2762,8 @@ def acknowledge_liars_dice_round(
             raise DuelError("当前房间不在对局中", 409)
         if room["game_type"] != "liars_dice":
             raise DuelError("只有吹牛骰子可以确认下一轮", 409)
+        if room["board_state"].get("mode") == "party" and room.get("current_player_id") != human_player_id:
+            raise DuelError("应由当前行动者确认下一轮", 409)
         game = get_game(room["game_type"])
         try:
             applied = game.acknowledge_round(room["board_state"])
@@ -2805,6 +2860,8 @@ def play_move(
             raise DuelError("卡卡颂整回合行动必须携带 revision", 409)
         if room["game_type"] in ("four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu") and expected_revision is None:
             raise DuelError("四色牌行动必须携带 revision", 409)
+        if room["game_type"] == "liars_dice" and room["board_state"].get("mode") == "party" and expected_revision is None:
+            raise DuelError("酒桌大话骰行动必须携带 revision", 409)
         _assert_expected_revision(room, expected_revision)
         if takeover and (not room.get("timeout_takeover") or
                          not has_live_room_participant(room, conn) or
@@ -2835,8 +2892,10 @@ def play_move(
                 (move.get("action") == "propose_trade" or
                  (move.get("action") == "respond_trade" and move.get("accept") is True))):
             raise DuelError("临时接管不能代玩家确认资产交易；可由本人确认或拒绝", 409)
+        if takeover and move == {"action": "end_session"} and room["game_type"] == "liars_dice":
+            raise DuelError("临时接管不能结束整桌", 403)
         try:
-            if (room.get("room_kind") == "invite" and room["game_type"] == "liars_dice"
+            if ((room.get("room_kind") == "invite" or room["board_state"].get("mode") == "party") and room["game_type"] == "liars_dice"
                     and move == {"action": "acknowledge_round"}):
                 move_label = "确认下一轮"
                 applied = game.acknowledge_round(room["board_state"])
@@ -2990,7 +3049,7 @@ def play_move(
             winner = "draw"
         else:
             winner = None
-        if pause_turn and room.get("room_kind") == "invite" and room["game_type"] == "liars_dice":
+        if pause_turn and (room.get("room_kind") == "invite" or room["board_state"].get("mode") == "party") and room["game_type"] == "liars_dice":
             pause_turn = False
             # In invitations the next real seat confirms; AI-only rooms must
             # never wait for a nonexistent human. NPC turns use the same ack.
@@ -3404,7 +3463,7 @@ def leave_room(
         _assert_opponent(room, role, opponent_id)
         if participant.get("join_status") == "left":
             return _decorate(room)
-        if room.get("room_kind") == "invite" and room["status"] == "waiting":
+        if (room.get("room_kind") == "invite" and room["status"] == "waiting") or liars_dice_setup.is_selecting(room):
             # Closing or leaving a pregame invitation closes the code. No
             # partial plugin state is initialized and no ownership is transferred.
             conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
@@ -3450,7 +3509,7 @@ def leave_room(
                     remaining, room["mode"]
                 )
                 state, first_player_id = _initialize_opening_state(
-                    game, remaining, proposed_first_player_id
+                    game, remaining, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type == "liars_dice" else None
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise DuelError(f"游戏插件初始化失败：{exc}") from exc

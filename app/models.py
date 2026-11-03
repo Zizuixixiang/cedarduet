@@ -9,6 +9,7 @@ class StrictBody(BaseModel):
 
 
 class CreateRoomBody(StrictBody):
+    game_options: dict[str, Any] | None = None
     player_id: str = Field(min_length=1, max_length=80)
     opponent_id: str | None = Field(default=None, min_length=1, max_length=80)
     ai_player: str | None = Field(default=None, min_length=1, max_length=80)
@@ -36,6 +37,7 @@ class CreateRoomBody(StrictBody):
 
 
 class InviteCreateBody(StrictBody):
+    game_options: dict[str, Any] | None = None
     player_id: str | None = None
     ai_players: list[str] | None = Field(default=None, max_length=5)
     game_type: str
@@ -259,6 +261,7 @@ class McpPlayBody(BaseModel):
     timeout_takeover: bool | None = None
     timeout_takeover_seconds: Literal[0, 90, 180] = 0
     display_name: str | None = Field(default=None, max_length=100)
+    display_avatar: dict | None = None  # Loopback-only authenticated profile; not a public MCP field.
     action: Literal[
         "catalog", "rooms", "new", "rematch", "join", "move", "state", "resign", "leave", "accept", "reject",
         "chips", "invite", "start", "chat", "reclaim", "cancel_wait",

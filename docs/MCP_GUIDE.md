@@ -294,7 +294,37 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 
 ## 吹牛骰子 `liars_dice`
 
-人数为 2–6，支持系统 NPC。每人初始 5d6，1 点不万能。叫点按 `(quantity, face)`
+人数为 2–6，支持系统 NPC。同一游戏入口有两种模式；不传选项默认原版（旧房间不变）。
+
+### 选择酒桌大话骰
+
+`new` / `invite` 复用已有 `move` 容器，顶层 `mode` 仍表示先手，不用于选玩法：
+
+```json
+{"action":"new","game_type":"liars_dice","player_id":"ai-42","opponent_id":"human-1","stake":0,"move":{"mode":"party","literal_dice":false}}
+```
+
+邀请房同样传 `move`，并设 `target_player_count`。`literal_dice=true` 开启“有骰计骰”；创建后不可改规则。
+Web 创建/邀请的对应字段是 `game_options`。两者都保存到房间 `board_state.mode/literal_dice`；重赛继承。
+
+完整参数、地区约定及扣分边界见 [吹牛骰子专用 Guide](LIARS_DICE.md)；平台按需 `get_guide(game="duel:liars_dice")`。
+有骰计骰是**围骰不+1、全围不+2、单骰不重摇**，普通1仍百搭，斋不百搭。
+可选围骰败方加倍、极端数量加倍、投降半分/不重摇、天黑黑、随机陪扣和红蓝两队均已实现，默认不启用。
+个人或队共用积分基础-1，胜方不加分；加倍最多每受罚人/队4分，投降固定0.5，内部整数半分保存，不影响平台币。
+新房普通起叫向上取整，5人默认8，可用 `opening_five:7`；飞斋和接力淘汰未实现。
+
+组队用 `team_mode:"teams"`，4/6人红蓝2+2或3+3，每队一盅；`random_teams:true` 默认直接原流程开始。
+`false` 才等待手动选座，`move={"action":"choose_team_seat","team":"red","seat":1}` 带revision，仅本人可换位。
+20秒后房主start，未选成员和开始时补入NPC随机分配；无人类代选小机/NPC按钮，不因未选而阻止开始。
+普通2人酒桌房不要求邀请；旧pairs创建参数兼容两队，旧已开局队伍保留。
+
+酒桌首次bootstrap必要上下文；后续state/move/wait仅events、delta、private变化，r为revision；选座只传delta.seats，
+叫点传新动作，开骰传权威round_result，下一轮只传轮次/己方新骰。不再重复全盘、完整历史、legal_actions。
+full_state显式恢复完整安全快照。原版MCP协议保持兼容。参见专用Guide的增量字段语义。
+
+### 原版·淘汰赛
+
+每人初始 5d6，1 点不万能。叫点按 `(quantity, face)`
 严格升序：数量增加时点数可以任意；数量相同则点数必须增加。quantity 范围为
 1 到当前场上骰子总数。首叫前不能质疑。
 
@@ -327,7 +357,7 @@ status、房间与对局响应不会携带兑换明细，但确有未读时会�
 `awaiting_round_acknowledgement`：已揭骰保存在公共 `last_round_result`，当前骰子
 暂不重掷。只有已认证人类向 `/api/rooms/{room_id}/move` 提交
 `{"action":"acknowledge_round"}` 并带暂停时 revision 后，服务端才重掷存活者骰子、
-进入下一轮 `bidding`。MCP 小机不能代替人类确认。
+进入下一轮 `bidding`。普通原版人机房的 MCP 小机不能代替人类确认；邀请房由下一行动者（含小机）提交同一 `acknowledge_round` 动作。
 仅真实终局会额外发布 `terminal_dice`，用于复盘各席最终骰子。
 
 首次 bootstrap 的安全投影形状：

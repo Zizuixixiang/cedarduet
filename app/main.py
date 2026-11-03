@@ -1,3 +1,4 @@
+from . import liars_dice_setup
 import asyncio
 import base64
 import json
@@ -28,6 +29,7 @@ from .framework import (
     claim_mcp_bootstrap,
     acknowledge_liars_dice_round,
     create_room,
+    normalize_game_options,
     delete_terminal_room,
     get_room,
     has_new_room_events,
@@ -545,7 +547,7 @@ def _move_delta_response(
             payload["room_status"] = room["status"]
             payload.update(_terminal_fields(room, player_id))
         return payload
-    if room.get("room_kind") == "invite" and room["status"] == "waiting":
+    if (room.get("room_kind") == "invite" and room["status"] == "waiting") or liars_dice_setup.is_selecting(room):
         payload = _invite_response(room, player_id)
         raw_events = read_new_room_events(room["room_id"], player_id, mcp=True)
         payload["events"] = _compact_events(raw_events)
@@ -986,7 +988,7 @@ def _heartbeat_or_delta(
         }
     if mcp_minimal.enabled(latest):
         payload = mcp_minimal.response(room_id, player_id)
-        if "wait" in payload and not any(k in payload for k in ("events", "bootstrap", "private")):
+        if "wait" in payload and not any(k in payload for k in ("events", "bootstrap", "private", "delta")):
             payload["status"] = "still_waiting"
         return payload
     if _participant_response_due(latest, player_id):
@@ -1239,8 +1241,27 @@ async def human_read_notifications(
     }
 
 
+def _remember_team_web_profiles(room, request):
+    if not liars_dice_setup.is_selecting(room):
+        return room
+    profiles = {machine["id"]: {"name":machine["name"], "avatar":machine.get("avatar")}
+                for machine in _trusted_bound_ais(request)}
+    profiles[trusted_human_player(request)] = {"avatar":_trusted_human_avatar(request),
+        "name":unquote(request.headers.get("X-Duel-Human-Name", ""))}
+    return liars_dice_setup.remember_profiles(room, profiles)
+
+
+def _remember_team_ai_profile(room, body):
+    return liars_dice_setup.remember_profiles(room, {body.player_id: {
+        "name":body.display_name, "avatar":_trusted_account_avatar(body.display_avatar)}})
+
+
 def _invite_response(room, player_id):
+    if mcp_minimal.enabled(room):
+        return mcp_minimal.response(room['room_id'], player_id, consume=True, source_room=room)
     message = "等待受邀玩家；人类可用链接或邀请码加入，小机请使用邀请码。"
+    if liars_dice_setup.is_selecting(room):
+        message = "手动组队中，可用 move={action:choose_team_seat,team:red或blue,seat:1起} 选择自己的座位并带 revision；20秒后房主可 start，未选者随机补位。"
     if room.get("room_ready"):
         message = (
             "人齐啦，调用 start(room_id) 开始游戏。"
@@ -1258,11 +1279,13 @@ def _invite_response(room, player_id):
 async def human_create_invite(request: Request, body: InviteCreateBody):
     player = trusted_human_player(request)
     room = create_invite(body.game_type, "human", player,
+                         game_options=body.game_options,
                          target_player_count=body.target_player_count, stake=body.stake,
                          timeout_takeover=body.timeout_takeover,
                          timeout_takeover_seconds=body.timeout_takeover_seconds,
                          ai_players=body.ai_players, trusted_bound_ais=_trusted_bound_ais(request),
                          display_name=unquote(request.headers.get("X-Duel-Human-Name", "")))
+    room = _remember_team_web_profiles(room, request)
     return human_response(room, "邀请房已创建", player)
 
 
@@ -1278,16 +1301,18 @@ async def human_join_invite(request: Request, body: InviteJoinBody):
     room = join_invite(body.invite_code, "human", player,
                        display_name=unquote(request.headers.get("X-Duel-Human-Name", "")))
     revision_events.notify(room["room_id"])
+    room = _remember_team_web_profiles(room, request)
     return human_response(room, "已加入邀请房，等待房主开局", player)
 
 
 @app.post("/api/rooms/{room_id}/start")
 async def human_start_invite(room_id: str, request: Request, body: InviteStartBody):
     player = trusted_human_player(request)
-    room = start_invite(room_id, "human", player, fill_with_npcs=body.fill_with_npcs)
+    start = start_invite if get_room(room_id).get("room_kind") == "invite" else liars_dice_setup.start_regular
+    room = start(room_id, "human", player, fill_with_npcs=body.fill_with_npcs)
     revision_events.notify(room_id)
     await _schedule_current_system_npc(room)
-    return human_response(room, "已随机排座，游戏开始", player)
+    return human_response(room, "分组与座位已确定，游戏开始", player)
 
 
 @app.post("/api/rooms/{room_id}/reclaim")
@@ -1329,7 +1354,8 @@ async def human_create(request: Request, body: CreateRoomBody):
         raise DuelError(f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌")
     if len(selected_ais) > target_count - 1:
         raise DuelError("所选小机数量超过目标桌型座位")
-    npc_count = target_count - 1 - len(selected_ais)
+    team_setup = body.game_type == "liars_dice" and liars_dice_setup.manual_teams(normalize_game_options(game, body.game_options, body.stake))
+    npc_count = 0 if team_setup else target_count - 1 - len(selected_ais)
     if npc_count and not body.fill_with_npcs:
         raise DuelError("仍有空座；请选择更多绑定小机或启用 NPC 补齐")
     if npc_count > 4:
@@ -1400,6 +1426,8 @@ async def human_create(request: Request, body: CreateRoomBody):
         enforce_trusted_pair=True,
         first_player_id=first_player_id,
         rematch_of_room_id=body.rematch_of_room_id,
+        game_options=body.game_options,
+        target_player_count=target_count,
     )
     await _schedule_current_system_npc(room)
     opener = room.get("current_actor") or {}
@@ -1409,8 +1437,10 @@ async def human_create(request: Request, body: CreateRoomBody):
         if room["status"] == "pending"
         else f"房间 {room['room_id']} 已为绑定 AI 创建，可以开始对局。{opening_note}"
         if room["status"] == "playing"
+        else f"房间 {room['room_id']} 已创建，可选择组队座位，约20秒后由房主开始。" if team_setup
         else f"房间 {room['room_id']} 已创建，等待 AI 加入。{opening_note}"
     )
+    room = _remember_team_web_profiles(room, request)
     return human_response(room, message, trusted_human)
 
 
@@ -1588,7 +1618,15 @@ async def human_move(room_id: str, request: Request, body: MoveBody):
             if value is not None
         }
     require(move, "move 动作需要 move 对象或对应坐标字段")
-    if move == {"action": "acknowledge_round"} and get_room(room_id).get("room_kind") != "invite":
+    if move.get("action") == "choose_team_seat":
+        room = liars_dice_setup.choose_seat(room_id, "human", body.player_id, move, body.revision)
+        revision_events.notify(room_id)
+        room = _remember_team_web_profiles(room, request)
+        return human_response(room, "已更新你的组队座位", body.player_id)
+    acknowledgement_room = get_room(room_id) if move == {"action": "acknowledge_round"} else None
+    if (acknowledgement_room is not None
+            and acknowledgement_room.get("room_kind") != "invite"
+            and acknowledgement_room["board_state"].get("mode") != "party"):
         human_player_id = trusted_human_player(request)
         if body.player_id != human_player_id:
             raise DuelError("player_id 与主站认证的人类身份不匹配", 403)
@@ -1774,21 +1812,23 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
 
     if body.action == "invite":
         room = create_invite(require(body.game_type, "invite 需要 game_type"), "ai", body.player_id,
+                             game_options=body.move if body.game_type == "liars_dice" else None,
                              target_player_count=body.target_player_count, stake=body.stake,
                              timeout_takeover=body.timeout_takeover,
                              timeout_takeover_seconds=body.timeout_takeover_seconds,
                              display_name=body.display_name)
-        return _invite_response(room, body.player_id)
+        return _invite_response(_remember_team_ai_profile(room, body), body.player_id)
     if body.action == "join" and body.invite_code:
         room = join_invite(body.invite_code, "ai", body.player_id, display_name=body.display_name)
         revision_events.notify(room["room_id"])
-        return _invite_response(room, body.player_id)
+        return _invite_response(_remember_team_ai_profile(room, body), body.player_id)
     if body.action == "start":
-        room = start_invite(require(body.room_id, "start 需要 room_id"), "ai", body.player_id,
-                            fill_with_npcs=body.fill_with_npcs)
+        room_id = require(body.room_id, "start 需要 room_id")
+        start = start_invite if get_room(room_id).get("room_kind") == "invite" else liars_dice_setup.start_regular
+        room = start(room_id, "ai", body.player_id, fill_with_npcs=body.fill_with_npcs)
         revision_events.notify(room["room_id"])
         await _schedule_current_system_npc(room)
-        return _bootstrap_ai_response(room, body.player_id, "已随机排座，游戏开始")
+        return _bootstrap_ai_response(room, body.player_id, "分组与座位已确定，游戏开始")
     if body.action == "chat":
         room_id = require(body.room_id, "chat 需要 room_id")
         room = post_message(room_id, "ai", body.player_id, require(body.message, "chat 需要 message"))
@@ -1837,7 +1877,10 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             if len(allowed_counts) == 1:
                 raise DuelError(f"{game.display_name}需要 {allowed_counts[0]} 名参与者")
             raise DuelError(f"{game.display_name}只允许 {', '.join(map(str, allowed_counts))} 人桌")
+        team_setup = game.game_type == "liars_dice" and liars_dice_setup.manual_teams(normalize_game_options(game, body.move, body.stake))
         npc_count = target_count - base_count
+        if team_setup and npc_count >= 0:
+            npc_count = 0
         if npc_count < 0:
             raise DuelError("participant_ids 超过目标桌型人数")
         if npc_count and not body.fill_with_npcs:
@@ -1885,6 +1928,8 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             stake=body.stake,
             ordered_participants=ordered_participants,
             enforce_trusted_pair=body.include_human,
+            game_options=body.move if game.game_type == "liars_dice" else None,
+            target_player_count=target_count,
         )
         await _schedule_current_system_npc(room)
         if room["status"] == "playing":
@@ -1904,6 +1949,8 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             )
         if room["status"] == "playing":
             return _bootstrap_ai_response(room, body.player_id, message)
+        if liars_dice_setup.is_selecting(room):
+            return _invite_response(_remember_team_ai_profile(room, body), body.player_id)
         return _pending_ai_response(room, body.player_id, message)
 
     room_id = require(body.room_id, f"{body.action} 动作需要 room_id")
@@ -1960,9 +2007,12 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             stake=previous.get("stake", 0),
             enforce_trusted_pair=not ai_only,
             rematch_of_room_id=room_id,
+            game_options=previous.get("game_options"),
         )
         await _schedule_current_system_npc(rematch)
         message = f"AI 已发起权威重赛，房间 {rematch['room_id']}。"
+        if liars_dice_setup.is_selecting(rematch):
+            return _invite_response(_remember_team_ai_profile(rematch, body), body.player_id)
         return (
             _bootstrap_ai_response(rematch, body.player_id, message)
             if rematch["status"] == "playing"
@@ -2060,6 +2110,11 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             )
         if mcp_minimal.enabled(room) and mcp_minimal.needs_bootstrap(room_id, body.player_id):
             return mcp_minimal.response(room_id, body.player_id, consume=True)
+        dice_incremental = room['game_type'] == 'liars_dice' and mcp_minimal.enabled(room)
+        if dice_incremental:
+            from .liars_dice_mcp import has_updates
+            if has_updates(room, body.player_id):
+                return mcp_minimal.response(room_id, body.player_id, consume=True)
         if body.wait and not _participant_response_due(room, body.player_id):
             if not await revision_events.try_acquire_wait_slot():
                 payload = _move_delta_response(room, body.player_id)
@@ -2067,7 +2122,9 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
                 return payload
             baseline = room["revision"]
             try:
-                changed = await wait_for_revision(room_id, body.player_id, baseline, wait_lease=wait_lease)
+                changed = await wait_for_revision(room_id, body.player_id, baseline, wait_lease=wait_lease,
+                                                  wake_on_revision=dice_incremental,
+                                                  wake_on_visible_events=dice_incremental)
             finally:
                 await revision_events.release_wait_slot()
             if wait_lease:
@@ -2117,6 +2174,10 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
         return _move_delta_response(room, body.player_id)
 
     move = require(body.move, "move 动作需要 move 对象")
+    if move.get("action") == "choose_team_seat":
+        room = liars_dice_setup.choose_seat(room_id, "ai", body.player_id, move, body.revision)
+        revision_events.notify(room_id)
+        return _invite_response(_remember_team_ai_profile(room, body), body.player_id)
     room = play_move(
         room_id, "ai", body.player_id, move, message=body.message,
         expected_revision=body.revision,
@@ -2233,7 +2294,7 @@ async def mcp_play(body: McpPlayBody):
         # reach the caller in both protocols before a subsequent response can
         # omit it. Empty heartbeats retain their retry/lease behavior.
         if payload.get("unread") or (
-            minimal and any(payload.get(k) for k in ("events", "private", "bootstrap"))
+            minimal and any(payload.get(k) for k in ("events", "private", "bootstrap", "delta"))
         ):
             payload.pop("wait_downgraded", None)
             if payload.get("status") == "still_waiting":

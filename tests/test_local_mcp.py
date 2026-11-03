@@ -157,7 +157,7 @@ class LocalMcpAdapterTests(unittest.IsolatedAsyncioTestCase):
         schema = play_input_schema()
         self.assertEqual(schema["required"], ["action"])
         self.assertFalse(
-            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"}
+            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume", "display_avatar"}
             & set(schema["properties"])
         )
         self.assertIn("revision", schema["properties"])
@@ -361,7 +361,7 @@ class LocalMcpStdioTests(unittest.TestCase):
         listed = json.loads(completed.stdout)
         self.assertEqual([tool["name"] for tool in listed["tools"]], [TOOL_NAME])
         self.assertFalse(
-            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"}
+            {"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume", "display_avatar"}
             & set(listed["tools"][0]["inputSchema"]["properties"])
         )
 

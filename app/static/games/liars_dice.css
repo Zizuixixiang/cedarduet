@@ -54,3 +54,71 @@
   .liars-terminal-dice { grid-template-columns: 1fr; gap: 3px; }
   .liars-terminal-row { padding-block: 3px; font-size: 10px; }
 }
+
+/* Party controls extend the original board; classic geometry stays unchanged. */
+.board .liars-party-controls { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.board .liars-party-controls label { grid-column: span 2; min-width: 0; }
+.board .liars-party-controls select { width: 100%; min-width: 0; min-height: 44px; }
+.board .liars-party-controls > button { grid-column: span 3; min-height: 44px; }
+/* Only the dice picker, team waiting card and party results use these additions. */
+.liars-rule-picker { min-width: 0; gap: 10px; }
+.liars-rule-picker .invite-note { font-size: 11px; line-height: 1.5; }
+.liars-random-toggle { display: flex; align-items: center; gap: 9px; min-height: 44px; cursor: pointer; }
+.liars-random-toggle input[type="checkbox"] { width: 18px; min-height: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--purple-darker); }
+.liars-advanced { min-width: 0; border-block: 1px solid var(--purple-light); font: 12px/1.5 system-ui, sans-serif; }
+.liars-advanced > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--text); font-weight: 600; }
+.liars-advanced > summary::before { content: "+"; width: 18px; color: var(--purple-darker); }
+.liars-advanced[open] > summary::before { content: "−"; }
+.liars-rule-group { min-width: 0; margin: 0 0 12px; padding: 4px 0 0; border: 0; border-top: 1px solid var(--purple-light); }
+.liars-rule-group legend { padding: 0 8px 0 0; color: var(--text); font-size: 12px; font-weight: 700; }
+.liars-rule-group .pixel-field { margin-block: 6px; color: var(--text); }
+.liars-rule-group .liars-opening-field { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.liars-rule-group .liars-random-toggle { padding-block: 4px; color: var(--text); }
+.liars-rule-group .liars-random-toggle:has(input:disabled) { color: var(--muted); }
+.liars-rule-group .invite-note { display: block; margin-top: 4px; }
+.liars-advanced summary:focus-visible, .liars-party-scores summary:focus-visible,
+.liars-penalty-details summary:focus-visible { outline: 2px solid var(--purple-darker); outline-offset: 2px; }
+.liars-advanced summary, .liars-party-scores summary, .liars-penalty-details summary { -webkit-tap-highlight-color: rgba(179, 160, 199, .18); }
+
+.invite-waiting-view > #inviteRoomPanel.liars-team-waiting { max-width: 880px; padding: 24px; gap: 16px; }
+#inviteRoomPanel.liars-team-waiting .invite-room-action { min-height: 44px; }
+.liars-team-selection { flex: 1 0 100%; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.liars-team-selection > button { min-height: 44px; }
+.liars-team-selection > .invite-note { color: var(--text); }
+.liars-team-seats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.liars-team-row { min-width: 0; padding: 12px; border: 2px solid var(--purple-light); }
+.liars-team-red { --seat-color: #b34763; --seat-ink: #88344b; }
+.liars-team-blue { --seat-color: #376d9e; --seat-ink: #30577b; }
+#inviteRoomPanel .liars-team-row h3 { color: var(--seat-ink); margin-bottom: 12px; }
+.liars-team-cells { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+.liars-team-seat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 104px; padding: 8px 4px; border: 2px solid var(--seat-color); background: #fff; white-space: normal; overflow-wrap: anywhere; }
+.liars-team-seat .room-participant-avatar { width: 30px; height: 30px; font-size: 21px; }
+.liars-team-name { max-width: 100%; font: 12px/1.4 system-ui, sans-serif; color: var(--text); }
+.liars-team-id { max-width: 100%; font: 10px/1.4 system-ui, sans-serif; color: var(--muted); }
+.liars-my-seat { outline: 2px solid var(--seat-color); outline-offset: 2px; }
+
+.liars-party-scores { overflow-wrap: anywhere; gap: 8px; }
+.liars-score-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.liars-score-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 8px; }
+.liars-score-name { color: var(--text); font-size: 12px; }
+.liars-score-value { color: var(--purple-darker); font-size: 14px; white-space: nowrap; }
+.liars-score-team { grid-column: 1 / -1; font-size: 10px; color: var(--muted); }
+.liars-party-scores .liars-reveal-details summary, .liars-penalty-details summary { min-height: 36px; padding-block: 9px; white-space: normal; }
+.liars-penalty-summary { font-size: 12px; color: var(--text); }
+.liars-penalty-details { color: var(--text); overflow-wrap: anywhere; }
+.liars-penalty-details[open] { padding-bottom: 4px; }
+.liars-penalty-details .liars-result-line + .liars-result-line { margin-top: 6px; }
+@media (max-width: 700px) {
+  .invite-waiting-view > #inviteRoomPanel.liars-team-waiting { padding: 14px; gap: 12px; }
+  .liars-team-seats { grid-template-columns: 1fr; gap: 12px; }
+  .liars-team-row { padding: 10px; }
+  .liars-team-seat { min-height: 92px; }
+}
+@media (max-width: 600px) {
+  .board .liars-party-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .board .liars-party-controls label, .board .liars-party-controls > button { grid-column: span 1; }
+  .board .liars-party-controls .liars-exact-field { grid-column: 1 / -1; }
+  /* Keep the existing history control, but out of the narrow dice board's way. */
+  .game-view:has(.board.liars_dice) > .history-drawer-tab { position: static; transform: none; justify-self: end; min-width: 0; min-height: 44px; padding: 8px 12px; }
+  .game-view:has(.board.liars_dice) > .history-drawer-tab span { writing-mode: horizontal-tb; }
+}

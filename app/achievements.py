@@ -377,6 +377,9 @@ def record_room_created(conn: sqlite3.Connection, room: dict) -> list[dict]:
         for ai_id in ais:
             _register_pair(conn, human_id, ai_id)
 
+    if room.get('game_type') == 'liars_dice' and room.get('board_state', {}).get('mode') == 'party':
+        # Local-score sessions must not trigger platform-currency awards.
+        return []
     return _record_creation_fact(conn, room)
 
 
@@ -388,7 +391,10 @@ def validate_rematch(
 ) -> tuple[str, str]:
     """Return (previous, root) only for a completed, same-roster normal game."""
     previous = conn.execute(
-        "SELECT * FROM achievement_matches WHERE room_id = ? AND normal_outcome = 1",
+        """SELECT * FROM achievement_matches WHERE room_id = ? AND (
+            normal_outcome = 1 OR (game_type = 'liars_dice'
+                AND json_extract(result_json, '$.mode') = 'party'
+                AND json_extract(result_json, '$.reason') = 'session_ended'))""",
         (previous_room_id,),
     ).fetchone()
     if previous is None:
@@ -428,6 +434,10 @@ def record_terminal_room(
     if room.get("room_kind") == "invite":
         # Invitation membership does not prove a platform binding.
         return []
+    if room.get('game_type') == 'liars_dice' and room.get('board_state', {}).get('mode') == 'party':
+        # Keep the authoritative roster/result for rematch, but this technical
+        # draw is not a competitive outcome and must never award platform chips.
+        normal = False
     inserted = conn.execute(
         """
         INSERT INTO achievement_matches (

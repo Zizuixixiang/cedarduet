@@ -283,7 +283,7 @@ def _authoritative_legal_actions(
     room: dict[str, Any], actor: dict[str, Any]
 ) -> list[dict[str, Any]]:
     game = get_game(room["game_type"])
-    if room.get("room_kind") == "invite" and room["game_type"] == "liars_dice" and room["board_state"].get("pending_next_round"):
+    if (room.get("room_kind") == "invite" or room["board_state"].get("mode") == "party") and room["game_type"] == "liars_dice" and room["board_state"].get("pending_next_round"):
         return [{"action": "acknowledge_round"}]
     try:
         actions = game.npc_legal_actions(

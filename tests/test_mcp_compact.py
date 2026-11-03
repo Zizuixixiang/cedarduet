@@ -185,6 +185,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(field, payload["room"])
         rules_text = payload["room"]["rules_text"]
         plugin_rules = get_game(payload["room"]["game_type"]).rules_text
+        if payload["room"]["game_type"] == "liars_dice":
+            plugin_rules = get_game("liars_dice").room_rules(payload["room"]["board_state"])
         self.assertTrue(rules_text.startswith(plugin_rules))
         self.assertEqual(rules_text.count(framework.GLOBAL_ROOM_CHAT_RULE), 1)
         self.assertIn("不得主动逐项泄露自己的真实未公开", rules_text)
@@ -378,7 +380,8 @@ class McpCompactProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn(key, snapshot)
                     self.assertNotIn(key, snapshot["board_state"])
                 game = get_game(game_type)
-                self.assertEqual(snapshot['rules_text'], game.rules_text)
+                self.assertEqual(snapshot['rules_text'],
+                                 game.room_rules(room['board_state']) if game_type == 'liars_dice' else game.rules_text)
                 self.assertEqual(snapshot['move_format'],
                                  getattr(game, 'mcp_move_format', game.move_format))
 

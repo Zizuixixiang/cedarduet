@@ -19,7 +19,7 @@ from .models import McpPlayBody
 TOOL_NAME = "play"
 MAX_CONTINUOUS_WAIT_SECONDS = 600.0
 WAIT_SLOT_RETRY_SECONDS = 0.25
-IDENTITY_FIELDS = frozenset({"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume"})
+IDENTITY_FIELDS = frozenset({"player_id", "opponent_id", "participant_ids", "wait_generation", "wait_resume", "display_avatar"})
 
 
 def play_input_schema() -> dict[str, Any]:

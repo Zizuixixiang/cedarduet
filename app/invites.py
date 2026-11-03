@@ -2,12 +2,13 @@
 import json
 import re
 import secrets
+from . import liars_dice_setup
 from contextlib import closing
 from .database import connect, decode_room, write_transaction
 from .chips import validate_stake_budget
 from .framework import (
     DuelError, _now, _player_id, _room_id, _new_room_id, _decorate,
-    _check_global_capacity, _initialize_opening_state, _record_event,
+    _check_global_capacity, _initialize_opening_state, normalize_game_options, _record_event,
     _assert_player, account_key, _stake, _touch_room_presence,
 )
 from .games import get_game
@@ -45,7 +46,7 @@ def _insert_member(conn, room_id, player_id, role, name, seat, persona=None):
 
 def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
                   timeout_takeover=None, timeout_takeover_seconds=0,
-                  display_name=None, ai_players=None, trusted_bound_ais=()):
+                  display_name=None, ai_players=None, trusted_bound_ais=(), game_options=None):
     player_id = _player_id(player_id)
     game = _game(game_type)
     if role not in {"human", "ai"} or player_id.startswith("npc:"):
@@ -64,6 +65,12 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
     if len({account_key(pid) for pid in [player_id, *selected]}) != household_count:
         raise DuelError("同一账号不能重复入座", 409)
     stake = _stake(stake)
+    game_options = normalize_game_options(game, game_options, stake)
+    if game_type == "liars_dice":
+        try:
+            game.validate_player_count(game_options, target_player_count)
+        except ValueError as exc:
+            raise DuelError(str(exc)) from exc
     if stake > 0:
         if not game.supports_stakes:
             raise DuelError(f"{game.display_name}尚未定义筹码结算规则")
@@ -96,8 +103,8 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
         conn.execute("""INSERT INTO rooms
             (room_id, game_type, mode, board_state, turn, status, stake, initiator_player_id,
              created_at, updated_at, last_move_at)
-            VALUES (?, ?, 'human_first', '{}', ?, 'waiting', ?, ?, ?, ?, ?)""",
-            (room_id, game_type, role, stake, player_id, now, now, now))
+            VALUES (?, ?, 'human_first', ?, ?, 'waiting', ?, ?, ?, ?, ?)""",
+            (room_id, game_type, json.dumps(liars_dice_setup.initial_selection(game_options, target_player_count) if liars_dice_setup.manual_teams(game_options) else game_options), role, stake, player_id, now, now, now))
         code = secrets.token_hex(6).upper()
         conn.execute("""INSERT INTO room_invites
             (room_id, invite_code, target_player_count, timeout_takeover,
@@ -127,7 +134,7 @@ def preview_invite(code):
         room = _lookup(conn, code)
         return {key: value for key, value in _decorate(room).items() if key in {
             "room_id", "game_type", "game_name", "target_player_count", "participant_count",
-            "stake", "timeout_takeover", "timeout_takeover_seconds"}}
+            "stake", "timeout_takeover", "timeout_takeover_seconds", "game_options"}}
 
 
 def join_invite(code, role, player_id, *, display_name=None):
@@ -164,6 +171,8 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
             raise DuelError("该邀请房已开局或关闭", 409)
         if player_id != room["initiator_player_id"]:
             raise DuelError("只有房主可以开始", 403)
+        if liars_dice_setup.is_selecting(room) and not liars_dice_setup.ready(room["board_state"]["team_selection"]):
+            raise DuelError("组队开始约20秒后可开局", 409)
         members = room["participants"]
         # Before start, only join_invite can add seats; leaving closes the room.
         # The persisted initial count excludes household AIs from invitees.
@@ -186,6 +195,7 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
         room = decode_room(row, conn)
         members = room["participants"]
         validate_stake_budget(conn, room)
+        teams = liars_dice_setup.final_teams(room["board_state"], members) if liars_dice_setup.is_selecting(room) else None
         secrets.SystemRandom().shuffle(members)
         # Move all old seats out of range before assigning the shuffled indices.
         conn.execute("UPDATE room_participants SET seat_index = seat_index + 100 WHERE room_id = ?", (room_id,))
@@ -201,9 +211,12 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
         # Shuffle identities before game initialization. Seat-zero contracts
         # (teams, colors, dealer rules) remain the plugin's responsibility.
         try:
-            state, first = _initialize_opening_state(game, members, members[0]["player_id"])
+            state, first = _initialize_opening_state(game, members, members[0]["player_id"],
+                normalize_game_options(game, game.saved_options(room["board_state"]) if room["game_type"] == "liars_dice" else None, room["stake"]), team_assignments=teams)
         except (ValueError, KeyError, TypeError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
+        if teams is not None:
+            state["participant_avatars"] = room["board_state"].get("participant_avatars", {})
         state["marks_by_player"] = {p["player_id"]: p["token"] for p in members}
         now = _now()
         turn = next(p["role"] for p in members if p["player_id"] == first)

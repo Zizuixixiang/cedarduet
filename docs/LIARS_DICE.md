@@ -1,0 +1,64 @@
+# 吹牛骰子按需 Guide
+
+同一 `liars_dice` 入口，默认原版·淘汰赛（5骰，1不万能，输者少1骰，0骰淘汰）。旧请求不传房规继续原版。
+平台 MCP：`play(game="duel",action=...,params={...})`；身份由鉴权决定，不接受代选别人。
+详细 Guide 用 `get_guide(game="duel:liars_dice")`，不会重复注入其他游戏。
+
+## 创建和选座
+
+`new` / `invite` 的 `params.move` 是房规，Web 原开房/邀请面板用 `game_options`：
+
+```json
+{"mode":"party","literal_dice":false,"team_mode":"none"}
+```
+
+普通2人房可人类+绑定小机直接玩，不必邀请。酒桌固定 `stake:0`，本局分数从0起，允许负数，与平台币、真钱完全无关。房规开局后不可更改，重赛继承。
+
+组队可选 `team_mode:"teams"`，仅4/6人，红蓝2+2或3+3，各队共用一盅5骰和一份队分。队友只看己队骰；按队轮流、队内轮换发言，只有当前成员可行动。普通两盅3起，斋/叫1两盅2起。队分扣一次，队员显示同分，不按人数放大。
+`random_teams:true`（默认）直接原流程随机分组。`false` 才进入开局前选座：
+
+```json
+{"action":"move","params":{"room_id":"ABCDEFGH","revision":2,"move":{"action":"choose_team_seat","team":"blue","seat":3}}}
+```
+
+红蓝座位从1起；点新空位自动释放旧位，仅本人可操作。人类在原网页点+，小机仅鉴权MCP自选，无人类代操作入口。开房20秒后房主 `start`，不要求人人选座；未选人/机随机入余位。NPC不提前入座，原 `start(fill_with_npcs:true)` 才随机补位。邀请房沿用至少一名外部受邀者加入的条件。开局后选座关闭。旧 `pairs` 创建参数兼容为两队；旧已开局队伍不重排。不实现接力淘汰。
+
+## 基本叫点、围骰和斋
+
+`move={action:bid,quantity:3,face:2}`；叫斋加 `exact:true`；叫1自动斋。普通2–6时1百搭；斋不百搭。加叫须数量增加或同数点数增加；切斋也须加叫。斋后整轮锁斋；不实现飞斋、降数转斋。
+
+普通首叫默认 `ceil(1.5×盅数)`；5人8起是向上取整的线上约定，可设 `opening_five:7` 改7起；其他人数不变。斋/叫1至少盅数。
+
+新酒桌默认：围骰为5骰可借1凑所叫实点，计6（+1）；全围为5骰同一实点且叫此点，计7（+2，不再叠加+1）。全1叫2–6仅百搭计5，叫1计7。斋不借1凑围骰，但同实点全围仍+2。叫数公开上限为每盅7，避免以实际牌型上限泄密。
+首叫前，仅当前行动者的己盅5点各异（不要求连续）可以 `move={action:reroll}`，每盅每轮一次，队友共享次数；只刷新己方私骰，不公开骰面，行动权不变。已有叫点后不得重摇。
+
+## 七条可选房规
+
+全部在创建时选择；除上述基础围骰计数和限次重摇外，下列开关默认关闭。组队亦默认不启用。
+
+| 开关 | 固定线上约定 |
+|---|---|
+| `literal_dice:true` 有骰计骰 | 围骰不+1、全围不+2、单骰不重摇。**普通1仍百搭，斋不百搭**。叫数上限每盅5，起叫门槛不变。 |
+| `cup_penalty:true` | 被开骰的叫点者持围骰/全围且最终败，罚×2；牌型不必与叫点一致。有骰计骰不关闭此独立处罚。 |
+| `extreme_penalty:true` | 实际严格不到叫数一半且叫点者败，或严格超过叫数两倍且质疑者败，罚×2；等于边界不触发。 |
+| `allow_surrender:true` | 已有叫点时当前行动者可 `move={action:surrender}`，固定认罚基础一半0.5分；不叠加开骰处罚/反转/陪扣。默认揭盅，确认后全员重摇。可同时选 `surrender_no_reroll:true`，不揭骰、保留各盅进入下一轮。房间 `resign/leave` 是结束整桌，不是本轮投降。 |
+| `dark_rule:true` 天黑黑 | 全场没有所叫点数的真实骰面，反转通常开骰胜负；1百搭不算所叫实点。先反转，再依最终败方判断独立加倍。 |
+| `companion_penalty:true` 陪扣 | 额外虚拟d6，按固定参与者顺序1起映射人/机/NPC；超人数重掷（异常随机源64次失败则整次事务撤销）。抽到其他个人/队按主败方原始倍率陪扣；抽到本人/同队，本受罚单位再×2。不递归抽取陪扣者，不涉及实际饮酒。 |
+| `team_mode:"teams"` | 上述红蓝两队，共盅、共分，4/6人；随机/手动选座沿用同一开房流程。 |
+
+## 权威结算与结束
+
+`move={action:challenge}`：计数达到叫数，通常质疑者败，否则叫点者败。基础败方-1分，胜方不加分。加倍相乘后**每受罚个人/队每轮至多4倍、4分**，陪扣也封顶4。抽中同队只加倍同一份队分，不产生多次队分扣款。
+权威 `round_result.penalties` 每项含 `hits/raw_multiplier/multiplier/cap/capped/base_half_units/deduction_half_units/score_delta/score_after`；`companion` 记录虚拟骰与映射座位，`dark_reversed` 记录反转，`cup_bonuses` 记录各盅加数。内部 `score_half_units` 使用整数半分单位运算；对外以0.5分精确显示，胜负记录只辅助。
+
+结算后仍各5骰，不淘汰。败方成为当前行动者，提交 `move={action:acknowledge_round}` 开始下一轮并先叫。正常全盅重摇；投降不重摇保留骰面。所有酒桌行动须带最新 `revision`，旧版本/重复结算拒绝。任一真实在场参与者可 `move={action:end_session}` 结束整桌，保留积分和记录，未结算轮次不计分，无总冠军；NPC/超时接管不可结束整桌。
+
+旧开发稿已开局酒桌房没有 `party_rules_version:2` 时保持无围骰加数/无单骰重摇；修正有骰计骰的1百搭含义。原版存档不变。
+
+## MCP 增量协议
+
+原版MCP协议保持兼容。酒桌首次返回 `bootstrap:true` 与必要安全上下文，`r` 为权威revision；下一次动作传 `revision:r`。
+之后 `state/move/wait` 只返回变化：`events` 按序为 `[玩家ID,move]` 或 `{round_result:本轮权威结算}`，不重复全盘/历史/巨大legal_actions；自己动作也应用一次。
+`delta` 字段替换（缺省不变、null清空）；`delta.seats=[[队,1起座号,成员或null]]` 只更新座位变化。首份手动面板在 `room.selection`，Web仍为 `room.team_selection`。
+`private` 仅本人/己队骰变化和重摇资格；别人的新骰永不可见。`delta.round/phase/next` 更新轮次；`acknowledge_round` 清空当前叫法，`bid` 更新叫法，`challenge/surrender` 的权威结果清空叫法。无变化只返回 `r`，非本人回合另有 `wait`。
+`state(full_state:true)` 显式获得完整安全快照（含房规/历史），原子重置本人增量基线，快照覆盖的动作不重复；尚未读聊天本次交付。所有中间叫点、揭盅事件按序交付，不因跨过多个回合而丢失。

@@ -713,7 +713,7 @@ function renderParticipantAvatar(target, participant, targetRoom = null) {
   );
   if (!participant) return;
   if (participant.participant_kind !== "system_npc") {
-    const avatar = accountAvatarForParticipant(participant);
+    const avatar = accountAvatarForParticipant(participant) || participant.avatar;
     if (avatar && avatar.type === "emoji" && typeof avatar.value === "string" && avatar.value) {
       target.textContent = avatar.value;
     }
@@ -1624,6 +1624,14 @@ function selectedGameType(select) {
   return select.value === "four_color_tenhu" ? (select.dataset.fourColorMode || select.value) : select.value;
 }
 
+function selectedGameOptions(select) {
+  if (select.value !== "liars_dice") return undefined;
+  const mode = select.dataset.diceMode || "classic";
+  return {mode, literal_dice: mode === "party" && select.dataset.literalDice === "true",
+    ...(mode === "party" ? JSON.parse(select.dataset.diceRules || "{}") : {}),
+    ...(mode === "party" && select.dataset.diceTeams === "teams" ? {team_mode: "teams", random_teams: select.dataset.randomTeams !== "false"} : {})};
+}
+
 function sortedGamesForCategory(games, category) {
   return (Array.isArray(games) ? games : [])
     .filter((game) => game && game.game_type && !["four_color_jiuzhi", "four_color_qunhu"].includes(game.game_type) && gameCategoryFor(game) === category)
@@ -1692,7 +1700,8 @@ function selectedGameRequirement() {
   const declared = identity && Array.isArray(identity.games)
     ? identity.games.find((game) => game.game_type === gameType)
     : null;
-  const allowedPlayerCounts = allowedPlayerCountsForGame(declared);
+  const allowedPlayerCounts = selectedGameOptions($("gameType"))?.team_mode === "teams"
+    ? [4, 6] : allowedPlayerCountsForGame(declared);
   const providerAvailable = Boolean(identity && identity.npc_provider && identity.npc_provider.available);
   const localNpcStrategy = Boolean(declared && declared.uses_local_npc_strategy);
   return {
@@ -1715,6 +1724,9 @@ function resolvedStakeMetadata(game, stake) {
 }
 
 function renderSelectedStakeHint() {
+  const party = selectedGameOptions($("gameType"))?.mode === "party";
+  $("stake").disabled = party;
+  if (party) $("stake").value = "0";
   const gameType = selectedGameType($("gameType"));
   const game = identity && Array.isArray(identity.games)
     ? identity.games.find((item) => item.game_type === gameType)
@@ -1722,7 +1734,7 @@ function renderSelectedStakeHint() {
   const stake = Number($("stake").value);
   const previewStake = Number.isInteger(stake) && stake > 0 ? stake : "X";
   const metadata = resolvedStakeMetadata(game, previewStake);
-  const copy = metadata.hint
+  const copy = party ? "酒桌大话骰扣本局积分，固定0平台筹码。" : metadata.hint
     ? `${metadata.label}（${metadata.hint}）`
     : metadata.label;
   const hint = $("gameStakeHint");
@@ -1837,10 +1849,12 @@ function updateCreateButtonState() {
     && allowedPlayerCounts.includes(targetCount)
     && npcCount >= 0
     && npcCount <= 4
-    && (npcCount === 0 || (fillWithNpcs && supportsNpcs && npcAvailable))
+    && (selectedGameOptions($("gameType"))?.random_teams === false || npcCount === 0 || (fillWithNpcs && supportsNpcs && npcAvailable))
     && validStake
   );
   $("createButton").disabled = !ready;
+  const teamButton = document.querySelector("#gameTypeRulePicker .liars-open-teams");
+  if (teamButton) teamButton.disabled = !ready;
   return ready;
 }
 
@@ -2061,6 +2075,7 @@ async function createRoom() {
         ai_player: aiPlayer,
         ai_players: participantIds,
         game_type: selectedGameType($("gameType")),
+        game_options: selectedGameOptions($("gameType")),
         mode: $("mode").value,
         stake,
         target_player_count: selectedTargetPlayerCount(),
@@ -2600,11 +2615,11 @@ function liarsRoundResultLines(outcome) {
     || Boolean(outcome.eliminated_player_id)
     || outcome.loser_remaining_dice === 0;
   return {
-    outcome: (
-      `实际 ${outcome.actual_count} 个 ${bid.face} 点`
-      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}`
+    outcome: outcome.phase === "surrendered" ? "本轮投降认罚" : (
+      `实际 ${outcome.actual_count} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}`
+      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}${outcome.dark_reversed ? " · 天黑黑反转胜负" : ""}`
     ),
-    loss: (
+    loss: outcome.mode === "party" ? `${loser}${outcome.loser_team_id ? "所在队" : ""} 本局积分 ${outcome.score_delta ?? -1}${Number.isFinite(outcome.score_after) ? ` · 累计 ${outcome.score_after} 分` : ""} · 骰数不变` : (
       `${loser} -1 骰`
       + ` · ${eliminated ? "已淘汰" : `剩余 ${outcome.loser_remaining_dice}`}`
     ),
@@ -2620,6 +2635,11 @@ function liarsBidSelectionIsLegal(state, selection) {
     !Number.isInteger(quantity) || !Number.isInteger(face)
     || quantity < 1 || quantity > maximum || face < 1 || face > 6
   ) return false;
+  if (Array.isArray(state.bid_ranges)) {
+    return state.bid_ranges.some((bid) => bid.face === face
+      && Boolean(bid.exact) === Boolean(selection.exact)
+      && quantity >= bid.min_quantity);
+  }
   const currentBid = state.current_bid;
   return !currentBid
     || quantity > currentBid.quantity
@@ -2627,6 +2647,10 @@ function liarsBidSelectionIsLegal(state, selection) {
 }
 
 function defaultLiarsBidSelection(state) {
+  if (Array.isArray(state.bid_ranges) && state.bid_ranges.length) {
+    const bid = state.bid_ranges.reduce((best, item) => item.min_quantity < best.min_quantity ? item : best);
+    return {quantity: bid.min_quantity, face: bid.face, exact: Boolean(bid.exact)};
+  }
   const maximum = Number(state.max_bid_quantity || 0);
   for (let quantity = 1; quantity <= maximum; quantity += 1) {
     for (let face = 1; face <= 6; face += 1) {
@@ -2647,7 +2671,7 @@ function liarsBidSelectionFor(state) {
     && liarsBidSelectionIsLegal(state, liarsBidDraft)
   );
   if (reusable) {
-    return {quantity: liarsBidDraft.quantity, face: liarsBidDraft.face};
+    return {quantity: liarsBidDraft.quantity, face: liarsBidDraft.face, exact: liarsBidDraft.exact};
   }
   liarsBidDraft = null;
   return defaultLiarsBidSelection(state);
@@ -2678,13 +2702,14 @@ function xiangqiTerminalStatusText(state, targetRoom) {
     : `${reason}对局结束`;
 }
 
-function rememberLiarsBidSelection(quantity, face) {
+function rememberLiarsBidSelection(quantity, face, exact = false) {
   liarsBidDraft = {
     roomId: room && room.room_id,
     revision: room && room.revision,
     actorId: room && room.current_player_id,
     quantity: Number(quantity),
     face: Number(face),
+    exact,
   };
 }
 
@@ -2888,6 +2913,9 @@ function renderLiarsDice(board, state) {
     lossLine.className = "liars-result-line liars-result-loss";
     lossLine.textContent = resultLines.loss;
     result.append(title, outcomeLine, lossLine);
+    if (outcome.mode === "party" && window.DuelDiceRules) {
+      window.DuelDiceRules.appendPenaltyReview(result, {participants: room.participants}, outcome);
+    }
 
     if (awaitingRoundAcknowledgement) {
       const pending = state.pending_next_round || {};
@@ -2897,12 +2925,12 @@ function renderLiarsDice(board, state) {
       const acknowledgement = document.createElement("div");
       acknowledgement.className = "liars-round-acknowledgement";
       const prompt = document.createElement("p");
-      prompt.textContent = "本轮已结算。确认后才会重新掷骰并开始下一轮。";
+      prompt.textContent = outcome.preserve_dice ? "本轮已认罚，不揭骰；确认后保留骰面进入下一轮。" : "本轮已结算。确认后才会重新掷骰并开始下一轮。";
       const acknowledgeButton = document.createElement("button");
       acknowledgeButton.type = "button";
       acknowledgeButton.className = "pixel-btn";
       acknowledgeButton.textContent = `知道了，开始第 ${nextRound} 轮`;
-      acknowledgeButton.disabled = room.room_kind === "invite" && !canHumanMove();
+      acknowledgeButton.disabled = (room.room_kind === "invite" || state.mode === "party") && !canHumanMove();
       acknowledgeButton.addEventListener("click", async () => {
         acknowledgeButton.disabled = true;
         await acknowledgeLiarsRound(acknowledgeButton);
@@ -2926,7 +2954,8 @@ function renderLiarsDice(board, state) {
       const participant = participantByPlayerId(playerId);
       const owner = document.createElement("span");
       owner.className = "liars-dice-owner";
-      owner.textContent = `${(participant && participant.display_name) || playerId}：`;
+      const teamIndex = Object.values(state.teams || {}).findIndex((members) => members.includes(playerId));
+      owner.textContent = teamIndex >= 0 ? `${Object.keys(state.teams)[teamIndex] === "red" ? "红队" : Object.keys(state.teams)[teamIndex] === "blue" ? "蓝队" : `第${teamIndex + 1}队`}共用骰盅：` : `${(participant && participant.display_name) || playerId}：`;
       const tray = document.createElement("span");
       tray.className = "liars-dice-row";
       if (Array.isArray(dice) && dice.length) {
@@ -2938,7 +2967,7 @@ function renderLiarsDice(board, state) {
       diceList.appendChild(row);
     });
     reveal.appendChild(diceList);
-    result.appendChild(reveal);
+    if (!outcome.preserve_dice) result.appendChild(reveal);
   }
   if (awaitingRoundAcknowledgement) {
     if (result) board.appendChild(result);
@@ -2995,12 +3024,14 @@ function renderLiarsDice(board, state) {
   currentTurnNameElement.title = currentTurnName || "";
   currentTurnLine.append(currentTurnPrefix, currentTurnNameElement);
   const roundStatus = document.createElement("span");
-  if (isHistoricalResult) {
-    roundStatus.textContent = "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
+  if (isHistoricalResult && state.dice_retained) {
+    roundStatus.textContent = "本轮沿用上轮骰面（投降不重摇）";
+  } else if (isHistoricalResult) {
+    roundStatus.textContent = state.teams ? "各队共用5骰已重摇（仅己队可见）" : "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
   } else if (flow.phase === "finished") {
     roundStatus.textContent = "本轮已经结算";
   } else {
-    roundStatus.textContent = "本轮骰子已掷出并隐藏（仅自己可见）";
+    roundStatus.textContent = state.teams ? "每队共用一盅5骰（仅己队可见）" : "本轮骰子已掷出并隐藏（仅自己可见）";
   }
   roundHeading.append(roundTitle);
   if (currentTurnName) roundHeading.append(currentTurnLine);
@@ -3015,7 +3046,7 @@ function renderLiarsDice(board, state) {
   const currentBid = state.current_bid;
   if (currentBid) {
     const bidder = participantByPlayerId(currentBid.bidder_player_id);
-    bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点 · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
+    bidValue.textContent = `${currentBid.quantity} 个 ${currentBid.face} 点${currentBid.exact ? "（斋）" : ""} · ${(bidder && bidder.display_name) || currentBid.bidder_player_id}`;
   } else if (flow.phase === "finished") {
     bidValue.textContent = "本轮已结算";
   } else if (humanCanMove) {
@@ -3032,7 +3063,7 @@ function renderLiarsDice(board, state) {
   currentRound.appendChild(heading);
 
   const controls = document.createElement("div");
-  controls.className = "liars-controls";
+  controls.className = state.mode === "party" ? "liars-controls liars-party-controls" : "liars-controls";
   const quantityLabel = document.createElement("label");
   quantityLabel.textContent = "本轮数量";
   const quantity = document.createElement("select");
@@ -3055,6 +3086,17 @@ function renderLiarsDice(board, state) {
     face.appendChild(option);
   }
   const selectedBid = liarsBidSelectionFor(state);
+  const exactLabel = document.createElement("label");
+  exactLabel.className = "liars-exact-field";
+  exactLabel.textContent = "叫点规则";
+  const exact = document.createElement("select");
+  exact.ariaLabel = "叫点规则";
+  [["false", "普通 · 1百搭"], ["true", "叫斋 · 只计骰面"]].forEach(([value, text]) => {
+    const option = document.createElement("option"); option.value = value; option.textContent = text; exact.appendChild(option);
+  });
+  exact.value = String(Boolean(selectedBid.exact));
+  exact.disabled = !humanCanMove || Boolean(currentBid?.exact) || Number(selectedBid.face) === 1;
+  exactLabel.appendChild(exact);
   quantity.value = String(selectedBid.quantity);
   face.value = String(selectedBid.face);
   quantity.disabled = !canHumanMove();
@@ -3074,22 +3116,27 @@ function renderLiarsDice(board, state) {
   const selectionIsHigher = () => liarsBidSelectionIsLegal(state, {
     quantity: Number(quantity.value),
     face: Number(face.value),
+    exact: state.mode === "party" && exact.value === "true",
   });
   const updateBidAvailability = () => {
     chooseBid.disabled = !humanCanMove || !selectionIsHigher();
   };
   const bidSelectionChanged = () => {
-    rememberLiarsBidSelection(quantity.value, face.value);
+    if (state.mode === "party" && (Number(face.value) === 1 || currentBid?.exact)) exact.value = "true";
+    exact.disabled = !humanCanMove || Boolean(currentBid?.exact) || Number(face.value) === 1;
+    rememberLiarsBidSelection(quantity.value, face.value, exact.value === "true");
     updateBidAvailability();  };
   updateBidAvailability();
   quantity.addEventListener("change", bidSelectionChanged);
   face.addEventListener("change", bidSelectionChanged);
+  exact.addEventListener("change", bidSelectionChanged);
   chooseBid.addEventListener("click", async () => {
     chooseBid.disabled = true;
     const submitted = await submitMove({
       action: "bid",
       quantity: Number(quantity.value),
       face: Number(face.value),
+      ...(state.mode === "party" ? {exact: exact.value === "true"} : {}),
     });
     if (!submitted) updateBidAvailability();
   });
@@ -3108,7 +3155,26 @@ function renderLiarsDice(board, state) {
     const submitted = await submitMove({action: "challenge"});
     if (!submitted) challenge.disabled = !canHumanMove() || !currentBid;
   });
-  controls.append(quantityLabel, faceLabel, chooseBid, challenge);
+  controls.append(quantityLabel, faceLabel);
+  if (state.mode === "party") controls.appendChild(exactLabel);
+  controls.append(chooseBid, challenge);
+  if (state.mode === "party") {
+    if (room?.private_state?.can_reroll) {
+      const reroll = document.createElement("button");
+      reroll.type = "button"; reroll.className = "pixel-btn secondary compact";
+      reroll.textContent = "单骰重摇 · 本轮限一次"; reroll.disabled = !humanCanMove;
+      reroll.addEventListener("click", async () => { reroll.disabled = true; if (!await submitMove({action:"reroll"})) reroll.disabled = !canHumanMove(); });
+      controls.appendChild(reroll);
+    }
+    if (state.allow_surrender && currentBid) {
+      const surrender = document.createElement("button");
+      surrender.type = "button"; surrender.className = "pixel-btn secondary compact";
+      surrender.textContent = state.surrender_no_reroll ? "投降-0.5 · 保留骰面" : "投降-0.5 · 揭盅重摇";
+      surrender.disabled = !humanCanMove;
+      surrender.addEventListener("click", async () => { surrender.disabled = true; if (!await submitMove({action:"surrender"})) surrender.disabled = !canHumanMove(); });
+      controls.appendChild(surrender);
+    }
+  }
   currentRound.appendChild(controls);
   board.appendChild(currentRound);
   if (result) board.appendChild(result);
@@ -3801,6 +3867,8 @@ function createParticipantBadge(participant, targetRoom) {
     score: "得分",
     dice_count: "剩余骰子",
     hand_count: "剩余手牌",
+    ...(targetRoom.game_type === "liars_dice" && targetRoom.board_state.mode === "party"
+      ? {score: targetRoom.board_state.teams ? "共用队分" : "本局积分", team: "队伍", dice_count: targetRoom.board_state.teams ? "共用骰子" : "骰子"} : {}),
   };
   const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
     ? participant.game_metadata
@@ -3884,11 +3952,13 @@ function renderPrivateState(targetRoom) {
   content.replaceChildren();
   if (!visible) return;
   Object.entries(privateState).forEach(([key, value]) => {
+    if (targetRoom.game_type === "liars_dice" && ["team_id", "cup_owner_player_id", "can_reroll"].includes(key)) return;
+    if (targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party" && key === "legal_actions") return;
     const row = document.createElement("div");
     row.className = "private-state-row";
     const label = document.createElement("strong");
     const labels = {hand: "我的手牌", dice: "我的骰子", rolls: "我的投掷", legal_actions: "我的合法行动"};
-    label.textContent = labels[key] || key;
+    label.textContent = key === "dice" && privateState.team_id ? "我队共用骰子" : labels[key] || key;
     const body = document.createElement("span");
     if (key === "dice" && Array.isArray(value)) {
       body.className = "my-dice liars-dice-row";
@@ -3905,6 +3975,9 @@ function renderPrivateState(targetRoom) {
 }
 
 function resultTextFor(targetRoom, timeline = []) {
+  if (targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party" && isTerminal(targetRoom)) {
+    return "酒桌局已结束，本局积分和回合记录已保留。";
+  }
   const resultEvent = [...timeline].reverse().find(
     (event) => event.event_type === "result"
   );
@@ -4095,7 +4168,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("copyRoomButton").setAttribute("aria-label", `复制房间号 ${room.room_id}`);
   $("copyRoomButton").title = `复制房间号 ${room.room_id}`;
   const resultText = resultTextFor(room, timeline);
-  const winner = room.winner === "draw"
+  const winner = room.game_type === "liars_dice" && room.board_state.mode === "party" ? "" : room.winner === "draw"
     ? " · 和棋"
     : (room.winner_player_id
       ? ` · ${(participantByPlayerId(room.winner_player_id) || {}).display_name || room.winner_player_id} 胜`
@@ -4133,6 +4206,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
     return;
   }
   $("resignButton").disabled = room.status !== "playing";
+  $("resignButton").textContent = room.game_type === "liars_dice" && room.board_state.mode === "party" ? "结束酒桌局" : "认输";
   $("sendMessageButton").disabled = Boolean(room.spectating);
   $("resultBanner").classList.toggle("hidden", !isTerminal(room));
   const settlementEntries = isTerminal(room) && Array.isArray(room.participants)
@@ -4312,7 +4386,7 @@ async function acknowledgeLiarsRound(button) {
     || !room.board_state
     || !room.board_state.flow
     || room.board_state.flow.phase !== "awaiting_round_acknowledgement"
-    || (room.room_kind === "invite" && !canHumanMove())
+    || ((room.room_kind === "invite" || room.board_state.mode === "party") && !canHumanMove())
   ) return false;
   try {
     const data = await request(`/api/rooms/${room.room_id}/move`, {
@@ -4394,6 +4468,12 @@ async function sendMessage() {
 }
 
 async function resign() {
+  if (room?.game_type === "liars_dice" && room.board_state.mode === "party") {
+    if (!room.spectating && window.confirm("结束整桌酒桌局？已完成的积分和回合记录会保留，本轮未开骰不扣分。")) {
+      await submitMove({action: "end_session"}, {sideAction: true});
+    }
+    return;
+  }
   if (!room || room.spectating || !window.confirm("确认认输并结束本局？")) return;
   const targetRoomId = room.room_id;
   stopPolling();
@@ -4485,6 +4565,7 @@ async function rematch() {
         mode: oppositeMode(previousRoom.mode),
         stake: previousRoom.stake || 0,
         rematch_of_room_id: previousRoom.room_id,
+        game_options: previousRoom.game_options,
       }),
     });
     closeResultModal();
@@ -4633,7 +4714,7 @@ function updateInviteStakeAvailability() {
   const target = Number($("inviteCount").value || 2);
   const supportsStake = Boolean(game?.supports_stakes);
   const supportsTable = target === 2 || Boolean(game?.supports_multiplayer_stakes);
-  const enabled = supportsStake && supportsTable;
+  const enabled = supportsStake && supportsTable && selectedGameOptions($("inviteGame"))?.mode !== "party";
   $("inviteStake").disabled = !enabled;
   if (!enabled) $("inviteStake").value = "0";
   $("inviteStakeHint").textContent = enabled
@@ -4643,7 +4724,7 @@ function updateInviteStakeAvailability() {
 function inviteCounts() {
   renderGameRulePicker($("inviteGame"));
   const game = (identity?.games || []).find((g) => g.game_type === selectedGameType($("inviteGame")));
-  $("inviteCount").replaceChildren(...allowedPlayerCountsForGame(game).map((n) => new Option(String(n), String(n))));
+  $("inviteCount").replaceChildren(...(selectedGameOptions($("inviteGame"))?.team_mode === "teams" ? [4, 6] : allowedPlayerCountsForGame(game)).map((n) => new Option(String(n), String(n))));
   $("inviteTimeout").disabled = false;
   $("inviteTimeoutHint").textContent = "超时由 NPC 临时代操作，可随时接回。";
   updateInviteStakeAvailability();
@@ -4704,7 +4785,7 @@ async function showInviteDialog(mode, code = "") {
   }
 }
 function isInviteWaiting(targetRoom) {
-  return targetRoom?.room_kind === "invite" && targetRoom.status === "waiting";
+  return targetRoom?.status === "waiting" && (targetRoom.room_kind === "invite" || Boolean(targetRoom.team_selection));
 }
 
 function participantAccountId(participant) {
@@ -4714,11 +4795,28 @@ function participantAccountId(participant) {
   return id.startsWith("human:") ? id.slice(6) : id.replace(/:[2-5]$/, "");
 }
 
+let diceSetupRefreshTimer = null;
+async function chooseDiceTeamSeat(team, seat) {
+  try {
+    const data = await request(`/api/rooms/${room.room_id}/move`, {method: "POST", body: JSON.stringify({move: {action: "choose_team_seat", team, seat}, revision: room.revision})});
+    renderGame(data.room, data.message, data.timeline);
+  } catch (error) { showNotice(error.message, true); }
+}
+function openDiceTeamSelection(select) {
+  window.DuelDiceTeams.openNext = true;
+  if (select.id === "inviteGame") $("inviteSubmit").click();
+  else createRoom();
+}
 function renderInviteRoomPanel() {
   const panel = $("inviteRoomPanel");
+  const signature = JSON.stringify([room?.room_id, room?.revision, room?.status, room?.team_selection?.can_start, room?.spectating, viewerPlayerIdFor(room)]);
+  if (room?.team_selection && panel.dataset.diceSignature === signature) return;
+  panel.dataset.diceSignature = signature;
+  clearTimeout(diceSetupRefreshTimer);
   panel.replaceChildren();
   const waiting = isInviteWaiting(room);
   panel.classList.toggle("hidden", !waiting);
+  panel.classList.toggle("liars-team-waiting", waiting && room.game_type === "liars_dice" && Boolean(room.team_selection));
   if (!waiting) return;
   $("gameView").prepend(panel);
 
@@ -4740,7 +4838,7 @@ function renderInviteRoomPanel() {
 
   const label = document.createElement("h2");
   label.className = "invite-room-title";
-  label.textContent = "邀请房";
+  label.textContent = room.room_kind === "invite" ? "邀请房" : "开局前组队";
   panel.appendChild(label);
   addButton("返回大厅", () => backToLobby());
   if (waiting) {
@@ -4775,7 +4873,7 @@ function renderInviteRoomPanel() {
     const copies = document.createElement("div");
     copies.className = "invite-copy-actions";
     invitation.append(codeLabel, code, copies);
-    panel.appendChild(invitation);
+    if (room.room_kind === "invite") panel.appendChild(invitation);
     addButton("复制邀请码", async () => {
       await navigator.clipboard.writeText(room.invite_code);
       showNotice("邀请码已复制");
@@ -4784,8 +4882,13 @@ function renderInviteRoomPanel() {
       await navigator.clipboard.writeText(new URL(room.invite_link, location.origin).href);
       showNotice("邀请链接已复制");
     }, copies);
+    if (room.team_selection) {
+      window.DuelDiceTeams.renderSelection(panel, room, {viewer: viewerPlayerIdFor(room), choose: chooseDiceTeamSeat, avatar: renderParticipantAvatar, accountId: participantAccountId});
+      const remaining = Date.parse(room.team_selection.start_after) - Date.now();
+      if (remaining > 0) diceSetupRefreshTimer = setTimeout(() => { if (isInviteWaiting(room)) refreshRoom({quiet:true}); }, Math.min(remaining + 100, 21000));
+    }
     const owner = viewerPlayerIdFor(room) === room.initiator_player_id;
-    const hasInvitee = room.participants.filter((p) => p.participant_kind !== "system_npc" && (!p.join_status || p.join_status === "joined")).length > (room.household_count ?? 1);
+    const hasInvitee = room.room_kind !== "invite" || room.participants.filter((p) => p.participant_kind !== "system_npc" && (!p.join_status || p.join_status === "joined")).length > (room.household_count ?? 1);
     const actions = document.createElement("div");
     actions.className = "invite-start-actions";
     panel.appendChild(actions);
@@ -4794,10 +4897,11 @@ function renderInviteRoomPanel() {
       renderGame(data.room, data.message, data.timeline);
       startRoomPolling();
     };
-    const ready = owner && hasInvitee && room.room_ready;
+    const selectionReady = !room.team_selection || room.team_selection.can_start;
+    const ready = owner && hasInvitee && room.room_ready && selectionReady;
     const startButton = addButton("开始游戏", () => start(false), actions, true);
     startButton.disabled = !ready;
-    if (!ready) startButton.title = owner ? "等待玩家坐满后开始" : "等待房主开始";
+    if (!ready) startButton.title = !selectionReady ? "组队开始约20秒后可开局" : owner ? "等待玩家坐满后开始" : "等待房主开始";
     if (!owner) {
       const hint = document.createElement("span");
       hint.id = "inviteStartHint";
@@ -4817,7 +4921,8 @@ function renderInviteRoomPanel() {
       const game = identity?.games?.find((g) => g.game_type === room.game_type);
       const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
       if (hasInvitee && room.participants.length < room.target_player_count && canFill) {
-        addButton("NPC 补满并开始", () => start(true), actions);
+        const fillButton = addButton("NPC 补满并开始", () => start(true), actions);
+        fillButton.disabled = !selectionReady;
       }
     }
     const notice = document.createElement("p");
@@ -4874,7 +4979,7 @@ $("inviteSubmit").addEventListener("click", async () => {
   try {
     if (inviteMode === "create") renderInviteMachinePicker();
     const body = inviteMode === "create"
-      ? {game_type: selectedGameType($("inviteGame")), target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}
+      ? {game_type: selectedGameType($("inviteGame")), game_options: selectedGameOptions($("inviteGame")), target_player_count: Number($("inviteCount").value), ai_players: [...inviteMachineIds], stake: Number($("inviteStake").value), timeout_takeover_seconds: Number($("inviteTimeout").value)}
       : {invite_code: $("inviteCodeInput").value.trim().toUpperCase()};
     const data = await request(inviteMode === "create" ? "/api/invites" : "/api/invites/join", {method: "POST", body: JSON.stringify(body)});
     $("inviteDialog").close();

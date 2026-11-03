@@ -38,11 +38,13 @@ def project_full_state(room: dict, player_id: str) -> dict:
     if game_type not in LEGACY_GAMES:
         return snapshot
     game = get_game(game_type)
-    snapshot['rules_text'] = game.rules_text
+    snapshot['rules_text'] = game.room_rules(room['board_state']) if game_type == 'liars_dice' else game.rules_text
     snapshot['move_format'] = getattr(game, 'mcp_move_format', game.move_format)
     if not room['board_state']:
         return snapshot
     board = snapshot['board_state']
+    if game_type == 'liars_dice' and game.is_party(room['board_state']):
+        board['round_results'] = deepcopy(room['board_state'].get('round_results', []))
     if game_type in RESTORE_MAP_FIELDS:
         public = framework.project_room_for_viewer(room, player_id)['board_state']
         for key in RESTORE_MAP_FIELDS[game_type]:

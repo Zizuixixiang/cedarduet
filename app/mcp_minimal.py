@@ -18,6 +18,8 @@ VERSION = 2
 
 
 def enabled(room):
+    if room.get('game_type') == 'liars_dice' and room.get('board_state', {}).get('mode') == 'party':
+        return room.get('status') in ('waiting', 'playing', 'finished', 'archived')
     return (room.get('game_type') in GAMES
             and room.get('status') in ('playing', 'finished', 'archived')
             and bool(room.get('board_state')))
@@ -182,6 +184,10 @@ def encode_result(name, raw, prior, actor, action):
 def response(room_id, pid, *, consume=False, full=False, submitted=None, source_room=None):
     from . import framework as f
     from .main import _participant_response_due, _terminal_fields
+    candidate = source_room or f.get_room(room_id, 'ai', pid)
+    if candidate['game_type'] == 'liars_dice':
+        from .liars_dice_mcp import response as dice_response
+        return dice_response(room_id, pid, full=full, source_room=source_room)
     with write_transaction() as conn:
         f._maintain_rooms(conn, room_id)
         row = conn.execute('SELECT * FROM rooms WHERE room_id=?',(room_id,)).fetchone()
