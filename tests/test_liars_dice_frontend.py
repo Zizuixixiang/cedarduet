@@ -30,7 +30,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.12', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.13', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
