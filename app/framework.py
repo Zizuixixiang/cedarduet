@@ -193,8 +193,8 @@ def _decorate(room: dict) -> dict:
         result["invite_link"] = (
             "/duel/?invite=" + result["invite_code"] if result.get("invite_code") else None
         )
-    if liars_dice_setup.is_selecting(room):
-        selection = liars_dice_setup.public_selection(room["board_state"])
+    if room["status"] in {"pending", "waiting"} and liars_dice_setup.has_selection(room):
+        selection = liars_dice_setup.public_selection(room["board_state"], status=room["status"])
         result["team_selection"] = selection
         result["target_player_count"] = selection["target_player_count"]
         result["room_ready"] = selection["can_start"] and len(result["participants"]) == selection["target_player_count"]
@@ -312,7 +312,7 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         projected.pop("npc_unattended_turns", None)
         projected.pop("npc_turn_actions", None)
         projected["board_state"] = ({**game.saved_options(room["board_state"]),
-            "team_selection": liars_dice_setup.public_selection(room["board_state"])}
+            "team_selection": liars_dice_setup.public_selection(room["board_state"], status=room["status"])}
             if liars_dice_setup.has_selection(room) else {})
         projected["private_state"] = {}
         projected["viewer"] = {"player_id": viewer_player_id, "role": viewer["role"],

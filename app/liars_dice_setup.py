@@ -33,11 +33,11 @@ def ready(selection):
     return datetime.now(timezone.utc) >= datetime.fromisoformat(selection["start_after"])
 
 
-def public_selection(state):
+def public_selection(state, *, status="waiting"):
     selection = deepcopy(state["team_selection"])
     selection.pop("first_player_id", None)
     selection.pop("deferred_npcs", None)
-    selection["can_start"] = ready(selection)
+    selection["can_start"] = status == "waiting" and ready(selection)
     return selection
 
 

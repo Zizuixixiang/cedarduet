@@ -393,6 +393,41 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected.status_code, 403)
         self.assertIn("席位不匹配", rejected.json()["message"])
 
+    async def test_minimal_encoder_accepts_members_but_mcp_requires_ai_seat(self):
+        from app import mcp_minimal
+
+        for name in ('four_color_tenhu', 'four_color_jiuzhi', 'four_color_qunhu', 'liars_dice'):
+            with self.subTest(game=name):
+                seats = [dict(player_id=f'p{i}', role='human' if i == 0 else 'ai')
+                         for i in range(4)]
+                room = create_room(name, 'human_first', 'human', 'p0',
+                    ordered_participants=seats, require_confirmations=False,
+                    game_options={'mode': 'party'} if name == 'liars_dice' else None)
+                rid = room['room_id']
+                private_key = 'dice' if name == 'liars_dice' else 'hand'
+                state_key = 'dice_by_player' if name == 'liars_dice' else 'hands'
+                for pid in ('p0', 'p1'):
+                    boot = mcp_minimal.response(rid, pid)
+                    recovered = mcp_minimal.response(rid, pid, full=True)
+                    expected = sorted(room['board_state'][state_key][pid])
+                    self.assertEqual(sorted(boot['room']['private_state'][private_key]), expected)
+                    self.assertEqual(sorted(recovered['snapshot']['private_state'][private_key]), expected)
+                for full in (False, True):
+                    for source in (None, room):
+                        with self.assertRaises(framework.DuelError) as caught:
+                            mcp_minimal.response(rid, 'outsider', full=full, source_room=source)
+                        self.assertEqual(caught.exception.status_code, 403)
+                    # HTTP must reject a real human member as well as an outsider
+                    # before it can invoke the role-neutral internal encoder.
+                    with patch.object(mcp_minimal, 'response', side_effect=AssertionError('encoder reached')):
+                        for pid in ('p0', 'outsider'):
+                            rejected = await self.client.post('/mcp/play', json={
+                                'action': 'state', 'room_id': rid, 'player_id': pid, 'full_state': full})
+                            self.assertEqual(rejected.status_code, 403, rejected.text)
+                    accepted = await self.client.post('/mcp/play', json={
+                        'action': 'state', 'room_id': rid, 'player_id': 'p1', 'full_state': full})
+                    self.assertEqual(accepted.status_code, 200, accepted.text)
+
     async def test_page_has_all_games_and_no_identity_or_room_join_inputs(self):
         response = await self.client.get("/")
         self.assertEqual(response.status_code, 200)

@@ -27,7 +27,7 @@ def safe_state(room, pid):
               for p in room['participants']}
     meta['players'] = roster
     if 'dice_counts' not in state:
-        selection = setup.public_selection(state) if setup.has_selection(room) else None
+        selection = setup.public_selection(state, status=room['status']) if setup.has_selection(room) else None
         meta['selection'] = selection
         meta['room_ready'] = room.get('room_ready', False)
         return meta, {}, None
@@ -140,6 +140,6 @@ def has_updates(room, pid):
     ctx = json.loads(row[0]) if row else {}
     if ctx.get('revision') != room['revision']:
         return True
-    if setup.has_selection(room) and ctx.get('public',{}).get('selection') != setup.public_selection(room['board_state']):
+    if setup.has_selection(room) and ctx.get('public',{}).get('selection') != setup.public_selection(room['board_state'], status=room['status']):
         return True
     return f.has_new_room_events(room['room_id'],pid)

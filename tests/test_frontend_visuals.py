@@ -30,7 +30,7 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.13"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.14"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
@@ -2452,6 +2452,7 @@ assert.equal(pendingState.children[1].textContent, "进入 →");
 
     def test_liars_dice_separates_new_round_from_collapsed_previous_reveal(self):
         renderer = "\n".join((
+            function_source("canAcknowledgeLiarsRound"),
             function_source("liarsParticipantName"),
             function_source("liarsRoundResultIsVisible"),
             function_source("liarsRoundResultLines"),
@@ -3462,10 +3463,29 @@ assert.equal(content.children.length, 0);
             STYLES.index(".create-submit {")
         ]
         self.assertIn("> .tag { display: none; }", compact)
-        self.assertIn("width: 27px;", compact)
-        self.assertIn("height: 27px;", compact)
-        self.assertIn("gap: 4px;", compact)
-        self.assertIn("--liars-pip-radius: 2px;", compact)
+        phone, responsive = compact.split("@media (max-width: 340px)")
+        narrow, desktop = responsive.split("@media (min-width: 900px)")
+        for styles, size, pip in ((phone, 34, 2.5), (narrow, 30, 2.3), (desktop, 44, 3)):
+            with self.subTest(die_size=size):
+                self.assertIn(f"width: {size}px;", styles)
+                self.assertIn(f"height: {size}px;", styles)
+                self.assertIn(f"--liars-pip-radius: {pip}px;", styles)
+        self.assertIn("grid-template-columns: 68px minmax(0, 1fr);", phone)
+        self.assertIn("grid-template-columns: 100px minmax(0, 1fr);", desktop)
+        self.assertIn("min-width: 0;\n  flex-wrap: nowrap;\n  gap: 3px;", phone)
+        self.assertIn("padding: 5px 7px;\n  border-width: 2px;", phone)
+        self.assertIn("padding: 8px 10px calc(var(--safe-bottom) + 20px);", STYLES)
+        self.assertIn(".battle-stage { padding: 10px 7px 12px;", STYLES)
+        self.assertIn("grid-template-columns: minmax(600px, 1fr)", STYLES)
+        self.assertIn("border: 4px solid var(--purple);", STYLES)
+        # Border-box dice must fit five abreast, including label, gaps and
+        # the existing phone page/table/panel insets; desktop has a 600px column.
+        for viewport, size in ((320, 30), (340, 30), (360, 34), (430, 34), (1280, 44)):
+            with self.subTest(viewport=viewport):
+                panel_width = viewport - 2 * (10 + 7 + 4) if viewport < 900 else 600
+                content_width = panel_width - 2 * (7 + 2)
+                label_width = 68 if viewport < 900 else 100
+                self.assertLessEqual(label_width + 4 + 5 * size + 4 * 3, content_width)
 
     def test_recent_chat_feed_keeps_all_public_player_speech(self):
         functions = "\n".join((

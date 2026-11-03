@@ -78,7 +78,9 @@ class FullStateCompletenessTests(unittest.IsolatedAsyncioTestCase):
                     pid = player['player_id']
                     actual = await self.cold_snapshot(room, pid)
                     game = GAMES[name]
-                    self.assertEqual(actual['rules_text'], game.rules_text, (name, pid))
+                    expected_rules = (game.room_rules(room['board_state'])
+                                      if name == 'liars_dice' else game.rules_text)
+                    self.assertEqual(actual['rules_text'], expected_rules, (name, pid))
                     self.assertEqual(actual['move_format'],
                                      getattr(game, 'mcp_move_format', game.move_format), (name, pid))
                     reference = framework.project_mcp_snapshot_for_viewer(room, pid)
@@ -100,19 +102,29 @@ class FullStateCompletenessTests(unittest.IsolatedAsyncioTestCase):
                             self.assertIn(key, roster)
 
     async def test_recovery_reads_current_authority_and_prefers_mcp_format(self):
-        room = await self.midgame('liars_dice', 1)
         game = GAMES['liars_dice']
-        for version in ('first', 'updated'):
-            with patch.object(game, 'rules_text', version), \
-                 patch.object(game, 'mcp_move_format', {'mcp': version}, create=True):
+        rooms = [await self.midgame('liars_dice', 1),
+                 framework.create_room('liars_dice', 'ai_first', 'ai', 'p0',
+                     opponent_id='p1', game_options={'mode': 'party', 'literal_dice': True},
+                     require_confirmations=False)]
+        for room in rooms:
+            mode = room['board_state']['mode']
+            for version in ('first', 'updated'):
+                with self.subTest(mode=mode, version=version), \
+                     patch.object(game, 'rules_text', 'global rules must not replace room rules'), \
+                     patch.object(game, f'{mode}_rules', version), \
+                     patch.object(game, 'mcp_move_format', {'mcp': version}, create=True):
+                    snapshot = await self.cold_snapshot(room)
+                    expected = ('【原版·淘汰赛】\n' + version if mode == 'classic'
+                                else version + '\n本桌有骰计骰：已开启。')
+                    self.assertEqual(snapshot['rules_text'], expected)
+                    self.assertEqual(snapshot['move_format'], game.mcp_move_format)
+                    self.assertNotEqual(snapshot['move_format'], game.move_format)
+            with self.subTest(mode=mode, format='fallback'), \
+                 patch.object(game, 'move_format', {'fallback': 'current'}):
                 snapshot = await self.cold_snapshot(room)
-                self.assertEqual(snapshot['rules_text'], game.rules_text)
-                self.assertEqual(snapshot['move_format'], game.mcp_move_format)
-                self.assertNotEqual(snapshot['move_format'], game.move_format)
-        with patch.object(game, 'move_format', {'fallback': 'current'}):
-            snapshot = await self.cold_snapshot(room)
-            self.assertEqual(snapshot['rules_text'], game.rules_text)
-            self.assertEqual(snapshot['move_format'], game.move_format)
+                self.assertEqual(snapshot['rules_text'], game.room_rules(room['board_state']))
+                self.assertEqual(snapshot['move_format'], game.move_format)
 
     async def test_jungle_board_can_be_interpreted_with_all_terrain(self):
         room = await self.midgame('jungle')

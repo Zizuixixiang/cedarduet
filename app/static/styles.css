@@ -4923,13 +4923,13 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   #lobbyView .create-config .fc-rule-copy strong { font-size: 16px; }
   #lobbyView .create-config .fc-rule-copy > span { font-size: 14px; }
   @media (min-width: 900px) {
-    /* Dice creation only: paired selectors, then a full-width disclosure card. */
+    /* Desktop dice only: modes, table/NPCs, then rules; keep touch DOM intact. */
     #lobbyView .create-config > .liars-rule-picker {
-      grid-area: 4 / 1 / 5 / -1;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: start;
-      gap: 12px 20px;
+      display: contents;
     }
+    #lobbyView .create-config > .liars-rule-picker > label:first-child { grid-area: 3 / 1; }
+    #lobbyView .create-config > .liars-rule-picker > label:nth-child(2) { grid-area: 3 / 2; }
+    #lobbyView .create-config:has(> .liars-rule-picker) > .multiplayer-options { grid-area: 4 / 1 / 5 / -1; }
     #lobbyView .create-config .liars-rule-picker .pixel-field {
       grid-template-columns: minmax(0, 1fr);
       margin: 0;

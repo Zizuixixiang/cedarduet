@@ -184,7 +184,9 @@ def encode_result(name, raw, prior, actor, action):
 def response(room_id, pid, *, consume=False, full=False, submitted=None, source_room=None):
     from . import framework as f
     from .main import _participant_response_due, _terminal_fields
-    candidate = source_room or f.get_room(room_id, 'ai', pid)
+    # Transport entry points authenticate the AI role. This internal encoder
+    # serves any room participant; each branch checks membership in its transaction.
+    candidate = source_room or f.get_room(room_id)
     if candidate['game_type'] == 'liars_dice':
         from .liars_dice_mcp import response as dice_response
         return dice_response(room_id, pid, full=full, source_room=source_room)

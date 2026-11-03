@@ -199,9 +199,12 @@
       const doc = target.ownerDocument;
       ensureStylesheet(doc);
       const selection = room.team_selection;
+      const pending = room.status === "pending";
       const section = element(doc, "section", "liars-team-selection");
       const seats = element(doc, "div", "liars-team-seats");
-      section.appendChild(element(doc, "p", "invite-note", selection.can_start
+      section.appendChild(element(doc, "p", "invite-note", pending
+        ? "筹码待确认；确认完成后开放选座，约20秒后房主可以开始。"
+        : selection.can_start
         ? "可以开始了；未选座的成员将随机补位。"
         : "点击空位加入或换位；约20秒后房主可以开始。"));
       for (const [team, members] of Object.entries(selection.seats)) {
@@ -220,6 +223,7 @@
             cell.classList.toggle("liars-my-seat", id === helpers.viewer);
           } else {
             cell.type = "button";
+            cell.disabled = pending;
             cell.setAttribute("aria-label", `加入${teamLabel}第${i + 1}位`);
             cell.addEventListener("click", async () => {
               cell.disabled = true;

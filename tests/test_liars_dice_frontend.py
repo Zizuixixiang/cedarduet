@@ -17,6 +17,21 @@ NODE = shutil.which("node")
 
 
 class LiarsDiceFrontendStructureTests(unittest.TestCase):
+    def test_desktop_create_modes_precede_table_without_reordering_mobile_dom(self):
+        desktop = PUBLIC_STYLES.split('/* Fixed mouse/trackpad lobby.', 1)[1]
+        dice = desktop.split('@media (min-width: 900px) {', 1)[1].split(
+            '#lobbyView .create-config .ai-multi-option', 1)[0]
+        self.assertIn('@media (hover: hover) and (pointer: fine)', desktop)
+        self.assertRegex(dice, r'> \.liars-rule-picker \{\s+display: contents;')
+        self.assertIn('> label:first-child { grid-area: 3 / 1; }', dice)
+        self.assertIn('> label:nth-child(2) { grid-area: 3 / 2; }', dice)
+        self.assertIn(':has(> .liars-rule-picker) > .multiplayer-options { grid-area: 4 / 1 / 5 / -1; }', dice)
+        self.assertIn('.liars-advanced { grid-column: 1 / -1; }', dice)
+        # Other games retain their existing row; phone markup keeps selectors then rules.
+        self.assertIn('> .multiplayer-options {\n    grid-area: 3 / 1 / 4 / -1;', desktop)
+        self.assertLess(SCRIPT.index('target.appendChild(label)'), SCRIPT.index('target.appendChild(teamsLabel)'))
+        self.assertLess(SCRIPT.index('target.appendChild(teamsLabel)'), SCRIPT.index('target.appendChild(advanced)'))
+
     def test_waiting_team_actions_not_split_by_duplicate_hint(self):
         app = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('blockedReason !== "组队开始约20秒后可开局"', app)
@@ -30,7 +45,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.13', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.14', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):

@@ -4835,7 +4835,8 @@ async function showInviteDialog(mode, code = "") {
   }
 }
 function isInviteWaiting(targetRoom) {
-  return targetRoom?.status === "waiting" && (targetRoom.room_kind === "invite" || Boolean(targetRoom.team_selection));
+  return (targetRoom?.status === "waiting" && (targetRoom.room_kind === "invite" || Boolean(targetRoom.team_selection)))
+    || (targetRoom?.status === "pending" && targetRoom.game_type === "liars_dice" && Boolean(targetRoom.team_selection));
 }
 
 function confirmWaitingRoomDissolve(roomKind) {
@@ -4868,6 +4869,7 @@ function participantAccountId(participant) {
 
 let diceSetupRefreshTimer = null;
 async function chooseDiceTeamSeat(team, seat) {
+  if (room?.status !== "waiting" || !room.team_selection || room.spectating) return;
   try {
     const data = await request(`/api/rooms/${room.room_id}/move`, {method: "POST", body: JSON.stringify({move: {action: "choose_team_seat", team, seat}, revision: room.revision})});
     renderGame(data.room, data.message, data.timeline);
@@ -4881,6 +4883,7 @@ function renderInviteRoomPanel() {
   clearTimeout(diceSetupRefreshTimer);
   panel.replaceChildren();
   const waiting = isInviteWaiting(room);
+  const pendingTeams = waiting && room.status === "pending";
   panel.classList.toggle("hidden", !waiting);
   panel.classList.toggle("liars-team-waiting", waiting && room.game_type === "liars_dice" && Boolean(room.team_selection));
   if (!waiting) return;
@@ -4917,13 +4920,15 @@ function renderInviteRoomPanel() {
   const members = document.createElement("section");
   members.className = "invite-room-members";
   const memberLabel = document.createElement("h3");
-  memberLabel.textContent = "已加入";
+  memberLabel.textContent = pendingTeams ? "参与人员" : "已加入";
   members.appendChild(memberLabel);
   for (const p of room.participants) {
     const tag = document.createElement("span");
     tag.className = "invite-member-tag";
     const id = participantAccountId(p);
-    tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
+    const confirmation = pendingTeams && p.participant_kind !== "system_npc"
+      ? (p.confirmation_status === "accepted" ? " · 已确认" : " · 待确认") : "";
+    tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}${confirmation}`;
     members.appendChild(tag);
   }
   panel.appendChild(members);
@@ -4939,7 +4944,7 @@ function renderInviteRoomPanel() {
     const copies = document.createElement("div");
     copies.className = "invite-copy-actions";
     invitation.append(codeLabel, code, copies);
-    if (room.room_kind === "invite") panel.appendChild(invitation);
+    if (room.room_kind === "invite" && !pendingTeams) panel.appendChild(invitation);
     addButton("复制邀请码", async () => {
       await navigator.clipboard.writeText(room.invite_code);
       showNotice("邀请码已复制");
@@ -4951,7 +4956,7 @@ function renderInviteRoomPanel() {
     if (room.team_selection) {
       window.DuelDiceTeams.renderSelection(panel, room, {viewer: viewerPlayerIdFor(room), choose: chooseDiceTeamSeat, avatar: renderParticipantAvatar, accountId: participantAccountId});
       const remaining = Date.parse(room.team_selection.start_after) - Date.now();
-      if (remaining > 0) diceSetupRefreshTimer = setTimeout(() => { if (isInviteWaiting(room)) refreshRoom({quiet:true}); }, Math.min(remaining + 100, 21000));
+      if (!pendingTeams && remaining > 0) diceSetupRefreshTimer = setTimeout(() => { if (isInviteWaiting(room)) refreshRoom({quiet:true}); }, Math.min(remaining + 100, 21000));
     }
     const owner = viewerPlayerIdFor(room) === room.initiator_player_id;
     const hasInvitee = room.room_kind !== "invite" || room.participants.filter((p) => p.participant_kind !== "system_npc" && (!p.join_status || p.join_status === "joined")).length > (room.household_count ?? 1);
@@ -4963,7 +4968,7 @@ function renderInviteRoomPanel() {
       renderGame(data.room, data.message, data.timeline);
       startRoomPolling();
     };
-    const selectionReady = !room.team_selection || room.team_selection.can_start;
+    const selectionReady = !pendingTeams && (!room.team_selection || room.team_selection.can_start);
     const teamSetup = room.game_type === "liars_dice" && Boolean(room.team_selection);
     const game = identity?.games?.find((g) => g.game_type === room.game_type);
     const canFill = game?.supports_npcs && (game.uses_local_npc_strategy || identity?.npc_provider?.available);
@@ -4973,7 +4978,8 @@ function renderInviteRoomPanel() {
       && (room.room_ready || (teamSetup && missing > 0 && npcCountAfterFill <= 4 && canFill));
     const startButton = addButton("开始游戏", () => start(teamSetup && missing > 0), actions, true);
     startButton.disabled = !ready;
-    const blockedReason = !owner ? "等待房主开始游戏"
+    const blockedReason = pendingTeams ? "等待所有真实参赛者确认筹码后，才能选座和开始游戏"
+      : !owner ? "等待房主开始游戏"
       : !hasInvitee ? "至少需要1名外部受邀玩家加入"
       : !selectionReady ? "组队开始约20秒后可开局"
       : teamSetup && missing > 0 && npcCountAfterFill > 4 ? "每桌最多4名NPC，请等待更多玩家加入"

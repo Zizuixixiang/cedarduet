@@ -247,12 +247,34 @@ class PartyStakeTransportTests(unittest.IsolatedAsyncioTestCase):
             room = response.json()['room']
             rid = room['room_id']
             self.assertEqual(room['status'], 'pending')
+            # Pending can outlive the original 20s window; it must stay read-only.
+            expire(framework.get_room(rid))
+            for _ in range(2):
+                reopened = await self.client.get(f'/api/rooms/{rid}', headers=self.headers())
+                pending = reopened.json()['room']
+                self.assertEqual(pending['status'], 'pending')
+                self.assertFalse(pending['room_ready'])
+                self.assertFalse(pending['team_selection']['can_start'])
+                self.assertEqual(pending['team_selection'], pending['board_state']['team_selection'])
+                self.assertEqual(pending['private_state'], {})
+                for secret in ('dice_by_player', 'first_player_id', 'deferred_npcs'):
+                    self.assertNotIn(secret, reopened.text)
+            denied = await self.client.post(f'/api/rooms/{rid}/move', headers=self.headers(), json={
+                'player_id': 'human-1', 'revision': pending['revision'],
+                'move': {'action': 'choose_team_seat', 'team': 'red', 'seat': 1}})
+            self.assertEqual(denied.status_code, 409)
             early = await self.client.post(f'/api/rooms/{rid}/start', headers=self.headers(), json={'fill_with_npcs': True})
             self.assertEqual(early.status_code, 409)
             accepted = await self.client.post('/mcp/play', json={'action': 'accept', 'player_id': 'ai-1', 'room_id': rid})
             self.assertEqual(accepted.status_code, 200, accepted.text)
             room = framework.get_room(rid)
             self.assertEqual(room['status'], 'waiting')
+            self.assertFalse(room['team_selection']['can_start'])
+            seated = await self.client.post(f'/api/rooms/{rid}/move', headers=self.headers(), json={
+                'player_id': 'human-1', 'revision': room['revision'],
+                'move': {'action': 'choose_team_seat', 'team': 'red', 'seat': 1}})
+            self.assertEqual(seated.status_code, 200, seated.text)
+            self.assertEqual(seated.json()['room']['team_selection']['seats']['red'][0], 'human-1')
             if invite:
                 joined = await self.client.post('/api/invites/join', headers={'X-Duel-Human-Player': 'human-2'},
                                                 json={'invite_code': room['invite_code']})
@@ -272,6 +294,9 @@ class PartyStakeTransportTests(unittest.IsolatedAsyncioTestCase):
                 started = await self.client.post(f'/api/rooms/{rid}/start', headers=self.headers(), json={'fill_with_npcs': True})
             self.assertEqual(started.status_code, 200, started.text)
             self.assertEqual(started.json()['room']['status'], 'playing')
+            self.assertNotIn('team_selection', started.json()['room'])
+            self.assertNotIn('dice_by_player', started.json()['room']['board_state'])
+            self.assertEqual(len(started.json()['room']['private_state']['dice']), 5)
 
     async def test_paid_end_mcp_increment_private_full_result_and_duplicate(self):
         room = framework.create_room('liars_dice', 'human_first', 'human', 'human-1',
