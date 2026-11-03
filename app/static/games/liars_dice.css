@@ -136,6 +136,13 @@
   .liars-team-seat { min-height: 92px; }
 }
 @media (max-width: 600px) {
+  /* Desktop scoreboard remains enlarged; phones use compact, readable tiers. */
+  .liars-team-score-grid { gap: 8px; }
+  .liars-team-score-card { padding: 8px 9px; }
+  .liars-team-score-heading { gap: 8px; }
+  .liars-team-score-name { font-size: 14px; }
+  .liars-team-score-value { font-size: 16px; }
+  .liars-team-score-members { margin-top: 4px; gap: 2px 8px; font-size: 12px; line-height: 1.45; }
   .board .liars-party-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board .liars-party-controls label, .board .liars-party-controls > button { grid-column: span 1; }
   .board .liars-party-controls .liars-exact-field { grid-column: 1 / -1; }
