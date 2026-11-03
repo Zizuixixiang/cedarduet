@@ -98,6 +98,9 @@
 
 .invite-waiting-view > #inviteRoomPanel.liars-team-waiting { max-width: 880px; padding: 24px; gap: 16px; }
 #inviteRoomPanel.liars-team-waiting .invite-room-action { min-height: 44px; }
+/* Team actions stay together; unavailable-state help is rendered separately. */
+#inviteRoomPanel.liars-team-waiting .invite-start-actions { flex: 1 0 100%; flex-wrap: nowrap; min-width: 0; }
+#inviteRoomPanel.liars-team-waiting #inviteStartHint { flex: 1 0 100%; margin: 0; }
 .liars-team-selection { flex: 1 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .liars-team-selection > .invite-note { color: var(--text); }
 .liars-team-seats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

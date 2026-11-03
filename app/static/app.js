@@ -4911,7 +4911,7 @@ function renderInviteRoomPanel() {
     const meta = document.createElement("p");
     meta.className = "invite-room-meta";
     const timeoutSeconds = Number(room.timeout_takeover_seconds || (room.timeout_takeover ? 90 : 0));
-    meta.textContent = `${room.game_name} · ${room.participants.length}/${room.target_player_count} 人 · ${room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局"} · ${timeoutSeconds ? `${timeoutSeconds} 秒超时接管` : "不自动接管"}`;
+    meta.textContent = `${room.game_name} · ${room.participants.length}/${room.target_player_count} 人 · ${room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局"}${room.room_kind === "invite" && timeoutSeconds ? ` · ${timeoutSeconds} 秒超时接管` : ""}`;
     panel.appendChild(meta);
   }
   const members = document.createElement("section");
@@ -4980,13 +4980,15 @@ function renderInviteRoomPanel() {
       : teamSetup && missing > 0 && !canFill ? (game?.supports_npcs ? "NPC补位当前不可用，请等待玩家坐满" : "该游戏不支持NPC补位，请等待玩家坐满")
       : "等待玩家坐满后开始";
     if (!ready) startButton.title = blockedReason;
-    if (!owner || (teamSetup && !ready)) {
+    // Team waiting already explains the 20-second rule above the seats.
+    // Keep other blocking reasons outside the action row, never between buttons.
+    if (!owner || (teamSetup && !ready && blockedReason !== "组队开始约20秒后可开局")) {
       const hint = document.createElement("span");
       hint.id = "inviteStartHint";
       hint.className = "invite-note";
       hint.textContent = blockedReason;
       startButton.setAttribute("aria-describedby", hint.id);
-      actions.appendChild(hint);
+      (teamSetup ? panel : actions).appendChild(hint);
     }
     if (owner) {
       const dissolve = addButton("解散房间", async () => {

@@ -17,6 +17,14 @@ NODE = shutil.which("node")
 
 
 class LiarsDiceFrontendStructureTests(unittest.TestCase):
+    def test_waiting_team_actions_not_split_by_duplicate_hint(self):
+        app = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('blockedReason !== "组队开始约20秒后可开局"', app)
+        self.assertIn('(teamSetup ? panel : actions).appendChild(hint)', app)
+        self.assertNotIn(' : "不自动接管"', app)
+        self.assertIn('#inviteRoomPanel.liars-team-waiting .invite-start-actions { flex: 1 0 100%; flex-wrap: nowrap;', STYLES)
+        self.assertIn('约20秒后房主可以开始', SCRIPT)
+
     def test_thin_renderer_reuses_legacy_table_without_modifying_app(self):
         self.assertIn('global.DuelGameUI.register("liars_dice"', SCRIPT)
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
@@ -113,7 +121,7 @@ assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-fa
 assert.equal(rows[1].children[0].textContent,"小机：");
 assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
 assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.12");
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.13");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,
