@@ -3946,6 +3946,7 @@ function renderPrivateState(targetRoom) {
   const visible = !rendererOwnsPresentation
     && privateState && typeof privateState === "object"
     && !Array.isArray(privateState) && Object.keys(privateState).length > 0;
+  panel.classList.toggle("liars-dice-private", targetRoom?.game_type === "liars_dice");
   panel.classList.toggle(
     "compact-dice-private",
     isMultiplayerRoom(targetRoom) && targetRoom.game_type === "liars_dice"
@@ -4796,6 +4797,27 @@ function isInviteWaiting(targetRoom) {
   return targetRoom?.status === "waiting" && (targetRoom.room_kind === "invite" || Boolean(targetRoom.team_selection));
 }
 
+function confirmWaitingRoomDissolve(roomKind) {
+  const dialog = $("dissolveRoomDialog");
+  if (dialog.open) return Promise.resolve(false);
+  const invite = roomKind === "invite";
+  $("dissolveRoomTitle").textContent = invite ? "确定解散邀请房间？" : "确定解散组队房间？";
+  $("dissolveRoomDescription").textContent = "解散后，全部成员将离开房间，无法重新进入。"
+    + (invite ? "邀请码也将失效。" : "");
+  dialog.returnValue = "";
+  return new Promise((resolve) => {
+    dialog.onclose = () => resolve(dialog.returnValue === "confirm");
+    dialog.oncancel = (event) => {
+      event.preventDefault();
+      dialog.close("cancel");
+    };
+    $("dissolveRoomCancel").onclick = () => dialog.close("cancel");
+    $("dissolveRoomConfirm").onclick = () => dialog.close("confirm");
+    dialog.showModal();
+    $("dissolveRoomCancel").focus();
+  });
+}
+
 function participantAccountId(participant) {
   if (!participant || participant.participant_kind === "system_npc") return "";
   // Display account IDs independently of the canonical mention handle.
@@ -4853,6 +4875,8 @@ function renderInviteRoomPanel() {
   }
   const members = document.createElement("section");
   members.className = "invite-room-members";
+  const teamMembers = room.game_type === "liars_dice" && Boolean(room.team_selection);
+  if (teamMembers) members.classList.add("liars-waiting-members");
   const memberLabel = document.createElement("h3");
   memberLabel.textContent = "已加入";
   members.appendChild(memberLabel);
@@ -4860,7 +4884,24 @@ function renderInviteRoomPanel() {
     const tag = document.createElement("span");
     tag.className = "invite-member-tag";
     const id = participantAccountId(p);
-    tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
+    if (teamMembers) {
+      tag.className = "liars-waiting-member";
+      const avatar = document.createElement("span");
+      avatar.className = "room-participant-avatar";
+      renderParticipantAvatar(avatar, p, room);
+      const copy = document.createElement("span");
+      copy.className = "liars-waiting-member-copy";
+      const name = document.createElement("strong");
+      name.textContent = p.display_name;
+      const detail = document.createElement("small");
+      const team = Object.entries(room.team_selection.seats).find(([, seats]) => seats.includes(p.player_id))?.[0];
+      const status = team === "red" ? "红队" : team === "blue" ? "蓝队" : "待选座";
+      detail.textContent = `${id ? `ID ${id} · ` : ""}${status}`;
+      copy.append(name, detail);
+      tag.append(avatar, copy);
+    } else {
+      tag.textContent = `${p.display_name}${id ? ` · ID ${id}` : ""}`;
+    }
     members.appendChild(tag);
   }
   panel.appendChild(members);
@@ -4927,9 +4968,22 @@ function renderInviteRoomPanel() {
     }
     if (owner) {
       const dissolve = addButton("解散房间", async () => {
-        if (!window.confirm("确定解散邀请房？所有成员将离开房间，无法重新进入。")) return;
-        await request(`/api/rooms/${room.room_id}/leave`, {method: "POST", body: "{}"});
-        await backToLobby();
+        const targetRoomId = room?.room_id;
+        const canDissolve = () => room?.room_id === targetRoomId && isInviteWaiting(room)
+          && !room.spectating && Boolean(room.initiator_player_id)
+          && viewerPlayerIdFor(room) === room.initiator_player_id;
+        if (!canDissolve()) return;
+        try {
+          if (!await confirmWaitingRoomDissolve(room.room_kind) || !canDissolve()) return;
+          await request(`/api/rooms/${targetRoomId}/leave`, {method: "POST", body: "{}"});
+          if (room?.room_id === targetRoomId) await backToLobby();
+        } finally {
+          // Polling may have replaced the original trigger while the dialog was open.
+          dissolve.disabled = false;
+          if (room?.room_id === targetRoomId) {
+            panel.querySelector('[data-action="解散房间"]')?.focus();
+          }
+        }
       }, actions);
       dissolve.classList.remove("secondary");
       dissolve.classList.add("danger");

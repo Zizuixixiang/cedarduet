@@ -1177,16 +1177,35 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   border-width: 2px;
   box-shadow: 1px 1px 0 rgba(92, 84, 99, .18);
 }
+.game-view .private-state-panel.liars-dice-private .private-state-row:has(> .my-dice) {
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+.game-view .private-state-panel.liars-dice-private .my-dice {
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+.game-view .private-state-panel.liars-dice-private .my-dice .liars-die {
+  --liars-pip-radius: 2.5px;
+  width: 34px;
+  height: 34px;
+  border-width: 2px;
+}
+@media (max-width: 340px) {
+  .game-view .private-state-panel.liars-dice-private .my-dice .liars-die {
+    --liars-pip-radius: 2.3px;
+    width: 30px;
+    height: 30px;
+  }
+}
 /* Five private dice stay readable on phones and grow further on desktop. */
 @media (min-width: 900px) {
-  .game-view .private-state-panel.compact-dice-private .private-state-row:has(.my-dice) {
-    grid-template-columns: minmax(0, 1fr);
+  .game-view .private-state-panel.liars-dice-private .private-state-row:has(> .my-dice) {
+    grid-template-columns: 100px minmax(0, 1fr);
   }
-  .game-view .private-state-panel.compact-dice-private .my-dice {
-    gap: 4px;
-    flex-wrap: nowrap;
-  }
-  .game-view .private-state-panel.compact-dice-private .my-dice .liars-die {
+  .game-view .private-state-panel.liars-dice-private .my-dice .liars-die {
     --liars-pip-radius: 3px;
     width: 44px;
     height: 44px;
@@ -4618,6 +4637,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .invite-dialog-actions .pixel-btn {
   width: 100%;
   min-height: 46px;
+}
+
+
+.dissolve-room-dialog { position: fixed; }
+.dissolve-room-dialog .pixel-btn { font-size: 14px; }
+.dissolve-room-dialog .pixel-btn:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 

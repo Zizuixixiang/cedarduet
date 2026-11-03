@@ -30,7 +30,7 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.7"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.9"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
