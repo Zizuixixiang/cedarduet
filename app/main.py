@@ -288,6 +288,13 @@ async def validation_error_handler(_request: Request, exc: RequestValidationErro
     )
 
 
+def _web_room_clock(room: dict) -> dict:
+    # Live timing belongs to the transport, never the repeatable room snapshot.
+    if room["game_type"] == "liars_dice" and room["board_state"].get("mode") == "party":
+        return {"server_time": time.time()}
+    return {}
+
+
 def human_response(
     room: dict, message: str, viewer_player_id: str, status: str = "ok"
 ) -> dict:
@@ -308,6 +315,7 @@ def human_response(
         "status": status,
         "message": message,
         "room": projected_room,
+        **_web_room_clock(room),
     }
     unlocks = filter_unlocks(
         room.get("achievement_unlocks", []), "human", viewer_player_id
@@ -1529,6 +1537,7 @@ def spectator_response(room: dict, request: Request, perspective: str | None) ->
     timeline = list_timeline(room["room_id"], viewer_player_id=viewer_id)
     return {
         "ok": True, "status": "ok", "message": "", "room": projected,
+        **_web_room_clock(room),
         "timeline": [e for e in timeline if e.get("revision_at_send", room["revision"]) <= room["revision"]],
         # Short polling reauthenticates at the main proxy on every refresh.
         "poll_after_ms": 3000,

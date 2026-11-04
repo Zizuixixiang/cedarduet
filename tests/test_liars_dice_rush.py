@@ -1,5 +1,6 @@
 """Real SQLite/API/MCP reaction races, deadlines, privacy and one-time seating."""
 import asyncio
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
@@ -49,7 +50,7 @@ class RushRulesTests(support.MultiplayerGameTestCase):
             revision = room['revision']
             view = f.project_room_for_viewer(f.get_room(room['room_id']), 'ai-2')
             self.assertTrue(view['private_state']['can_rush'])
-            self.assertEqual(view['board_state']['server_time'], 2000000000)
+            self.assertNotIn('server_time', view['board_state'])
             self.assertNotIn('dice_by_player', view['board_state'])
             self.assertNotIn('terminal_dice', view['board_state'])
             for pid in ('human-1',):
@@ -90,7 +91,7 @@ class RushRulesTests(support.MultiplayerGameTestCase):
                         self.assertEqual(snapshot, bootstrap)
                         self.assertEqual(public, before)
                         if options['mode'] == 'party':
-                            self.assertEqual(public['server_time'], now)
+                            self.assertNotIn('server_time', public)
                             self.assertEqual(snapshot['rush_until'], public['rush_until'])
                         projections.append(snapshot)
                 self.assertEqual(*projections)
@@ -234,6 +235,57 @@ class RushTransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(snapshot['private_state']['can_rush'])
                 snapshots.append(snapshot)
         self.assertEqual(*snapshots)
+    async def test_web_clock_advances_outside_repeatable_full_state(self):
+        room = f.create_room('liars_dice', 'human_first', 'human', 'human-1',
+            opponent_id='ai-1', ordered_participants=support.participants(4),
+            game_options={'mode': 'party'})
+        url = f"/api/rooms/{room['room_id']}"
+        headers = {'X-Duel-Human-Player': 'human-1'}
+        spectator = {'X-Duel-Human-Player': 'spectator', 'X-Duel-Bound-Ais':
+            base64.urlsafe_b64encode(json.dumps([{'id': 'ai-2', 'name': 'AI'}]).encode()).decode()}
+        start = time.time()
+        with patch('app.games.liars_dice.time.time', return_value=start):
+            response = await self.client.post(url + '/move', headers=headers,
+                json={'player_id': 'human-1', 'revision': room['revision'],
+                      'move': {'action': 'bid', 'quantity': 20, 'face': 6}})
+            self.assertEqual(response.status_code, 200, response.text)
+            first = response.json()
+            self.assertEqual(first['server_time'], start)
+            deadline = first['room']['board_state']['rush_until']
+            self.assertEqual(deadline, start + 10)
+            await self.mcp(room, 'ai-2')  # Claim bootstrap before compact reads.
+        snapshots = []
+        for elapsed in (0, 4, 9.5):
+            with self.subTest(elapsed=elapsed), patch('app.games.liars_dice.time.time', return_value=start + elapsed):
+                for viewer in (headers, spectator):
+                    response = await self.client.get(url, headers=viewer)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    payload = response.json()
+                    self.assertEqual(payload['server_time'], start + elapsed)
+                    self.assertNotIn('server_time', payload['room'])
+                    self.assertNotIn('server_time', payload['room']['board_state'])
+                    self.assertEqual(payload['room']['board_state']['rush_until'], deadline)
+                    self.assertEqual(payload['room']['revision'], first['room']['revision'])
+                    pid = payload['room']['viewer']['player_id']
+                    self.assertEqual(payload['room']['private_state']['can_rush'], pid != 'human-1')
+                    self.assertEqual(payload['room']['private_state']['dice'],
+                                     f.get_room(room['room_id'])['board_state']['dice_by_player'][pid])
+                full = await self.mcp(room, 'ai-2', full_state=True)
+                self.assertEqual(full.status_code, 200, full.text)
+                snapshots.append(full.json()['snapshot'])
+                self.assertNotIn('server_time', snapshots[-1]['board_state'])
+                self.assertNotIn('dice_by_player', snapshots[-1]['board_state'])
+                self.assertTrue(snapshots[-1]['private_state']['can_rush'])
+                compact = (await self.mcp(room, 'ai-2')).json()
+                self.assertEqual(compact['server_time'], start + elapsed)
+                self.assertEqual(compact['actions'], [{'action': 'rush_open'}])
+        self.assertEqual(snapshots[0], snapshots[1])
+        self.assertEqual(snapshots[0], snapshots[2])
+        with patch('app.games.liars_dice.time.time', return_value=deadline):
+            expired = (await self.client.get(url, headers=headers)).json()
+            self.assertEqual(expired['room']['revision'], first['room']['revision'] + 1)
+            self.assertIsNone(expired['room']['board_state']['rush_until'])
+            self.assertFalse(expired['room']['private_state']['can_rush'])
 
     async def test_wait_wakes_non_next_machine_and_real_mcp_move(self):
         room = f.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',

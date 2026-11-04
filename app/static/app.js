@@ -181,6 +181,7 @@ async function request(path, options = {}) {
     });
     if (data?.room?.board_state?.rush_until) {
       data.room.rushReceivedAt = performance.now();
+      data.room.rushServerTime = data.server_time;
     }
     if (!response.ok) {
       const error = new Error(data?.message || data?.error || "请求失败");

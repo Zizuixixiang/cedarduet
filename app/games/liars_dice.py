@@ -842,7 +842,6 @@ class LiarsDice(GamePlugin):
         if self.is_party(state):
             projected.update(self.saved_options(state))
             projected["rush_until"] = self.rush_deadline(state) or None
-            projected["server_time"] = time.time()
             projected["dice_retained"] = state.get("dice_retained", False)
             projected["scores"] = self.party_scores(state)
             if state.get("teams"):

@@ -37,11 +37,23 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         const rid=room.room_id, seats=room.participants.map(p=>p.player_id);
         await ui.run(`openRoom('${rid}')`);
         await until(ui,`room?.room_id === '${rid}' && !!document.querySelector('.liars-controls')`);
+        const assertPrivateDice = async canRush => {
+          assert.equal(await ui.run('room.private_state.can_rush'), canRush);
+          assert.doesNotMatch(await ui.run("$('privateStateContent').textContent"), /can_rush|can_reroll|team_id|cup_owner_player_id/);
+          assert.match(await ui.run("$('privateStateContent').textContent"), /我的骰子/);
+          assert.deepEqual(JSON.parse(await ui.run(`JSON.stringify([...document.querySelectorAll('#privateStateContent .liars-die')].map(d => Number(d.dataset.face)))`)),
+            JSON.parse(await ui.run('JSON.stringify(room.private_state.dice)')));
+        };
+        await assertPrivateDice(false);
         assert.equal(await ui.run(`document.querySelector('select[aria-label="叫点规则"]').value`),'false');
         // Existing normal-bid default is preserved, and the first bid travels through the real UI.
         await ui.click('.liars-controls > button:first-of-type');
         await until(ui, `room?.board_state?.rush_until && !!document.querySelector('.liars-round-heading').textContent.includes('剩余')`);
         const first=JSON.parse(await ui.run('JSON.stringify(room)'));
+        assert.equal(Object.hasOwn(first.board_state, 'server_time'), false);
+        assert.ok(Number.isFinite(first.rushServerTime));
+        assert.ok(first.board_state.rush_until - first.rushServerTime <= 10);
+        await assertPrivateDice(false);
         assert.equal(first.board_state.current_bid.exact,false);
         assert.equal(await ui.run(`document.querySelector('.liars-controls > button:nth-of-type(2)').textContent`),'抢开');
         assert.equal(await ui.run(`document.querySelector('.liars-controls > button:nth-of-type(2)').disabled`),true,'cannot rush own bid');
@@ -67,6 +79,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         await until(ui,`room?.board_state?.current_bid?.bidder_player_id === '${next}'`);
         assert.equal(await ui.run(`canHumanMove()`),false,'human is not the next seat');
         assert.equal(await ui.run(`document.querySelector('.liars-controls > button:nth-of-type(2)').disabled`),false);
+        await assertPrivateDice(true);
         await ui.shot('rush-active','.liars-current-round');
         if (!domOnly) {
           const m=JSON.parse(await ui.run(`JSON.stringify([...document.querySelectorAll('.liars-controls > button')].map(e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height};}))`));

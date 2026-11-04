@@ -57,6 +57,50 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is required for Liars Dice renderer tests")
 class LiarsDiceFrontendRuntimeTests(unittest.TestCase):
+    def test_rush_clock_uses_transport_time_and_never_restarts_on_render(self):
+        harness = r'''
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+let now = 1000, scheduled, refreshes = 0;
+const window = {DuelGameUI: {register() {}}};
+vm.runInNewContext(fs.readFileSync('app/static/games/liars_dice.js', 'utf8'), {
+  window, performance: {now: () => now},
+  // A wildly skewed wall clock must have no effect on the countdown.
+  Date: {now: () => -999999999999},
+  setTimeout: fn => {scheduled = fn; return 1;}, clearTimeout: () => {scheduled = null;},
+});
+const state = {rush_until: 2000000010};
+let room = {rushReceivedAt: now, rushServerTime: 2000000000};
+let status, button;
+const attach = () => {
+  status = {isConnected: true}; button = {disabled: false};
+  window.DuelDiceRush.attach({room, state, status, button, refresh: () => refreshes++});
+  scheduled();
+};
+attach();
+assert.match(status.textContent, /剩余 10 秒/);
+assert.equal(button.disabled, false);
+now = 3500; scheduled();
+assert.match(status.textContent, /剩余 8 秒/);
+attach(); // Same response, newly rendered nodes: still the original deadline.
+assert.match(status.textContent, /剩余 8 秒/);
+now = 7000;
+room = {rushReceivedAt: now, rushServerTime: 2000000006};
+attach(); // Reconnected response: only four seconds remain.
+assert.match(status.textContent, /剩余 4 秒/);
+now = 11000; scheduled();
+assert.match(status.textContent, /抢开已截止/);
+assert.equal(button.disabled, true);
+assert.equal(refreshes, 1);
+room = {rushReceivedAt: now, rushServerTime: 2000000012};
+attach(); // Delayed historical revision must not reopen an expired window.
+assert.match(status.textContent, /抢开已截止/);
+assert.equal(button.disabled, true);
+assert.equal(refreshes, 2);
+'''
+        completed = subprocess.run([NODE, '-e', harness], cwd=ROOT,
+                                   text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_party_team_and_solo_scores_without_duplicate_history(self):
         harness = r'''
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");

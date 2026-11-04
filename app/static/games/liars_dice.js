@@ -299,10 +299,13 @@
   let rushTimer = null;
   global.DuelDiceRush = {attach({room, state, status, button, refresh}) {
     clearTimeout(rushTimer);
-    // Use the server's remaining time and a monotonic local clock. Client wall
-    // clock skew never extends permission; every click is checked in SQLite.
+    // The response envelope supplies current server time; the snapshot keeps
+    // only the original deadline. Reconnects and rerenders cannot restart 10s.
+    // Client wall clock skew never extends permission; SQLite checks every click.
     const received = room.rushReceivedAt ?? performance.now();
-    const end = received + Math.max(0, state.rush_until - state.server_time) * 1000;
+    const remaining = Number.isFinite(room.rushServerTime)
+      ? Math.max(0, state.rush_until - room.rushServerTime) : 0;
+    const end = received + remaining * 1000;
     const tick = () => {
       if (!status.isConnected) return;
       const seconds = Math.max(0, Math.ceil((end - performance.now()) / 1000));
