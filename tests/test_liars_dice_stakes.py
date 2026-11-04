@@ -15,10 +15,17 @@ from tests.test_liars_dice_teams import OPTIONS, expire, seat
 
 
 class PartyStakeTests(support.MultiplayerGameTestCase):
+    def setUp(self):
+        super().setUp()
+        # Ledger expectations use named seats; random-seat behavior has its own suite.
+        shuffle = patch('app.liars_dice_setup.secrets.SystemRandom.shuffle', lambda rng, values: None)
+        shuffle.start()
+        self.addCleanup(shuffle.stop)
+
     def create(self, count=3, stake=5, npc_count=0, **options):
         room = framework.create_room('liars_dice', 'human_first', 'human', 'human-1',
             opponent_id='ai-1', ordered_participants=support.participants(count, npc_count=npc_count),
-            stake=stake, game_options={'mode': 'party', **options})
+            stake=stake, game_options={'mode': 'party', 'rush_open': False, **options})
         if stake:
             self.assertEqual(room['status'], 'pending' if count - npc_count > 1 else 'playing')
             room = self.accept_bound_players(room)
@@ -92,6 +99,23 @@ class PartyStakeTests(support.MultiplayerGameTestCase):
         self.assertEqual(len(room['result']['rankings']), 2)
         self.assert_payout(room, {'human-1': 5, 'ai-1': 5, 'ai-2': -5, 'ai-3': -5,
                                   'npc:test-1': 0, 'npc:test-2': 0})
+
+    def test_teammate_rush_charges_team_once_and_chips_only_at_table_end(self):
+        room = self.create(6, npc_count=2, team_mode='teams', rush_open=True)
+        state = room['board_state']
+        state['teams'] = {'red':['human-1','ai-1','npc:test-1'],
+                          'blue':['ai-2','ai-3','npc:test-2']}
+        state['dice_by_player'] = {pid:[2]*5 for pid in state['participant_order']}
+        room = self.replace_state(room, state, 'human-1')
+        room = self.act(room, {'action':'bid', 'quantity':42, 'face':6})
+        room = self.act(room, {'action':'rush_open'}, 'ai-1')
+        self.assertEqual(room['board_state']['team_scores'], {'red':-1,'blue':0})
+        with closing(database.connect()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_settlement_batches').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_ledger').fetchone()[0], 0)
+        room = self.act(room, {'action':'end_session'}, 'human-1')
+        self.assert_payout(room, {'human-1':-5,'ai-1':-5,'ai-2':5,'ai-3':5,
+                                  'npc:test-1':0,'npc:test-2':0})
 
     def test_manual_confirm_then_wait_reenter_start_with_npcs(self):
         room = framework.create_room('liars_dice', 'human_first', 'human', 'human-1',
@@ -300,7 +324,7 @@ class PartyStakeTransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_paid_end_mcp_increment_private_full_result_and_duplicate(self):
         room = framework.create_room('liars_dice', 'human_first', 'human', 'human-1',
-            opponent_id='ai-1', stake=5, game_options={'mode': 'party', 'allow_surrender': True, 'surrender_no_reroll': True})
+            opponent_id='ai-1', stake=5, game_options={'mode': 'party', 'rush_open': False, 'allow_surrender': True, 'surrender_no_reroll': True})
         rid = room['room_id']
         room = framework.respond_to_invitation(rid, 'ai', 'ai-1', 'accept')
         await self.client.post('/mcp/play', json={'action': 'state', 'player_id': 'ai-1', 'room_id': rid})

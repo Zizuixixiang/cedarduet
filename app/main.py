@@ -1,4 +1,5 @@
 from . import liars_dice_setup
+from .liars_dice_rush import RushScheduler
 import asyncio
 import base64
 import json
@@ -226,23 +227,28 @@ npc_turn_scheduler = NpcTurnScheduler(room_changed=revision_events.notify)
 
 
 async def _schedule_current_system_npc(room: dict) -> bool:
+    await rush_scheduler.schedule(room)
     if not is_system_npc_turn(room):
         return False
     return await npc_turn_scheduler.schedule(room["room_id"])
 
 
 takeover_scheduler = TakeoverScheduler(revision_events.notify, _schedule_current_system_npc)
+rush_scheduler = RushScheduler(revision_events.notify, _schedule_current_system_npc)
+npc_turn_scheduler.rush_scheduler = rush_scheduler
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
     await npc_turn_scheduler.start()
+    await rush_scheduler.start()
     await takeover_scheduler.start()
     try:
         yield
     finally:
         await takeover_scheduler.shutdown()
+        await rush_scheduler.shutdown()
         await npc_turn_scheduler.shutdown()
 
 
@@ -1046,14 +1052,19 @@ async def wait_for_revision(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None
+        sleep_seconds = remaining
+        if room.get('game_type') == 'liars_dice':
+            rush_until = get_game('liars_dice').rush_deadline(room['board_state'])
+            if rush_until:
+                sleep_seconds = min(remaining, max(.01, rush_until - time.time()))
         tasks = [asyncio.create_task(event.wait())]
         if wait_lease:
             tasks.append(asyncio.create_task(wait_lease.cancelled.wait()))
         try:
-            done, _ = await asyncio.wait(tasks, timeout=remaining, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(tasks, timeout=sleep_seconds, return_when=asyncio.FIRST_COMPLETED)
             if wait_lease:
                 wait_lease.check()
-            if not done:
+            if not done and sleep_seconds == remaining:
                 return None
         finally:
             for task in tasks:
@@ -1567,6 +1578,8 @@ async def human_state(
         and not (
             room.get("status") == "playing"
             and participant_can_act(room, player_id)
+            and not (after_revision is not None and room['game_type'] == 'liars_dice'
+                     and get_game('liars_dice').rush_active(room['board_state']))
         )
         and not has_new_room_events(room_id, player_id)
     ):
@@ -2115,7 +2128,8 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             from .liars_dice_mcp import has_updates
             if has_updates(room, body.player_id):
                 return mcp_minimal.response(room_id, body.player_id, consume=True)
-        if body.wait and not _participant_response_due(room, body.player_id):
+        seen_rush = dice_incremental and get_game('liars_dice').rush_active(room['board_state'])
+        if body.wait and (seen_rush or not _participant_response_due(room, body.player_id)):
             if not await revision_events.try_acquire_wait_slot():
                 payload = _move_delta_response(room, body.player_id)
                 payload["wait_downgraded"] = True
@@ -2124,6 +2138,7 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             try:
                 changed = await wait_for_revision(room_id, body.player_id, baseline, wait_lease=wait_lease,
                                                   wake_on_revision=dice_incremental,
+                                                  wake_on_participant_due=not seen_rush,
                                                   wake_on_visible_events=dice_incremental)
             finally:
                 await revision_events.release_wait_slot()

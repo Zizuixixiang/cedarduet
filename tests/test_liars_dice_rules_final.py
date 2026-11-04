@@ -16,7 +16,7 @@ class PartyFinalRulesTests(unittest.TestCase):
     def make(self, count=2, **opts):
         self.game = LiarsDice(random.Random(82))
         self.people = support.participants(count)
-        self.state = self.game.configure(self.game.initialize(self.people), {'mode':'party', **opts})
+        self.state = self.game.configure(self.game.initialize(self.people), {'mode':'party','rush_open':False, **opts})
         return self.state
 
     def challenge(self, quantity=10, face=6, exact=False):
@@ -46,7 +46,7 @@ class PartyFinalRulesTests(unittest.TestCase):
         for options in ({'mode':'party','surrender_no_reroll':True}, {'mode':'party','cup_penalty':1},
                         {'mode':'classic','dark_rule':True}, {'mode':'party','opening_five':True}):
             with self.assertRaises(ValueError): self.game.normalize_options(options)
-        self.assertTrue(all(not self.make().get(k) for k in rules.BOOL_OPTIONS))
+        self.assertTrue(all(not self.make().get(k) for k in rules.BOOL_OPTIONS if k != 'rush_open'))
 
     def test_cup_extreme_companion_self_raw_eight_capped_four(self):
         state=self.make(cup_penalty=True,extreme_penalty=True,companion_penalty=True)
@@ -120,10 +120,12 @@ class PartyFinalRulesTests(unittest.TestCase):
         state['dice_by_player']['human-1']=[1,2,3,4,5]
         with self.assertRaises(ValueError): self.game.validate_action(state,{'action':'reroll'},self.people[0])
 
-    def test_shared_team_charged_once_and_shared_reroll_limit(self):
+    def test_legacy_shared_team_charged_once_and_shared_reroll_limit(self):
         with patch('app.games.liars_dice.random.SystemRandom.shuffle'):
             state=self.make(6,team_mode='teams',cup_penalty=True,extreme_penalty=True,companion_penalty=True)
-        self.people[1]=self.people[3]  # blue challenger, not red teammate
+        state.pop('team_rules_version')
+        state['team_next_speakers'] = {team: members[0] for team, members in state['teams'].items()}
+        self.people[1]=self.people[3]  # legacy blue challenger
         state['dice_by_player']={members[0]:[2]*5 for members in state['teams'].values()}
         with patch.object(self.game,'_roll',return_value=[2]): result=self.challenge()
         self.assertTrue(result['companion']['same_unit'])
@@ -146,7 +148,7 @@ class PartyFinalRulesTests(unittest.TestCase):
 class PartyFinalTransportTests(support.LiarsDiceMcpTests):
     def create(self, **opts):
         return framework.create_room('liars_dice','ai_first','ai','ai-1',opponent_id='human-1',
-                                     game_options={'mode':'party',**opts},require_confirmations=False)
+                                     game_options={'mode':'party','rush_open':False,**opts},require_confirmations=False)
 
     async def call(self,room,**body):
         response=await self.client.post('/mcp/play',json={'player_id':'ai-1','room_id':room['room_id'],**body})
@@ -206,24 +208,26 @@ class PartyFinalTransportTests(support.LiarsDiceMcpTests):
     async def test_team_mcp_private_cup_and_unread_events_survive_full_state(self):
         with patch('app.games.liars_dice.random.SystemRandom.shuffle'):
             room=framework.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',
-                ordered_participants=support.participants(4),game_options={'mode':'party','team_mode':'teams'})
+                ordered_participants=support.participants(4),game_options={'mode':'party','rush_open':False,'team_mode':'teams'})
         state=room['board_state']
-        state['dice_by_player']={'human-1':[2,3,4,5,6],'ai-2':[6,6,6,6,6]}
+        state['dice_by_player']={'human-1':[3]*5,'ai-1':[2,3,4,5,6],'ai-2':[6]*5,'ai-3':[4]*5}
         with database.write_transaction() as conn:
             conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?',(json.dumps(state),room['room_id']))
         boot=await self.call(room,action='state')
         self.assertEqual(boot['room']['private_state']['dice'],[2,3,4,5,6])
         self.assertNotIn('[6, 6, 6, 6, 6]',json.dumps(boot))
-        room=framework.play_move(room['room_id'],'human','human-1',{'action':'bid','quantity':3,'face':2},expected_revision=room['revision'])
-        room=framework.play_move(room['room_id'],'ai','ai-2',{'action':'bid','quantity':4,'face':2},expected_revision=room['revision'])
+        self.assertNotIn('[3, 3, 3, 3, 3]',json.dumps(boot))
+        room=framework.play_move(room['room_id'],'human','human-1',{'action':'bid','quantity':6,'face':2},expected_revision=room['revision'])
+        room=framework.play_move(room['room_id'],'ai','ai-1',{'action':'bid','quantity':7,'face':2},expected_revision=room['revision'])
         delta=await self.call(room,action='state')
-        self.assertEqual([e[1]['quantity'] for e in delta['events']],[3,4])
+        self.assertEqual([e[1]['quantity'] for e in delta['events']],[6,7])
         self.assertEqual(delta.get('private'),{'can_reroll':False})
         framework.post_message(room['room_id'],'human','human-1','仅交付一次的聊天')
         full=await self.call(room,action='state',full_state=True)
         self.assertEqual([e['message'] for e in full['events']],['仅交付一次的聊天'])
         self.assertEqual(full['snapshot']['private_state']['dice'],[2,3,4,5,6])
         self.assertNotIn('[6, 6, 6, 6, 6]',json.dumps(full))
+        self.assertNotIn('[3, 3, 3, 3, 3]',json.dumps(full))
         again=await self.call(room,action='state')
         self.assertNotIn('events',again)
 

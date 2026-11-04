@@ -558,6 +558,8 @@ async def run_current_npc_turn(
 ) -> NpcTurnResult:
     """Generate and apply at most one action for the current room revision."""
     room = _load_room(room_id)
+    if room.get('game_type') == 'liars_dice' and get_game('liars_dice').rush_active(room['board_state']):
+        return NpcTurnResult('reaction_window', 'waiting', None, None, room)
     if is_desktop_demo(room):
         raise DuelError("演示房为只读中盘，不执行 NPC 动作。", 409)
     npc_player_id = room.get("current_player_id")

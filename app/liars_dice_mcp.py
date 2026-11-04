@@ -12,8 +12,9 @@ from .games.mcp_incremental import changed
 
 
 GUIDE = ('保留上下文；r为revision。events依次应用：[玩家,move]或{round_result:权威结算}；'
-         'delta只替换变化字段，null清空；seats=[队,1起座号,成员或null]；private仅己方变化。'
+         'delta只替换变化字段，null清空；seats=[队,1起座号,成员或null]；private仅本人骰变化（旧共盅房为己队）。'
          '无变化只返回r/wait；full_state:true显式恢复完整安全快照。'
+         'rush_until/server_time为服务端秒，actions为本次可抢开动作；不抢可state(wait:true)等截止或变更。'
          '下一轮清空叫法；选座仅本人choose_team_seat，20秒后房主start，未选者随机补位。'
          '房规及可选动作按需guide，不依赖常驻legal_actions。')
 
@@ -34,6 +35,9 @@ def safe_state(room, pid):
     public = game.public_state(state, room['participants'])
     meta.update(phase=state['flow']['phase'], round=state['flow']['round_number'],
                 teams=public.get('teams'), max_bid_quantity=public['max_bid_quantity'], selection=None)
+    meta['rush_until'] = game.rush_deadline(state) or None
+    if public.get('teams'):
+        meta['team_rules_version'] = public['team_rules_version']
     viewer = f._participant_by_id(room, pid)
     private = game.private_state(state, viewer, room['participants'])
     return meta, private, public
@@ -71,7 +75,7 @@ def response(room_id, pid, *, full=False, source_room=None, **unused):
             if not (boot or full):
                 if e['event_type'] == 'result' and 'round_result' in move:
                     events.append({'round_result':move['round_result']})
-                elif e['event_type'] == 'move' and move.get('action') not in ('challenge','surrender'):
+                elif e['event_type'] == 'move' and move.get('action') not in ('challenge','rush_open','surrender'):
                     events.append([actor,move])
             if e.get('text') and e['event_type'] != 'result' and actor != pid:
                 events.append({'actor':actor,'message':e['text']})
@@ -113,6 +117,12 @@ def response(room_id, pid, *, full=False, source_room=None, **unused):
                                             'winner_player_ids', 'winner_team_ids', 'result_text')}
         if events:
             out['events'] = events
+        if now.get('rush_until'):
+            import time
+            out['server_time'] = time.time()
+            out['actions'] = ([{'action':'rush_open'}] if f.participant_can_act(room, pid) else [])
+        elif ctx.get('public', {}).get('rush_until'):
+            out['actions'] = []
         if room['status'] == 'playing' and not f.participant_can_act(room,pid):
             out['wait'] = room.get('current_player_id')
         newest = conn.execute('SELECT COALESCE(MAX(id),0) FROM room_messages WHERE room_id=?',(room_id,)).fetchone()[0]

@@ -6,7 +6,7 @@ score fields are compatibility projections, never used for repeated arithmetic.
 from copy import deepcopy
 
 BOOL_OPTIONS = ('literal_dice', 'cup_penalty', 'extreme_penalty', 'allow_surrender',
-                'surrender_no_reroll', 'dark_rule', 'companion_penalty')
+                'surrender_no_reroll', 'dark_rule', 'companion_penalty', 'rush_open')
 OPTION_KEYS = ('mode', *BOOL_OPTIONS, 'team_mode', 'random_teams', 'opening_five')
 
 

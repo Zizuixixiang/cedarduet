@@ -20,7 +20,7 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
         for (const scenario of ['zero', 'bid-only', 'solo', 'teams', 'teams-npc', 'classic']) {
           const team = scenario.startsWith('teams');
           const count = team ? 6 : scenario === 'solo' ? 3 : 2;
-          const options = scenario === 'classic' ? {mode:'classic'} : {mode:'party', allow_surrender:true,
+          const options = scenario === 'classic' ? {mode:'classic'} : {mode:'party', rush_open:false, allow_surrender:true,
             surrender_no_reroll:true, ...(team ? {team_mode:'teams'} : {})};
           let room = (await call('/api/invites', {game_type:'liars_dice', target_player_count:count, game_options:options})).room;
           await call('/api/invites/join', {invite_code:room.invite_code}, 'human-2');
@@ -33,7 +33,7 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
             // Invite seat order is random; each move uses the real current identity.
             const actor = room.participants.find(p => p.player_id === room.current_player_id);
             if (actor.participant_kind !== 'system_npc') {
-              room = (await call(`/api/rooms/${rid}/move`, {revision:room.revision, move:{action:'bid', quantity:count === 3 ? 5 : 3, face:2}}, actor.player_id)).room;
+              room = (await call(`/api/rooms/${rid}/move`, {revision:room.revision, move:{action:'bid', quantity:Math.ceil(count * 1.5), face:2}}, actor.player_id)).room;
               const next = room.participants.find(p => p.player_id === room.current_player_id);
               if (['solo', 'teams'].includes(scenario) && next.participant_kind !== 'system_npc') {
                 room = (await call(`/api/rooms/${rid}/move`, {revision:room.revision, move:{action:'surrender'}}, next.player_id)).room;

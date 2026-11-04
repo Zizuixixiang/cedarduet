@@ -168,7 +168,7 @@ fs.mkdirSync(out,{recursive:true});
       assert.equal(await page.locator('.liars-revealed-player').count(),key==='pairs'?2:key==='party'?5:2);
       assert.equal(await page.locator('.liars-round-acknowledgement button').isDisabled(),key!=='classic' && served.current_player_id!=='human-1');
      }
-     if(key==='pairs')assert.ok((await page.locator('#privateStateContent').innerText()).includes('我队共用骰子'));
+     if(key==='pairs')assert.ok((await page.locator('#privateStateContent').innerText()).includes('我的骰子'));
      if(phase==='finished')assert.equal(await page.evaluate(r=>resultTextFor(r,[]),served),served.result.result_text);
      if(key!=='classic' && phase!=='opening') {
       assert.ok((await page.locator('.liars-party-scores').innerText()).includes('-1分'));

@@ -63,7 +63,7 @@
         documentRef,
         "span",
         "liars-terminal-owner",
-        `${context.state.teams ? `${teamName(context.state.teams, playerId)}共用骰盅` : participantName(context, playerId)}：`
+        `${context.state.teams && !(context.state.team_rules_version >= 2) ? `${teamName(context.state.teams, playerId)}共用骰盅` : participantName(context, playerId)}：`
       );
       const tray = element(documentRef, "span", "liars-dice-row liars-terminal-dice-row");
       if (Array.isArray(dice) && dice.length) {
@@ -130,6 +130,7 @@
       const persist = () => { select.dataset.diceRules = JSON.stringify(rules); };
       const inputs = {};
       [
+        ["rush_open", "抢开 · 默认开启 · 每次叫点后10秒"],
         ["cup_penalty", "围骰 / 全围的叫点者败，扣分×2"],
         ["extreme_penalty", "不足一半 / 超过两倍，相应败方×2"],
         ["allow_surrender", "允许本轮投降 · 认罚0.5分"],
@@ -139,7 +140,7 @@
       ].forEach(([key, text]) => {
         const row = element(doc, "label", "liars-random-toggle");
         const input = element(doc, "input"); input.type = "checkbox";
-        input.checked = Boolean(rules[key]); input.setAttribute("aria-label", text);
+        input.checked = key === "rush_open" ? rules[key] !== false : Boolean(rules[key]); input.setAttribute("aria-label", text);
         inputs[key] = input;
         input.addEventListener("change", () => {
           rules[key] = input.checked;
@@ -181,8 +182,8 @@
       teamsLabel.appendChild(teams); target.appendChild(teamsLabel);
       if (teams.value !== "none") {
         target.appendChild(element(doc, "small", "invite-note", teams.value === "random"
-          ? "开局随机分成红蓝两队，每队共享5骰和队分。"
-          : "开房后本人选座，约20秒后可开始；未选者随机补位。"));
+          ? "随机红蓝队，仅共享积分；每人5骰，按座序行动，同队可质疑。"
+          : "本人选队，约20秒后可开始；仅共享积分，每人5骰，同队可质疑。"));
       }
       target.appendChild(advanced);
       target.appendChild(element(doc, "small", "invite-note", "败方本局-1分，赢家不加分；叫斋后本轮锁斋。"));
@@ -294,6 +295,30 @@
   }
 
   global.DuelDiceResults = {render: renderFinalRanking};
+
+  let rushTimer = null;
+  global.DuelDiceRush = {attach({room, state, status, button, refresh}) {
+    clearTimeout(rushTimer);
+    // Use the server's remaining time and a monotonic local clock. Client wall
+    // clock skew never extends permission; every click is checked in SQLite.
+    const received = room.rushReceivedAt ?? performance.now();
+    const end = received + Math.max(0, state.rush_until - state.server_time) * 1000;
+    const tick = () => {
+      if (!status.isConnected) return;
+      const seconds = Math.max(0, Math.ceil((end - performance.now()) / 1000));
+      status.textContent = seconds > 0
+        ? `抢开机会 · 剩余 ${seconds} 秒 · ${state.teams && !(state.team_rules_version >= 2) ? "不可抢自己或旧房共盅队友" : "同队可抢，不可抢自己"}`
+        : "抢开已截止 · 正在同步下一手";
+      if (seconds > 0) rushTimer = setTimeout(tick, 200);
+      else {
+        button.disabled = true;
+        // Expiry is a server transition. Network failure leaves polling/retry
+        // available; never enable a stale revision or restart a local 10s clock.
+        refresh();
+      }
+    };
+    rushTimer = setTimeout(tick, 0);
+  }};
 
   function appendPartyRecords(context) {
     if (context.state?.mode !== "party") return;

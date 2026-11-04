@@ -16,7 +16,7 @@ class PartyAcknowledgementTests(MultiplayerGameTestCase):
             room = invites.create_invite('liars_dice', role, host,
                 target_player_count=3,
                 timeout_takeover_seconds=90,
-                game_options={'mode': 'party', 'allow_surrender': True,
+                game_options={'mode': 'party', 'rush_open': False, 'allow_surrender': True,
                               'surrender_no_reroll': True})
         invites.join_invite(room['invite_code'],
                             'human' if second_human else 'ai',

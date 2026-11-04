@@ -30,7 +30,7 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.14"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.16"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
@@ -1137,7 +1137,7 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
             SCRIPT.index("async function confirmMove(")
         ]
         self.assertIn("revision: room.revision", submit)
-        self.assertIn('["bid", "challenge"].includes(movePayload.action)', submit)
+        self.assertIn('["bid", "challenge", "rush_open"].includes(movePayload.action)', submit)
         self.assertIn('move: {action: "acknowledge_round"}', submit)
         render_game = function_source("renderGame")
         self.assertIn("syncMoveConfirmationVisibility()", render_game)
@@ -3261,12 +3261,17 @@ for (const [state, diceLabel, scoreLabel] of [
   [null, "剩余骰子", "得分"],
   [{{}}, "剩余骰子", "得分"],
   [{{mode: "classic"}}, "剩余骰子", "得分"],
-  [{{mode: "party"}}, "骰子", "本局积分"],
-  [{{mode: "party", teams: {{red: ["p1"], blue: ["p2"]}}}}, "共用骰子", "共用队分"],
+  [{{mode: "party"}}, null, "积分"],
+  [{{mode: "party", teams: {{red: ["p1"], blue: ["p2"]}}}}, null, "队分"],
+  [{{mode: "party", team_rules_version: 2, teams: {{red: ["p1"], blue: ["p2"]}}}}, null, "队分"],
 ]) {{
   targetRoom.board_state = state;
   renderParticipantRoster(targetRoom);
-  assert.ok(roster.children[0].children[2].textContent.includes(`${{diceLabel}} 4`));
+  if (diceLabel) assert.ok(roster.children[0].children[2].textContent.includes(`${{diceLabel}} 4`));
+  else {{
+    assert.doesNotMatch(roster.children[0].children[2].textContent, /骰子|席位|正在行动/);
+    assert.doesNotMatch(roster.children[0].children[1].children[1].textContent, /座位/);
+  }}
   assert.ok(viewerSlot.children[0].children[2].textContent.includes(`${{scoreLabel}} 2`));
 }}
 
@@ -4031,6 +4036,75 @@ room.room_id = "ROOM-2";
 const changedRoomBoard = new Element("div");
 renderLiarsDice(changedRoomBoard, raisedBidState);
 assert.equal(liarsBidDraft, null);
+
+// Party defaults prefer normal bids, even when exact bids start lower.
+const partyState = {{
+  mode: "party", flow: {{round_number: 1}}, max_bid_quantity: 20,
+  current_bid: null,
+  bid_ranges: [
+    {{face: 1, exact: true, min_quantity: 3}},
+    {{face: 2, exact: false, min_quantity: 7}},
+    {{face: 3, exact: false, min_quantity: 5}},
+    {{face: 3, exact: true, min_quantity: 3}},
+  ],
+}};
+const partyControls = (state) => {{
+  const board = new Element("div");
+  renderLiarsDice(board, state);
+  const controls = controlsFor(board);
+  return {{quantity: controls.children[0].children[0],
+    face: controls.children[1].children[0],
+    exact: controls.children[2].children[0], submit: controls.children[3]}};
+}};
+for (const ranges of [partyState.bid_ranges, [...partyState.bid_ranges].reverse(),
+    partyState.bid_ranges.map((bid) => ({{...bid, min_quantity: 5}}))]) {{
+  const state = {{...partyState, bid_ranges: ranges}};
+  const selected = defaultLiarsBidSelection(state);
+  assert.equal(selected.exact, false);
+  assert.equal(selected.quantity, 5);
+  assert.ok(liarsBidSelectionIsLegal(state, selected));
+}}
+let party = partyControls(partyState);
+assert.equal(party.exact.value, "false");
+assert.equal(party.exact.disabled, false);
+assert.equal(party.submit.disabled, false);
+party.exact.value = "true";
+party.exact.dispatch("change");
+room.revision += 1;
+assert.equal(partyControls(partyState).exact.value, "true"); // Legal explicit draft survives polling.
+room.current_player_id = "ai-1";
+assert.equal(partyControls(partyState).exact.value, "false"); // Actor change clears draft.
+room.current_player_id = "human-1";
+const nextTurn = {{...partyState, current_bid: {{quantity: 4, face: 6, exact: false}}}};
+assert.equal(partyControls(nextTurn).exact.value, "false");
+assert.equal(partyControls({{...partyState, flow: {{round_number: 2}}}}).exact.value, "false");
+
+// Face 1 forces exact; a legal face-1 draft remains exact on refresh.
+party = partyControls(partyState);
+party.face.value = "1";
+party.face.dispatch("change");
+assert.equal(party.exact.value, "true");
+assert.equal(party.exact.disabled, true);
+assert.equal(party.submit.disabled, false);
+assert.equal(partyControls(partyState).exact.value, "true");
+
+// An exact-only range must retain its legal minimum; locked rounds reject normal drafts.
+const locked = {{...partyState, current_bid: {{quantity: 7, face: 2, exact: true}},
+  bid_ranges: [{{face: 1, exact: true, min_quantity: 8}},
+    {{face: 3, exact: true, min_quantity: 7}}]}};
+rememberLiarsBidSelection(9, 3, false);
+assert.equal(liarsBidSelectionIsLegal(locked, liarsBidDraft), false);
+party = partyControls(locked);
+assert.equal(party.quantity.value, "7");
+assert.equal(party.face.value, "3");
+assert.equal(party.exact.value, "true");
+assert.equal(party.exact.disabled, true);
+assert.equal(party.submit.disabled, false);
+assert.equal(liarsBidDraft, null);
+const exactOnly = {{...partyState, bid_ranges: [locked.bid_ranges[0]]}};
+assert.deepEqual(defaultLiarsBidSelection(exactOnly), {{quantity: 8, face: 1, exact: true}});
+rememberLiarsBidSelection(3, 3, true);
+assert.equal(partyControls(locked).quantity.value, "7"); // Invalid exact draft is discarded.
 """
         self.run_node(harness)
 

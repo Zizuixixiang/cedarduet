@@ -187,6 +187,15 @@ class NpcTurnScheduler:
                 if exc.status_code == 404:
                     return "missing"
                 raise
+            if room.get('game_type') == 'liars_dice':
+                from .games import get_game
+                game = get_game('liars_dice')
+                if game.rush_active(room.get('board_state', {})):
+                    scheduler = getattr(self, 'rush_scheduler', None)
+                    if scheduler is not None:
+                        await scheduler.schedule(room)
+                    # The reaction worker resumes the ordinary NPC cursor at expiry.
+                    return 'idle'
             if not is_system_npc_turn(room):
                 return "idle"
             if npc_budget_exhausted(room, max_actions=self._max_actions_per_turn):

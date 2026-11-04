@@ -1052,6 +1052,73 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   box-shadow: 0 0 0 3px var(--seat-ink), 4px 4px 0 rgba(92, 84, 99, .24);
 }
 .room-participant.inactive { opacity: .58; }
+/* Party cards: avatar/name, identity, score. Exceptional states get their own
+   space, and the corner marker never consumes or covers the text columns. */
+.game-view .battle-stage .room-participant.party-participant {
+  position: relative;
+  height: auto;
+  min-height: 76px;
+  padding: 5px 6px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-rows: 26px auto auto;
+  align-content: start;
+  align-items: center;
+  gap: 2px 6px;
+}
+.party-participant .room-participant-avatar { grid-column: 1; grid-row: 1; }
+.game-view .battle-stage .party-participant .room-participant-copy { display: contents; }
+.game-view .battle-stage .party-participant .room-participant-copy strong {
+  grid-column: 2;
+  grid-row: 1;
+  padding-right: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-view .battle-stage .party-participant .room-participant-copy small {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.game-view .battle-stage .party-participant .party-participant-score {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+.party-participant-status {
+  grid-column: 1 / -1;
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.room-participant-team-marker {
+  position: absolute;
+  z-index: 4;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 2px;
+  border: 1px solid #fff;
+  color: #fff;
+  font: 700 11px/14px system-ui, sans-serif;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.room-participant-team-marker.team-red { background: #a7344c; }
+.room-participant-team-marker.team-blue { background: #285a87; }
 .board-edge-participant {
   min-width: 0;
   min-height: 34px;
@@ -3266,6 +3333,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   min-height: 0;
   display: grid;
   align-content: start;
+  /* Short conversations sit by the composer; overflowing history stays reachable. */
+  align-content: safe end;
   gap: 3px;
   overflow-y: auto;
   overflow-anchor: none;

@@ -16,7 +16,7 @@ class PartyRulesTests(unittest.TestCase):
     def setUp(self):
         self.game = LiarsDice(random.Random(51))
         self.people = support.participants(5)
-        self.state = self.game.configure(self.game.initialize(self.people), {"mode": "party"})
+        self.state = self.game.configure(self.game.initialize(self.people), {"mode": "party", "rush_open": False})
 
     def test_opening_thresholds_and_options(self):
         self.assertEqual(len(game_catalog()), 34)
@@ -193,12 +193,16 @@ class PartyRoomTests(support.MultiplayerGameTestCase):
         for action in mapping.values():
             self.game.validate_action(room['board_state'],action,actor)
 
-    def test_pairs_turn_order_cup_count_team_scores_and_privacy(self):
+    def test_legacy_pairs_turn_order_cup_count_team_scores_and_privacy(self):
         for count in (4, 6):
             with patch('app.games.liars_dice.random.SystemRandom.shuffle', lambda rng, values: None):
                 room = framework.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',
-                    ordered_participants=support.participants(count),game_options={'mode':'party','team_mode':'pairs'})
+                    ordered_participants=support.participants(count),game_options={'mode':'party','team_mode':'pairs','rush_open':False})
             state = room['board_state']
+            state.pop('team_rules_version')
+            state['team_next_speakers'] = {team: members[0] for team, members in state['teams'].items()}
+            state['dice_by_player'] = {members[0]: state['dice_by_player'][members[0]] for members in state['teams'].values()}
+            room = self.replace_state(room,state,'human-1')
             self.assertEqual(len(state['dice_by_player']),2)
             self.assertEqual(self.game.total_dice(state),14)
             # Team members share only their own five dice, including the NPC projection.
@@ -345,19 +349,19 @@ class PartyMcpTests(support.LiarsDiceMcpTests):
                 'game_options':{'mode':'party','team_mode':'pairs','literal_dice':True}})
         self.assertEqual(response.status_code,200,response.text)
         room = response.json()['room']
-        self.assertEqual(room['board_state']['max_bid_quantity'],10)
+        self.assertEqual(room['board_state']['max_bid_quantity'],20)
         self.assertTrue(room['board_state']['literal_dice'])
         self.assertEqual(room['private_state']['team_id'],'red')
         response = await self.client.post(f"/api/rooms/{room['room_id']}/move",headers=headers,json={
             'player_id':'human-1','revision':room['revision'],'move':{'action':'bid','quantity':10,'face':6}})
         self.assertEqual(response.status_code,200,response.text)
         room = response.json()['room']
-        self.assertEqual(room['current_player_id'],'ai-2')
-        # Neither the teammate nor another seat can steal the current team turn.
-        denied = await self.client.post('/mcp/play',json={'action':'move','player_id':'ai-1',
+        self.assertEqual(room['current_player_id'],'ai-1')
+        # Only the next seat acts; that seat may challenge its teammate.
+        denied = await self.client.post('/mcp/play',json={'action':'move','player_id':'ai-2',
             'room_id':room['room_id'],'revision':room['revision'],'move':{'action':'challenge'}})
         self.assertEqual(denied.status_code,409)
-        response = await self.client.post('/mcp/play',json={'action':'move','player_id':'ai-2',
+        response = await self.client.post('/mcp/play',json={'action':'move','player_id':'ai-1',
             'room_id':room['room_id'],'revision':room['revision'],'move':{'action':'challenge'}})
         self.assertEqual(response.status_code,200,response.text)
         room = framework.get_room(room['room_id'])
@@ -428,7 +432,7 @@ class PartyMcpTests(support.LiarsDiceMcpTests):
         self.assertEqual(reply.status_code,200,reply.text)
         started = framework.get_room(room['room_id'])
         self.assertEqual(started['board_state']['team_mode'],'teams')
-        self.assertEqual(len(started['board_state']['dice_by_player']),2)
+        self.assertEqual(len(started['board_state']['dice_by_player']),4)
 
 
 if __name__ == '__main__':

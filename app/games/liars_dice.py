@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -44,7 +45,7 @@ class LiarsDice(GamePlugin):
         "加叫数量递增或同数点数递增；叫斋/1后本轮锁斋，切斋也须加叫，不实现飞斋。\n"
         "默认围骰：5骰借1凑所叫实点计6；全围：5骰同一实点且正叫此点计7。全1叫2–6仅计5。"
         "斋只允许同实点全围+2，不借1；叫数上限每盅7（有骰计骰为5），上限不依赖隐藏骰面。"
-        "首叫前当前行动者若5骰各异可reroll，每盅每轮限1次，不公开骰面；组队共用限次。"
+        "首叫前当前行动者若5骰各异可reroll，每盅每轮限1次，不公开骰面。"
         "有骰计骰(literal_dice)关闭上述加数及单骰重摇，但普通1仍百搭。\n"
         "开骰足数则质疑者败，否则叫点者败。可选cup_penalty：被开骰者持围骰/全围且败，罚×2；"
         "牌型不必等于叫点，有骰计骰也不屏蔽此独立处罚。extreme_penalty：实际严格少于叫数一半且叫点者败、"
@@ -55,15 +56,18 @@ class LiarsDice(GamePlugin):
         "结算记录命中、原始倍率、封顶与扣分。allow_surrender：已有叫点时当前行动者可surrender，固定认罚0.5，"
         "不触发开骰加倍/反转/陪扣。surrender_no_reroll须同时开投降：不揭骰且确认后保留各盅；否则揭盅重摇。"
         "以上处罚/投降选项默认关闭，积分以整数半分单位存储。\n"
+        "新酒桌默认开启rush_open：每次叫点后10秒，其他在场人/小机/NPC均可抢开（包括同队），不能抢自己。"
+        "窗口内暂缓加叫/投降，最先通过事务验证的抢开结算一次，无抢开额外加倍；截止后恢复原座序行动。"
+        "开局随机排座一次，此后固定；手动红蓝队归属保留，按座序逐人行动，不强制红蓝交叉。\n"
         "败方先叫，当前行动者acknowledge_round后开始下一轮。任一真实在场参与者可end_session结束整桌；"
         "离场/房间认输也结束，不结算未完成轮次。结束按累计个人/队分从高到低排名，同分并列；"
         "零个已结算回合无胜负。非0筹码时真实败者各付一份本局筹码，真实第一名平分实际败者池，余数按座位顺序分配；NPC不收付。无真实赢家/输家则筹码退回，不发成就奖励。不涉及实际饮酒或真钱。"
     )
 
-    pairs_rules = (
+    legacy_pairs_rules = (
         "\n【可选红蓝组队】仅4/6人，固定红、蓝两队，分别2+2或3+3。"
         "每队共用一盅5骰，队友可见己队骰，计数只计每队一次。"
-        "按队轮流叫点，队内成员轮换发言，只有当前指定成员可行动。"
+        "按队轮流叫点，队内成员轮换发言；通常只有当前指定成员可行动，抢开窗口内对手队成员均可抢开。"
         "首叫按两盅计算：普通3起，斋/叫1为2起，总数上限14，有骰计骰10。"
         "败队基础共用本局积分-1，队员显示同一队分，不叠加；赢家不加分。"
         "随机组队直接开始；手动组队只允许本人选空位/换位，20秒后房主可开始。"
@@ -71,10 +75,20 @@ class LiarsDice(GamePlugin):
         "确认下一轮后各队重摇，败方发言者先叫；成员离场结束整桌。不启用接力淘汰。"
     )
 
+    pairs_rules = (
+        "\n【可选红蓝组队】仅4/6人，红蓝2+2或3+3。每人独立5骰，只看本人骰面；全桌每人的骰子均计数。"
+        "按固定座位顺序行动，同队可连座、互相叫点及质疑；队伍不改变行动权。"
+        "普通首叫4人6起、6人9起；斋/叫1为4/6起，上限28/42，有骰计骰20/30。"
+        "仅共享积分：败者所在队基础扣1次1分，胜方不加分；同队互相质疑也只扣1次。"
+        "随机组队直接开始；手动组队仅本人选位，20秒后房主可开始；未选者/NPC补入剩余队位。"
+        "队伍归属与行动座序独立，开局后固定；确认后每人重摇，败者先叫；成员离场结束整桌。"
+    )
+
     classic_rules = rules_text
     rules_text = ("默认原版·淘汰赛；new/invite 可用 move={mode:party,literal_dice:false} 选择酒桌版。\n\n"
                   + classic_rules + "\n\n" + party_rules + pairs_rules)
     move_format += (' 酒桌版叫斋附 exact:true；叫1自动锁斋；'
+                    '10秒抢开窗口内其他在场者（包括同队） move={action:rush_open}；'
                     '等待揭盅确认时当前行动者 move={action:acknowledge_round}；'
                     '任一真实在场参与者可 move={action:end_session} 结束酒桌局；均带 revision。')
 
@@ -113,7 +127,7 @@ class LiarsDice(GamePlugin):
         if teams == "none" and "random_teams" in options:
             raise ValueError("random_teams 仅用于酒桌组队")
         return {"mode": mode, "literal_dice": literal,
-                **({k: options.get(k, False) for k in party.BOOL_OPTIONS if k != "literal_dice"} if mode == "party" else {}),
+                **({k: options.get(k, k == "rush_open") for k in party.BOOL_OPTIONS if k != "literal_dice"} if mode == "party" else {}),
                 **({"opening_five": opening} if mode == "party" else {}),
                 **({"team_mode": teams, "random_teams": random_teams} if teams != "none" else {})}
 
@@ -135,40 +149,46 @@ class LiarsDice(GamePlugin):
                     teams = {"red": shuffled[:half], "blue": shuffled[half:]}
                 state["teams"] = deepcopy(teams)
                 state["team_scores"] = {team: 0 for team in state["teams"]}
-                state["team_next_speakers"] = {team: members[0] for team, members in state["teams"].items()}
-                # Store exactly one cup per team. No duplicate dice to double-count or drift.
-                state["dice_by_player"] = {members[0]: state["dice_by_player"][members[0]]
-                                           for members in state["teams"].values()}
+                # Only new tables opt in. Never infer this from old cup contents:
+                # persisted shared-cup games must keep their dice and turn rules.
+                state["team_rules_version"] = 2
         return state
 
     def room_rules(self, state):
         if not self.is_party(state):
             return "【原版·淘汰赛】\n" + self.classic_rules
-        return self.party_rules + ("\n旧酒桌房保留不加围骰数量、不重摇单骰的基础计数；普通1百搭。" if "dice_counts" in state and not party.modern(state) else "") + (self.pairs_rules if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "") + ("\n本桌有骰计骰：已开启。" if state.get("literal_dice") else "\n本桌有骰计骰：关闭。")
+        return self.party_rules + ("\n旧酒桌房保留不加围骰数量、不重摇单骰的基础计数；普通1百搭。" if "dice_counts" in state and not party.modern(state) else "") + ((self.legacy_pairs_rules if self.shared_team_cups(state) else self.pairs_rules) if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "") + ("\n本桌有骰计骰：已开启。" if state.get("literal_dice") else "\n本桌有骰计骰：关闭。") + ("\n本桌抢开：开启，10秒。" if state.get("rush_open") else "\n本桌抢开：关闭。")
 
     @staticmethod
     def saved_options(state):
-        return {key: state[key] for key in party.OPTION_KEYS if key in state}
+        options = {key: state[key] for key in party.OPTION_KEYS if key in state}
+        if state.get("mode") == "party":
+            options["rush_open"] = state.get("rush_open", False)
+        return options
 
     @staticmethod
     def validate_player_count(options, count):
         if options.get("team_mode") in ("pairs", "teams") and count not in (4, 6):
-            raise ValueError("红蓝两队仅支持4或6人，每队共用5骰")
+            raise ValueError("红蓝两队仅支持4或6人，每人独立5骰")
 
     @staticmethod
     def team_for(state, player_id):
         return next((team for team, members in state.get("teams", {}).items() if player_id in members), None)
 
+    @staticmethod
+    def shared_team_cups(state):
+        return bool(state.get("teams")) and state.get("team_rules_version", 1) < 2
+
     def cup_owner(self, state, player_id):
-        team = self.team_for(state, player_id)
+        team = self.team_for(state, player_id) if self.shared_team_cups(state) else None
         return state["teams"][team][0] if team else player_id
 
-    @staticmethod
-    def total_dice(state):
-        cups = len(state["teams"]) if state.get("teams") else len(state["dice_counts"])
+    @classmethod
+    def total_dice(cls, state):
+        cups = len(state["teams"]) if cls.shared_team_cups(state) else len(state["dice_counts"])
         if state.get("mode") == "party" and party.modern(state) and not state.get("literal_dice"):
             return 7 * cups  # Public upper bound, never derived from hidden actual cups.
-        return 5 * len(state["teams"]) if state.get("teams") else sum(state["dice_counts"].values())
+        return 5 * cups if cls.shared_team_cups(state) else sum(state["dice_counts"].values())
 
     @staticmethod
     def party_scores(state):
@@ -195,6 +215,7 @@ class LiarsDice(GamePlugin):
         state["flow"]["phase"] = "finished"
         state["pending_next_round"] = None
         state["current_bid"] = None
+        state.pop("rush_until", None)
         state["turn_player_id"] = None
         return MoveResult(state=state, note=state["session_result"]["result_text"],
                           result=deepcopy(state["session_result"]))
@@ -211,15 +232,33 @@ class LiarsDice(GamePlugin):
         if not self._bid_is_higher(state.get("current_bid"), quantity, face):
             return False
         if self.is_party(state) and state.get("current_bid") is None:
-            count = len(state["teams"]) if state.get("teams") else len(self._active_ids(state))
+            count = len(state["teams"]) if self.shared_team_cups(state) else len(self._active_ids(state))
             normal = state.get("opening_five", 8) if count == 5 else (3 * count + 1) // 2
             minimum = count if self._is_exact(state, face, exact) else normal
             return quantity >= minimum
         return True
 
     def accepts_out_of_turn_action(self, state, move, player_id):
-        return (self.is_party(state) and move == {"action": "end_session"}
-                and player_id in self._active_ids(state))
+        return ((self.is_party(state) and move == {"action": "end_session"}
+                 and player_id in self._active_ids(state))
+                or (move == {"action": "rush_open"} and self.can_rush(state, player_id)))
+
+    @staticmethod
+    def rush_deadline(state):
+        if (state.get("mode") == "party" and state.get("rush_open")
+                and state.get("current_bid") and state.get("flow", {}).get("phase") == "bidding"):
+            return state.get("rush_until", 0)
+        return 0
+
+    def rush_active(self, state):
+        return self.rush_deadline(state) > time.time()
+
+    def can_rush(self, state, player_id):
+        # New teams own individual cups: teammates may react to each other.
+        # Persisted legacy teams retain their shared-cup restriction.
+        return (self.rush_active(state) and player_id in self._active_ids(state)
+                and self.cup_owner(state, player_id)
+                != self.cup_owner(state, state["current_bid"]["bidder_player_id"]))
 
     def __init__(self, rng: random.Random | None = None) -> None:
         # Tests inject random.Random(seed) or a randint-compatible fixture.
@@ -319,6 +358,12 @@ class LiarsDice(GamePlugin):
         if state["dice_counts"].get(player_id, 0) <= 0:
             raise ValueError("已淘汰参与者不能行动")
         action = move.get("action")
+        if action == "rush_open":
+            if set(move) != {"action"} or not self.can_rush(state, player_id):
+                raise ValueError("抢开已截止，或不能抢开本人/旧房共盅队友的叫点")
+            return
+        if self.rush_active(state) and action in ("bid", "surrender"):
+            raise ValueError("10秒抢开机会尚未结束，请等待倒计时后继续叫点")
         if self.is_party(state) and action in ("reroll", "surrender"):
             if set(move) != {"action"}:
                 raise ValueError("只能操作本人，动作仅接受 action 字段")
@@ -328,7 +373,7 @@ class LiarsDice(GamePlugin):
             elif not state.get("allow_surrender") or not state.get("current_bid"):
                 raise ValueError("本桌未允许投降或尚无叫点")
             elif self.cup_owner(state, state["current_bid"]["bidder_player_id"]) == self.cup_owner(state, player_id):
-                raise ValueError("不能向自己或队友投降")
+                raise ValueError("不能向本人或旧房共盅队友投降")
             return
         if action == "challenge":
             if set(move) != {"action"}:
@@ -337,7 +382,7 @@ class LiarsDice(GamePlugin):
             if bid is None:
                 raise ValueError("首叫之前不能质疑")
             if self.cup_owner(state, bid.get("bidder_player_id")) == self.cup_owner(state, player_id):
-                raise ValueError("不能质疑自己或队友的叫点")
+                raise ValueError("不能质疑本人或旧房共盅队友的叫点")
             return
         if action != "bid":
             raise ValueError("action 必须是 bid 或 challenge")
@@ -388,6 +433,8 @@ class LiarsDice(GamePlugin):
         if self.is_party(state):
             bid["exact"] = self._is_exact(state, face, move.get("exact", False))
         state["current_bid"] = bid
+        if self.is_party(state) and state.get("rush_open"):
+            state["rush_until"] = time.time() + 10
         record = {
             "round": state["flow"]["round_number"],
             "action": "bid",
@@ -397,7 +444,7 @@ class LiarsDice(GamePlugin):
         state["action_history"].append(deepcopy(record))
         advance_flow(state)
         return MoveResult(state=state, note=f"叫 {quantity} 个 {face} 点。",
-                          next_player_id=self._next_team_speaker(state, str(actor["player_id"])) if state.get("teams") else None)
+                          next_player_id=self._next_team_speaker(state, str(actor["player_id"])) if self.shared_team_cups(state) else None)
 
     def _apply_challenge(
         self,
@@ -463,6 +510,7 @@ class LiarsDice(GamePlugin):
             state["round_results"].append(party.history_result(result))
         state["last_round_result"] = result
         state["current_bid"] = None
+        state.pop("rush_until", None)
         record = {
             "round": flow["round_number"],
             "action": "challenge",
@@ -526,6 +574,7 @@ class LiarsDice(GamePlugin):
         state['last_round_result'] = result
         state['round_results'].append(party.history_result(result))
         state['current_bid'] = None
+        state.pop('rush_until', None)
         state['round_actions'] = []
         state['pending_next_round'] = {'round_number':number + 1, 'starter_player_id':loser, 'preserve_dice':keep}
         state['flow']['phase'] = 'awaiting_round_acknowledgement'
@@ -558,6 +607,7 @@ class LiarsDice(GamePlugin):
             state["rerolled_cups"] = {}
             state["dice_retained"] = bool(pending.get("preserve_dice"))
         state["current_bid"] = None
+        state.pop("rush_until", None)
         state["round_actions"] = []
         state["pending_next_round"] = None
         advance_flow(state, phase="bidding", next_round=True)
@@ -595,7 +645,7 @@ class LiarsDice(GamePlugin):
         applied: dict[str, Any] | MoveResult,
     ) -> dict[str, Any] | MoveResult:
         del state, actor
-        if move.get("action") != "challenge" or not isinstance(applied, MoveResult):
+        if move.get("action") not in ("challenge", "rush_open") or not isinstance(applied, MoveResult):
             return applied
         outcome = applied.state.get("last_round_result")
         if not isinstance(outcome, dict):
@@ -708,6 +758,7 @@ class LiarsDice(GamePlugin):
         if len(active) == 1:
             state["winner_player_id"] = active[0]
             state["current_bid"] = None
+            state.pop("rush_until", None)
             state["pending_next_round"] = None
             state["turn_player_id"] = None
             state["flow"]["phase"] = "finished"
@@ -721,6 +772,7 @@ class LiarsDice(GamePlugin):
             # A departure changes the total dice and can invalidate any live bid;
             # restart the bidding window with the persisted dice of survivors.
             state["current_bid"] = None
+            state.pop("rush_until", None)
             state["round_actions"] = []
             state["pending_next_round"] = None
             state["flow"]["phase"] = "bidding"
@@ -789,10 +841,12 @@ class LiarsDice(GamePlugin):
         projected["mode"] = state.get("mode", "classic")
         if self.is_party(state):
             projected.update(self.saved_options(state))
+            projected["rush_until"] = self.rush_deadline(state) or None
+            projected["server_time"] = time.time()
             projected["dice_retained"] = state.get("dice_retained", False)
             projected["scores"] = self.party_scores(state)
             if state.get("teams"):
-                projected.update(teams=deepcopy(state["teams"]), team_scores=deepcopy(state["team_scores"]), team_mode=state.get("team_mode", "pairs"))
+                projected.update(team_rules_version=state.get("team_rules_version", 1), teams=deepcopy(state["teams"]), team_scores=deepcopy(state["team_scores"]), team_mode=state.get("team_mode", "pairs"))
             projected.update(literal_dice=state.get("literal_dice", False),
                              records=deepcopy(state.get("records", {})),
                              round_results=deepcopy(state.get("round_results", [])))
@@ -812,6 +866,7 @@ class LiarsDice(GamePlugin):
     ) -> dict[str, Any]:
         owner = self.cup_owner(state, viewer["player_id"])
         return {"dice": deepcopy(state["dice_by_player"][owner]),
+                **({"can_rush": self.can_rush(state, viewer["player_id"])} if self.is_party(state) else {}),
                 **({"can_reroll": party.can_reroll(state, owner)} if self.is_party(state) else {}),
                 **({"team_id": self.team_for(state, viewer["player_id"]), "cup_owner_player_id": owner} if state.get("teams") else {})}
 
@@ -855,6 +910,10 @@ class LiarsDice(GamePlugin):
                 "companion_penalty": "d6按固定座序抽陪扣者，同倍率，抽中本人/同队再×2，仍封顶4。",
                 "allow_surrender": "已有叫点可投降固定-0.5，不叠加处罚。",
                 "surrender_no_reroll": "投降不揭骰，下一轮保留骰。",
+                "rush_open": ("每次叫点后10秒可rush_open；旧共盅房不能抢己盅。"
+                              if self.shared_team_cups(state) else
+                              "每次叫点后10秒可rush_open抢开他人（包括同队），不能抢自己。")
+                             + "窗口内不能加叫/投降，截止恢复轮流。",
             }
             extras = "".join(text for key, text in descriptions.items() if state.get(key))
             bonus = (party.modern(state) or "dice_counts" not in state) and not state.get("literal_dice")
@@ -863,7 +922,8 @@ class LiarsDice(GamePlugin):
                 f"普通首叫ceil(1.5×盅数)，5盅{state.get('opening_five', 8)}起，斋至少盅数。"
                 + ("无围骰加数、无单骰重摇，1仍百搭。" if not bonus
                    else "围骰借1凑叫点+1，同实点全围+2；全1百搭不加数。首叫前5点各异可重摇一次。")
-                + ("红蓝队各一盅共用队分、队内轮流发言，只看己队骰。" if state.get("teams") else "只看己骰。")
+                + ("旧房红蓝队各一盅共用队分、队内轮流发言，只看己队骰。" if self.shared_team_cups(state) else
+                   "每人独立一盅，只看己骰；按固定座序行动，同队可连座及互相质疑，所有骰均计数，仅共队分。" if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "只看己骰。")
                 + "开骰足数质疑方败，不足叫点方败，基础-1、赢家不加分；倍罚至多4分。"
                 + extras + "败方先叫，确认后重摇（已开投降保留骰除外）。仅选权威合法动作，不主动结束整桌。"
             )
@@ -891,6 +951,8 @@ class LiarsDice(GamePlugin):
         del participants
         if state.get("flow", {}).get("phase") != "bidding" or actor.get("player_id", state["participant_order"][0]) not in self._active_ids(state):
             return []
+        if self.rush_active(state):
+            return [{"action": "rush_open"}] if self.can_rush(state, actor.get("player_id")) else []
         actions = self.bid_options(state)
         if self.is_party(state) and party.can_reroll(state, self.cup_owner(state, actor.get("player_id"))):
             actions.append({"action": "reroll"})
@@ -938,6 +1000,8 @@ class LiarsDice(GamePlugin):
             return {"reroll":"单骰重摇", "surrender":"本轮投降认罚"}[move["action"]]
         if move.get("action") == "challenge":
             return "质疑"
+        if move.get("action") == "rush_open":
+            return "抢开"
         quantity, face = self._parse_bid(move)
         suffix = "（斋）" if self.is_party(state) and self._is_exact(state, face, move.get("exact", False)) else ""
         return f"叫 {quantity} 个 {face} 点{suffix}"

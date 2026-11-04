@@ -55,6 +55,25 @@ def final_teams(state, participants):
     return seats
 
 
+def randomize_seats(game, members, state=None, *, conn=None, room_id=None):
+    """One table order at start; team membership and team-seat order are separate."""
+    secrets.SystemRandom().shuffle(members)
+    tokens = game.tokens_for(members)
+    if conn is not None:
+        conn.execute('UPDATE room_participants SET seat_index=seat_index+100 WHERE room_id=?', (room_id,))
+    for index, (member, token) in enumerate(zip(members, tokens)):
+        member.update(seat_index=index, seat=index, order=index, token=token)
+        if conn is not None:
+            conn.execute('UPDATE room_participants SET seat_index=?, token=? WHERE room_id=? AND player_id=?',
+                         (index, token, room_id, member['player_id']))
+    if state is not None:
+        state.pop('random_seats_pending', None)
+        state['participant_order'] = [p['player_id'] for p in members]
+        state['marks_by_player'] = {p['player_id']:p['token'] for p in members}
+        if 'marks' in state:
+            state['marks'] = {p['role']:p['token'] for p in members}
+
+
 def remember_profiles(room, profiles):
     """Only server-authenticated display metadata; never accepts seat assignments."""
     from . import framework as f
@@ -180,10 +199,12 @@ def start_regular(room_id, role, player_id, fill_with_npcs=False):
                     _insert_member(conn, room_id, f"npc:{persona.id}", "ai", persona.display_name, i, persona.id)
         members = decode_room(row, conn)["participants"]
         teams = final_teams(room["board_state"], members)
+        randomize_seats(game, members, conn=conn, room_id=room_id)
         first = selection["first_player_id"] or game.first_player_id(members, room["mode"])
         state, first = f._initialize_opening_state(game, members, first,
             game.saved_options(room["board_state"]), team_assignments=teams)
         state['participant_avatars'] = room['board_state'].get('participant_avatars', {})
+        state['marks_by_player'] = {p['player_id']: p['token'] for p in members}
         now = f._now()
         turn = next(p["role"] for p in members if p["player_id"] == first)
         conn.execute("""UPDATE rooms SET status='playing', board_state=?, current_player_id=?,

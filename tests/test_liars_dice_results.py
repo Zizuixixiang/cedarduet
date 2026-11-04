@@ -21,7 +21,7 @@ class PartyResultsTests(support.MultiplayerGameTestCase):
     def create(self, count=3, **options):
         return framework.create_room('liars_dice', 'human_first', 'human', 'human-1',
             opponent_id='ai-1', ordered_participants=support.participants(count),
-            game_options={'mode': 'party', **options})
+            game_options={'mode': 'party', 'rush_open': False, **options})
 
     def act(self, room, action, pid=None):
         pid = pid or room['current_player_id']
@@ -135,7 +135,7 @@ class PartyResultsTests(support.MultiplayerGameTestCase):
                     for members in state['teams'].values():
                         for pid in members:
                             view = full_state.project_full_state(room, pid)
-                            self.assertEqual(view['private_state']['dice'], state['dice_by_player'][members[0]])
+                            self.assertEqual(view['private_state']['dice'], state['dice_by_player'][pid])
                             self.assertEqual(view['board_state']['team_scores'], result['team_scores'])
                             self.assertNotIn('terminal_dice', view['board_state'])
 

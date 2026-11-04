@@ -61,15 +61,17 @@ class TeamSelectionTests(support.MultiplayerGameTestCase):
         self.assertEqual(set(sum(teams.values(),[])),{p['player_id'] for p in room['participants']})
         self.assertNotIn('team_selection',room['board_state'])
         self.assertNotIn('team_selection',room)
-        self.assertEqual(len(room['board_state']['dice_by_player']),2)
+        self.assertEqual(len(room['board_state']['dice_by_player']),6)
         with self.assertRaises(framework.DuelError):
             seat(room,'human-1','red',1)
-        for index, members in enumerate(teams.values()):
-            room['board_state']['dice_by_player'][members[0]] = [index+2]*5
-            for pid in members:
-                view = framework.project_room_for_viewer(room,pid)
-                self.assertEqual(view['private_state']['dice'],[index+2]*5)
-                self.assertNotIn('dice_by_player',view['board_state'])
+        for index, participant in enumerate(room['participants']):
+            pid = participant['player_id']
+            room['board_state']['dice_by_player'][pid] = [index+1]*5
+        for participant in room['participants']:
+            pid = participant['player_id']
+            view = framework.project_room_for_viewer(room,pid)
+            self.assertEqual(view['private_state']['dice'],room['board_state']['dice_by_player'][pid])
+            self.assertNotIn('dice_by_player',view['board_state'])
 
     def test_npcs_only_join_on_start_and_preserve_manual_seats(self):
         room = self.create(real_count=2)
@@ -88,7 +90,7 @@ class TeamSelectionTests(support.MultiplayerGameTestCase):
         with patch('app.games.liars_dice.random.SystemRandom.shuffle') as shuffled:
             room = framework.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',
                 ordered_participants=support.participants(6),game_options={**OPTIONS,'random_teams':True})
-        shuffled.assert_called_once()
+        self.assertEqual(shuffled.call_count, 2)  # Teams and table seats are independent draws.
         self.assertEqual(room['status'],'playing')
         self.assertNotIn('team_selection',room['board_state'])
         self.assertEqual([len(t) for t in room['board_state']['teams'].values()],[3,3])

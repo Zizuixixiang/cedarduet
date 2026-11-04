@@ -179,6 +179,9 @@ async function request(path, options = {}) {
       if (response.ok) throw error;
       return {};
     });
+    if (data?.room?.board_state?.rush_until) {
+      data.room.rushReceivedAt = performance.now();
+    }
     if (!response.ok) {
       const error = new Error(data?.message || data?.error || "请求失败");
       error.status = response.status;
@@ -2660,7 +2663,10 @@ function liarsBidSelectionIsLegal(state, selection) {
 
 function defaultLiarsBidSelection(state) {
   if (Array.isArray(state.bid_ranges) && state.bid_ranges.length) {
-    const bid = state.bid_ranges.reduce((best, item) => item.min_quantity < best.min_quantity ? item : best);
+    const bid = state.bid_ranges.reduce((best, item) => {
+      if (Boolean(item.exact) !== Boolean(best.exact)) return item.exact ? best : item;
+      return item.min_quantity < best.min_quantity ? item : best;
+    });
     return {quantity: bid.min_quantity, face: bid.face, exact: Boolean(bid.exact)};
   }
   const maximum = Number(state.max_bid_quantity || 0);
@@ -2985,7 +2991,7 @@ function renderLiarsDice(board, state) {
       const owner = document.createElement("span");
       owner.className = "liars-dice-owner";
       const teamIndex = Object.values(state.teams || {}).findIndex((members) => members.includes(playerId));
-      owner.textContent = teamIndex >= 0 ? `${Object.keys(state.teams)[teamIndex] === "red" ? "红队" : Object.keys(state.teams)[teamIndex] === "blue" ? "蓝队" : `第${teamIndex + 1}队`}共用骰盅：` : `${(participant && participant.display_name) || playerId}：`;
+      owner.textContent = teamIndex >= 0 && !(state.team_rules_version >= 2) ? `${Object.keys(state.teams)[teamIndex] === "red" ? "红队" : Object.keys(state.teams)[teamIndex] === "blue" ? "蓝队" : `第${teamIndex + 1}队`}共用骰盅：` : `${(participant && participant.display_name) || playerId}：`;
       const tray = document.createElement("span");
       tray.className = "liars-dice-row";
       if (Array.isArray(dice) && dice.length) {
@@ -3029,6 +3035,7 @@ function renderLiarsDice(board, state) {
     ? `第 ${roundNumber} 轮当前操作区`
     : "当前轮操作区";
   const humanCanMove = canHumanMove();
+  const rushWindow = Boolean(state.mode === "party" && state.rush_until && !terminal);
   const currentTurnName = (
     flow.phase !== "finished"
     && room
@@ -3048,6 +3055,7 @@ function renderLiarsDice(board, state) {
   const currentTurnPrefix = document.createElement("span");
   currentTurnPrefix.className = "liars-turn-prefix";
   currentTurnPrefix.textContent = "轮到：";
+  if (rushWindow) currentTurnPrefix.textContent = "抢开后下一手：";
   const currentTurnNameElement = document.createElement("span");
   currentTurnNameElement.className = "liars-turn-name";
   currentTurnNameElement.textContent = currentTurnName || "";
@@ -3057,11 +3065,11 @@ function renderLiarsDice(board, state) {
   if (isHistoricalResult && state.dice_retained) {
     roundStatus.textContent = "本轮沿用上轮骰面（投降不重摇）";
   } else if (isHistoricalResult) {
-    roundStatus.textContent = state.teams ? "各队共用5骰已重摇（仅己队可见）" : "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
+    roundStatus.textContent = state.teams && !(state.team_rules_version >= 2) ? "各队共用5骰已重摇（仅己队可见）" : "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
   } else if (flow.phase === "finished") {
     roundStatus.textContent = "本轮已经结算";
   } else {
-    roundStatus.textContent = state.teams ? "每队共用一盅5骰（仅己队可见）" : "本轮骰子已掷出并隐藏（仅自己可见）";
+    roundStatus.textContent = state.teams && !(state.team_rules_version >= 2) ? "每队共用一盅5骰（仅己队可见）" : "本轮骰子已掷出并隐藏（仅自己可见）";
   }
   roundHeading.append(roundTitle);
   if (currentTurnName) roundHeading.append(currentTurnLine);
@@ -3149,7 +3157,7 @@ function renderLiarsDice(board, state) {
     exact: state.mode === "party" && exact.value === "true",
   });
   const updateBidAvailability = () => {
-    chooseBid.disabled = !humanCanMove || !selectionIsHigher();
+    chooseBid.disabled = !humanCanMove || rushWindow || !selectionIsHigher();
   };
   const bidSelectionChanged = () => {
     if (state.mode === "party" && (Number(face.value) === 1 || currentBid?.exact)) exact.value = "true";
@@ -3179,11 +3187,15 @@ function renderLiarsDice(board, state) {
       ? "本轮已结算"
       : "本轮尚无叫点可质疑";
   }
-  challenge.disabled = !humanCanMove || !currentBid;
+  challenge.disabled = rushWindow ? (room.spectating || !room?.private_state?.can_rush) : (!humanCanMove || !currentBid);
+  if (rushWindow) challenge.textContent = "抢开";
   challenge.addEventListener("click", async () => {
     challenge.disabled = true;
-    const submitted = await submitMove({action: "challenge"});
-    if (!submitted) challenge.disabled = !canHumanMove() || !currentBid;
+    const submitted = await submitMove({action: rushWindow ? "rush_open" : "challenge"}, {sideAction: rushWindow});
+    if (!submitted) {
+      if (rushWindow) await refreshRoom({quiet: true});
+      else challenge.disabled = !canHumanMove() || !currentBid;
+    }
   });
   controls.append(quantityLabel, faceLabel);
   if (state.mode === "party") controls.appendChild(exactLabel);
@@ -3200,12 +3212,16 @@ function renderLiarsDice(board, state) {
       const surrender = document.createElement("button");
       surrender.type = "button"; surrender.className = "pixel-btn secondary compact";
       surrender.textContent = state.surrender_no_reroll ? "投降-0.5 · 保留骰面" : "投降-0.5 · 揭盅重摇";
-      surrender.disabled = !humanCanMove;
+      surrender.disabled = !humanCanMove || rushWindow;
       surrender.addEventListener("click", async () => { surrender.disabled = true; if (!await submitMove({action:"surrender"})) surrender.disabled = !canHumanMove(); });
       controls.appendChild(surrender);
     }
   }
   currentRound.appendChild(controls);
+  if (rushWindow && window.DuelDiceRush) {
+    window.DuelDiceRush.attach({room, state, status: roundStatus, button: challenge,
+      refresh: () => refreshRoom({quiet: true})});
+  }
   board.appendChild(currentRound);
   if (result) board.appendChild(result);
 }
@@ -3602,11 +3618,48 @@ function timelineSpeakerName(event) {
 function renderRecentChat(timeline = []) {
   const feed = $("recentChatFeed");
   const list = $("recentChatMessages");
+  // The list itself survives room changes and child replacement. Install its
+  // listener/observer once, and keep user intent separate from layout geometry.
+  if (!list.recentChatScrollState) {
+    const state = {followBottom: true, scrollTop: list.scrollTop};
+    state.readPosition = () => {
+      const maxTop = Math.max(0, list.scrollHeight - list.clientHeight);
+      // A resize can leave scrollTop unchanged, or clamp it to the new maximum.
+      // Neither means the user chose to leave (or resume) follow mode. Also
+      // ignore delayed scroll events from our own rendering/anchor restoration.
+      const expectedTop = Math.min(state.scrollTop, maxTop);
+      if (Math.abs(list.scrollTop - expectedTop) > 1) {
+        // Upward reading wins even within the near-bottom tolerance; scrolling
+        // down to that tolerance opts back into following new messages.
+        state.followBottom = list.scrollTop > expectedTop && maxTop - list.scrollTop <= 24;
+      }
+      state.scrollTop = list.scrollTop;
+    };
+    state.follow = () => {
+      if (state.followBottom) list.scrollTop = list.scrollHeight;
+      state.scrollTop = list.scrollTop;
+    };
+    const resize = () => {
+      state.readPosition();
+      state.follow();
+    };
+    list.addEventListener("scroll", state.readPosition, {passive: true});
+    if (typeof ResizeObserver === "function") {
+      state.observer = new ResizeObserver(resize);
+      state.observer.observe(list);
+    } else if (typeof window !== "undefined") {
+      window.addEventListener("resize", resize, {passive: true});
+    }
+    list.recentChatScrollState = state;
+  }
+  const scrollState = list.recentChatScrollState;
+  // Read pending user movement even if its scroll event has not fired yet.
+  scrollState.readPosition();
+  if (list.dataset.roomId !== room.room_id) scrollState.followBottom = true;
   const messages = recentSpeechEvents(timeline);
   const oldScrollHeight = list.scrollHeight;
   const oldScrollTop = list.scrollTop;
-  const followBottom = list.dataset.roomId !== room.room_id
-    || oldScrollHeight - oldScrollTop - list.clientHeight <= 24;
+  const followBottom = scrollState.followBottom;
   // Preserve the first visible message, including when the server's 200-event
   // window drops older entries. Appending below it must not shift reading.
   const listTop = list.getBoundingClientRect().top;
@@ -3659,7 +3712,7 @@ function renderRecentChat(timeline = []) {
     list.appendChild(item);
   });
   if (followBottom) {
-    list.scrollTop = list.scrollHeight;
+    scrollState.follow();
   } else {
     const nextAnchor = anchor && [...list.children].find(
       (item) => item.dataset.sequence === anchor.dataset.sequence
@@ -3667,6 +3720,7 @@ function renderRecentChat(timeline = []) {
     list.scrollTop = nextAnchor
       ? nextAnchor.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop - anchorOffset
       : oldScrollTop + list.scrollHeight - oldScrollHeight;
+    scrollState.scrollTop = list.scrollTop;
   }
 }
 
@@ -3889,6 +3943,38 @@ function createParticipantBadge(participant, targetRoom) {
   const name = document.createElement("strong");
   name.textContent = `${participant.display_name || participant.player_id}${isViewer ? "（你）" : ""}`;
   const seat = document.createElement("small");
+  const diceState = targetRoom.board_state;
+  if (targetRoom.game_type === "liars_dice" && diceState?.mode === "party") {
+    badge.classList.add("party-participant");
+    const team = ["red", "blue"].find((key) => Array.isArray(diceState.teams?.[key])
+      && diceState.teams[key].includes(participant.player_id));
+    const accountId = participantAccountId(participant);
+    seat.textContent = accountId ? `ID ${accountId} · ${kind}` : kind;
+    copy.append(name, seat);
+    const score = document.createElement("span");
+    score.className = "room-participant-detail party-participant-score";
+    // The server projects shared team scores onto each teammate's metadata.
+    // Older snapshots may only have the corresponding public score ledger.
+    const value = participant.game_metadata?.score
+      ?? (team ? diceState.team_scores?.[team] : diceState.scores?.[participant.player_id]);
+    score.textContent = `${team ? "队分" : "积分"} ${value ?? "—"}`;
+    badge.append(avatarWrap, copy, score);
+    if (states.length) {
+      const status = document.createElement("span");
+      status.className = "party-participant-status";
+      status.textContent = states.join(" / ");
+      badge.append(status);
+    }
+    if (team) {
+      // Independent of avatar rendering/fallback and all card text.
+      const marker = document.createElement("span");
+      marker.className = `room-participant-team-marker team-${team}`;
+      marker.textContent = team === "red" ? "红" : "蓝";
+      marker.setAttribute("aria-label", `${marker.textContent}队`);
+      badge.append(marker);
+    }
+    return badge;
+  }
   seat.textContent = participantAccountId(participant) ? `ID ${participantAccountId(participant)} · 座位 ${participant.seat_index + 1} · ${kind}` : `座位 ${participant.seat_index + 1} · ${kind}`;
   copy.append(name, seat);
   const detail = document.createElement("span");
@@ -3897,8 +3983,6 @@ function createParticipantBadge(participant, targetRoom) {
     score: "得分",
     dice_count: "剩余骰子",
     hand_count: "剩余手牌",
-    ...(targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party"
-      ? {score: targetRoom.board_state.teams ? "共用队分" : "本局积分", team: "队伍", dice_count: targetRoom.board_state.teams ? "共用骰子" : "骰子"} : {}),
   };
   const metadata = participant.game_metadata && typeof participant.game_metadata === "object"
     ? participant.game_metadata
@@ -3989,7 +4073,7 @@ function renderPrivateState(targetRoom) {
     row.className = "private-state-row";
     const label = document.createElement("strong");
     const labels = {hand: "我的手牌", dice: "我的骰子", rolls: "我的投掷", legal_actions: "我的合法行动"};
-    label.textContent = key === "dice" && privateState.team_id ? "我队共用骰子" : labels[key] || key;
+    label.textContent = key === "dice" && privateState.team_id && !(targetRoom.board_state.team_rules_version >= 2) ? "我队共用骰子" : labels[key] || key;
     const body = document.createElement("span");
     if (key === "dice" && Array.isArray(value)) {
       body.className = "my-dice liars-dice-row";
@@ -4390,7 +4474,7 @@ async function submitMove(movePayload, {sideAction = false} = {}) {
       body: JSON.stringify({move: movePayload, revision: room.revision}),
     });
     if (!roomSyncIsCurrent(generation, targetRoomId)) return false;
-    if (["bid", "challenge"].includes(movePayload.action)) liarsBidDraft = null;
+    if (["bid", "challenge", "rush_open"].includes(movePayload.action)) liarsBidDraft = null;
     pendingMove = null;
     selectedJungleCell = null;
     selectedXiangqiCell = null;

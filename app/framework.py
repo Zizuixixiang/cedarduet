@@ -1698,6 +1698,8 @@ def _maintain_rooms(conn, room_id: str | None = None) -> tuple[int, int]:
     _expire_pending_invitations(conn, room_id)
     archived = _archive_stale_rooms(conn, room_id)
     deleted = _delete_expired_terminal_rooms(conn, room_id)
+    from .liars_dice_rush import expire_windows
+    expire_windows(conn, room_id)
     return archived, deleted
 
 
@@ -1972,6 +1974,8 @@ def create_room(
             raise DuelError("参赛人数超过组队席位")
         deferred_npcs = [p for p in participants if p["participant_kind"] == "system_npc"]
         participants = [p for p in participants if p["participant_kind"] != "system_npc"]
+        for index, participant in enumerate(participants):
+            participant['seat_index'] = index
     explicit_opener = None
     if first_player_id is not None:
         first_player_id = _player_id(first_player_id)
@@ -2129,6 +2133,11 @@ def create_room(
             if pending_confirmations
             else "playing" if enough_players and not team_setup else "waiting"
         )
+        if game_type == 'liars_dice' and game_options.get('mode') == 'party' and not team_setup:
+            if status == 'playing':
+                liars_dice_setup.randomize_seats(game, participants, state)
+            else:
+                state['random_seats_pending'] = True
         conn.execute(
             """
             INSERT INTO rooms (
@@ -2359,6 +2368,11 @@ def respond_to_invitation(
             else "playing" if _room_can_start(refreshed, game)
             else "waiting"
         )
+        if new_status == 'playing' and refreshed['board_state'].get('random_seats_pending'):
+            liars_dice_setup.randomize_seats(game, refreshed['participants'], refreshed['board_state'],
+                                           conn=conn, room_id=room_id)
+            conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?',
+                         (json.dumps(refreshed['board_state'], ensure_ascii=False), room_id))
         conn.execute(
             """
             UPDATE rooms
@@ -2576,6 +2590,11 @@ def join_room(
             else "playing" if _room_can_start(room, game)
             else "waiting"
         )
+        if game.game_type == 'liars_dice' and state.get('mode') == 'party':
+            if new_status == 'playing':
+                liars_dice_setup.randomize_seats(game, prospective, state, conn=conn, room_id=room_id)
+            else:
+                state['random_seats_pending'] = True
         timestamp = _now()
         conn.execute(
             """
@@ -2878,6 +2897,13 @@ def is_bomb_plane_setup(room: dict) -> bool:
 
 def participant_can_act(room: dict, player_id: str) -> bool:
     """Action availability for responses/waits, separate from the NPC cursor."""
+    if room.get("game_type") == "liars_dice" and room.get("status") == "playing":
+        game = get_game("liars_dice")
+        if game.rush_active(room["board_state"]):
+            actor = _participant_by_id(room, player_id)
+            return bool(actor and actor.get("join_status") == "joined"
+                        and actor.get("active", True) and actor.get("activity_state", "active") == "active"
+                        and game.can_rush(room["board_state"], player_id))
     if is_bomb_plane_setup(room):
         actor = _participant_by_id(room, player_id)
         return bool(
@@ -2951,6 +2977,12 @@ def play_move(
         actor = _participant_by_id(room, player_id)
         if actor is None or not actor.get("active", True):
             raise DuelError("当前参与者已不可行动", 409)
+        # Rush-open settles the round and transfers confirmation ownership.
+        # Unlike other side actions it must not restore the old turn below.
+        if room["game_type"] == "liars_dice" and move == {"action": "rush_open"}:
+            if actor.get('join_status') != 'joined' or actor.get('activity_state', 'active') != 'active':
+                raise DuelError("只有仍在场的参与者可抢开", 409)
+            side_action = False
         system_npc = actor.get("participant_kind") == "system_npc"
         if system_npc and npc_budget_exhausted(room):
             raise DuelError("系统 NPC 自动推进已暂停，请真人或绑定小机操作后继续", 409)
@@ -3080,6 +3112,9 @@ def play_move(
         ]
         if game_result is None and remaining and all(
             item.get("participant_kind") == "system_npc" for item in remaining
+        ) and not (
+            room['game_type'] == 'liars_dice' and state.get('mode') == 'party'
+            and all(p.get('participant_kind') == 'system_npc' for p in room['participants'])
         ):
             # Natural elimination must stop unattended NPC-only remainders just
             # like leave/resign. Preserve any authoritative game result above.

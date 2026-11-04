@@ -20,7 +20,7 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
         for (const team of [false, true]) {
           const count = team ? 4 : 2;
           let room = (await call('/api/invites', {game_type:'liars_dice', target_player_count:count,
-            game_options:{mode:'party', allow_surrender:true, surrender_no_reroll:true,
+            game_options:{mode:'party', rush_open:false, allow_surrender:true, surrender_no_reroll:true,
               ...(team ? {team_mode:'teams'} : {})}})).room;
           for (let i=2; i<=count; i++) await call('/api/invites/join', {invite_code:room.invite_code}, `human-${i}`);
           room = (await call(`/api/rooms/${room.room_id}/start`, {})).room;
