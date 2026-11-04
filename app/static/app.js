@@ -3064,13 +3064,13 @@ function renderLiarsDice(board, state) {
   currentTurnLine.append(currentTurnPrefix, currentTurnNameElement);
   const roundStatus = document.createElement("span");
   if (isHistoricalResult && state.dice_retained) {
-    roundStatus.textContent = "本轮沿用上轮骰面（投降不重摇）";
+    roundStatus.textContent = "沿用上轮骰子";
   } else if (isHistoricalResult) {
-    roundStatus.textContent = state.teams && !(state.team_rules_version >= 2) ? "各队共用5骰已重摇（仅己队可见）" : "本轮骰子已按剩余数量重新掷出并隐藏（仅自己可见）";
+    roundStatus.textContent = "骰子已重新掷出";
   } else if (flow.phase === "finished") {
     roundStatus.textContent = "本轮已经结算";
   } else {
-    roundStatus.textContent = state.teams && !(state.team_rules_version >= 2) ? "每队共用一盅5骰（仅己队可见）" : "本轮骰子已掷出并隐藏（仅自己可见）";
+    roundStatus.textContent = "骰子已掷出";
   }
   roundHeading.append(roundTitle);
   if (currentTurnName) roundHeading.append(currentTurnLine);

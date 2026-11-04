@@ -2581,7 +2581,7 @@ assert.equal(currentRound.children[0].children[1].children[0].textContent, "轮�
 assert.equal(currentRound.children[0].children[1].children[1].textContent, "你");
 assert.equal(currentRound.children[0].children[1].children[1].className, "liars-turn-name");
 assert.equal(currentRound.children[0].children.length, 3);
-assert.match(allText(currentRound), /本轮骰子已按剩余数量重新掷出并隐藏/);
+assert.match(allText(currentRound), /骰子已重新掷出/);
 assert.match(allText(currentRound), /本轮当前叫点/);
 assert.match(allText(currentRound), /轮到你叫点/);
 assert.match(allText(currentRound), /现在叫点/);
