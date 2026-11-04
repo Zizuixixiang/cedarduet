@@ -69,9 +69,11 @@ for (const version of [undefined, 1, 2, 3]) {
     assert.equal(marker.getAttribute('aria-label'), `${marker.textContent}队`);
     assert.ok(c.classList.contains(`seat-${i}`));
     assert.equal(marker.parentElement, c, 'marker belongs to card, outside avatar and copy');
-    assert.equal(c.querySelector('.party-participant-score').textContent, `队分 ${['p1','p4','p5'].includes(`p${i}`) ? -1 : 0}`);
+    assert.equal(c.querySelector('.party-participant-score').textContent,
+      `队分 ${['p1','p4','p5'].includes(`p${i}`) ? -1 : 0}${i === 0 ? '▶ 正在行动' : ''}`);
+    assert.equal(c.querySelectorAll('.party-participant-turn').length, i === 0 ? 1 : 0);
     assert.doesNotMatch(c.querySelector('.room-participant-copy small').textContent, /座位/);
-    assert.doesNotMatch(c.textContent, /骰子|共用|你的席位|正在行动|故意冲突/);
+    assert.doesNotMatch(c.textContent, /骰子|共用|你的席位|故意冲突/);
     assert.equal(c.classList.contains('current'), i === 0);
     assert.equal(c.querySelector('.room-participant-avatar').classList.contains('current-turn-avatar'), i === 0);
   });
@@ -111,7 +113,7 @@ solo.participants[1].join_status = 'left';
 solo.participants[2].participant_kind = 'bound_machine';
 const soloCards = render(solo);
 soloCards.forEach((c, i) => {
-  assert.equal(c.querySelector('.party-participant-score').textContent, '积分 -0.5');
+  assert.equal(c.querySelector('.party-participant-score').textContent, `积分 -0.5${i === 0 ? '▶ 正在行动' : ''}`);
   assert.equal(c.querySelector('small').textContent, i === 5 ? 'NPC' : `ID p${i} · ${i === 2 ? '小机' : '人类'}`);
   assert.equal(c.querySelector('.room-participant-team-marker'), null);
 });
@@ -125,7 +127,7 @@ delete fallback.board_state.team_scores;
 assert.equal(render(fallback)[1].querySelector('.party-participant-score').textContent, '队分 —', 'missing score is not fabricated as zero');
 solo.participants[0].game_metadata = {};
 solo.board_state.scores = {p0:-1};
-assert.equal(render(solo)[0].querySelector('.party-participant-score').textContent, '积分 -1');
+assert.equal(render(solo)[0].querySelector('.party-participant-score').textContent, '积分 -1▶ 正在行动');
 for (const game_type of ['liars_dice', 'yahtzee', 'uno', 'four_color_classic']) {
   const other = structuredClone(fixture);
   other.game_type = game_type; other.board_state.mode = 'classic';
@@ -140,10 +142,10 @@ for (const game_type of ['liars_dice', 'yahtzee', 'uno', 'four_color_classic']) 
 dom.window.document.querySelector('.room-participants').replaceChildren(...soloCards);
 const scoreStyle = dom.window.getComputedStyle(soloCards[0].querySelector('.party-participant-score'));
 assert.equal(scoreStyle.whiteSpace, 'nowrap');
-assert.equal(scoreStyle.overflow, 'visible');
-assert.equal(scoreStyle.textOverflow, 'clip');
-assert.equal(scoreStyle.gridRow, '3');
-assert.equal(dom.window.getComputedStyle(soloCards[0].querySelector('small')).gridRow, '2');
+assert.equal(scoreStyle.display, 'flex');
+assert.equal(scoreStyle.overflow, 'hidden');
+assert.equal(scoreStyle.textOverflow, 'ellipsis');
+assert.equal(dom.window.getComputedStyle(soloCards[0].querySelector('.party-participant-turn')).whiteSpace, 'nowrap');
 dom.window.close();
 console.log('PASS: real server score summaries, legacy/v2 teams, solo scores, statuses, scope, perspective, image fallback; DOM/CSS only');
 

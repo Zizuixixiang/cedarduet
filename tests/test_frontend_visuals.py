@@ -1110,8 +1110,8 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn("font-size: 16px;", STYLES)
         self.assertIn("header.append(roundLabel, separator, title)", renderer)
         self.assertIn("result.appendChild(header)", renderer)
-        self.assertIn("/static/styles.css?v=0.9.53", HTML)
-        self.assertIn("/static/app.js?v=0.9.65", HTML)
+        self.assertIn("/static/styles.css?v=0.9.54", HTML)
+        self.assertIn("/static/app.js?v=0.9.66", HTML)
         self.assertNotIn(".game-view .liars-result-title,", STYLES)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[
@@ -3289,7 +3289,8 @@ for (const [state, diceLabel, scoreLabel] of [
   renderParticipantRoster(targetRoom);
   if (diceLabel) assert.ok(roster.children[0].children[2].textContent.includes(`${{diceLabel}} 4`));
   else {{
-    assert.doesNotMatch(roster.children[0].children[2].textContent, /骰子|席位|正在行动/);
+    assert.doesNotMatch(roster.children[0].children[2].textContent, /骰子|席位/);
+    assert.equal(roster.children[0].children[2].children[0].textContent, "▶ 正在行动");
     assert.doesNotMatch(roster.children[0].children[1].children[1].textContent, /座位/);
   }}
   assert.ok(viewerSlot.children[0].children[2].textContent.includes(`${{scoreLabel}} 2`));

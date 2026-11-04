@@ -3988,6 +3988,12 @@ function createParticipantBadge(participant, targetRoom) {
     const value = participant.game_metadata?.score
       ?? (team ? diceState.team_scores?.[team] : diceState.scores?.[participant.player_id]);
     score.textContent = `${team ? "队分" : "积分"} ${value ?? "—"}`;
+    if (isCurrent) {
+      const turnLabel = document.createElement("span");
+      turnLabel.className = "party-participant-turn";
+      turnLabel.textContent = "▶ 正在行动";
+      score.appendChild(turnLabel);
+    }
     badge.append(avatarWrap, copy, score);
     if (states.length) {
       const status = document.createElement("span");

@@ -1054,6 +1054,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .room-participant.inactive { opacity: .58; }
 /* Reuse the room card layout; only the corner marker needs positioning. */
 .room-participant.party-participant { position: relative; }
+.party-participant-score { display: flex; align-items: baseline; gap: 3px; }
+.party-participant-turn { margin-left: auto; white-space: nowrap; font-size: 9px; }
 .party-participant:has(> .room-participant-team-marker) .room-participant-copy strong { padding-right: 12px; }
 .room-participant.party-participant:has(> .party-participant-status) { height: auto; }
 .party-participant-status {
