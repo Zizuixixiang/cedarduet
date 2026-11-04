@@ -45,7 +45,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.19', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.20', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -155,9 +155,7 @@ const result=new Element("section",document);
 const outcome={rewards:[{player_id:"p1",team_id:"red",score_delta:1,score_after:0}],
  penalties:[{player_id:"p0",team_id:"red",hits:[],raw_multiplier:1,multiplier:1,score_delta:-1,score_after:0}]};
 window.DuelDiceRules.appendPenaltyReview(result,{participants},outcome);
-assert.equal(find(result,"liars-reward").length,1);
-assert.ok(find(result,"liars-reward")[0].textContent.includes("胜方+1 · 结算后 0 分"));
-assert.ok(find(result,"liars-penalty")[0].textContent.includes("-1分"));
+assert.equal(result.children.length,0); // Ordinary scoring has no redundant details/reward rows.
 const final=new Element("section",document);
 window.DuelDiceResults.render(final,{participants,result:{outcome:"ranked",rankings:[
  {rank:1,score:2,player_ids:["p1"]},{rank:2,score:-1,player_ids:["p0"]}]}},()=>{});
@@ -192,11 +190,18 @@ assert.deepEqual(rows[0].children[1].children.map((die)=>die.attributes["data-fa
 assert.equal(rows[1].children[0].textContent,"小机：");
 assert.deepEqual(rows[1].children[1].children.map((die)=>die.attributes["data-face"]),["6","6"]);
 assert.ok(rows.flatMap((row)=>row.children[1].children).every((die)=>die.textContent===""));
-assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.13");
+assert.equal(styles.get("duel-game-liars-dice-review-styles").href,"/static/games/liars_dice.css?v=0.1.14");
 '''
         completed = subprocess.run(
             [NODE, "-e", harness], cwd=ROOT, text=True, capture_output=True,
             check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_round_result_copy_and_scoring_regressions(self):
+        completed = subprocess.run(
+            [NODE, str(ROOT / "tests" / "liars_dice_round_result.cjs")], cwd=ROOT,
+            text=True, capture_output=True, check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 

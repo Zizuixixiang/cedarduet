@@ -2735,6 +2735,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .liars-current-bid span { color: var(--muted); font-size: 9px; }
 .liars-current-bid strong { color: var(--pink-dark); font-size: clamp(17px, 4vw, 26px); }
 .liars-round-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 8px 10px;
   display: grid;
   align-self: start;
@@ -2753,6 +2755,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 13px;
   line-height: 1.35;
 }
+.liars-round-result .liars-result-title { font-size: clamp(22px, 4vw, 26px); }
+.liars-result-round { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .liars-result-line {
   margin: 0;
   line-height: 1.4;
@@ -5224,7 +5228,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .private-state-row,
   .game-view .liars-turn-line,
   .game-view .liars-round-heading .liars-turn-line span,
-  .game-view .liars-result-title,
+  .game-view .liars-party-scores .liars-result-title,
   .game-view .yahtzee-turn-copy strong,
   .game-view .yahtzee-score-heading strong,
   .game-view .yahtzee-score-option-value,

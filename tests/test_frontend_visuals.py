@@ -30,7 +30,7 @@ class GameUIExtensionContractTests(unittest.TestCase):
         app_tag = re.search(r'<script src="/static/app\.js\?v=[^"]+"></script>', HTML).group(0)
         self.assertIn(registry_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(app_tag))
-        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.19"></script>'
+        liars_tag = '<script src="/static/games/liars_dice.js?v=0.1.20"></script>'
         self.assertIn(liars_tag, HTML)
         self.assertLess(HTML.index(registry_tag), HTML.index(liars_tag))
         self.assertLess(HTML.index(liars_tag), HTML.index(app_tag))
@@ -1100,6 +1100,10 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn("white-space: nowrap;", turn_name_style)
         self.assertIn(".liars-round-result {", STYLES)
         self.assertIn("`第 ${outcome.round} 轮结算`", renderer)
+        self.assertIn("title.textContent = resultLines.title", renderer)
+        self.assertNotIn("整局已结束，仅保留终局复盘", renderer)
+        self.assertIn("font-size: clamp(22px, 4vw, 26px)", STYLES)
+        self.assertNotIn(".game-view .liars-result-title,", STYLES)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[
             STYLES.index(".board.liars_dice {"):
@@ -2642,13 +2646,14 @@ assert.equal(currentBidRound.children[2].children[3].disabled, false);
 
 assert.match(previousRound.className, /liars-round-result/);
 assert.match(previousRound.className, /liars-previous-round/);
-assert.equal(previousRound.children[0].textContent, "第 1 轮结算");
-assert.equal(previousRound.children[1].textContent, "实际 2 个 6 点 · 叫点失败");
-assert.equal(previousRound.children[2].textContent, "小机一号 -1 骰 · 剩余 4");
-assert.equal(previousRound.children.length, 4);
-const compactText = previousRound.children.slice(0, 3)
+assert.equal(previousRound.children[0].textContent, "质疑成功");
+assert.equal(previousRound.children[1].textContent, "第 1 轮结算");
+assert.equal(previousRound.children[2].textContent, "小机一号喊了3个6点，开骰计入2个，数量不够。");
+assert.equal(previousRound.children[3].textContent, "小机一号 -1颗骰子 · 剩余4颗");
+assert.equal(previousRound.children.length, 5);
+const compactText = previousRound.children.slice(0, 4)
   .map((child) => child.textContent).join(" ");
-assert.doesNotMatch(compactText, /上一轮|质疑|由 .* 开叫/);
+assert.doesNotMatch(compactText, /上一轮|由 .* 开叫/);
 const details = previousRound.children.find((child) => child.tagName === "DETAILS");assert.equal(details.tagName, "DETAILS");
 assert.equal(details.open, false);
 assert.equal(details.children[0].textContent, "查看上一轮揭骰");
@@ -2684,7 +2689,7 @@ renderLiarsDice(eliminatedBoard, {{
     revealed_dice_by_player: {{"human-1": [4, 5, 6], "ai-1": [2]}},
   }},
 }});
-assert.equal(eliminatedBoard.children[1].children[2].textContent, "小机一号 -1 骰 · 已淘汰");
+assert.equal(eliminatedBoard.children[1].children[3].textContent, "小机一号 -1颗骰子 · 已淘汰");
 
 
 const afterOpeningBid = new Element("div");
@@ -2717,16 +2722,17 @@ renderLiarsDice(ackBoard, waitingState);
 assert.equal(ackBoard.children.length, 1);
 const settlement = ackBoard.children[0];
 assert.equal(settlement.classList.contains("awaiting-acknowledgement"), true);
-assert.equal(settlement.children[0].textContent, "第 2 轮结算");
-assert.equal(settlement.children[1].textContent, "实际 3 个 5 点 · 叫点失败");
-assert.equal(settlement.children[2].textContent, "人类一号 -1 骰 · 剩余 3");
-const acknowledgement = settlement.children[3];
+assert.equal(settlement.children[0].textContent, "质疑成功");
+assert.equal(settlement.children[1].textContent, "第 2 轮结算");
+assert.equal(settlement.children[2].textContent, "人类一号喊了4个5点，开骰计入3个，数量不够。");
+assert.equal(settlement.children[3].textContent, "人类一号 -1颗骰子 · 剩余3颗");
+const acknowledgement = settlement.children[4];
 assert.match(allText(acknowledgement), /确认后才会重新掷骰并开始下一轮/);
 const acknowledgementButton = acknowledgement.children[1];
 assert.equal(acknowledgementButton.textContent, "知道了，开始第 3 轮");
-assert.equal(settlement.children[4].tagName, "DETAILS");
-assert.equal(settlement.children[4].open, false);
-assert.equal(settlement.children[4].children[0].textContent, "查看本轮揭骰");
+assert.equal(settlement.children[5].tagName, "DETAILS");
+assert.equal(settlement.children[5].open, false);
+assert.equal(settlement.children[5].children[0].textContent, "查看本轮揭骰");
 assert.doesNotMatch(allText(ackBoard), /本轮当前叫点|现在叫点/);
 
 const terminalBoard = new Element("div");
@@ -2736,9 +2742,10 @@ renderLiarsDice(terminalBoard, {{
   pending_next_round: null,
 }});
 assert.doesNotMatch(allText(terminalBoard), /知道了，开始第/);
-assert.equal(terminalBoard.children[0].children[0].children[0].textContent, "第 2 轮 · 已结算");
-assert.equal(terminalBoard.children[0].children[0].children.length, 2);
-assert.equal(terminalBoard.children[1].children[0].textContent, "第 2 轮结算");
+assert.equal(terminalBoard.children.length, 1);
+assert.equal(terminalBoard.children[0].children[0].textContent, "质疑成功");
+assert.equal(terminalBoard.children[0].children[1].textContent, "第 2 轮结算");
+assert.doesNotMatch(allText(terminalBoard), /整局已结束，仅保留终局复盘/);
 
 (async () => {{
   humanTurn = true;
@@ -3962,16 +3969,17 @@ const reveal = settledBoard.children.find(
   (child) => child.className.includes("liars-round-result")
 );
 assert.ok(reveal);
-assert.equal(reveal.children[0].textContent, "第 2 轮结算");
-assert.equal(reveal.children[1].textContent, "实际 3 个 5 点 · 叫点失败");
-assert.equal(reveal.children[2].textContent, "Vega -1 骰 · 剩余 4");
-assert.equal(reveal.children.length, 4);
-assert.equal(reveal.children[3].tag, "details");
-assert.equal(reveal.children[3].open, undefined);
-assert.equal(reveal.children[3].children[0].textContent, "查看上一轮揭骰");
+assert.equal(reveal.children[0].textContent, "质疑成功");
+assert.equal(reveal.children[1].textContent, "第 2 轮结算");
+assert.equal(reveal.children[2].textContent, "Vega喊了4个5点，开骰计入3个，数量不够。");
+assert.equal(reveal.children[3].textContent, "Vega -1颗骰子 · 剩余4颗");
+assert.equal(reveal.children.length, 5);
+assert.equal(reveal.children[4].tag, "details");
+assert.equal(reveal.children[4].open, undefined);
+assert.equal(reveal.children[4].children[0].textContent, "查看上一轮揭骰");
 assert.doesNotMatch(
-  reveal.children.slice(0, 3).map((child) => child.textContent).join(" "),
-  /human-1|ai-1|质疑|由 .* 开叫/
+  reveal.children.slice(0, 4).map((child) => child.textContent).join(" "),
+  /human-1|ai-1|由 .* 开叫/
 );
 
 const afterOpeningBid = {{

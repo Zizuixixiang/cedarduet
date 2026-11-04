@@ -163,7 +163,7 @@ fs.mkdirSync(out,{recursive:true});
      }
      if(phase==='reveal') {
       const text=await page.locator('.liars-result-loss').innerText();
-      assert.ok(text.includes(key==='classic'?'-1 骰':'本局积分 -1'),text);
+      assert.ok(text.includes(key==='classic'?'-1颗骰子':'-1分'),text);
       await page.locator('.liars-reveal-details').last().evaluate(n=>n.open=true);
       assert.equal(await page.locator('.liars-revealed-player').count(),key==='pairs'?2:key==='party'?5:2);
       assert.equal(await page.locator('.liars-round-acknowledgement button').isDisabled(),key!=='classic' && served.current_player_id!=='human-1');
@@ -172,8 +172,7 @@ fs.mkdirSync(out,{recursive:true});
      if(phase==='finished')assert.equal(await page.evaluate(r=>resultTextFor(r,[]),served),served.result.result_text);
      if(key!=='classic' && phase!=='opening') {
       assert.ok((await page.locator('.liars-party-scores').innerText()).includes('-1分'));
-      await page.locator('.liars-party-scores details').evaluate(n=>n.open=true);
-      assert.ok((await page.locator('.liars-party-scores').innerText()).includes('第1轮'));
+      assert.equal(await page.locator('.liars-party-scores details').count(),0);
      }
      const bad=await page.evaluate(()=>[...document.querySelectorAll('.board.liars_dice,.liars-controls select,.liars-controls button,.liars-party-scores')].filter(n=>{const r=n.getBoundingClientRect();return r.width && (r.left<-.5||r.right>innerWidth+.5);}).map(n=>n.className));
 
@@ -193,10 +192,10 @@ fs.mkdirSync(out,{recursive:true});
     await page.evaluate(r=>{stopPolling();renderGame(r,'',[]);closeResultModal();},served);
     if(phase==='reveal') {
      assert.ok((await page.locator('.liars-result-loss').innerText()).includes('-4'));
-     assert.ok((await page.locator('.liars-penalty-summary').innerText()).includes('×4（已封顶）'));
-     assert.ok(await page.locator('.liars-penalty').isHidden());
+     assert.equal(await page.locator('.liars-penalty-details summary').innerText(),'计分原因');
+     assert.ok(await page.locator('.liars-penalty').first().isHidden());
      await page.locator('.liars-penalty-details summary')[width<600?'tap':'click']();
-     assert.ok((await page.locator('.liars-penalty').innerText()).includes('原始8倍 → 4倍（封顶4）'));
+     assert.ok((await page.locator('.liars-penalty-details').innerText()).includes('最多扣4分'));
      await screenshot(`advanced-details`);
      await page.locator('.liars-penalty-details summary')[width<600?'tap':'click']();
     } else {

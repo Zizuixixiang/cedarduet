@@ -2612,34 +2612,69 @@ function liarsRoundResultIsVisible(state) {
   return Boolean(state.last_round_result && !state.current_bid);
 }
 
-function liarsRoundResultLines(outcome) {
+function liarsRoundResultLines(outcome, state = {}) {
   const bid = outcome.bid || {};
+  const bidderId = outcome.bidder_player_id || bid.bidder_player_id;
   const loser = outcome.loser_display_name
     || liarsParticipantName(outcome.loser_player_id);
-  const eliminated = outcome.eliminated
-    || Boolean(outcome.eliminated_player_id)
-    || outcome.loser_remaining_dice === 0;
-  if (outcome.mode === "party") {
-    const team = outcome.loser_team_id === "red" ? "红队"
-      : outcome.loser_team_id === "blue" ? "蓝队" : loser;
-    const called = `叫 ${bid.quantity} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}`;
-    return {
-      outcome: `${called} · ${outcome.phase === "surrendered" ? "投降认罚"
-        : `实际 ${outcome.actual_count} 个 · 叫点${outcome.bid_holds ? "成功" : "失败"}`}`,
-      loss: `${team} ${outcome.score_delta ?? -1} 分${Number.isFinite(outcome.score_after)
-        ? ` · 累计 ${outcome.score_after} 分` : ""}`,
-    };
+  const surrendered = outcome.phase === "surrendered";
+  // Final identities take precedence over the count, including dark-rule reversals.
+  let bidderWon;
+  if (bidderId && outcome.winner_player_id) {
+    bidderWon = outcome.winner_player_id === bidderId;
+  } else if (bidderId && outcome.loser_player_id) {
+    bidderWon = outcome.loser_player_id !== bidderId;
+  } else if (typeof outcome.bid_holds === "boolean") {
+    bidderWon = outcome.dark_reversed ? !outcome.bid_holds : outcome.bid_holds;
   }
-  return {
-    outcome: outcome.phase === "surrendered" ? "本轮投降认罚" : (
-      `实际 ${outcome.actual_count} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}`
-      + ` · 叫点${outcome.bid_holds ? "成功" : "失败"}${outcome.dark_reversed ? " · 天黑黑反转胜负" : ""}`
-    ),
-    loss: outcome.mode === "party" ? `${loser}${outcome.loser_team_id ? "所在队" : ""} 本局积分 ${outcome.score_delta ?? -1}${Number.isFinite(outcome.score_after) ? ` · 累计 ${outcome.score_after} 分` : ""} · 骰数不变` : (
-      `${loser} -1 骰`
-      + ` · ${eliminated ? "已淘汰" : `剩余 ${outcome.loser_remaining_dice}`}`
-    ),
-  };
+  const title = surrendered ? "主动投降"
+    : bidderWon === undefined ? "本轮结算" : bidderWon ? "叫点成功" : "质疑成功";
+  const bidder = outcome.bidder_display_name || liarsParticipantName(bidderId);
+  const explanation = surrendered ? `${loser}投降认罚。`
+    : Number.isFinite(outcome.actual_count) && Number.isFinite(bid.quantity)
+      && Number.isFinite(bid.face)
+      ? `${bidder}喊了${bid.quantity}个${bid.face}点${bid.exact ? "（斋）" : ""}，`
+        + `开骰计入${outcome.actual_count}个，数量${outcome.actual_count >= bid.quantity ? "够了" : "不够"}。`
+      : "";
+  let loss = "";
+  if ((state.mode || outcome.mode) === "party") {
+    const changes = new Map();
+    const unitFor = entry => entry.unit_id || entry.team_id
+      || Object.keys(state.teams || {}).find(team => state.teams[team].includes(entry.player_id))
+      || entry.player_id;
+    const add = (entry, halfField) => {
+      const unit = unitFor(entry);
+      const delta = Number.isFinite(entry.score_delta) ? entry.score_delta
+        : Number.isFinite(entry[halfField]) ? entry[halfField] / 2 : null;
+      if (unit && delta !== null) changes.set(unit, (changes.get(unit) || 0) + delta);
+    };
+    if (Array.isArray(outcome.score_changes)) {
+      outcome.score_changes.forEach(entry => add(entry, "delta_half_units"));
+    } else if ((outcome.penalties || []).length || (outcome.rewards || []).length) {
+      // Old rooms record gross sources, once per scoring unit, not per teammate.
+      (outcome.rewards || []).forEach(entry => add(entry, "reward_half_units"));
+      (outcome.penalties || []).forEach(entry => add({
+        ...entry,
+        score_delta: Number.isFinite(entry.score_delta) ? entry.score_delta
+          : Number.isFinite(entry.deduction_half_units) ? -entry.deduction_half_units / 2 : null,
+      }));
+    } else {
+      // Earliest snapshots only have the loser's recorded delta. Never invent a reward.
+      add({player_id: outcome.loser_player_id, team_id: outcome.loser_team_id,
+        score_delta: outcome.score_delta});
+    }
+    loss = Array.from(changes, ([unit, delta]) => {
+      const name = unit === "red" ? "红队" : unit === "blue" ? "蓝队" : liarsParticipantName(unit);
+      return `${name} ${delta >= 0 ? "+" : ""}${delta}分`;
+    }).join("　");
+  } else {
+    const eliminated = outcome.eliminated || Boolean(outcome.eliminated_player_id)
+      || outcome.loser_remaining_dice === 0;
+    loss = `${loser} -1颗骰子`
+      + (eliminated ? " · 已淘汰" : Number.isFinite(outcome.loser_remaining_dice)
+        ? ` · 剩余${outcome.loser_remaining_dice}颗` : "");
+  }
+  return {title, outcome: explanation, loss};
 }
 
 function liarsBidSelectionIsLegal(state, selection) {
@@ -2935,15 +2970,21 @@ function renderLiarsDice(board, state) {
       : (isHistoricalResult ? "上一轮结算" : "本轮结算");
     const title = document.createElement("strong");
     title.className = "liars-result-title";
-    title.textContent = `第 ${outcome.round} 轮结算`;
-    const resultLines = liarsRoundResultLines(outcome);
+    const resultLines = liarsRoundResultLines(outcome, state);
+    title.textContent = resultLines.title;
+    const roundLabel = document.createElement("small");
+    roundLabel.className = "liars-result-round";
+    roundLabel.textContent = `第 ${outcome.round} 轮结算`
+      + (outcome.dark_reversed && outcome.phase !== "surrendered" ? " · 天黑黑反转" : "");
     const outcomeLine = document.createElement("p");
     outcomeLine.className = "liars-result-line liars-result-outcome";
     outcomeLine.textContent = resultLines.outcome;
     const lossLine = document.createElement("p");
     lossLine.className = "liars-result-line liars-result-loss";
     lossLine.textContent = resultLines.loss;
-    result.append(title, outcomeLine, lossLine);
+    result.append(title, roundLabel);
+    if (resultLines.outcome) result.appendChild(outcomeLine);
+    if (resultLines.loss) result.appendChild(lossLine);
     if (awaitingRoundAcknowledgement) {
       const pending = state.pending_next_round || {};
       const nextRound = Number.isInteger(pending.round_number)
@@ -2972,7 +3013,7 @@ function renderLiarsDice(board, state) {
       result.appendChild(acknowledgement);
     }
 
-    if (outcome.mode === "party" && window.DuelDiceRules) {
+    if ((state.mode || outcome.mode) === "party" && window.DuelDiceRules) {
       window.DuelDiceRules.appendPenaltyReview(result, {participants: room.participants}, outcome);
     }
 
@@ -3004,7 +3045,7 @@ function renderLiarsDice(board, state) {
       diceList.appendChild(row);
     });
     reveal.appendChild(diceList);
-    if (!outcome.preserve_dice) result.appendChild(reveal);
+    if (!outcome.preserve_dice && diceList.children.length) result.appendChild(reveal);
   }
   if (awaitingRoundAcknowledgement) {
     if (result) board.appendChild(result);
@@ -3012,20 +3053,6 @@ function renderLiarsDice(board, state) {
   }
 
   if (terminal) {
-    const terminalReview = document.createElement("section");
-    terminalReview.className = "liars-current-round liars-terminal-review";
-    terminalReview.ariaLabel = "吹牛骰子整局终局复盘";
-    const terminalHeading = document.createElement("div");
-    terminalHeading.className = "liars-round-heading";
-    const terminalTitle = document.createElement("strong");
-    terminalTitle.textContent = Number.isInteger(roundNumber)
-      ? `第 ${roundNumber} 轮 · 已结算`
-      : "本局已结束";
-    const terminalStatus = document.createElement("span");
-    terminalStatus.textContent = "整局已结束，仅保留终局复盘";
-    terminalHeading.append(terminalTitle, terminalStatus);
-    terminalReview.appendChild(terminalHeading);
-    board.appendChild(terminalReview);
     if (result) board.appendChild(result);
     return;
   }

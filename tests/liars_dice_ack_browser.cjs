@@ -45,14 +45,18 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
             await until(ui, `room?.revision === ${room.revision}`);
             await scoresOnly();
             assert.equal(await ui.run(`$('board').firstElementChild.classList.contains('awaiting-acknowledgement')`), true);
-            assert.equal(await ui.run(`document.querySelector('.liars-result-title').textContent`), `第 ${round} 轮结算`);
+            assert.equal(await ui.run(`document.querySelector('.liars-result-round').textContent`), `第 ${round} 轮结算`);
             const text = await ui.run(`document.querySelector('.awaiting-acknowledgement').textContent`);
-            assert.ok(text.includes('叫 10 个 6 点（斋）'));
-            assert.ok(text.includes(round === 1 ? '实际' : '投降认罚'));
-            assert.ok(text.includes('累计'));
+            assert.ok(text.includes(round === 1 ? '喊了10个6点（斋）' : '主动投降'));
+            const outcome = room.board_state.last_round_result;
+            assert.equal(await ui.run(`document.querySelector('.liars-result-title').textContent`),
+              round === 2 ? '主动投降' : outcome.winner_player_id === outcome.bidder_player_id ? '叫点成功' : '质疑成功');
+            assert.ok(text.includes(round === 1 ? '开骰计入' : '投降认罚'));
+            assert.equal(await ui.run(`document.querySelectorAll('.liars-result-loss').length`), 1);
+            assert.ok(!text.includes('累计') && !text.includes('胜方+1'));
             assert.equal(await ui.run(`document.querySelector('.liars-round-acknowledgement button').disabled`), false);
             assert.equal(await ui.run(`document.querySelectorAll('.liars-penalty-summary').length`), 0);
-            assert.equal(await ui.run(`document.querySelector('.liars-penalty-details').open`), false);
+            assert.equal(await ui.run(`document.querySelectorAll('.liars-penalty-details').length`), 0);
             if (!domOnly) {
               assert.equal(await ui.run('document.documentElement.scrollWidth <= innerWidth'), true);
               assert.ok(await ui.run(`document.querySelector('.liars-round-acknowledgement button').getBoundingClientRect().height >= 44`));

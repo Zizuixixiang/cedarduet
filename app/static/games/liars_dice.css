@@ -139,7 +139,6 @@
 .liars-team-score-members > li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .liars-penalty-details summary { min-height: 36px; padding-block: 9px; white-space: normal; }
 .liars-round-acknowledgement .pixel-btn { min-height: 44px; white-space: normal; }
-.liars-round-result.awaiting-acknowledgement { min-width: 0; overflow-wrap: anywhere; }
 .liars-penalty-details { color: var(--text); overflow-wrap: anywhere; }
 .liars-penalty-details[open] { padding-bottom: 4px; }
 .liars-penalty-details .liars-result-line + .liars-result-line { margin-top: 6px; }

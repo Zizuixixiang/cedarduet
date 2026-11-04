@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-liars-dice-review-styles";
-  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.13";
+  const STYLE_HREF = "/static/games/liars_dice.css?v=0.1.14";
 
   function ensureStylesheet(documentRef) {
     if (!documentRef || !documentRef.head) return null;
@@ -242,30 +242,37 @@
   };
 
   function penaltyText(context, p) {
-    const names = {cup_loser:"围骰败方", under_half:"不足一半", over_double:"超过两倍", companion:"陪扣", companion_self:"抽中本人/同队"};
-    const hits = (p.hits || []).map(k => names[k] || k).join("、") || "基础";
-    return `${participantName(context, p.player_id)}${p.team_id ? "所在队" : ""} · ${hits} · 原始${p.raw_multiplier}倍 → ${p.multiplier}倍（封顶4） · ${p.score_delta}分`;
+    const names = {
+      cup_loser: "围骰加倍", under_half: "点数不足一半再加倍",
+      over_double: "点数超过两倍再加倍", companion: "陪扣，按败方倍数认罚",
+      companion_self: "陪扣抽中本人或同队，再加倍",
+    };
+    const reasons = (p.hits || []).map(key => names[key]).filter(Boolean);
+    if (!reasons.length) return "";
+    // A lone extreme penalty doubles once; “再” only describes stacked factors.
+    reasons[0] = reasons[0].replace("再加倍", "加倍");
+    const name = p.team_id === "red" ? "红队" : p.team_id === "blue" ? "蓝队"
+      : participantName(context, p.player_id);
+    return `${name}：${reasons.join("、")}`
+      + (p.multiplier >= 4 || p.capped ? "，最多扣4分" : "");
   }
 
   function appendPenaltyReview(result, context, outcome) {
     const doc = result.ownerDocument || global.document;
-    const penalties = outcome.penalties || [];
-    (outcome.rewards || []).forEach(reward => {
-      result.appendChild(element(doc, "p", "liars-result-line liars-reward",
-        `${participantName(context, reward.player_id)}${reward.team_id ? "所在队" : ""} · 胜方+1 · 结算后 ${reward.score_after} 分`));
-    });
-    if (!penalties.length) return;
-    const details = element(doc, "details", "liars-reveal-details liars-penalty-details");
-    details.appendChild(element(doc, "summary", "", "扣分明细"));
-    penalties.forEach(p => {
-      details.appendChild(element(doc, "p", "liars-result-line liars-penalty", penaltyText(context, p)));
-    });
-    if (outcome.dark_reversed) {
-      details.appendChild(element(doc, "p", "liars-result-line", "天黑黑：无所叫实点，反转输赢"));
-    }
+    const reasons = (outcome.penalties || []).map(p => penaltyText(context, p)).filter(Boolean);
+    if (outcome.dark_reversed) reasons.push("天黑黑：无人持有所叫点数，胜负反转。");
     if (outcome.companion) {
-      details.appendChild(element(doc, "p", "liars-result-line", `陪扣骰 ${outcome.companion.rolls.join("、")} → 第${outcome.companion.seat}位 ${participantName(context, outcome.companion.player_id)}`));
+      reasons.push(`陪扣抽中${participantName(context, outcome.companion.player_id)}`
+        + (outcome.companion.same_unit
+          ? outcome.companion.player_id === outcome.loser_player_id ? "（败方本人）。" : "（败方同队）。"
+          : "。"));
     }
+    if (!reasons.length) return;
+    const details = element(doc, "details", "liars-reveal-details liars-penalty-details");
+    details.appendChild(element(doc, "summary", "", "计分原因"));
+    reasons.forEach(reason => {
+      details.appendChild(element(doc, "p", "liars-result-line liars-penalty", reason));
+    });
     result.appendChild(details);
   }
 
