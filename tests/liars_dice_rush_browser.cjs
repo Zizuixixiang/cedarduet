@@ -48,7 +48,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         assert.equal(await ui.run(`document.querySelector('select[aria-label="叫点规则"]').value`),'false');
         // Existing normal-bid default is preserved, and the first bid travels through the real UI.
         await ui.click('.liars-controls > button:first-of-type');
-        await until(ui, `room?.board_state?.rush_until && !!document.querySelector('.liars-round-heading').textContent.includes('剩余')`);
+        await until(ui, `room?.board_state?.rush_until && !!document.querySelector('.liars-round-heading').textContent.includes('抢开倒计时')`);
         const first=JSON.parse(await ui.run('JSON.stringify(room)'));
         assert.equal(Object.hasOwn(first.board_state, 'server_time'), false);
         assert.ok(Number.isFinite(first.rushServerTime));
@@ -63,8 +63,8 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         await until(ui, `identity`);
         if (domOnly) await ui.run(`openRoom('${rid}')`);
         await until(ui, `room?.room_id === '${rid}' && room.board_state?.rush_until === ${deadline}`);
-        await until(ui, `document.querySelector('.liars-round-heading').textContent.includes('剩余')`);
-        assert.equal(await ui.run(`document.querySelector('.liars-round-heading').textContent.includes('剩余 10 秒')`),false,'reload cannot reset timer');
+        await until(ui, `document.querySelector('.liars-round-heading').textContent.includes('抢开倒计时')`);
+        assert.equal(await ui.run(`document.querySelector('.liars-round-heading').textContent.includes('抢开倒计时 10s')`),false,'reload cannot reset timer');
         // Page timer triggers the expiry refresh without fixture polling or changing server time.
         await until(ui,`room?.room_id === '${rid}' && !room.board_state.rush_until`,12000);
         const expired=JSON.parse(await ui.run('JSON.stringify(room)'));

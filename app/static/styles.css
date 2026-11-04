@@ -2693,6 +2693,12 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-family: system-ui, sans-serif;
   font-size: 12px;
 }
+.game-view .liars-round-heading span.liars-rush-countdown {
+  color: var(--pink-dark);
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+}
 .liars-turn-line {
   width: 100%;
   min-width: 0;

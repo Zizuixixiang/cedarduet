@@ -45,7 +45,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.18', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.19', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -72,21 +72,22 @@ const state = {rush_until: 2000000010};
 let room = {rushReceivedAt: now, rushServerTime: 2000000000};
 let status, button;
 const attach = () => {
-  status = {isConnected: true}; button = {disabled: false};
+  status = {isConnected: true, classList: {add(name) {status.className = name;}}}; button = {disabled: false};
   window.DuelDiceRush.attach({room, state, status, button, refresh: () => refreshes++});
   scheduled();
 };
 attach();
-assert.match(status.textContent, /剩余 10 秒/);
+assert.match(status.textContent, /抢开倒计时 10s/);
+assert.equal(status.className, "liars-rush-countdown");
 assert.equal(button.disabled, false);
 now = 3500; scheduled();
-assert.match(status.textContent, /剩余 8 秒/);
+assert.match(status.textContent, /抢开倒计时 8s/);
 attach(); // Same response, newly rendered nodes: still the original deadline.
-assert.match(status.textContent, /剩余 8 秒/);
+assert.match(status.textContent, /抢开倒计时 8s/);
 now = 7000;
 room = {rushReceivedAt: now, rushServerTime: 2000000006};
 attach(); // Reconnected response: only four seconds remain.
-assert.match(status.textContent, /剩余 4 秒/);
+assert.match(status.textContent, /抢开倒计时 4s/);
 now = 11000; scheduled();
 assert.match(status.textContent, /抢开已截止/);
 assert.equal(button.disabled, true);

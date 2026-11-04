@@ -310,12 +310,11 @@
     const remaining = Number.isFinite(room.rushServerTime)
       ? Math.max(0, state.rush_until - room.rushServerTime) : 0;
     const end = received + remaining * 1000;
+    status.classList.add("liars-rush-countdown");
     const tick = () => {
       if (!status.isConnected) return;
       const seconds = Math.max(0, Math.ceil((end - performance.now()) / 1000));
-      status.textContent = seconds > 0
-        ? `抢开机会 · 剩余 ${seconds} 秒 · ${state.teams && !(state.team_rules_version >= 2) ? "不可抢自己或旧房共盅队友" : "同队可抢，不可抢自己"}`
-        : "抢开已截止 · 正在同步下一手";
+      status.textContent = seconds > 0 ? `抢开倒计时 ${seconds}s` : "抢开已截止";
       if (seconds > 0) rushTimer = setTimeout(tick, 200);
       else {
         button.disabled = true;
