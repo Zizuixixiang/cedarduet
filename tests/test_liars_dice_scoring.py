@@ -25,6 +25,144 @@ class ScoringLedgerTests(unittest.TestCase):
         self.assertEqual(set(state['score_half_units'].values()), {0})
         return state, ids
 
+    def resolve(self, state, *, challenger=1, quantity=10, face=6, exact=False):
+        self.people[0]['display_name'] = '唐焰'
+        self.people[1]['display_name'] = '林舟'
+        bid = dict(action='bid', quantity=quantity, face=face, exact=exact)
+        self.game.validate_action(state, bid, self.people[0])
+        self.game.apply_action(state, bid, self.people[0])
+        move = {'action':'challenge'}
+        applied = self.game.apply_action(state, move, self.people[challenger])
+        self.game.progress_after_action(state, move, self.people[challenger], self.people, applied)
+        result = state['last_round_result']
+        self.assertEqual(applied.note, result['summary'])
+        self.assertEqual(applied.note, f"第 1 轮：{result['result_summary']}")
+        for field in ('penalties', 'rewards', 'score_changes', 'scoring_rules_version',
+                      'companion', 'cup_bonuses', 'dark_reversed'):
+            self.assertEqual(applied.public_event['round_result'][field], result[field])
+        for unwanted in ('所在队', '累计', '原始', '倍→', '现为', 'score_', '实际'):
+            self.assertNotIn(unwanted, applied.note)
+        return result
+
+    def test_individual_summary_final_winner_and_count_including_wild_bonus(self):
+        for exact, quantity, count, verdict, scores in (
+            (False, 6, 6, '叫点成功', '唐焰 +1分，林舟 -1分'),
+            (True, 5, 4, '质疑成功', '林舟 +1分，唐焰 -1分'),
+        ):
+            with self.subTest(exact=exact):
+                state, ids = self.make(2, False)
+                state['dice_by_player'] = {ids[0]:[1,3,3,3,3], ids[1]:[2]*5}
+                result = self.resolve(state, quantity=quantity, face=3, exact=exact)
+                self.assertEqual(result['result_summary'],
+                    f"唐焰叫{quantity}个3点{'（斋）' if exact else ''}，开骰计入{count}个，{verdict}。{scores}。")
+
+    def test_team_summary_cross_same_and_multiplied_net(self):
+        for challenger, cup, scores in ((2, False, '蓝队 +1分，红队 -1分'),
+                                        (1, False, '红队 +0分'),
+                                        (1, True, '红队 -1分')):
+            with self.subTest(challenger=challenger, cup=cup):
+                state, ids = self.make(cup_penalty=cup)
+                state['dice_by_player'] = {pid:[2]*5 for pid in ids}
+                result = self.resolve(state, challenger=challenger)
+                self.assertEqual(result['result_summary'],
+                    f'唐焰叫10个6点，开骰计入0个，质疑成功。{scores}。')
+                legacy = deepcopy(result)
+                legacy.pop('score_changes')
+                self.assertIn(f'红队 {1 - (2 if cup else 1):+g}分' if challenger == 1
+                              else '红队 -1分', self.game._party_round_summary(state, legacy, {}))
+
+    def test_last_bidder_and_winning_team_are_not_assumed_from_first_seat(self):
+        state, ids = self.make()
+        self.people[1]['display_name'] = '唐焰'
+        state['dice_by_player'] = {pid:[3]*5 for pid in ids}
+        self.game.apply_action(state, {'action':'bid','quantity':4,'face':3,'exact':True}, self.people[0])
+        self.game.apply_action(state, {'action':'bid','quantity':5,'face':3}, self.people[1])
+        move = {'action':'challenge'}
+        applied = self.game.apply_action(state, move, self.people[2])
+        self.game.progress_after_action(state, move, self.people[2], self.people, applied)
+        self.assertEqual(state['last_round_result']['result_summary'],
+            '唐焰叫5个3点（斋），开骰计入28个，叫点成功。红队 +1分，蓝队 -1分。')
+
+    def test_classic_summary_stays_unchanged(self):
+        self.game = LiarsDice(random.Random(82))
+        self.people = support.participants(2)
+        state = self.game.initialize(self.people)
+        state['dice_by_player'] = {p['player_id']:[2]*5 for p in self.people}
+        self.game.apply_action(state, {'action':'bid','quantity':3,'face':6}, self.people[0])
+        move = {'action':'challenge'}
+        applied = self.game.apply_action(state, move, self.people[1])
+        self.game.progress_after_action(state, move, self.people[1], self.people, applied)
+        expected = ('小机 1 质疑 人类一号 的叫点“3 个 6 点”；实际有 0 个 6 点，'
+                    '叫点失败；人类一号 输掉 1 枚骰，剩余 4 枚，未淘汰。')
+        self.assertEqual(state['last_round_result']['result_summary'], expected)
+        self.assertEqual(applied.note, f'第 1 轮：{expected}第 2 轮 · 由 人类一号 开叫。')
+
+    def test_companion_other_team_combines_reward_and_penalty(self):
+        state, ids = self.make(companion_penalty=True, cup_penalty=True)
+        state['dice_by_player'] = {pid:[2]*5 for pid in ids}
+        with patch.object(self.game, '_roll', return_value=[3]):
+            result = self.resolve(state, challenger=2)
+        self.assertEqual(result['result_summary'],
+            '唐焰叫10个6点，开骰计入0个，质疑成功。蓝队 -1分，红队 -2分。')
+        self.assertEqual(result['companion']['player_id'], ids[2])
+        self.assertEqual(len(result['penalties']), 2)
+        self.assertEqual(len(result['rewards']), 1)
+
+    def test_dark_summary_uses_final_winner_in_both_directions(self):
+        for quantity, holds, verdict, scores in (
+            (3, True, '质疑成功', '林舟 +1分，唐焰 -1分'),
+            (11, False, '叫点成功', '唐焰 +1分，林舟 -1分'),
+        ):
+            state, ids = self.make(2, False, dark_rule=True)
+            state['dice_by_player'] = {pid:[1]*5 for pid in ids}
+            result = self.resolve(state, quantity=quantity, face=2)
+            self.assertEqual(result['bid_holds'], holds)
+            self.assertEqual(result['result_summary'],
+                f'唐焰叫{quantity}个2点，开骰计入10个，天黑黑反转，{verdict}。{scores}。')
+
+    def test_legacy_summary_uses_only_recorded_deltas_without_reward(self):
+        for teams in (False, True):
+            state, ids = self.make(4, teams)
+            state.pop('scoring_rules_version')
+            state['dice_by_player'] = {pid:[2]*5 for pid in ids}
+            result = self.resolve(state)
+            label = '红队' if teams else '唐焰'
+            expected = f'唐焰叫10个6点，开骰计入0个，质疑成功。{label} -1分。'
+            self.assertEqual(result['result_summary'], expected)
+            legacy = deepcopy(result)
+            legacy.pop('score_changes')
+            legacy.pop('rewards')
+            names = {p['player_id']:p['display_name'] for p in self.people}
+            for detailed in (True, False):
+                if not detailed:
+                    legacy.pop('penalties')
+                before = deepcopy(legacy)
+                self.assertEqual(self.game._party_round_summary(state, legacy, names), expected)
+                self.assertEqual(legacy, before)
+
+    def test_summary_prefers_ledger_and_fallback_merges_gross_rows(self):
+        state, ids = self.make(companion_penalty=True, cup_penalty=True)
+        state['dice_by_player'] = {pid:[2]*5 for pid in ids}
+        with patch.object(self.game, '_roll', return_value=[3]):
+            result = self.resolve(state, challenger=2)
+        names = {p['player_id']:p['display_name'] for p in self.people}
+        expected = result['result_summary']
+        # Gross detail and cumulative totals must not override the net ledger.
+        changed = deepcopy(result)
+        changed['penalties'] = changed['rewards'] = []
+        changed['score_delta'] = changed['score_after'] = 999
+        for row in changed['score_changes']:
+            row['score_delta'] = row['score_after'] = 999
+        self.assertEqual(self.game._party_round_summary(state, changed, names), expected)
+        legacy = deepcopy(result)
+        legacy.pop('score_changes')
+        text = self.game._party_round_summary(state, legacy, names)
+        self.assertEqual(text, '唐焰叫10个6点，开骰计入0个，质疑成功。红队 -2分，蓝队 -1分。')
+        for row in legacy['penalties'] + legacy['rewards']:
+            row.pop('deduction_half_units', None)
+            row.pop('reward_half_units', None)
+        self.assertEqual(self.game._party_round_summary(state, legacy, names), text)
+
     def test_unit_matrix_same_cross_team_sizes_companion_and_cap(self):
         for count, teams in ((2,False), (3,False), (4,True), (6,True)):
             for same_team in ((False,True) if teams else (False,)):
@@ -76,7 +214,8 @@ class ScoringLedgerTests(unittest.TestCase):
         self.assertEqual(result['winner_player_id'],ids[1])
         self.assertEqual(state['scores'],{ids[0]:-1,ids[1]:1})
         self.assertEqual(state['round_results'][0]['rewards'],result['rewards'])
-        self.assertIn('胜方+1',result['result_summary'])
+        self.assertIn('天黑黑反转，质疑成功。',result['result_summary'])
+        self.assertIn('小机 1 +1分',result['result_summary'])
 
     def test_authoritative_same_team_normal_double_quadruple(self):
         for count in (4,6):
@@ -104,15 +243,33 @@ class ScoringLedgerTests(unittest.TestCase):
 
     def test_surrender_never_rewards_or_runs_companion(self):
         for teams in (False,True):
-            state, ids = self.make(4,teams,allow_surrender=True,companion_penalty=True,
-                                   cup_penalty=True,extreme_penalty=True,dark_rule=True)
-            self.game.apply_action(state,{'action':'bid','quantity':6,'face':2},self.people[0])
-            with patch.object(self.game,'_roll',side_effect=AssertionError('no companion on surrender')):
-                self.game.apply_action(state,{'action':'surrender'},self.people[1])
-            result = state['last_round_result']
-            self.assertEqual(result['rewards'],[])
-            self.assertEqual(result['score_delta'],-.5)
-            self.assertEqual(sum(state['score_half_units'].values()),-1)
+            for keep in (False, True):
+                state, ids = self.make(4,teams,allow_surrender=True,companion_penalty=True,
+                    cup_penalty=True,extreme_penalty=True,dark_rule=True,surrender_no_reroll=keep)
+                before = deepcopy(state['dice_by_player'])
+                self.game.apply_action(state,{'action':'bid','quantity':6,'face':2},self.people[0])
+                move = {'action':'surrender'}
+                with patch.object(self.game,'_roll',side_effect=AssertionError('no companion on surrender')):
+                    applied = self.game.apply_action(state,move,self.people[1])
+                event_keys = list(applied.public_event['round_result'])
+                self.game.progress_after_action(state,move,self.people[1],self.people,applied)
+                result = state['last_round_result']
+                self.assertEqual(list(applied.public_event['round_result']), event_keys)
+                self.assertEqual(applied.public_event['round_result'], result)
+                self.assertEqual(result['rewards'],[])
+                self.assertEqual(result['score_delta'],-.5)
+                self.assertEqual(sum(state['score_half_units'].values()),-1)
+                label = '红队' if teams else '小机 1'
+                expected = f'小机 1投降。{label} -0.5分。' + (
+                    '不揭骰，下一轮保留骰面。' if keep else '揭盅，确认后各盅重摇。')
+                self.assertEqual(result['result_summary'], expected)
+                self.assertEqual(applied.note, expected)
+                self.assertEqual(result['revealed_dice_by_player'], {} if keep else before)
+                with patch.object(self.game, '_roll', return_value=[6]*5) as roll:
+                    self.game.acknowledge_round(state)
+                    self.assertEqual(roll.call_count, 0 if keep else 4)
+                if keep:
+                    self.assertEqual(state['dice_by_player'], before)
 
 
 class ScoringPersistenceTests(support.MultiplayerGameTestCase):
@@ -147,14 +304,35 @@ class ScoringPersistenceTests(support.MultiplayerGameTestCase):
                 delta = mcp.response(room['room_id'],'ai-1')
                 self.assertEqual(delta['delta']['scores'],expected)
                 event = next(e['round_result'] for e in delta['events'] if isinstance(e,dict) and 'round_result' in e)
-                self.assertEqual(event['rewards'],result['rewards'])
-                self.assertEqual(event['score_changes'],result['score_changes'])
+                self.assertEqual(list(event), ['round', 'mode', 'winner_player_id', 'score_delta',
+                    'score_after', 'loser_team_id', 'penalties', 'rewards', 'score_changes',
+                    'scoring_rules_version', 'companion', 'cup_bonuses', 'dark_reversed', 'bid',
+                    'actual_count', 'bid_holds', 'loser_player_id', 'loser_remaining_dice',
+                    'eliminated', 'next_round', 'next_starter_player_id', 'revealed_dice_by_player'])
+                for field in event:
+                    if field != 'bid':
+                        self.assertEqual(event[field], result[field])
+                self.assertEqual(event['bid'], {k:v for k,v in result['bid'].items() if k != 'bidder_player_id'})
+                self.assertEqual(delta['events'], [
+                    ['human-1', {'action':'bid','quantity':10,'face':6}], {'round_result':event}])
+                self.assertNotIn('dice', delta.get('private', {}))
+                self.assertTrue(set(mcp.response(room['room_id'],'ai-1')) <= {'r','wait'})
+                for row in result['score_changes']:
+                    name = next(p['display_name'] for p in room['participants'] if p['player_id'] == row['unit_id'])
+                    phrase = f"{name} {row['score_delta']:+g}分"
+                    self.assertEqual(result['result_summary'].count(phrase), 1)
+                self.assertEqual(room['board_state']['last_action_note'], result['summary'])
+                self.assertEqual(result['summary'], f"第 1 轮：{result['result_summary']}")
                 web = framework.project_room_for_viewer(room,'human-1')
                 self.assertEqual(web['board_state']['scores'],expected)
                 self.assertEqual({p['player_id']:p['game_metadata']['score'] for p in web['participants']},expected)
                 self.assertEqual(web['board_state']['round_results'][0]['rewards'],result['rewards'])
                 full = mcp.response(room['room_id'],'ai-1',full=True)
                 self.assertEqual(full['snapshot']['board_state']['scores'],expected)
+                self.assertEqual(full['snapshot']['board_state']['last_round_result'], result)
+                self.assertEqual(full['snapshot']['private_state']['dice'], [3]*5)
+                self.assertNotIn('dice_by_player', full['snapshot']['board_state'])
+                self.assertNotIn('events', full)
                 with self.assertRaises(framework.DuelError):
                     framework.play_move(room['room_id'],'ai','ai-1',{'action':'challenge'},expected_revision=revision)
                 # A fresh Python process reads the actual persisted state without reconfiguration.

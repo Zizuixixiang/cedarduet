@@ -57,7 +57,8 @@ class PartyFinalRulesTests(unittest.TestCase):
         self.assertEqual((p['raw_multiplier'],p['multiplier'],p['capped'],p['score_delta']),(8,4,True,-4))
         self.assertEqual(state['score_half_units'],{'human-1':-8,'ai-1':2})
         self.assertEqual(state['round_results'][0]['penalties'],result['penalties'])
-        self.assertIn('原始8倍→4倍',result['result_summary'])
+        self.assertEqual(result['result_summary'],
+            '人类一号叫10个6点，开骰计入0个，质疑成功。小机 1 +1分，人类一号 -4分。')
 
     def test_companion_other_same_cap_and_safe_mapping(self):
         state=self.make(3,cup_penalty=True,extreme_penalty=True,companion_penalty=True)
@@ -202,7 +203,15 @@ class PartyFinalTransportTests(support.LiarsDiceMcpTests):
         with self.assertRaises(framework.DuelError):
             framework.play_move(room['room_id'],'human','human-1',{'action':'surrender'},expected_revision=old)
         reply=await self.call(room,action='state')
-        self.assertEqual(reply['events'][0]['round_result']['revealed_dice_by_player'],{})
+        event=reply['events'][0]['round_result']
+        self.assertEqual(len(reply['events']),1)
+        self.assertEqual(event,room['board_state']['last_round_result'])
+        self.assertEqual(event['revealed_dice_by_player'],{})
+        self.assertEqual(event['rewards'],[])
+        self.assertEqual(event['result_summary'].count('-0.5分'),1)
+        self.assertIn('不揭骰，下一轮保留骰面',event['result_summary'])
+        self.assertNotIn('dice',reply.get('private',{}))
+        self.assertTrue(set(await self.call(room,action='state')) <= {'r','wait'})
         self.assertEqual(framework.get_room(room['room_id'])['board_state']['scores']['human-1'],-.5)
         full=await self.call(room,action='state',full_state=True)
         self.assertEqual(full['snapshot']['board_state']['round_results'][0]['score_delta'],-.5)

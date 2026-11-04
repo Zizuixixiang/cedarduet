@@ -557,12 +557,49 @@ class LiarsDice(GamePlugin):
             state=state,
             pause_turn=True,
             participant_activity=activity,
-            note=(
+            note=self._party_round_summary(state, result, {}) if self.is_party(state) else (
                 f"质疑结算：实际有 {actual_count} 个 {bid['face']} 点；"
-                + (f"败方本局积分{result['score_delta']:g}，等待确认下一轮。" if self.is_party(state)
-                 else f"{loser} 失去 1 枚骰，等待人类确认下一轮。")
+                f"{loser} 失去 1 枚骰，等待人类确认下一轮。"
             ),
         )
+
+    def _party_round_summary(self, state, outcome, names):
+        """Describe the settled ledger without repeating its gross detail rows."""
+        deltas = {}
+        if outcome.get('score_changes') is not None:
+            for row in outcome['score_changes']:
+                delta = (row['delta_half_units'] / 2 if 'delta_half_units' in row
+                         else row['score_delta'])
+                deltas[row['unit_id']] = deltas.get(row['unit_id'], 0) + delta
+        else:
+            # Older results may only carry gross charges/rewards, or the loser's
+            # settled delta. Never infer a reward from the current room rules.
+            for kind, half_key, sign in (('penalties', 'deduction_half_units', -1),
+                                         ('rewards', 'reward_half_units', 1)):
+                for row in outcome.get(kind, []):
+                    unit = row.get('team_id') or self.team_for(state, row['player_id']) or row['player_id']
+                    delta = row[half_key] * sign / 2 if half_key in row else row['score_delta']
+                    deltas[unit] = deltas.get(unit, 0) + delta
+            if not deltas and 'score_delta' in outcome:
+                loser = outcome['loser_player_id']
+                unit = outcome.get('loser_team_id') or self.team_for(state, loser) or loser
+                deltas[unit] = outcome['score_delta']
+        labels = {**names, **{team: {'red': '红队', 'blue': '蓝队'}.get(team, team)
+                             for team in state.get('teams', {})}}
+        scores = '，'.join(f"{labels.get(unit, unit)} {delta:+g}分" for unit, delta in deltas.items())
+        if outcome.get('phase') == 'surrendered':
+            loser = outcome['loser_player_id']
+            text = f"{names.get(loser, loser)}投降。"
+            text += scores + '。' if scores else ''
+            return text + ('不揭骰，下一轮保留骰面。' if outcome.get('preserve_dice')
+                           else '揭盅，确认后各盅重摇。')
+        bid = outcome['bid']
+        bidder = outcome['bidder_player_id']
+        verdict = '叫点成功' if outcome['winner_player_id'] == bidder else '质疑成功'
+        text = (f"{names.get(bidder, bidder)}叫{bid['quantity']}个{bid['face']}点"
+                f"{'（斋）' if bid.get('exact') else ''}，开骰计入{outcome['actual_count']}个，"
+                f"{'天黑黑反转，' if outcome.get('dark_reversed') else ''}{verdict}。")
+        return text + (scores + '。' if scores else '')
 
     def _surrender(self, state, actor):
         bid = deepcopy(state['current_bid'])
@@ -578,7 +615,8 @@ class LiarsDice(GamePlugin):
                       next_round=number + 1, next_starter_player_id=loser,
                       revealed_dice_by_player={} if keep else deepcopy(state['dice_by_player']),
                       **party.settle(self, state, loser, winner, surrender=True))
-        result['result_summary'] = '本轮投降认罚0.5分；' + ('不揭骰，下一轮保留骰面。' if keep else '揭盅，确认后各盅重摇。')
+        result['result_summary'] = self._party_round_summary(
+            state, result, {loser: actor.get('display_name') or loser})
         state['last_round_result'] = result
         state['round_results'].append(party.history_result(result))
         state['current_bid'] = None
@@ -692,27 +730,14 @@ class LiarsDice(GamePlugin):
             f"{elimination}。"
         )
         if self.is_party(applied.state):
-            rule = "斋" if bid.get("exact") else "1百搭"
-            result_summary = (
-                f"{challenger_name} 质疑 {bidder_name} 的{bid['quantity']}个{bid['face']}点（{rule}）；"
-                f"实际{outcome['actual_count']}个，叫点{'成立' if outcome['bid_holds'] else '失败'}；"
-                f"{loser_name}{'所在队' if outcome.get('loser_team_id') else ''} 本局积分{outcome['score_delta']:g}，现为{outcome['score_after']:g}分；骰数不变。"
-            )
-        if self.is_party(applied.state):
-            if outcome.get("dark_reversed"):
-                result_summary += "天黑黑：无人持有所叫实点，胜负反转。"
-            for reward in outcome.get("rewards", []):
-                result_summary += (f"{names.get(reward['player_id'], reward['player_id'])}"
-                    f"{'所在队' if reward['team_id'] else ''}胜方+1，结算后{reward['score_after']:g}分。")
-            for penalty in outcome["penalties"]:
-                result_summary += (f"{names.get(penalty['player_id'], penalty['player_id'])}"
-                    f"：原始{penalty['raw_multiplier']}倍→{penalty['multiplier']}倍（上限4），扣{-penalty['score_delta']:g}分。")
+            result_summary = self._party_round_summary(applied.state, outcome, names)
         outcome["result_summary"] = result_summary
         summary = f"第 {outcome['round']} 轮：{result_summary}"
-        if outcome.get("next_round_summary"):
-            summary += outcome["next_round_summary"] + "。"
-        else:
-            summary += "对局结束。"
+        if not self.is_party(applied.state):
+            if outcome.get("next_round_summary"):
+                summary += outcome["next_round_summary"] + "。"
+            else:
+                summary += "对局结束。"
         outcome["summary"] = summary
         applied.note = summary
         applied.public_event = {
