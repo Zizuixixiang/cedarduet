@@ -61,7 +61,7 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
         await until(ui, `room?.board_state.flow.phase === 'awaiting_round_acknowledgement'`);
         assert.equal(await ui.run(`Object.keys(room.board_state.last_round_result.revealed_dice_by_player).length`), 4);
         assert.equal(await ui.run(`room.board_state.last_round_result.penalties.length`), 1);
-        assert.equal(await ui.run(`Object.values(room.board_state.team_scores).reduce((a,b)=>a+b,0)`), -1);
+        assert.equal(await ui.run(`Object.values(room.board_state.team_scores).reduce((a,b)=>a+b,0)`), 0);
         assert.equal(await ui.run(`$('board').textContent.includes('共用骰盅')`), false);
         await ui.shot('team-four-cups-revealed', '#board');
         // Legacy projection still labels the persisted shared cups accurately.

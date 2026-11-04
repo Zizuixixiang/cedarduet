@@ -186,7 +186,7 @@
           : "本人选队，约20秒后可开始；仅共享积分，每人5骰，同队可质疑。"));
       }
       target.appendChild(advanced);
-      target.appendChild(element(doc, "small", "invite-note", "败方本局-1分，赢家不加分；叫斋后本轮锁斋。"));
+      target.appendChild(element(doc, "small", "invite-note", "胜方+1，败方扣1/2/4分，投降-0.5；组队仅共分，同队照算。"));
     }
   }
 
@@ -250,6 +250,10 @@
   function appendPenaltyReview(result, context, outcome) {
     const doc = result.ownerDocument || global.document;
     const penalties = outcome.penalties || [];
+    (outcome.rewards || []).forEach(reward => {
+      result.appendChild(element(doc, "p", "liars-result-line liars-reward",
+        `${participantName(context, reward.player_id)}${reward.team_id ? "所在队" : ""} · 胜方+1 · 结算后 ${reward.score_after} 分`));
+    });
     if (!penalties.length) return;
     const details = element(doc, "details", "liars-reveal-details liars-penalty-details");
     details.appendChild(element(doc, "summary", "", "扣分明细"));

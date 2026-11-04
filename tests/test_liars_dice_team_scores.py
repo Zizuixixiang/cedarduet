@@ -126,7 +126,7 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
                     with patch('app.liars_dice_rush.time.time', return_value=room['board_state']['rush_until']):
                         room = framework.get_room(room['room_id'])
                     room = self.act(room, {'action':'challenge'})
-                    self.assertEqual(sum(room['board_state']['team_scores'].values()), -1)
+                    self.assertEqual(sum(room['board_state']['team_scores'].values()), 0)
 
     def test_same_team_rush_both_verdicts_and_companion_charge_once(self):
         game = get_game('liars_dice')
@@ -141,7 +141,7 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
             result = room['board_state']['last_round_result']
             self.assertEqual(result['actual_count'], 8)
             self.assertEqual(len(result['penalties']), 1)
-            self.assertEqual(room['board_state']['team_scores'], {'red':-1,'blue':0})
+            self.assertEqual(room['board_state']['team_scores'], {'red':0,'blue':0})
             loser = challenger if holds else bidder
             room = self.act(room, {'action':'acknowledge_round'})
             self.assertEqual(room['current_player_id'], loser)
@@ -153,7 +153,7 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
             room = self.act(room, {'action':'bid', 'quantity':28, 'face':6})
             with patch.object(game, '_roll', return_value=[companion]):
                 room = self.act(room, {'action':'rush_open'}, challenger)
-            self.assertEqual(room['board_state']['team_scores'], {'red':-4,'blue':0 if companion == 2 else -4})
+            self.assertEqual(room['board_state']['team_scores'], {'red':-3,'blue':0 if companion == 2 else -4})
             self.assertEqual(len(room['board_state']['last_round_result']['penalties']), 1 if companion == 2 else 2)
 
     def test_rush_npc_estimate_counts_individual_cups_without_reading_other_dice(self):
@@ -204,7 +204,7 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
                 self.assertEqual(result['loser_player_id'], loser)
                 self.assertEqual(len(result['revealed_dice_by_player']), 4)
                 self.assertEqual(len(result['penalties']), 1)
-                self.assertEqual(room['board_state']['score_half_units'], {'red':-2, 'blue':0})
+                self.assertEqual(room['board_state']['score_half_units'], {'red':0, 'blue':0})
                 with self.assertRaises(framework.DuelError):
                     framework.play_move(room['room_id'], actor['role'], challenger,
                         {'action':'challenge'}, expected_revision=revision)
@@ -213,9 +213,9 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
                 self.assertEqual(len(room['board_state']['dice_by_player']), 4)
                 self.assertEqual(room['board_state']['dice_counts'], {pid:5 for pid in state['participant_order']})
                 room = self.act(room, {'action':'end_session'}, 'human-1')
-                self.assertEqual(room['result']['winner_team_ids'], ['blue'])
-                self.assertEqual(set(room['result']['winner_player_ids']), set(others))
-                self.assertEqual(room['result']['team_scores'], {'red':-1, 'blue':0})
+                self.assertEqual(room['result']['winner_team_ids'], ['red', 'blue'])
+                self.assertEqual(set(room['result']['winner_player_ids']), set(state['participant_order']))
+                self.assertEqual(room['result']['team_scores'], {'red':0, 'blue':0})
 
     def test_same_team_companion_caps_once_and_other_team_separate(self):
         game = get_game('liars_dice')
@@ -223,12 +223,12 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
             room = self.create(cup_penalty=True, extreme_penalty=True, companion_penalty=True)
             state = room['board_state']
             state['dice_by_player'] = {pid:[2]*5 for pid in state['participant_order']}
-            room = self.replace_state(room, state, 'human-1')
+            room = self.replace_state(room, state, state['participant_order'][0])
             room = self.act(room, {'action':'bid','quantity':10,'face':6})
             with patch.object(game, '_roll', return_value=[companion_seat]):
                 room = self.act(room, {'action':'challenge'})
             result = room['board_state']['last_round_result']
-            self.assertEqual(room['board_state']['team_scores'], {'red':-4,'blue':0 if companion_seat == 2 else -4})
+            self.assertEqual(room['board_state']['team_scores'], {'red':-3,'blue':0 if companion_seat == 2 else -4})
             self.assertEqual(len(result['penalties']), 1 if companion_seat == 2 else 2)
             self.assertEqual(result['penalties'][0]['raw_multiplier'], 8 if companion_seat == 2 else 4)
 
@@ -260,6 +260,7 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
             room = self.create()
             state = room['board_state']
             state.pop('team_rules_version')
+            state.pop('scoring_rules_version')
             if version is not None:
                 state['team_rules_version'] = version
             state['dice_by_player'] = {members[0]: [index+2]*5
@@ -308,4 +309,4 @@ class ScoreOnlyTeamsTests(support.MultiplayerGameTestCase):
         self.assertNotIn('dice_by_player', request.public_state)
         self.assertIn({'action':'challenge'}, mapping.values())
         room = self.act(room, {'action':'challenge'})
-        self.assertEqual(room['board_state']['team_scores'], {'red':0, 'blue':-1})
+        self.assertEqual(room['board_state']['team_scores'], {'red':0, 'blue':0})

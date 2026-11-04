@@ -49,7 +49,7 @@
 
 ## 权威结算与结束
 
-`move={action:challenge}`：计数达到叫数，通常质疑者败，否则叫点者败。基础败方-1分，胜方不加分。加倍相乘后**每受罚个人/队每轮至多4倍、4分**，陪扣也封顶4。抽中同队只加倍同一份队分，不产生多次队分扣款。
+`move={action:challenge}`：计数达到叫数，通常质疑者败，否则叫点者败。新桌每人/队初始0分；最终胜方+1，败方按现有倍率扣1/2/4分。加倍相乘后**每受罚个人/队每轮至多4倍、4分**，陪扣也封顶4。抽中败者本人/同队时自身处罚再×2并封顶；抽中胜者本人/同队时奖励与陪扣累加。红蓝组队只共享积分，2/3人不叠加得失分；同队无特殊豁免，+1与-1/-2/-4净结算为0/-1/-3。
 权威 `round_result.penalties` 每项含 `hits/raw_multiplier/multiplier/cap/capped/base_half_units/deduction_half_units/score_delta/score_after`；`companion` 记录虚拟骰与映射座位，`dark_reversed` 记录反转，`cup_bonuses` 记录各盅加数。内部 `score_half_units` 使用整数半分单位运算；对外以0.5分精确显示，胜负记录只辅助。
 
 结算后仍各5骰，不淘汰。败方成为当前行动者，提交 `move={action:acknowledge_round}` 开始下一轮并先叫。正常全盅重摇；投降不重摇保留骰面。抢开截止由服务器时间决定，延迟到达的请求按服务器接收后的事务校验时间判定，不接受客户端时间回填。截止会递增一次revision；重连刷新获取最新值。所有酒桌行动须带最新 `revision`，旧版本/重复结算拒绝。任一真实在场参与者可 `move={action:end_session}` 结束整桌，保留积分和记录，未结算轮次不计分；按本局累计积分从高到低排名（红蓝组队只按队分排名），同分并列第一，零个已结算回合则无胜负。结束弹窗展示完整排名和已完成轮数，NPC/超时接管不可结束整桌。
@@ -60,12 +60,15 @@
 
 新开局组队桌存储 `team_rules_version:2`，与 `party_rules_version` 独立。无标记/版本1的旧已开局桌继续原共盅、队间轮换、起叫上限及积分规则，不迁移、不补骰、不重置积分；旧等待房正式开局及重赛新桌才使用版本2。公开投影/MCP携带该版本以区分标签，绝不通过缺失骰盅推测或升级存档。手动队伍名单与固定行动座序独立，随机座序不能改队伍；未来抢开资格也不得按队伍排除同队玩家。
 
+积分版本独立保存为 `scoring_rules_version:2`（包括等待房）；无标记/版本1旧房保持输扣赢0，开始、重启、重连、归档均不升级。重赛是新桌，使用新口径。已结束记录不重算。
+每轮 `penalties` 保留原始处罚及倍率，`rewards` 记录开骰胜方+1，`score_changes` 按计分单位给出唯一净变动与结算后分数；顶层 `score_delta/score_after` 对应败方单位净变动与最终分数。投降只扣败方0.5，不产生奖励。所有得失分与回合记录在同一事务保存，继续以整数半分累计。
+
 ## MCP 增量协议
 
 原版MCP协议保持兼容。酒桌首次返回 `bootstrap:true` 与必要安全上下文，`r` 为权威revision；下一次动作传 `revision:r`。
 之后 `state/move/wait` 只返回变化：`events` 按序为 `[玩家ID,move]` 或 `{round_result:本轮权威结算}`，不重复全盘/历史/巨大legal_actions；自己动作也应用一次。
 `delta` 字段替换（缺省不变、null清空）；`delta.seats=[[队,1起座号,成员或null]]` 只更新座位变化。首份手动面板在 `room.selection`，Web仍为 `room.team_selection`。
-`private` 仅本人骰变化和重摇资格（旧共盅房仍己队骰）；别人的新骰永不可见。`delta.round/phase/next` 更新轮次；`acknowledge_round` 清空当前叫法，`bid` 更新叫法，`challenge/surrender` 的权威结果清空叫法。无变化只返回 `r`，非本人回合另有 `wait`。
+`private` 仅本人骰变化和重摇资格（旧共盅房仍己队骰）；别人的新骰永不可见。`delta.scores/team_scores` 更新积分；`delta.round/phase/next` 更新轮次；`acknowledge_round` 清空当前叫法，`bid` 更新叫法，`challenge/surrender` 的权威结果清空叫法。无变化只返回 `r`，非本人回合另有 `wait`。
 `state(full_state:true)` 显式获得完整安全快照（含房规/历史），原子重置本人增量基线，快照覆盖的动作不重复；尚未读聊天本次交付。所有中间叫点、揭盅事件按序交付，不因跨过多个回合而丢失。
 
 

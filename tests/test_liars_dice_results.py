@@ -62,9 +62,9 @@ class PartyResultsTests(support.MultiplayerGameTestCase):
         room = self.act(room, {'action': 'end_session'}, 'human-1')
         result = room['result']
         self.assertEqual(result['completed_rounds'], 1)
-        self.assertEqual([r['rank'] for r in result['rankings']], [1, 1, 3])
-        self.assertEqual([r['score'] for r in result['rankings']], [0, 0, -1])
-        self.assertEqual(len(result['winner_player_ids']), 2)
+        self.assertEqual([r['rank'] for r in result['rankings']], [1, 2, 3])
+        self.assertEqual([r['score'] for r in result['rankings']], [1, 0, -1])
+        self.assertEqual(len(result['winner_player_ids']), 1)
         self.assertEqual(room['board_state']['score_half_units'], ledger)
         self.assertIsNone(room['winner_player_id'])
         reloaded = framework.get_room(room['room_id'])
@@ -86,7 +86,7 @@ class PartyResultsTests(support.MultiplayerGameTestCase):
                     result = room['result']
                     self.assertEqual(result['completed_rounds'], 1)
                     self.assertEqual([r['rank'] for r in result['rankings']], [1, 2])
-                    self.assertEqual([r['score'] for r in result['rankings']], [0, -.5 if action == 'surrender' else -1])
+                    self.assertEqual([r['score'] for r in result['rankings']], [0 if action == 'surrender' else 1, -.5 if action == 'surrender' else -1])
                     self.assertEqual(room['board_state']['score_half_units'], ledger)
                     view = full_state.project_full_state(room, 'ai-1')
                     self.assertNotIn('terminal_dice', view['board_state'])

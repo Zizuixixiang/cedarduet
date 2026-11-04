@@ -45,7 +45,7 @@ class LiarsDiceFrontendStructureTests(unittest.TestCase):
         self.assertIn("global.renderLiarsDice(context.board, context.state)", SCRIPT)
         self.assertIn("usesStandardMoveConfirmation: false", SCRIPT)
         self.assertIn("state.terminal_dice", SCRIPT)
-        self.assertIn('/static/games/liars_dice.js?v=0.1.17', HTML)
+        self.assertIn('/static/games/liars_dice.js?v=0.1.18', HTML)
         self.assertIn('die.setAttribute("data-face", String(face))', SCRIPT)
         self.assertNotIn('dice.join(" · ")', SCRIPT)
         for face in range(1, 7):
@@ -121,11 +121,11 @@ for(const count of [4,6]) {
  const ids=participants.slice(0,count).map(p=>p.player_id);
  const teams={red:ids.slice(0,count/2),blue:ids.slice(count/2)};
  const scores=Object.fromEntries(ids.map(id=>[id,-7]));
- const state={mode:"party",teams,scores,team_scores:{red:0,blue:-1.5},round_results:history};
+ const state={mode:"party",teams,scores,team_scores:{red:2,blue:-1.5},round_results:history};
  let board=render(state),cards=find(board,"liars-team-score-card");
  assert.equal(cards.length,2);
  assert.equal(find(board,"liars-score-row").length,0);
- assert.deepEqual(find(board,"liars-team-score-value").map(n=>n.textContent),["0分","-1.5分"]);
+ assert.deepEqual(find(board,"liars-team-score-value").map(n=>n.textContent),["2分","-1.5分"]);
  assert.deepEqual(find(board,"liars-team-score-name").map(n=>n.textContent),["红队","蓝队"]);
  for(const [i,team] of ["red","blue"].entries()) {
    assert.ok(cards[i].className.includes(`liars-team-${team}`));
@@ -143,13 +143,24 @@ for(const count of [4,6]) {
  assert.deepEqual(find(board,"liars-team-score-value").map(n=>n.textContent),["-7分","-7分"]);
 }
 for(const teams of [undefined,{}]) {
- const board=render({mode:"party",teams,scores:{p0:-.5,p1:0},round_results:history});
+ const board=render({mode:"party",teams,scores:{p0:-.5,p1:1},round_results:history});
  assert.equal(find(board,"liars-team-score-card").length,0);
  assert.equal(find(board,"liars-score-row").length,2);
- assert.deepEqual(find(board,"liars-score-value").map(n=>n.textContent),["-0.5分","0分"]);
+ assert.deepEqual(find(board,"liars-score-value").map(n=>n.textContent),["-0.5分","1分"]);
  assert.equal(find(board,"liars-reveal-details").length,0);
 }
 assert.equal(find(render({mode:"classic"}),"liars-party-scores").length,0);
+const result=new Element("section",document);
+const outcome={rewards:[{player_id:"p1",team_id:"red",score_delta:1,score_after:0}],
+ penalties:[{player_id:"p0",team_id:"red",hits:[],raw_multiplier:1,multiplier:1,score_delta:-1,score_after:0}]};
+window.DuelDiceRules.appendPenaltyReview(result,{participants},outcome);
+assert.equal(find(result,"liars-reward").length,1);
+assert.ok(find(result,"liars-reward")[0].textContent.includes("胜方+1 · 结算后 0 分"));
+assert.ok(find(result,"liars-penalty")[0].textContent.includes("-1分"));
+const final=new Element("section",document);
+window.DuelDiceResults.render(final,{participants,result:{outcome:"ranked",rankings:[
+ {rank:1,score:2,player_ids:["p1"]},{rank:2,score:-1,player_ids:["p0"]}]}},()=>{});
+assert.deepEqual(find(final,"liars-final-score").map(n=>n.textContent),["2分","-1分"]);
 '''
         completed = subprocess.run([NODE, "-e", harness], cwd=ROOT,
                                    text=True, capture_output=True, check=False)

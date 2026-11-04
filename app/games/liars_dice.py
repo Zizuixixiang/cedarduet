@@ -40,7 +40,7 @@ class LiarsDice(GamePlugin):
     )
 
     party_rules = (
-        "【酒桌大话骰】每盅始终5骰，基础败方本局-1，胜方不加分；不淘汰；0筹码为娱乐局，非0筹码仅整桌结束时结算。普通2–6点时1百搭，斋不百搭。"
+        "【酒桌大话骰】每盅始终5骰，每人/队初始0分；开骰胜方+1，败方按倍率扣1/2/4分；不淘汰；0筹码为娱乐局，非0筹码仅整桌结束时结算。普通2–6点时1百搭，斋不百搭。"
         "普通起叫按ceil(1.5×盅数)，5人默认8起（向上取整，可在房规改7）；斋/叫1至少盅数。"
         "加叫数量递增或同数点数递增；叫斋/1后本轮锁斋，切斋也须加叫，不实现飞斋。\n"
         "默认围骰：5骰借1凑所叫实点计6；全围：5骰同一实点且正叫此点计7。全1叫2–6仅计5。"
@@ -52,8 +52,8 @@ class LiarsDice(GamePlugin):
         "或严格超过两倍且质疑者败，罚×2，等于边界不加倍。dark_rule：无人持叫点实点则反转开骰输赢，"
         "1百搭不算实点；先反转，再按最终败方判断上述处罚。\n"
         "companion_penalty（陪扣）：额外虚拟d6按固定参与者顺序1起映射，越界重掷，选中其他单位同倍率陪扣；"
-        "选本人/同队则本单位再×2；队分只扣一次。所有命中乘算后，每个受罚人/队每轮最多4倍、4分；"
-        "结算记录命中、原始倍率、封顶与扣分。allow_surrender：已有叫点时当前行动者可surrender，固定认罚0.5，"
+        "选败者本人/同队则本单位再×2；抽中胜方也累加陪扣，不覆盖奖励。所有命中乘算后，每个受罚人/队每轮最多4倍、4分；"
+        "结算记录命中、原始倍率、封顶与扣分。allow_surrender：已有叫点时当前行动者可surrender，固定认罚0.5、不奖励胜方，"
         "不触发开骰加倍/反转/陪扣。surrender_no_reroll须同时开投降：不揭骰且确认后保留各盅；否则揭盅重摇。"
         "以上处罚/投降选项默认关闭，积分以整数半分单位存储。\n"
         "新酒桌默认开启rush_open：每次叫点后10秒，其他在场人/小机/NPC均可抢开（包括同队），不能抢自己。"
@@ -79,7 +79,7 @@ class LiarsDice(GamePlugin):
         "\n【可选红蓝组队】仅4/6人，红蓝2+2或3+3。每人独立5骰，只看本人骰面；全桌每人的骰子均计数。"
         "按固定座位顺序行动，同队可连座、互相叫点及质疑；队伍不改变行动权。"
         "普通首叫4人6起、6人9起；斋/叫1为4/6起，上限28/42，有骰计骰20/30。"
-        "仅共享积分：败者所在队基础扣1次1分，胜方不加分；同队互相质疑也只扣1次。"
+        "仅共享积分，人数不叠加得失分；同队无特殊豁免，胜方+1与败方扣分累加，同队净变动为0/-1/-3。"
         "随机组队直接开始；手动组队仅本人选位，20秒后房主可开始；未选者/NPC补入剩余队位。"
         "队伍归属与行动座序独立，开局后固定；确认后每人重摇，败者先叫；成员离场结束整桌。"
     )
@@ -135,6 +135,7 @@ class LiarsDice(GamePlugin):
         state.update(self.normalize_options(options))
         if self.is_party(state):
             state["party_rules_version"] = 2
+            state["scoring_rules_version"] = party.SCORING_RULES_VERSION
             state["rerolled_cups"] = {}
             state["records"] = {pid: {"wins": 0, "losses": 0} for pid in state["participant_order"]}
             state["round_results"] = []
@@ -152,12 +153,19 @@ class LiarsDice(GamePlugin):
                 # Only new tables opt in. Never infer this from old cup contents:
                 # persisted shared-cup games must keep their dice and turn rules.
                 state["team_rules_version"] = 2
+            state["score_half_units"] = {key: 0 for key in (state.get("teams") or state["participant_order"])}
         return state
 
     def room_rules(self, state):
         if not self.is_party(state):
             return "【原版·淘汰赛】\n" + self.classic_rules
-        return self.party_rules + ("\n旧酒桌房保留不加围骰数量、不重摇单骰的基础计数；普通1百搭。" if "dice_counts" in state and not party.modern(state) else "") + ((self.legacy_pairs_rules if self.shared_team_cups(state) else self.pairs_rules) if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "") + ("\n本桌有骰计骰：已开启。" if state.get("literal_dice") else "\n本桌有骰计骰：关闭。") + ("\n本桌抢开：开启，10秒。" if state.get("rush_open") else "\n本桌抢开：关闭。")
+        rules = self.party_rules
+        pairs = self.legacy_pairs_rules if self.shared_team_cups(state) else self.pairs_rules
+        if not party.rewards_winner(state):
+            rules = rules.replace("开骰胜方+1，败方按倍率扣1/2/4分", "旧房胜方不加分，败方按倍率扣1/2/4分")
+            rules = rules.replace("抽中胜方也累加陪扣，不覆盖奖励", "抽中胜方照常陪扣")
+            pairs = pairs.replace("同队无特殊豁免，胜方+1与败方扣分累加，同队净变动为0/-1/-3", "旧房胜方不加分，同队互相质疑也按倍率扣分一次")
+        return rules + ("\n旧酒桌房保留不加围骰数量、不重摇单骰的基础计数；普通1百搭。" if "dice_counts" in state and not party.modern(state) else "") + (pairs if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "") + ("\n本桌有骰计骰：已开启。" if state.get("literal_dice") else "\n本桌有骰计骰：关闭。") + ("\n本桌抢开：开启，10秒。" if state.get("rush_open") else "\n本桌抢开：关闭。")
 
     @staticmethod
     def saved_options(state):
@@ -693,6 +701,9 @@ class LiarsDice(GamePlugin):
         if self.is_party(applied.state):
             if outcome.get("dark_reversed"):
                 result_summary += "天黑黑：无人持有所叫实点，胜负反转。"
+            for reward in outcome.get("rewards", []):
+                result_summary += (f"{names.get(reward['player_id'], reward['player_id'])}"
+                    f"{'所在队' if reward['team_id'] else ''}胜方+1，结算后{reward['score_after']:g}分。")
             for penalty in outcome["penalties"]:
                 result_summary += (f"{names.get(penalty['player_id'], penalty['player_id'])}"
                     f"：原始{penalty['raw_multiplier']}倍→{penalty['multiplier']}倍（上限4），扣{-penalty['score_delta']:g}分。")
@@ -707,7 +718,7 @@ class LiarsDice(GamePlugin):
         applied.public_event = {
             "round_result": {
                 "round": int(outcome["round"]),
-                **({key: outcome[key] for key in ("mode", "winner_player_id", "score_delta", "score_after", "loser_team_id", "penalties", "companion", "cup_bonuses", "dark_reversed")} if self.is_party(applied.state) else {}),
+                **({key: outcome[key] for key in ("mode", "winner_player_id", "score_delta", "score_after", "loser_team_id", "penalties", "rewards", "score_changes", "scoring_rules_version", "companion", "cup_bonuses", "dark_reversed")} if self.is_party(applied.state) else {}),
                 "bid": {
                     "quantity": int(bid["quantity"]),
                     "face": int(bid["face"]),
@@ -844,6 +855,7 @@ class LiarsDice(GamePlugin):
             projected["rush_until"] = self.rush_deadline(state) or None
             projected["dice_retained"] = state.get("dice_retained", False)
             projected["scores"] = self.party_scores(state)
+            projected["scoring_rules_version"] = state.get("scoring_rules_version", 1)
             if state.get("teams"):
                 projected.update(team_rules_version=state.get("team_rules_version", 1), teams=deepcopy(state["teams"]), team_scores=deepcopy(state["team_scores"]), team_mode=state.get("team_mode", "pairs"))
             projected.update(literal_dice=state.get("literal_dice", False),
@@ -910,7 +922,7 @@ class LiarsDice(GamePlugin):
                 "extreme_penalty": "不足半数叫点败方/超两倍质疑败方×2（严格不含边界）。",
                 "dark_rule": "无人持叫点实点先反转胜负，再按最终败方判断处罚。",
                 "companion_penalty": "d6按固定座序抽陪扣者，同倍率，抽中本人/同队再×2，仍封顶4。",
-                "allow_surrender": "已有叫点可投降固定-0.5，不叠加处罚。",
+                "allow_surrender": "已有叫点可投降固定-0.5，不奖励胜方、不叠加处罚。",
                 "surrender_no_reroll": "投降不揭骰，下一轮保留骰。",
                 "rush_open": ("每次叫点后10秒可rush_open；旧共盅房不能抢己盅。"
                               if self.shared_team_cups(state) else
@@ -926,7 +938,9 @@ class LiarsDice(GamePlugin):
                    else "围骰借1凑叫点+1，同实点全围+2；全1百搭不加数。首叫前5点各异可重摇一次。")
                 + ("旧房红蓝队各一盅共用队分、队内轮流发言，只看己队骰。" if self.shared_team_cups(state) else
                    "每人独立一盅，只看己骰；按固定座序行动，同队可连座及互相质疑，所有骰均计数，仅共队分。" if state.get("teams") or state.get("team_mode") in ("pairs", "teams") else "只看己骰。")
-                + "开骰足数质疑方败，不足叫点方败，基础-1、赢家不加分；倍罚至多4分。"
+                + "开骰足数质疑方败，不足叫点方败。"
+                + ("胜方+1，败方扣1/2/4；同队也累加得失分，陪扣另计。" if party.rewards_winner(state)
+                   else "旧房基础-1、赢家不加分；倍罚至多4分。")
                 + extras + "败方先叫，确认后重摇（已开投降保留骰除外）。仅选权威合法动作，不主动结束整桌。"
             )
         return (

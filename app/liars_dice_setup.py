@@ -3,6 +3,7 @@ import json
 import secrets
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from .games.liars_dice_party import SCORING_RULES_VERSION
 
 
 def manual_teams(options):
@@ -21,7 +22,7 @@ def is_selecting(room):
 
 
 def initial_selection(options, count, first_player_id=None):
-    return {**options, "team_selection": {
+    return {**options, "scoring_rules_version": SCORING_RULES_VERSION, "team_selection": {
         "target_player_count": count,
         "start_after": (datetime.now(timezone.utc) + timedelta(seconds=20)).isoformat(),
         "seats": {"red": [None] * (count // 2), "blue": [None] * (count // 2)},
@@ -203,6 +204,7 @@ def start_regular(room_id, role, player_id, fill_with_npcs=False):
         first = selection["first_player_id"] or game.first_player_id(members, room["mode"])
         state, first = f._initialize_opening_state(game, members, first,
             game.saved_options(room["board_state"]), team_assignments=teams)
+        state['scoring_rules_version'] = room['board_state'].get('scoring_rules_version', 1)
         state['participant_avatars'] = room['board_state'].get('participant_avatars', {})
         state['marks_by_player'] = {p['player_id']: p['token'] for p in members}
         now = f._now()

@@ -8,6 +8,12 @@ from copy import deepcopy
 BOOL_OPTIONS = ('literal_dice', 'cup_penalty', 'extreme_penalty', 'allow_surrender',
                 'surrender_no_reroll', 'dark_rule', 'companion_penalty', 'rush_open')
 OPTION_KEYS = ('mode', *BOOL_OPTIONS, 'team_mode', 'random_teams', 'opening_five')
+SCORING_RULES_VERSION = 2
+
+
+def rewards_winner(state):
+    # Missing means a persisted old table, never opt it in on read/reconnect.
+    return state.get('scoring_rules_version', 1) >= SCORING_RULES_VERSION
 
 
 def modern(state):
@@ -89,23 +95,39 @@ def settle(game, state, loser, winner, *, hits=(), surrender=False):
         else:
             charges[unit(picked)] = {'player_id':picked, 'hits':['companion'], 'raw_multiplier':multiplier}
     penalties = []
+    rewards = []
+    deltas = {}
+    if not surrender and rewards_winner(state):
+        deltas[unit(winner)] = 2
+        rewards.append({'player_id':winner, 'team_id':game.team_for(state, winner),
+                        'reason':'round_win', 'reward_half_units':2, 'score_delta':1})
     for key, charge in charges.items():
         raw = charge['raw_multiplier']
         applied = min(raw, 4)
         deduction = min(base * applied, 8)
-        units[key] -= deduction
+        deltas[key] = deltas.get(key, 0) - deduction
         penalties.append({**charge, 'team_id':game.team_for(state, charge['player_id']),
                           'base_half_units':base, 'multiplier':applied, 'cap':4,
                           'capped':raw > applied, 'deduction_half_units':deduction,
-                          'score_delta':-deduction / 2, 'score_after':units[key] / 2})
+                          'score_delta':-deduction / 2})
+    # Reward and companion can hit the same unit, including winner == loser's
+    # team. Apply the net exactly once; detail rows retain the gross sources.
+    for key, delta in deltas.items():
+        units[key] += delta
+    for entry in rewards + penalties:
+        entry['score_after'] = units[unit(entry['player_id'])] / 2
+    score_changes = [{'unit_id':key, 'delta_half_units':delta,
+                      'score_delta':delta / 2, 'score_after':units[key] / 2}
+                     for key, delta in deltas.items()]
     state['scores'] = {pid:units[unit(pid)] / 2 for pid in state['participant_order']}
     if state.get('teams'):
         state['team_scores'] = {team:units[team] / 2 for team in state['teams']}
     state['records'][loser]['losses'] += 1
     state['records'][winner]['wins'] += 1
-    primary = penalties[0]
     return {'penalties':penalties, 'companion':companion,
-            'score_delta':primary['score_delta'], 'score_after':primary['score_after'],
+            'rewards':rewards, 'score_changes':score_changes,
+            'scoring_rules_version':state.get('scoring_rules_version', 1),
+            'score_delta':deltas[unit(loser)] / 2, 'score_after':units[unit(loser)] / 2,
             'loser_team_id':game.team_for(state, loser)}
 
 
@@ -142,6 +164,7 @@ def final_result(game, state, reason='session_ended'):
         # Compatibility sentinel for the shared terminal/payout framework only.
         # Rankings below define the outcome; explicit deltas settle paid tables.
         'draw': True, 'mode': 'party', 'reason': reason,
+        'scoring_rules_version':state.get('scoring_rules_version', 1),
         'outcome': 'ranked' if completed else 'no_contest',
         'completed_rounds': completed, 'rankings': rankings,
         'winner_player_ids': [pid for row in leaders for pid in row['player_ids']],

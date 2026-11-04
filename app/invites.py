@@ -101,11 +101,15 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
             raise DuelError("当前账号已有 10 个活跃房间", 409)
         room_id = _new_room_id(conn)
         now = _now()
+        initial_state = (liars_dice_setup.initial_selection(game_options, target_player_count)
+                         if liars_dice_setup.manual_teams(game_options) else dict(game_options))
+        if game_type == 'liars_dice' and game_options.get('mode') == 'party':
+            initial_state['scoring_rules_version'] = liars_dice_setup.SCORING_RULES_VERSION
         conn.execute("""INSERT INTO rooms
             (room_id, game_type, mode, board_state, turn, status, stake, initiator_player_id,
              created_at, updated_at, last_move_at)
             VALUES (?, ?, 'human_first', ?, ?, 'waiting', ?, ?, ?, ?, ?)""",
-            (room_id, game_type, json.dumps(liars_dice_setup.initial_selection(game_options, target_player_count) if liars_dice_setup.manual_teams(game_options) else game_options), role, stake, player_id, now, now, now))
+            (room_id, game_type, json.dumps(initial_state), role, stake, player_id, now, now, now))
         code = secrets.token_hex(6).upper()
         conn.execute("""INSERT INTO room_invites
             (room_id, invite_code, target_player_count, timeout_takeover,
@@ -236,6 +240,8 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
                 normalize_game_options(game, game.saved_options(room["board_state"]) if room["game_type"] == "liars_dice" else None, room["stake"]), team_assignments=teams)
         except (ValueError, KeyError, TypeError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
+        if room['game_type'] == 'liars_dice' and state.get('mode') == 'party':
+            state['scoring_rules_version'] = room['board_state'].get('scoring_rules_version', 1)
         if teams is not None:
             state["participant_avatars"] = room["board_state"].get("participant_avatars", {})
         state["marks_by_player"] = {p["player_id"]: p["token"] for p in members}

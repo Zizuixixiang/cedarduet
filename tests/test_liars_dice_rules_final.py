@@ -55,7 +55,7 @@ class PartyFinalRulesTests(unittest.TestCase):
         p=result['penalties'][0]
         self.assertEqual(p['hits'],['cup_loser','under_half','companion_self'])
         self.assertEqual((p['raw_multiplier'],p['multiplier'],p['capped'],p['score_delta']),(8,4,True,-4))
-        self.assertEqual(state['score_half_units'],{'human-1':-8,'ai-1':0})
+        self.assertEqual(state['score_half_units'],{'human-1':-8,'ai-1':2})
         self.assertEqual(state['round_results'][0]['penalties'],result['penalties'])
         self.assertIn('原始8倍→4倍',result['result_summary'])
 
@@ -66,7 +66,7 @@ class PartyFinalRulesTests(unittest.TestCase):
         self.assertEqual(result['companion']['rolls'],[6,3])
         self.assertEqual(result['companion']['player_id'],'ai-2')
         self.assertEqual([p['score_delta'] for p in result['penalties']],[-4,-4])
-        self.assertEqual(state['scores']['ai-1'],0)
+        self.assertEqual(state['scores']['ai-1'],1)
 
     def test_strict_extreme_boundaries(self):
         for actual, quantity, expected in [(2,4,1),(1,4,2),(8,4,1),(9,4,2)]:
@@ -124,6 +124,7 @@ class PartyFinalRulesTests(unittest.TestCase):
         with patch('app.games.liars_dice.random.SystemRandom.shuffle'):
             state=self.make(6,team_mode='teams',cup_penalty=True,extreme_penalty=True,companion_penalty=True)
         state.pop('team_rules_version')
+        state.pop('scoring_rules_version')
         state['team_next_speakers'] = {team: members[0] for team, members in state['teams'].items()}
         self.people[1]=self.people[3]  # legacy blue challenger
         state['dice_by_player']={members[0]:[2]*5 for members in state['teams'].values()}
@@ -140,6 +141,7 @@ class PartyFinalRulesTests(unittest.TestCase):
     def test_old_party_keeps_no_bonus_and_classic_unchanged(self):
         state=self.make()
         state.pop('party_rules_version')
+        state.pop('scoring_rules_version')
         state['dice_by_player']={'human-1':[2]*5,'ai-1':[3]*5}
         self.assertEqual(self.challenge(3,2)['actual_count'],5)
         self.assertFalse(rules.can_reroll(state,'human-1'))

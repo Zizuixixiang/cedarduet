@@ -35,6 +35,9 @@ def safe_state(room, pid):
     public = game.public_state(state, room['participants'])
     meta.update(phase=state['flow']['phase'], round=state['flow']['round_number'],
                 teams=public.get('teams'), max_bid_quantity=public['max_bid_quantity'], selection=None)
+    meta.update(scoring_rules_version=public['scoring_rules_version'], scores=public['scores'])
+    if public.get('teams'):
+        meta['team_scores'] = public['team_scores']
     meta['rush_until'] = game.rush_deadline(state) or None
     if public.get('teams'):
         meta['team_rules_version'] = public['team_rules_version']
@@ -115,7 +118,8 @@ def response(room_id, pid, *, full=False, source_room=None, **unused):
             if now['status'] in ('finished','archived') and ctx.get('public',{}).get('status') != now['status']:
                 out['result'] = {key: deepcopy(value) for key, value in (room.get('result') or {}).items()
                                  if key in ('draw', 'mode', 'reason', 'outcome', 'completed_rounds',
-                                            'winner_player_ids', 'winner_team_ids', 'result_text')}
+                                            'winner_player_ids', 'winner_team_ids', 'result_text',
+                                            'scoring_rules_version')}
         if events:
             out['events'] = events
         if now.get('rush_until'):

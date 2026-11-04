@@ -80,6 +80,22 @@ class PartyStakeTests(support.MultiplayerGameTestCase):
         self.assertEqual([r['rank'] for r in room['result']['rankings']], [1, 1, 3])
         self.assert_payout(room, {'human-1': 3, 'ai-1': 2, 'ai-2': -5})
 
+    def test_positive_cross_team_round_ranks_and_pays_existing_pool(self):
+        room = self.create(4, team_mode='teams')
+        state = room['board_state']
+        state['teams'] = {'red':['human-1','ai-2'], 'blue':['ai-1','ai-3']}
+        state['dice_by_player'] = {pid:[2]*5 for pid in state['participant_order']}
+        room = self.replace_state(room, state, 'human-1')
+        room = self.act(room, {'action':'bid', 'quantity':28, 'face':6})
+        room = self.act(room, {'action':'challenge'})
+        self.assertEqual(room['board_state']['team_scores'], {'red':-1,'blue':1})
+        with closing(database.connect()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_ledger').fetchone()[0], 0)
+        room = self.act(room, {'action':'end_session'}, 'human-1')
+        self.assertEqual(room['result']['winner_team_ids'], ['blue'])
+        self.assertEqual([r['score'] for r in room['result']['rankings']], [1,-1])
+        self.assert_payout(room, {'human-1':-5,'ai-1':5,'ai-2':-5,'ai-3':5})
+
     def test_refunds_all_tied_no_rounds_and_only_npc_winner(self):
         cases = [(3, 0, [0, 0, 0], 1), (3, 0, [0, 0, 0], 0),
                  (3, 1, [-2, -4, 0], 1), (3, 1, [0, 0, -2], 1)]
@@ -109,12 +125,12 @@ class PartyStakeTests(support.MultiplayerGameTestCase):
         room = self.replace_state(room, state, 'human-1')
         room = self.act(room, {'action':'bid', 'quantity':42, 'face':6})
         room = self.act(room, {'action':'rush_open'}, 'ai-1')
-        self.assertEqual(room['board_state']['team_scores'], {'red':-1,'blue':0})
+        self.assertEqual(room['board_state']['team_scores'], {'red':0,'blue':0})
         with closing(database.connect()) as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_settlement_batches').fetchone()[0], 0)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_ledger').fetchone()[0], 0)
         room = self.act(room, {'action':'end_session'}, 'human-1')
-        self.assert_payout(room, {'human-1':-5,'ai-1':-5,'ai-2':5,'ai-3':5,
+        self.assert_payout(room, {'human-1':0,'ai-1':0,'ai-2':0,'ai-3':0,
                                   'npc:test-1':0,'npc:test-2':0})
 
     def test_manual_confirm_then_wait_reenter_start_with_npcs(self):

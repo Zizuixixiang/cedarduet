@@ -52,7 +52,7 @@ class PartyRulesTests(unittest.TestCase):
             self.assertEqual(outcome['loser_player_id'], loser)
             self.assertEqual(state['records'][loser]['losses'], 1)
             self.assertEqual(state['scores'][loser], -1)
-            self.assertEqual(sum(state['scores'].values()), -1)
+            self.assertEqual(sum(state['scores'].values()), 0)
             self.assertEqual(outcome['score_delta'], -1)
             self.assertEqual(outcome['score_after'], -1)
             self.assertEqual(sum(r['wins'] for r in state['records'].values()), 1)
@@ -117,7 +117,7 @@ class PartyRoomTests(support.MultiplayerGameTestCase):
             before = deepcopy(room['board_state']['dice_by_player'])
             room = self.act(room, {'action':'challenge'})
             self.assertEqual(room['board_state']['flow']['round_number'], round_number)
-            self.assertEqual(sum(room['board_state']['scores'].values()), -round_number)
+            self.assertEqual(sum(room['board_state']['scores'].values()), 0)
             self.assertEqual(room['board_state']['last_round_result']['revealed_dice_by_player'], before)
             self.assertTrue(all(p['active'] for p in room['participants']))
             self.assertEqual(room['status'], 'playing')
@@ -200,6 +200,7 @@ class PartyRoomTests(support.MultiplayerGameTestCase):
                     ordered_participants=support.participants(count),game_options={'mode':'party','team_mode':'pairs','rush_open':False})
             state = room['board_state']
             state.pop('team_rules_version')
+            state.pop('scoring_rules_version')
             state['team_next_speakers'] = {team: members[0] for team, members in state['teams'].items()}
             state['dice_by_player'] = {members[0]: state['dice_by_player'][members[0]] for members in state['teams'].values()}
             room = self.replace_state(room,state,'human-1')
@@ -276,6 +277,8 @@ class PartyRoomTests(support.MultiplayerGameTestCase):
         room = self.create(2)
         state = room['board_state']
         state.pop('scores')
+        state.pop('score_half_units')
+        state.pop('scoring_rules_version')
         state['records']['human-1']['losses'] = 3
         room = self.replace_state(room,state,'human-1')
         self.assertEqual(framework.project_room_for_viewer(room,'human-1')['board_state']['scores']['human-1'],-3)
@@ -365,12 +368,12 @@ class PartyMcpTests(support.LiarsDiceMcpTests):
             'room_id':room['room_id'],'revision':room['revision'],'move':{'action':'challenge'}})
         self.assertEqual(response.status_code,200,response.text)
         room = framework.get_room(room['room_id'])
-        self.assertEqual(sum(room['board_state']['team_scores'].values()),-1)
+        self.assertEqual(sum(room['board_state']['team_scores'].values()),0)
         response = await self.client.post('/mcp/play',json={'action':'state','player_id':'ai-1',
             'room_id':room['room_id'],'full_state':True})
         self.assertEqual(response.status_code,200,response.text)
         snapshot = response.json()['snapshot']
-        self.assertEqual(snapshot['board_state']['round_results'][0]['score_delta'],-1)
+        self.assertEqual(snapshot['board_state']['round_results'][0]['score_delta'],0)
         self.assertNotIn('dice_by_player',snapshot['board_state'])
         normal = framework.project_mcp_snapshot_for_viewer(room,'ai-1')
         self.assertNotIn('round_results',normal['board_state'])
@@ -417,7 +420,7 @@ class PartyMcpTests(support.LiarsDiceMcpTests):
         updated = framework.get_room(room['room_id'])
         self.assertEqual(updated['current_player_id'], 'ai-1')
         self.assertEqual(updated['board_state']['flow']['round_number'], 2)
-        self.assertEqual(updated['board_state']['scores'], {'ai-1':-1, 'human-1':0})
+        self.assertEqual(updated['board_state']['scores'], {'ai-1':-1, 'human-1':1})
 
     async def test_mcp_pairs_invite_start_options_and_legacy_default(self):
         response = await self.client.post('/mcp/play',json={'action':'invite','game_type':'liars_dice',
