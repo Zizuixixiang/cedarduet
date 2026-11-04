@@ -1107,7 +1107,7 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn("header.append(roundLabel, separator, title)", renderer)
         self.assertIn("result.appendChild(header)", renderer)
         self.assertIn("/static/styles.css?v=0.9.52", HTML)
-        self.assertIn("/static/app.js?v=0.9.63", HTML)
+        self.assertIn("/static/app.js?v=0.9.64", HTML)
         self.assertNotIn(".game-view .liars-result-title,", STYLES)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[
@@ -2653,7 +2653,7 @@ assert.match(previousRound.className, /liars-round-result/);
 assert.match(previousRound.className, /liars-previous-round/);
 assert.equal(previousRound.children[0].children[0].textContent, "第 1 轮结算");
 assert.equal(previousRound.children[0].children[2].textContent, "质疑成功");
-assert.equal(previousRound.children[1].textContent, "小机一号叫 3 个 6 点，开骰按规则算 2 个 6 点。");
+assert.equal(previousRound.children[1].textContent, "小机一号叫 3 个 6 点，开骰共 2 个 6 点。");
 assert.equal(previousRound.children[2].textContent, "小机一号 -1颗骰子 · 剩余4颗");
 assert.equal(previousRound.children.length, 4);
 const compactText = previousRound.children.slice(0, 3)
@@ -2729,7 +2729,7 @@ const settlement = ackBoard.children[0];
 assert.equal(settlement.classList.contains("awaiting-acknowledgement"), true);
 assert.equal(settlement.children[0].children[0].textContent, "第 2 轮结算");
 assert.equal(settlement.children[0].children[2].textContent, "质疑成功");
-assert.equal(settlement.children[1].textContent, "人类一号叫 4 个 5 点，开骰按规则算 3 个 5 点。");
+assert.equal(settlement.children[1].textContent, "人类一号叫 4 个 5 点，开骰共 3 个 5 点。");
 assert.equal(settlement.children[2].textContent, "人类一号 -1颗骰子 · 剩余3颗");
 const acknowledgement = settlement.children[3];
 assert.doesNotMatch(allText(acknowledgement), /确认后才会重新掷骰并开始下一轮/);
@@ -3976,7 +3976,7 @@ const reveal = settledBoard.children.find(
 assert.ok(reveal);
 assert.equal(reveal.children[0].children[0].textContent, "第 2 轮结算");
 assert.equal(reveal.children[0].children[2].textContent, "质疑成功");
-assert.equal(reveal.children[1].textContent, "Vega叫 4 个 5 点，开骰按规则算 3 个 5 点。");
+assert.equal(reveal.children[1].textContent, "Vega叫 4 个 5 点，开骰共 3 个 5 点。");
 assert.equal(reveal.children[2].textContent, "Vega -1颗骰子 · 剩余4颗");
 assert.equal(reveal.children.length, 4);
 assert.equal(reveal.children[3].tag, "details");

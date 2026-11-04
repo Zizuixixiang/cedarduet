@@ -2630,7 +2630,7 @@ function liarsRoundResultLines(outcome, state = {}) {
   const title = surrendered ? "主动投降"
     : bidderWon === undefined ? "本轮结算" : bidderWon ? "叫点成功" : "质疑成功";
   const bidder = outcome.bidder_display_name || liarsParticipantName(bidderId);
-  const literalCount = bid.exact && Object.values(outcome.cup_bonuses || {}).every(bonus => bonus === 0);
+  const literalCount = (state.mode || outcome.mode) !== "party" || (bid.exact && Object.values(outcome.cup_bonuses || {}).every(bonus => bonus === 0));
   const explanation = surrendered ? `${loser}投降认罚。`
     : Number.isFinite(outcome.actual_count) && Number.isFinite(bid.quantity)
       && Number.isFinite(bid.face)
