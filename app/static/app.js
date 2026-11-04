@@ -4067,7 +4067,7 @@ function renderPrivateState(targetRoom) {
   content.replaceChildren();
   if (!visible) return;
   Object.entries(privateState).forEach(([key, value]) => {
-    if (targetRoom.game_type === "liars_dice" && ["team_id", "cup_owner_player_id", "can_reroll"].includes(key)) return;
+    if (targetRoom.game_type === "liars_dice" && ["team_id", "cup_owner_player_id", "can_reroll", "can_rush"].includes(key)) return;
     if (targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party" && key === "legal_actions") return;
     const row = document.createElement("div");
     row.className = "private-state-row";

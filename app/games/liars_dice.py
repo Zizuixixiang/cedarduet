@@ -873,6 +873,9 @@ class LiarsDice(GamePlugin):
     def mcp_snapshot_state(self, public_state, viewer, participants):
         snapshot = super().mcp_snapshot_state(public_state, viewer, participants)
         snapshot.pop("round_results", None)
+        # A read-time clock is transport metadata, not repeatable game state.
+        # Web keeps it; party MCP sends it beside the snapshot during a rush.
+        snapshot.pop("server_time", None)
         return snapshot
 
     def mcp_bootstrap_state(self, public_state, viewer, participants):

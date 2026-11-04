@@ -116,7 +116,7 @@ class FullStateCompletenessTests(unittest.IsolatedAsyncioTestCase):
                      patch.object(game, 'mcp_move_format', {'mcp': version}, create=True):
                     snapshot = await self.cold_snapshot(room)
                     expected = ('【原版·淘汰赛】\n' + version if mode == 'classic'
-                                else version + '\n本桌有骰计骰：已开启。')
+                                else version + '\n本桌有骰计骰：已开启。\n本桌抢开：开启，10秒。')
                     self.assertEqual(snapshot['rules_text'], expected)
                     self.assertEqual(snapshot['move_format'], game.mcp_move_format)
                     self.assertNotEqual(snapshot['move_format'], game.move_format)

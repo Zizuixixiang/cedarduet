@@ -26,6 +26,19 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
         assert.equal(await ui.run(`document.querySelectorAll('#privateStateContent .liars-die').length`), 5);
         assert.equal(await ui.run(`$('privateStateContent').textContent.includes('我的骰子')`), true);
         assert.equal(await ui.run(`$('privateStateContent').textContent.includes('共用骰子')`), false);
+        // Internal permissions drive controls, never raw private-state rows.
+        for (const canRush of [false, true]) {
+          await ui.run(`room.private_state.can_rush = ${canRush}; renderPrivateState(room)`);
+          assert.equal(await ui.run(`$('privateStateContent').textContent.includes('can_rush')`), false);
+          assert.equal(await ui.run(`/true|false/.test($('privateStateContent').textContent)`), false);
+          assert.equal(await ui.run(`room.private_state.can_rush`), canRush);
+          assert.equal(await ui.run(`document.querySelectorAll('#privateStateContent .liars-die').length`), 5);
+        }
+        // Keep generic private-field rendering for other games intact.
+        await ui.run(`renderPrivateState({game_type:'other', board_state:{}, private_state:{hand:'保留手牌', can_rush:false}})`);
+        assert.equal(await ui.run(`$('privateStateContent').textContent.includes('保留手牌')`), true);
+        assert.equal(await ui.run(`$('privateStateContent').textContent.includes('can_rush')`), true);
+        await ui.run(`room.private_state.can_rush = false; renderPrivateState(room)`);
         assert.equal(await ui.run(`$('board').textContent.includes('共用骰盅')`), false);
         assert.equal(await ui.run(`document.querySelectorAll('.liars-team-score-card').length`), 2);
         assert.equal(await ui.run(`document.querySelector('select[aria-label="叫点规则"]').value`), 'false');
@@ -55,6 +68,8 @@ const {backend, driver, until, output, domOnly} = require('./liars_dice_lobby_br
         await ui.run(`room.board_state.team_rules_version = 1; renderPrivateState(room); renderLiarsDice($('board'), room.board_state)`);
         assert.equal(await ui.run(`$('privateStateContent').textContent.includes('我队共用骰子')`), true);
         assert.equal(await ui.run(`$('board').textContent.includes('共用骰盅')`), true);
+        await ui.run(`delete room.board_state.team_rules_version; renderPrivateState(room)`);
+        assert.equal(await ui.run(`$('privateStateContent').textContent.includes('我队共用骰子')`), true);
         assert.deepEqual(ui.errors, []);
         console.log(JSON.stringify({mode:domOnly?'DOM':width, privateDice:5, revealedCups:4, teammateRush:true, charges:1, legacyLabels:true}));
       } finally { if (ui) await ui.close(); await api.close(); }

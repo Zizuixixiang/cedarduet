@@ -68,6 +68,33 @@ class RushRulesTests(support.MultiplayerGameTestCase):
             self.assertEqual(normal['board_state']['current_bid']['bidder_player_id'], expired['current_player_id'])
             self.assertEqual(normal['board_state']['participant_order'], room['board_state']['participant_order'])
 
+    def test_mcp_projections_stay_stable_while_web_clock_advances(self):
+        game = get_game('liars_dice')
+        for options in ({'mode':'classic'}, {'mode':'party', 'rush_open':False},
+                        {'mode':'party'}, {'mode':'party', 'team_mode':'teams'}):
+            with self.subTest(options=options):
+                room = f.create_room('liars_dice', 'human_first', 'human', 'human-1',
+                    opponent_id='ai-1', ordered_participants=support.participants(4),
+                    game_options=options)
+                with patch('app.games.liars_dice.time.time', return_value=2000000000):
+                    room = self.act(room, {'action':'bid', 'quantity':6, 'face':2})
+                projections = []
+                for now in (2000000001, 2000000008):
+                    with patch('app.games.liars_dice.time.time', return_value=now):
+                        public = game.public_state(room['board_state'], room['participants'])
+                        before = deepcopy(public)
+                        viewer = room['participants'][1]
+                        snapshot = game.mcp_snapshot_state(public, viewer, room['participants'])
+                        bootstrap = game.mcp_bootstrap_state(public, viewer, room['participants'])
+                        self.assertNotIn('server_time', snapshot)
+                        self.assertEqual(snapshot, bootstrap)
+                        self.assertEqual(public, before)
+                        if options['mode'] == 'party':
+                            self.assertEqual(public['server_time'], now)
+                            self.assertEqual(snapshot['rush_until'], public['rush_until'])
+                        projections.append(snapshot)
+                self.assertEqual(*projections)
+
     def test_concurrent_out_of_turn_winner_scores_once(self):
         room = self.bid(self.create())
         def race(pid):
@@ -181,6 +208,32 @@ class RushTransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def mcp(self, room, pid, action='state', **kwargs):
         return await self.client.post('/mcp/play', json=dict(action=action,player_id=pid,room_id=room['room_id'],**kwargs))
+
+    async def test_full_state_stable_with_live_clock_outside_snapshot(self):
+        with patch('app.games.liars_dice.time.time', return_value=2000000000):
+            room = f.create_room('liars_dice', 'human_first', 'human', 'human-1',
+                opponent_id='ai-1', game_options={'mode':'party'})
+            room = f.play_move(room['room_id'], 'human', 'human-1',
+                {'action':'bid', 'quantity':3, 'face':2}, expected_revision=room['revision'])
+            bootstrap = (await self.mcp(room, 'ai-1')).json()
+            self.assertTrue(bootstrap['bootstrap'])
+            self.assertNotIn('server_time', bootstrap['room']['board_state'])
+            self.assertEqual(bootstrap['server_time'], 2000000000)
+            self.assertEqual(bootstrap['room']['board_state']['rush_until'], 2000000010)
+        snapshots = []
+        for now in (2000000001, 2000000008):
+            with patch('app.games.liars_dice.time.time', return_value=now):
+                reply = await self.mcp(room, 'ai-1', full_state=True)
+                self.assertEqual(reply.status_code, 200, reply.text)
+                data = reply.json()
+                self.assertEqual(data['server_time'], now)
+                self.assertEqual(data['actions'], [{'action':'rush_open'}])
+                snapshot = data['snapshot']
+                self.assertNotIn('server_time', snapshot['board_state'])
+                self.assertEqual(snapshot['board_state']['rush_until'], 2000000010)
+                self.assertTrue(snapshot['private_state']['can_rush'])
+                snapshots.append(snapshot)
+        self.assertEqual(*snapshots)
 
     async def test_wait_wakes_non_next_machine_and_real_mcp_move(self):
         room = f.create_room('liars_dice','human_first','human','human-1',opponent_id='ai-1',

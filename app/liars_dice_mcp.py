@@ -84,7 +84,8 @@ def response(room_id, pid, *, full=False, source_room=None, **unused):
         elif boot:
             game = get_game('liars_dice')
             board = deepcopy(public or {})
-            for key in ('round_results','records','last_action_note','bid_ranges'):
+            # Rush clock sync is supplied at the response top level below.
+            for key in ('round_results','records','last_action_note','bid_ranges','server_time'):
                 board.pop(key,None)
             out.update(protocol=2, bootstrap=True, protocol_guide=GUIDE,
                        room={'room_id':room_id, 'game_type':'liars_dice', 'game_options':room['game_options'],
