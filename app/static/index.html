@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=0.9.47">
+  <link rel="stylesheet" href="/static/styles.css?v=0.9.48">
   <link rel="stylesheet" href="/static/games/checkers.css?v=0.1.0">
 </head>
 <body>
@@ -77,59 +77,61 @@
           <button id="inviteJoinEntry" class="pixel-btn secondary" type="button">加入联机房间</button>
         </div>
         <dialog id="inviteDialog" class="pixel-card invite-dialog">
-          <div class="invite-dialog-head">
-            <span class="tag pink">INVITE</span>
-            <h2 id="inviteDialogTitle">邀请联机</h2>
-          </div>
-          <div id="inviteCreateFields" class="invite-dialog-fields">
-            <div class="pixel-field">
-              <span>游戏</span>
-              <div class="game-type-selects">
-                <select id="inviteCategory" aria-label="邀请联机游戏分类">
-                  <option value="board">棋</option>
-                  <option value="card">牌</option>
-                  <option value="dice">骰</option>
-                  <option value="tabletop">桌游</option>
-                </select>
-                <select id="inviteGame" aria-label="邀请联机具体游戏"></select>
+          <div class="invite-dialog-content">
+            <div class="invite-dialog-head">
+              <span class="tag pink">INVITE</span>
+              <h2 id="inviteDialogTitle">邀请联机</h2>
+            </div>
+            <div id="inviteCreateFields" class="invite-dialog-fields">
+              <div class="pixel-field">
+                <span>游戏</span>
+                <div class="game-type-selects">
+                  <select id="inviteCategory" aria-label="邀请联机游戏分类">
+                    <option value="board">棋</option>
+                    <option value="card">牌</option>
+                    <option value="dice">骰</option>
+                    <option value="tabletop">桌游</option>
+                  </select>
+                  <select id="inviteGame" aria-label="邀请联机具体游戏"></select>
+                </div>
               </div>
+              <label class="pixel-field"><span>目标人数</span><select id="inviteCount"></select></label>
+              <div id="inviteAiField" class="pixel-field ai-multi-field">
+                <span id="inviteAiLabel">带上自家小机</span>
+                <button id="inviteAiTrigger" class="ai-multi-trigger" type="button"
+                        aria-haspopup="listbox" aria-expanded="false" aria-controls="inviteAiMenu"
+                        aria-labelledby="inviteAiLabel inviteAiSummary" aria-describedby="inviteAiHint">
+                  <span id="inviteAiSummary" class="ai-multi-name">可选，不带小机</span>
+                  <span class="ai-multi-caret" aria-hidden="true">▾</span>
+                </button>
+                <div id="inviteAiMenu" class="ai-multi-menu hidden" role="listbox"
+                     aria-multiselectable="true" aria-labelledby="inviteAiLabel"></div>
+              </div>
+              <p id="inviteAiHint" class="invite-note" role="status"></p>
+              <label class="pixel-field">
+                <span>本局筹码</span>
+                <input id="inviteStake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="inviteStakeHint">
+              </label>
+              <p id="inviteStakeHint" class="invite-note">0 为娱乐局。</p>
+              <label class="pixel-field">
+                <span>超时接管</span>
+                <select id="inviteTimeout" aria-describedby="inviteTimeoutHint">
+                  <option value="0" selected>关闭</option>
+                  <option value="90">90 秒</option>
+                  <option value="180">180 秒</option>
+                </select>
+              </label>
+              <p id="inviteTimeoutHint" class="invite-note">超时由 NPC 临时代操作，可随时接回。</p>
             </div>
-            <label class="pixel-field"><span>目标人数</span><select id="inviteCount"></select></label>
-            <div id="inviteAiField" class="pixel-field ai-multi-field">
-              <span id="inviteAiLabel">带上自家小机</span>
-              <button id="inviteAiTrigger" class="ai-multi-trigger" type="button"
-                      aria-haspopup="listbox" aria-expanded="false" aria-controls="inviteAiMenu"
-                      aria-labelledby="inviteAiLabel inviteAiSummary" aria-describedby="inviteAiHint">
-                <span id="inviteAiSummary" class="ai-multi-name">可选，不带小机</span>
-                <span class="ai-multi-caret" aria-hidden="true">▾</span>
-              </button>
-              <div id="inviteAiMenu" class="ai-multi-menu hidden" role="listbox"
-                   aria-multiselectable="true" aria-labelledby="inviteAiLabel"></div>
+            <div id="inviteJoinFields" class="invite-dialog-fields hidden">
+              <label class="pixel-field"><span>邀请码</span><input id="inviteCodeInput" maxlength="12" autocomplete="off"></label>
+              <p id="invitePreview" class="invite-preview"></p>
             </div>
-            <p id="inviteAiHint" class="invite-note" role="status"></p>
-            <label class="pixel-field">
-              <span>本局筹码</span>
-              <input id="inviteStake" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="inviteStakeHint">
-            </label>
-            <p id="inviteStakeHint" class="invite-note">0 为娱乐局。</p>
-            <label class="pixel-field">
-              <span>超时接管</span>
-              <select id="inviteTimeout" aria-describedby="inviteTimeoutHint">
-                <option value="0" selected>关闭</option>
-                <option value="90">90 秒</option>
-                <option value="180">180 秒</option>
-              </select>
-            </label>
-            <p id="inviteTimeoutHint" class="invite-note">超时由 NPC 临时代操作，可随时接回。</p>
-          </div>
-          <div id="inviteJoinFields" class="invite-dialog-fields hidden">
-            <label class="pixel-field"><span>邀请码</span><input id="inviteCodeInput" maxlength="12" autocomplete="off"></label>
-            <p id="invitePreview" class="invite-preview"></p>
-          </div>
-          <p id="inviteError" class="invite-error" role="status"></p>
-          <div class="invite-dialog-actions">
-            <button id="inviteSubmit" class="pixel-btn" type="button">创建邀请房</button>
-            <button id="inviteDismiss" class="pixel-btn secondary" type="button">取消</button>
+            <p id="inviteError" class="invite-error" role="status"></p>
+            <div class="invite-dialog-actions">
+              <button id="inviteSubmit" class="pixel-btn" type="button">创建邀请房</button>
+              <button id="inviteDismiss" class="pixel-btn secondary" type="button">取消</button>
+            </div>
           </div>
         </dialog>
         <div class="lobby-stack">

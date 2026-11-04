@@ -4600,6 +4600,14 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   color: var(--text);
 }
 .invite-dialog::backdrop { background: rgba(87, 70, 105, .42); }
+/* Keep the card frame stationary while the complete invitation form scrolls. */
+#inviteDialog { position: fixed; padding: 0; }
+#inviteDialog[open] { display: flex; flex-direction: column; }
+.invite-dialog-content {
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+}
 .invite-dialog-head {
   margin-bottom: 14px;
   display: grid;
@@ -4686,6 +4694,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     padding: 14px;
   }
   .invite-dialog-head { margin-bottom: 12px; gap: 6px; }
+  .invite-dialog-content { padding: 14px; }
   .invite-dialog-head h2 { font-size: 17px; }
   .invite-dialog-fields { gap: 9px; }
   .invite-dialog-actions { margin-top: 12px; gap: 8px; }
