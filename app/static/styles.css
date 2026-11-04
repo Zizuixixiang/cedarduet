@@ -2669,6 +2669,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: rgba(230, 223, 240, .5);
   border-color: var(--purple-dark);
 }
+/* Keep every dice room the same width regardless of roster or copy length.
+   The shared .board-frame uses fit-content for square board games. */
+#battleStage[data-game-type="liars_dice"] .board-frame {
+  width: 100%;
+  max-width: 640px;
+}
+#battleStage[data-game-type="liars_dice"] .board-frame > .board.liars_dice {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .liars-current-round {
   padding: 12px;
   display: grid;

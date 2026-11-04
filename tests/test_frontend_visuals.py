@@ -1089,6 +1089,10 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertNotIn('"本轮已结算。确认后才会重新掷骰并开始下一轮。"', renderer)
         self.assertIn('`知道了，开始第 ${nextRound} 轮`', renderer)
         self.assertIn(".liars-current-round {", STYLES)
+        self.assertIn('if (roundNumber === 1)', renderer)
+        self.assertNotIn('骰子已重新掷出', renderer)
+        self.assertIn('#battleStage[data-game-type="liars_dice"] .board-frame {', STYLES)
+        self.assertIn('#battleStage[data-game-type="liars_dice"] .board-frame > .board.liars_dice {', STYLES)
         self.assertIn('currentTurnPrefix.textContent = "轮到："', renderer)
         self.assertIn('humanCanMove ? "你" : liarsParticipantName', renderer)
         turn_name_start = STYLES.index(".liars-turn-name {")
@@ -1106,8 +1110,8 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn("font-size: 16px;", STYLES)
         self.assertIn("header.append(roundLabel, separator, title)", renderer)
         self.assertIn("result.appendChild(header)", renderer)
-        self.assertIn("/static/styles.css?v=0.9.52", HTML)
-        self.assertIn("/static/app.js?v=0.9.64", HTML)
+        self.assertIn("/static/styles.css?v=0.9.53", HTML)
+        self.assertIn("/static/app.js?v=0.9.65", HTML)
         self.assertNotIn(".game-view .liars-result-title,", STYLES)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[
@@ -2589,8 +2593,12 @@ assert.equal(currentRound.children[0].children[1].className, "liars-turn-line");
 assert.equal(currentRound.children[0].children[1].children[0].textContent, "轮到：");
 assert.equal(currentRound.children[0].children[1].children[1].textContent, "你");
 assert.equal(currentRound.children[0].children[1].children[1].className, "liars-turn-name");
-assert.equal(currentRound.children[0].children.length, 3);
-assert.match(allText(currentRound), /骰子已重新掷出/);
+assert.equal(currentRound.children[0].children.length, 2);
+assert.doesNotMatch(allText(currentRound), /骰子已重新掷出|骰子已掷出/);
+const firstRoundBoard = new Element("div");
+renderLiarsDice(firstRoundBoard, {{...postChallengeState,
+  flow: {{...postChallengeState.flow, round_number: 1}}, last_round_result: null}});
+assert.match(allText(firstRoundBoard), /骰子已掷出/);
 assert.match(allText(currentRound), /本轮当前叫点/);
 assert.match(allText(currentRound), /轮到你叫点/);
 assert.match(allText(currentRound), /现在叫点/);

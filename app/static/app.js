@@ -3097,19 +3097,13 @@ function renderLiarsDice(board, state) {
   currentTurnNameElement.textContent = currentTurnName || "";
   currentTurnNameElement.title = currentTurnName || "";
   currentTurnLine.append(currentTurnPrefix, currentTurnNameElement);
-  const roundStatus = document.createElement("span");
-  if (isHistoricalResult && state.dice_retained) {
-    roundStatus.textContent = "沿用上轮骰子";
-  } else if (isHistoricalResult) {
-    roundStatus.textContent = "骰子已重新掷出";
-  } else if (flow.phase === "finished") {
-    roundStatus.textContent = "本轮已经结算";
-  } else {
-    roundStatus.textContent = "骰子已掷出";
-  }
   roundHeading.append(roundTitle);
   if (currentTurnName) roundHeading.append(currentTurnLine);
-  roundHeading.append(roundStatus);
+  if (roundNumber === 1) {
+    const roundStatus = document.createElement("span");
+    roundStatus.textContent = "骰子已掷出";
+    roundHeading.appendChild(roundStatus);
+  }
   currentRound.appendChild(roundHeading);
 
   const heading = document.createElement("div");
