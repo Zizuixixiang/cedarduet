@@ -2737,17 +2737,17 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .liars-round-result {
   min-width: 0;
   overflow-wrap: anywhere;
-  padding: 8px 10px;
+  padding: 16px 17px;
   display: grid;
   align-self: start;
   align-content: start;
-  gap: 3px;
-  background: rgba(255, 255, 255, .88);
+  gap: 0;
+  background: #fff;
   border: 1px solid var(--purple-light);
   border-left: 4px solid var(--purple);
-  box-shadow: 2px 2px 0 rgba(92, 84, 99, .12);
+  box-shadow: 3px 3px 0 rgba(92, 84, 99, .12);
   font-family: system-ui, sans-serif;
-  font-size: 12px;
+  font-size: 14px;
 }
 .liars-previous-round { align-self: start; }
 .liars-result-title {
@@ -2755,21 +2755,33 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   font-size: 13px;
   line-height: 1.35;
 }
-.liars-round-result .liars-result-title { font-size: clamp(22px, 4vw, 26px); }
-.liars-result-round { color: var(--muted); font-size: 12px; line-height: 1.4; }
-.liars-result-line {
-  margin: 0;
+.liars-result-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
   line-height: 1.4;
 }
-.liars-result-outcome { color: var(--purple-darker); }
-.liars-result-loss { color: var(--pink-dark); font-weight: 700; }
-.liars-round-result.awaiting-acknowledgement {
-  padding: 14px;
-  gap: 8px;
-  border: 3px solid var(--pink);
-  border-left-width: 6px;
-  box-shadow: 4px 4px 0 rgba(92, 84, 99, .16);
+.liars-result-header .liars-result-round {
+  color: var(--purple-darker);
+  font-size: 16px;
+  font-weight: 750;
+  white-space: nowrap;
 }
+.liars-result-header .liars-result-separator { color: var(--purple-light); font-weight: 750; }
+.liars-result-header .liars-result-title {
+  color: var(--pink-dark);
+  font-size: 16px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.liars-result-line { margin: 0; line-height: 1.65; }
+.liars-result-outcome { margin-top: 12px; color: var(--purple-darker); font-size: 14px; }
+.liars-result-loss { margin-top: 9px; color: var(--pink-dark); font-size: 15px; font-weight: 750; }
+.liars-round-result .liars-reveal-details { margin-top: 14px; padding-top: 11px; }
+.liars-round-result .liars-reveal-details summary { padding-top: 0; font-size: 13px; }
+.liars-round-result.awaiting-acknowledgement { border-left-color: var(--purple); }
 .liars-round-acknowledgement {
   margin-top: 3px;
   padding-top: 10px;
@@ -4396,7 +4408,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .board.connect4 .cell.human-piece .piece,
   .board.connect4 .cell.ai-piece .piece { border-width: 2px; }
   .board.liars_dice { width: 100%; padding: 10px; }
-  .liars-round-result { padding: 7px 8px; gap: 2px; }
+  .liars-round-result { padding: 14px; gap: 0; }
   .liars-reveal-details summary { padding-top: 3px; }
   .liars-revealed-dice { grid-template-columns: 1fr; }
   .liars-controls { grid-template-columns: 1fr 1fr; }

@@ -2630,11 +2630,12 @@ function liarsRoundResultLines(outcome, state = {}) {
   const title = surrendered ? "主动投降"
     : bidderWon === undefined ? "本轮结算" : bidderWon ? "叫点成功" : "质疑成功";
   const bidder = outcome.bidder_display_name || liarsParticipantName(bidderId);
+  const literalCount = bid.exact && Object.values(outcome.cup_bonuses || {}).every(bonus => bonus === 0);
   const explanation = surrendered ? `${loser}投降认罚。`
     : Number.isFinite(outcome.actual_count) && Number.isFinite(bid.quantity)
       && Number.isFinite(bid.face)
-      ? `${bidder}喊了${bid.quantity}个${bid.face}点${bid.exact ? "（斋）" : ""}，`
-        + `开骰计入${outcome.actual_count}个，数量${outcome.actual_count >= bid.quantity ? "够了" : "不够"}。`
+      ? `${bidder}叫 ${bid.quantity} 个 ${bid.face} 点${bid.exact ? "（斋）" : ""}，`
+        + `开骰${literalCount ? "共" : "按规则算"} ${outcome.actual_count} 个 ${bid.face} 点。`
       : "";
   let loss = "";
   if ((state.mode || outcome.mode) === "party") {
@@ -2665,7 +2666,7 @@ function liarsRoundResultLines(outcome, state = {}) {
     }
     loss = Array.from(changes, ([unit, delta]) => {
       const name = unit === "red" ? "红队" : unit === "blue" ? "蓝队" : liarsParticipantName(unit);
-      return `${name} ${delta >= 0 ? "+" : ""}${delta}分`;
+      return `${name} ${delta > 0 ? "+" : ""}${delta} 分`;
     }).join("　");
   } else {
     const eliminated = outcome.eliminated || Boolean(outcome.eliminated_player_id)
@@ -2982,7 +2983,13 @@ function renderLiarsDice(board, state) {
     const lossLine = document.createElement("p");
     lossLine.className = "liars-result-line liars-result-loss";
     lossLine.textContent = resultLines.loss;
-    result.append(title, roundLabel);
+    const header = document.createElement("div");
+    header.className = "liars-result-header";
+    const separator = document.createElement("span");
+    separator.className = "liars-result-separator";
+    separator.textContent = "·";
+    header.append(roundLabel, separator, title);
+    result.appendChild(header);
     if (resultLines.outcome) result.appendChild(outcomeLine);
     if (resultLines.loss) result.appendChild(lossLine);
     if (awaitingRoundAcknowledgement) {
@@ -2993,7 +3000,7 @@ function renderLiarsDice(board, state) {
       const acknowledgement = document.createElement("div");
       acknowledgement.className = "liars-round-acknowledgement";
       const prompt = document.createElement("p");
-      prompt.textContent = outcome.preserve_dice ? "本轮已认罚，不揭骰；确认后保留骰面进入下一轮。" : "本轮已结算。确认后才会重新掷骰并开始下一轮。";
+      prompt.textContent = "下一轮保留骰子";
       const acknowledgeButton = document.createElement("button");
       acknowledgeButton.type = "button";
       acknowledgeButton.className = "pixel-btn";
@@ -3005,10 +3012,11 @@ function renderLiarsDice(board, state) {
         await acknowledgeLiarsRound(acknowledgeButton);
       });
       if (state.mode === "party" && !canAcknowledgeLiarsRound()) {
-        prompt.textContent = `本轮已结算，等待 ${liarsParticipantName(room.current_player_id)} 确认开始第 ${nextRound} 轮。`;
+        prompt.textContent = `等待 ${liarsParticipantName(room.current_player_id)} 确认下一轮`;
         acknowledgement.append(prompt);
       } else {
-        acknowledgement.append(prompt, acknowledgeButton);
+        if (outcome.preserve_dice) acknowledgement.appendChild(prompt);
+        acknowledgement.appendChild(acknowledgeButton);
       }
       result.appendChild(acknowledgement);
     }
