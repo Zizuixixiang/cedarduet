@@ -137,6 +137,11 @@ class Mahjong(GamePlugin):
             "game_result": None,
         }
 
+    build_wall = staticmethod(build_wall)
+
+    def _before_discard(self, state, player_id, action):
+        """Variant hook after removing the tile, before opening responses."""
+
     def initial_state(self) -> dict[str, Any]:
         return self._empty_state([])
 
@@ -158,7 +163,7 @@ class Mahjong(GamePlugin):
         participants: list[dict[str, Any]],
         first_player_id: str,
     ) -> dict[str, Any]:
-        if not 1 <= len(participants) <= 4:
+        if not 1 <= len(participants) <= self.max_players:
             raise ValueError("麻将固定四人，等待房允许先创建一至三个席位")
         ordered = sorted(participants, key=lambda item: item.get("seat_index", 0))
         opener_index = next((
@@ -170,10 +175,10 @@ class Mahjong(GamePlugin):
         ordered = ordered[opener_index:] + ordered[:opener_index]
         order = [str(item["player_id"]) for item in ordered]
         state = self._empty_state(order)
-        if len(order) < 4:
+        if len(order) < self.min_players:
             return state
 
-        wall = build_wall()
+        wall = self.build_wall()
         self._rng.shuffle(wall)
         state["wall"] = wall
         for _round in range(13):
@@ -190,13 +195,13 @@ class Mahjong(GamePlugin):
     @staticmethod
     def _next_player(state: dict[str, Any], player_id: str) -> str:
         order = state["participant_order"]
-        return str(order[(order.index(player_id) + 1) % 4])
+        return str(order[(order.index(player_id) + 1) % len(order)])
 
     @staticmethod
     def _distance_order(state: dict[str, Any], source_player_id: str) -> list[str]:
         order = state["participant_order"]
         source_index = order.index(source_player_id)
-        return [str(order[(source_index + distance) % 4]) for distance in (1, 2, 3)]
+        return [str(order[(source_index + distance) % len(order)]) for distance in range(1, len(order))]
 
     @staticmethod
     def _public_tile(tile: dict[str, Any]) -> dict[str, Any]:
@@ -214,7 +219,7 @@ class Mahjong(GamePlugin):
         state: dict[str, Any], claimant_id: str, source_id: str
     ) -> int:
         order = state["participant_order"]
-        return (order.index(claimant_id) - order.index(source_id)) % 4
+        return (order.index(claimant_id) - order.index(source_id)) % len(order)
 
     @staticmethod
     def _engine_pack(meld: dict[str, Any]) -> tuple[str, str, int]:
@@ -748,6 +753,7 @@ class Mahjong(GamePlugin):
 
         if kind == "discard":
             tile = self._take_hand_tiles(next_state, player_id, [str(action["tile_id"])])[0]
+            self._before_discard(next_state, player_id, action)
             next_state["discards"][player_id].append(tile)
             next_state["last_discard"] = {
                 "player_id": player_id,

@@ -439,7 +439,7 @@ class Element {
 const styles=new Map();
 const document={head:{appendChild(n){if(n.id)styles.set(n.id,n);}},createElement(t){return new Element(t,document);},getElementById(id){return styles.get(id)||null;}};
 let renderer=null;
-const window={document,DuelGameUI:{register(type,value){assert.equal(type,"mahjong");renderer=value;}}};
+const window={document,DuelGameUI:{register(type,value){assert.ok(["mahjong","ka_wu_xing"].includes(type));if(renderer)assert.equal(renderer,value);renderer=value;}}};
 vm.runInNewContext(fs.readFileSync("app/static/games/mahjong.js","utf8"),{window,document,console,Math,Map,Set,Number,String,Boolean,Array,Object,Promise});
 function descendants(root){const out=[];const visit=n=>{out.push(n);n.children.forEach(visit);};root.children.forEach(visit);return out;}
 function hasClass(node,name){return node.classList&&node.classList.contains(name);}
@@ -592,6 +592,45 @@ renderer.renderBoard(value.context);
 nodes=descendants(value.board);
 assert.equal(nodes.some(n=>hasClass(n,"mahjong-turn-indicator")),false);
 assert.equal(nodes.some(n=>hasClass(n,"mahjong-seat")&&hasClass(n,"current")),false);
+''')
+
+    def test_three_seats_use_logical_order_without_empty_fourth_and_reveal_faces(self):
+        self.run_node(r'''
+const value=makeContext();
+value.context.participants=participants.slice(0,3);
+value.context.state={...state,variant:"ka_wu_xing",participant_order:["south","east","viewer"],revealed:{south:{hand:[{id:"open1",code:"B4",label:"4筒"}],waits:["B5"]}}};
+renderer.renderBoard(value.context);
+const nodes=descendants(value.board);
+assert.equal(nodes.filter(n=>hasClass(n,"mahjong-seat")).length,3);
+assert.equal(nodes.filter(n=>hasClass(n,"position-top")).length,0);
+assert.equal(nodes.filter(n=>hasClass(n,"mahjong-discards")).length,3);
+assert.ok(nodes.find(n=>hasClass(n,"mahjong-table")).classList.contains("three-player"));
+assert.equal(nodes.find(n=>n.dataset.playerId==="viewer").classList.contains("position-bottom"),true);
+assert.equal(nodes.find(n=>n.dataset.playerId==="south").classList.contains("position-right"),true);
+assert.equal(nodes.find(n=>n.dataset.playerId==="east").classList.contains("position-left"),true);
+assert.equal(nodes.filter(n=>n.dataset.cardId==="open1").length,1);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-discard-label")&&n.textContent.includes("亮倒")),true);
+''')
+
+    def test_liang_requires_selected_tile_confirmation_and_multiplier_copy(self):
+        self.run_node(r'''
+(async()=>{
+ const value=makeContext();
+ value.context.legalActions=[...value.context.legalActions,{action:"act",action_id:"liang:h1",kind:"discard",label:"亮倒并打 1筒"},
+ {action:"act",action_id:"hu:self_draw:x",kind:"hu",total_fan:4,multiplier:4}];
+ renderer.renderControls(value.context);
+ assert.equal(descendants(value.controls).some(n=>n.dataset.actionId==="liang:h1"),false);
+ value.uiState.mahjongSelectedTileId="h1";
+ renderer.renderControls(value.context);
+ let nodes=descendants(value.controls);
+ assert.equal(nodes.find(n=>n.dataset.actionId==="hu:self_draw:x").textContent,"胡（×4）");
+ await nodes.find(n=>n.dataset.actionId==="liang:h1").listeners.click();
+ assert.equal(value.submitted.length,0);
+ renderer.renderControls(value.context);
+ nodes=descendants(value.controls);
+ await nodes.find(n=>hasClass(n,"mahjong-confirm-submit")).listeners.click();
+ assert.equal(JSON.stringify(value.submitted),JSON.stringify([{action:"act",action_id:"liang:h1"}]));
+})().catch(error=>{console.error(error);process.exitCode=1;});
 ''')
 
     def test_discard_is_explicit_and_kong_requires_cancelable_confirmation(self):

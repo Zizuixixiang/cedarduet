@@ -213,7 +213,7 @@ async function loadCatalogGameRenderers(games) {
   ) return;
   const gameTypes = [...new Set(
     (Array.isArray(games) ? games : [])
-      .map((game) => game?.game_type?.startsWith("four_color_") ? "four_color_tenhu" : game && game.game_type)
+      .map((game) => game?.game_type === "ka_wu_xing" ? "mahjong" : game?.game_type?.startsWith("four_color_") ? "four_color_tenhu" : game && game.game_type)
       .filter((gameType) => (
         typeof gameType === "string"
         && !LEGACY_GAME_UI_TYPES.has(gameType)
@@ -221,7 +221,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (["mahjong", "uno"].includes(gameType) ? `/static/games/${gameType}.js?v=0.9.29` : null))))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.43" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
   ));
 }
 
@@ -1517,6 +1517,8 @@ function gamePlayerCountLabel(declared) {
 }
 
 function gameOptionLabel(game, games) {
+  if (game.game_type === "mahjong") return "麻将 · 4人";
+  if (game.game_type === "ka_wu_xing") return "襄阳卡五星 · 3人";
   if (game.game_type === "four_color_tenhu") {
     const counts = games.filter(item => isFourColorGame(item.game_type))
       .flatMap(allowedPlayerCountsForGame);

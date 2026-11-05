@@ -15,7 +15,7 @@ from .games.tools import public_card_state
 # 原协议（非 MCP v2）游戏的显式 resync 白名单；gem_merchant 为后加入的原协议游戏。
 LEGACY_GAMES = frozenset('''aeroplane_chess banqi blackjack tictactoe texas_holdem
 train_cards gomoku go gandengyan guandan othello connect4 checkers chess
-chinese_checkers dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi
+chinese_checkers dots_boxes doudizhu liars_dice mahjong ka_wu_xing yahtzee uno jungle junqi
 xiangqi zhajinhua gem_merchant monopoly_plus'''.split())
 
 # No static/roster deletion has a verified repeatable mid-game query contract.
