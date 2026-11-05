@@ -1467,6 +1467,7 @@ def _attach_multiplayer_settlement(
     room: dict,
     state: dict,
     game_result: dict,
+    conn=None,
 ) -> dict:
     """Require and validate an opted-in plugin's exact custom payout."""
     participant_count = len(room.get("participants", []))
@@ -1522,6 +1523,10 @@ def _attach_multiplayer_settlement(
     zero_sum = sum(deltas.values()) == 0
     if not zero_sum and not game.allows_non_zero_sum_settlement:
         raise DuelError("settlement_deltas 总和必须为 0")
+    if game.game_type == "ka_wu_xing" and conn is not None:
+        from .chips import cap_available_zero_sum_deltas
+        result["requested_settlement_deltas"] = dict(deltas)
+        deltas = cap_available_zero_sum_deltas(conn, room["participants"], deltas)
     result["settlement_deltas"] = dict(deltas)
     result["settlement_zero_sum"] = zero_sum
     if legacy_two_player:
@@ -3136,7 +3141,7 @@ def play_move(
         status = "finished" if game_result is not None else "playing"
         if status == "finished":
             game_result = _attach_multiplayer_settlement(
-                game, room, state, game_result
+                game, room, state, game_result, conn=conn
             )
         winner_player_id = (
             game_result.get("winner_player_id") if game_result else None
@@ -3431,7 +3436,7 @@ def _forfeit_active_participant(
                     "winning_player_ids": [item["player_id"] for item in remaining],
                     "settlement_deltas": fallback_deltas,
                 }
-        game_result = _attach_multiplayer_settlement(game, room, state, game_result)
+        game_result = _attach_multiplayer_settlement(game, room, state, game_result, conn=conn)
         if isinstance(state.get("flow"), dict):
             state["flow"]["phase"] = "finished"
         if "turn_player_id" in state:

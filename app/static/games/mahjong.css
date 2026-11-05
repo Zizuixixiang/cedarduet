@@ -660,3 +660,17 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
   .mahjong-own-hand-scroll .mahjong-tile-face { font-size: 31px; transform: translateY(-4px); overflow: visible; }
   .mahjong-action { min-width: 62px; padding-inline: 9px; }
 }
+
+/* Three occupied edges; omit the fourth seat and its discard row entirely. */
+.mahjong-table.three-player {
+  grid-template-rows: minmax(240px, 1fr) auto auto;
+  grid-template-areas: "left center right" "bottom bottom bottom" "hand hand hand";
+  min-height: 0;
+}
+.three-player .mahjong-discard-table {
+  grid-template-rows: minmax(100px, 1fr) auto;
+  grid-template-areas: "dl . dr" "db db db";
+}
+
+.mahjong-revealed { min-width: 0; }
+.mahjong-revealed-hand { display: flex; flex-wrap: wrap; gap: 1px; }

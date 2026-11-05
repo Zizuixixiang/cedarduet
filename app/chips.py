@@ -466,6 +466,31 @@ def apply_participant_deltas(
     return True
 
 
+def cap_available_zero_sum_deltas(conn, participants, requested):
+    """Variant opt-in: cap net losses, proportionally distribute actual pool.
+
+    Called inside the room's write transaction before persisting the result.
+    NPCs retain logical deltas and never get wallets, matching existing policy.
+    """
+    deltas = dict(requested)
+    for p in participants:
+        pid = p["player_id"]
+        if deltas[pid] < 0 and p.get("participant_kind") != "system_npc":
+            wallet = _wallet_row(conn, p["role"], pid)
+            available = max(0, wallet["balance"] if wallet is not None else INITIAL_BALANCE)
+            deltas[pid] = -min(-deltas[pid], available)
+    pool = -sum(v for v in deltas.values() if v < 0)
+    total = sum(v for v in requested.values() if v > 0)
+    winners = [p["player_id"] for p in sorted(participants, key=lambda p: p.get("seat_index", 0))
+               if requested[p["player_id"]] > 0]
+    for pid in winners:
+        deltas[pid] = pool * requested[pid] // total
+    remainder = pool - sum(deltas[pid] for pid in winners)
+    for pid in winners[:remainder]:
+        deltas[pid] += 1
+    return deltas
+
+
 def settle_duel_room(conn: sqlite3.Connection, room: dict) -> bool:
     """Resolve plugin deltas or preserve the exact legacy two-player payout."""
     stake = room.get("stake", 0)

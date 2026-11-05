@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.29";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.42";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -44,6 +44,12 @@
   }
 
   function positionFor(participant, context) {
+    if (context.state?.variant === "ka_wu_xing") {
+      const order = context.state.participant_order || [];
+      const viewer = context.viewer?.player_id;
+      const base = Math.max(0, order.indexOf(viewer));
+      return ["bottom", "right", "left"][(order.indexOf(participant.player_id) - base + 3) % 3];
+    }
     const difference = (
       Number(participant.seat_index) - viewerSeat(context) + 4
     ) % 4;
@@ -135,6 +141,9 @@
     if (participant.player_id === state.dealer_player_id) {
       badges.appendChild(el("i", "mahjong-dealer", "庄"));
     }
+    if (state.revealed?.[participant.player_id]) badges.appendChild(el("i", "", "亮"));
+    const kongScore = state.kong_scores?.[participant.player_id];
+    if (kongScore) badges.appendChild(el("i", "", `杠${kongScore > 0 ? "+" : ""}${kongScore}`));
     identity.append(avatar, name, badges);
 
     const turnIndicator = current
@@ -145,10 +154,11 @@
     const backs = el("div", "mahjong-opponent-hand");
     if (!isViewer) {
       const count = Number(state.hand_counts && state.hand_counts[participant.player_id] || 0);
-      for (let index = 0; index < count; index += 1) {
+      const revealedCount = state.revealed?.[participant.player_id]?.hand?.length || 0;
+      for (let index = revealedCount; index < count; index += 1) {
         backs.appendChild(publicTile({back: true}));
       }
-      backs.setAttribute("aria-label", `${count} 张暗牌`);
+      backs.setAttribute("aria-label", `${count - revealedCount} 张暗牌`);
     }
 
     const melds = el("div", "mahjong-seat-melds");
@@ -188,7 +198,7 @@
   function statusNode(context) {
     const state = context.state || {};
     const status = el("section", "mahjong-center-status");
-    const primary = el("strong", "mahjong-round", `${state.round_label || "东一局"} · 圈风${state.prevalent_wind || "东"}`);
+    const primary = el("strong", "mahjong-round", state.variant === "ka_wu_xing" ? "襄阳卡五星 · 3人" : `${state.round_label || "东一局"} · 圈风${state.prevalent_wind || "东"}`);
     const wall = el("span", "mahjong-wall-count", `牌墙 ${Number(state.wall_remaining || 0)} 张`);
     const current = (context.participants || []).find(
       (item) => item.player_id === actionablePlayerId(context)
@@ -246,7 +256,7 @@
       ? context.legalActions
       : [];
     const discardById = new Map();
-    legal.filter((action) => action.kind === "discard").forEach((action) => {
+    legal.filter((action) => action.kind === "discard" && action.action_id.startsWith("discard:")).forEach((action) => {
       const id = String(action.action_id || "").slice("discard:".length);
       discardById.set(id, action);
     });
@@ -292,7 +302,7 @@
     const kind = {self_draw: "自摸", discard: "点炮和", rob_kong: "抢杠和"}[result.win_type];
     const source = result.win_type !== "self_draw" && result.source_player_id
       ? ` · ${nameFor(result.source_player_id)}${result.win_type === "rob_kong" ? "被抢杠" : "点炮"}` : "";
-    const total = Number.isFinite(result.total_fan) ? ` · 总计 ${result.total_fan} 番` : "";
+    const total = result.multiplier ? ` · 总计 ×${result.multiplier}` : Number.isFinite(result.total_fan) ? ` · 总计 ${result.total_fan} 番` : "";
     return `${nameFor(result.winner_player_id)} 和牌 · ${kind}${source}${total}`;
   }
 
@@ -317,7 +327,7 @@
         row.appendChild(el("span", "", fan.name || fan.name_en || "未命名番型"));
         const multiplier = Number.isFinite(fan.points) && Number.isFinite(fan.count)
           ? `${fan.points} 番 × ${fan.count}` : "倍率未记录";
-        row.appendChild(el("span", "", `${multiplier} · ${Number.isFinite(fan.fan) ? `${fan.fan} 番` : "番数未记录"}`));
+        row.appendChild(el("span", "", fan.multiplier ? `×${fan.multiplier}` : `${multiplier} · ${Number.isFinite(fan.fan) ? `${fan.fan} 番` : "番数未记录"}`));
         list.appendChild(row);
       });
       review.appendChild(list);
@@ -326,6 +336,12 @@
     }
     const state = context.state || {};
     const hands = state.terminal_hands || {};
+    if (state.variant === "ka_wu_xing") {
+      review.appendChild(el("p", "mahjong-terminal-note", "牌型相乘后封顶，再计亮倒；杠分独立。"));
+      const units = (state.game_result || context.room?.result)?.score_units || {};
+      participants.forEach(p => review.appendChild(el("p", "mahjong-terminal-note",
+        `${p.display_name || "玩家"}：局分 ${units[p.player_id] ?? 0}（含杠分 ${state.kong_scores?.[p.player_id] ?? 0}）`)));
+    }
     const rows = el("div", "mahjong-terminal-rows");
     participants.forEach((participant) => {
       const playerId = participant.player_id;
@@ -380,10 +396,11 @@
   function renderBoard(context) {
     const styleLink = ensureStyle();
     context.helpers.setBoardLayout({
-      ariaLabel: "四人国标麻将桌",
+      ariaLabel: context.state?.variant === "ka_wu_xing" ? "三人襄阳卡五星麻将桌" : "四人国标麻将桌",
     });
     context.board.classList.add("mahjong-board-layout");
     const table = el("div", "mahjong-table");
+    if (context.state?.variant === "ka_wu_xing") table.classList.add("three-player");
     const participants = [...(context.participants || [])].sort(
       (left, right) => Number(left.seat_index) - Number(right.seat_index)
     );
@@ -393,6 +410,19 @@
     const discardTable = el("div", "mahjong-discard-table");
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
     center.appendChild(discardTable);
+    if (context.state?.variant === "ka_wu_xing" && !isTerminalState(context)) {
+      participants.forEach(p => {
+        const reveal = context.state.revealed?.[p.player_id];
+        if (reveal) {
+          const panel = el("section", "mahjong-revealed");
+          panel.appendChild(el("p", "mahjong-discard-label",
+            `${p.display_name || "玩家"}亮倒 · 听 ${reveal.waits.map(t => TILE_UNICODE[t] || t).join(" ")}`));
+          const hand = el("div", "mahjong-revealed-hand");
+          reveal.hand.forEach(tile => hand.appendChild(publicTile(tile)));
+          panel.appendChild(hand); center.appendChild(panel);
+        }
+      });
+    }
     table.appendChild(center);
     if (isTerminalState(context)) {
       delete context.uiState.mahjongSelectedTileId;
@@ -456,6 +486,7 @@
       action.label || action.public_label || action.kind || "行动"
     );
     if (action.kind !== "hu") return fallback;
+    if (Number.isFinite(action.multiplier)) return `胡（×${action.multiplier}）`;
     const explicitFan = action.total_fan;
     if (explicitFan !== null && explicitFan !== undefined) {
       const fan = Number(explicitFan);
@@ -521,7 +552,7 @@
       return;
     }
     const pendingAction = legal.find(
-      (action) => CONFIRMED_ACTION_KINDS.has(action.kind)
+      (action) => (CONFIRMED_ACTION_KINDS.has(action.kind) || action.action_id.startsWith("liang:"))
         && action.action_id === context.uiState.mahjongPendingActionId
     ) || null;
     if (context.uiState.mahjongPendingActionId && !pendingAction) {
@@ -536,6 +567,8 @@
       submit.classList.add("mahjong-discard-button");
       controls.appendChild(submit);
     }
+    const declaration = legal.find(a => a.action_id === `liang:${selected}`);
+    if (declaration) controls.appendChild(actionButton(declaration, context, {requiresConfirmation: true}));
     legal.filter((action) => action.kind !== "discard").forEach(
       (action) => controls.appendChild(actionButton(action, context, {
         requiresConfirmation: CONFIRMED_ACTION_KINDS.has(action.kind),
@@ -580,12 +613,14 @@
     context.controls.replaceChildren(controls);
   }
 
-  global.DuelGameUI.register("mahjong", {
+  const renderer = {
     participantPresentation: "board-edge",
     ownsPrivateStatePresentation: true,
     usesStandardMoveConfirmation: false,
     terminalSummary,
     renderBoard,
     renderControls,
-  });
+  };
+  global.DuelGameUI.register("mahjong", renderer);
+  global.DuelGameUI.register("ka_wu_xing", renderer);
 }(window));

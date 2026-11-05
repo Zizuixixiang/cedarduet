@@ -18,6 +18,7 @@ from .jungle import Jungle
 from .junqi import Junqi
 from .liars_dice import LiarsDice
 from .mahjong import Mahjong
+from .ka_wu_xing import KaWuXing
 from .monopoly import Monopoly
 from .monopoly_plus import MonopolyPlus
 from .othello import Othello
@@ -43,6 +44,7 @@ STAKE_PRESENTATIONS = {
     "zhajinhua": ("计价 🪙X/单位", "最大亏 32×X"),
     "gandengyan": ("底注 🪙X", "按剩牌×倍率，倍率最高8倍"),
     "doudizhu": ("底注 🪙X", "倍率最高16倍"),
+    "ka_wu_xing": ("底注 🪙X", "胡牌最高32倍，另计杠分；不透支"),
     "mahjong": ("底注 🪙X", "点炮最多 3X"),
     "blackjack": ("下注 🪙X/人", "胜+X/负-X/和0"),
 }
@@ -75,6 +77,7 @@ GAMES = {
     Doudizhu.game_type: Doudizhu(),
     LiarsDice.game_type: LiarsDice(),
     Mahjong.game_type: Mahjong(),
+    KaWuXing.game_type: KaWuXing(),
     Monopoly.game_type: Monopoly(),
     MonopolyPlus.game_type: MonopolyPlus(),
     Yahtzee.game_type: Yahtzee(),
