@@ -6,9 +6,9 @@ const {JSDOM} = require('jsdom');
 const source = fs.readFileSync('app/static/app.js', 'utf8').split('\nensureInitialRouteState();')[0];
 const html = fs.readFileSync('app/static/index.html', 'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
 const tick = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
-function harness() {
+function harness(desktop = true) {
   const dom = new JSDOM(html, {url:'https://offline.invalid/', runScripts:'outside-only'});
-  const w = dom.window, calls = [], media = {matches:true, addEventListener(){}};
+  const w = dom.window, calls = [], media = {matches:desktop, addEventListener(){}};
   let confirm = true, confirmations = 0, failure = false, release;
   w.matchMedia = () => media;
   w.confirm = () => { confirmations++; return confirm; };
@@ -23,7 +23,7 @@ function harness() {
     identity_label:'合成身份', machines:[], games:[], wallet:{balance:500}, rooms:records});
   w.fetch = async (url, options) => {
     const path = new URL(url, w.location.href).pathname;
-    calls.push({path, options});
+    calls.push({path, url, options});
     let data = {}, status = 200;
     if (path.endsWith('/delete')) {
       await new Promise(resolve => { release = resolve; });
@@ -31,6 +31,15 @@ function harness() {
       else {
         records = records.filter(r => !path.includes(r.room_id));
         data = {message:'已删除合成对局'};
+      }
+    } else if (path.endsWith('/retention')) {
+      await new Promise(resolve => { release = resolve; });
+      if (failure) { status = 403; data = {message:'测试：绑定已失效'}; }
+      else {
+        const record = records.find(r => path.includes(r.room_id));
+        record.preserved = JSON.parse(options.body).preserved;
+        data = {message:'已更新留存', room:{...record, spectating:true,
+          viewer:{role:'ai', player_id:new URL(url,w.location.href).searchParams.get('perspective') || '101'}}};
       }
     } else if (path === '/api/spectating/rooms') data = {rooms:records.map(r => ({...r, spectating:true}))};
     else if (path === '/api/whoami') data = identity();
@@ -41,6 +50,9 @@ function harness() {
   w.eval(source + `\nwindow.testAPI = {
     setup(data, records, scope) { identity=data; setRoomListScope(scope); renderRooms(records); showView('lobbyView'); },
     deleteRoom, updateRoomPreservation, syncSpectatorRetentionControls,
+    showRoom(data) { room=data; renderRetention(room); },
+    // Isolate the retention response from unrelated board renderers.
+    stubRoomRenderer() { renderGame = data => { room=data; renderRetention(room); }; },
     get scope(){return roomListScope;}, get perspective(){return spectatorPerspectives.get('TEST0000');},
     setPerspective(){spectatorPerspectives.set('TEST0000','102');},
   };`);
@@ -51,8 +63,8 @@ function harness() {
     release(){release();}, posts(){return calls.filter(c=>c.options.method==='POST');}};
 }
 (async () => {
-  for (const scope of ['mine','machines']) {
-    const h = harness(); h.setup(scope);
+  for (const desktop of [true,false]) for (const scope of ['mine','machines']) {
+    const h = harness(desktop); h.setup(scope);
     assert.equal(h.w.document.querySelectorAll('[data-delete-room-id]').length,2);
     for (const status of ['playing','waiting','pending']) {
       const room = h.fixtures.find(r=>r.status===status);
@@ -78,7 +90,7 @@ function harness() {
     h.dom.window.close();
   }
   {
-    const h=harness(); h.setup('machines'); h.setFailure(true);
+    const h=harness(false); h.setup('machines'); h.setFailure(true);
     const original=h.button('TEST0000'); original.click(); h.release(); await tick();
     assert.equal(h.button('TEST0000'),original, 'failed request keeps the existing card');
     assert.equal(original.disabled,false);
@@ -88,17 +100,58 @@ function harness() {
     h.dom.window.close();
   }
   {
-    const h=harness(); h.media.matches=false; h.setup('machines');
+    const h=harness(false); h.setup('machines');
     for(const controls of h.w.document.querySelectorAll('.spectator-retention-controls')) {
-      assert.equal(controls.getAttribute('aria-hidden'),'true'); assert.equal(controls.inert,true);
-      assert([...controls.querySelectorAll('button')].every(b=>b.disabled));
+      assert.notEqual(controls.getAttribute('aria-hidden'),'true'); assert.notEqual(controls.inert,true);
+      assert([...controls.querySelectorAll('button')].every(b=>!b.disabled));
     }
-    await h.w.testAPI.deleteRoom({...h.fixtures[0],spectating:true});
-    assert.equal(h.posts().length,0); assert.equal(h.confirmations,0);
-    h.media.matches=true; h.w.testAPI.syncSpectatorRetentionControls();
-    assert([...h.w.document.querySelectorAll('.spectator-retention-controls button')].every(b=>!b.disabled));
-    h.media.matches=false; h.setup('mine'); assert.equal(h.button('TEST0000').disabled,false);
+    h.w.testAPI.setPerspective();
+    const preserve = () => h.w.document.querySelector('[data-retention-room-id="TEST0000"]');
+    for (const value of [true,false]) {
+      assert.equal(preserve().textContent,value?'保留':'取消保留');
+      const previousPosts=h.posts().length;
+      preserve().click(); preserve().click(); h.button('TEST0000').click();
+      assert.equal(h.posts().length,previousPosts+1);
+      assert.equal(h.confirmations,0);
+      assert.equal(h.button('TEST0000').disabled,true);
+      assert.equal(JSON.parse(h.posts().at(-1).options.body).preserved,value);
+      assert.match(h.posts().at(-1).url,/perspective=102$/);
+      h.release(); await tick();
+      assert.equal(preserve().disabled,false);
+      assert.equal(preserve().textContent,value?'取消保留':'保留');
+      assert.match(preserve().parentNode.querySelector('.room-retention').textContent,
+        value?/已保留/:/天后自动删除/);
+      assert.equal(h.w.testAPI.scope,'machines');
+      assert.equal(h.w.testAPI.perspective,'102');
+    }
+    h.setFailure(true); preserve().click(); h.release(); await tick();
+    assert.equal(preserve().textContent,'保留');
+    assert.equal(preserve().disabled,false);
+    assert(h.w.document.body.textContent.includes('测试：绑定已失效'));
+    h.setFailure(false);
+    h.w.testAPI.stubRoomRenderer();
+    for (const fixture of h.fixtures) {
+      h.w.testAPI.showRoom({...fixture,spectating:true,viewer:{role:'ai',player_id:'102'}});
+      const terminal=['finished','archived'].includes(fixture.status);
+      const toggle=h.w.document.querySelector('#togglePreserveButton');
+      assert.equal(toggle.disabled,!terminal);
+      assert.equal(toggle.getAttribute('aria-hidden'),String(!terminal));
+      if (terminal) {
+        const previousPosts=h.posts().length;
+        toggle.click(); toggle.click();
+        assert.equal(h.posts().length,previousPosts+1);
+        assert.equal(toggle.disabled,true);
+        assert.match(h.posts().at(-1).url,/perspective=102$/);
+        h.release(); await tick();
+        assert.equal(toggle.disabled,false);
+        assert.equal(toggle.textContent,fixture.preserved?'取消保留':'保留此对局');
+      } else {
+        const previousPosts=h.posts().length;
+        assert.equal(await h.w.testAPI.updateRoomPreservation(fixture.room_id,true),false);
+        assert.equal(h.posts().length,previousPosts);
+      }
+    }
     h.dom.window.close();
   }
-  console.log('PASS: terminal-only, cancel, duplicate/preserve lock, same-tab refresh, perspective, failure, no open bubbling, mobile hidden/inert, own mobile controls');
+  console.log('PASS: desktop/touch terminal-only controls, cancel, duplicate/preserve lock, same-tab refresh, perspective, failure, preserve/unpreserve, room retention, no open bubbling');
 })().catch(error=>{ console.error(error); process.exitCode=1; });

@@ -18,7 +18,6 @@ let roomListScope = "mine";
 const spectatorPerspectives = new Map();
 const retentionRequests = new Set();
 const deletionRequests = new Set();
-const spectatorRetentionMedia = window.matchMedia?.("(hover: hover) and (pointer: fine)");
 let toastTimer = null;
 let visibleWaitModalRoomId = null;
 const waitHintShownRooms = new Set();
@@ -1037,7 +1036,6 @@ function renderRooms(rooms) {
     if (terminal) {
       const controls = document.createElement("div");
       controls.className = `room-record-controls${summary.spectating ? " spectator-retention-controls" : ""}`;
-      if (summary.spectating) controls.setAttribute("aria-hidden", "true");
 
       const retention = document.createElement("span");
       retention.className = `room-retention${summary.preserved ? " preserved" : ""}`;
@@ -1226,27 +1224,18 @@ async function respondToInvitation(roomId, decision) {
 }
 
 function syncSpectatorRetentionControls() {
-  const desktop = Boolean(spectatorRetentionMedia?.matches);
   document.querySelectorAll(".room-record-controls").forEach((controls) => {
-    const spectator = controls.classList.contains("spectator-retention-controls");
-    const visible = !spectator || desktop;
-    if (spectator) {
-      controls.setAttribute("aria-hidden", String(!visible));
-      controls.inert = !visible;
-    }
     controls.querySelectorAll("button").forEach((button) => {
       const roomId = button.dataset.retentionRoomId || button.dataset.deleteRoomId;
-      button.disabled = !visible || retentionRequests.has(roomId) || deletionRequests.has(roomId);
+      button.disabled = retentionRequests.has(roomId) || deletionRequests.has(roomId);
     });
   });
   if (room?.spectating) {
-    const visible = desktop && isTerminal(room);
+    const visible = isTerminal(room);
     $("togglePreserveButton").setAttribute("aria-hidden", String(!visible));
-    $("togglePreserveButton").disabled = !visible || retentionRequests.has(room.room_id);
+    $("togglePreserveButton").disabled = !visible || retentionRequests.has(room.room_id) || deletionRequests.has(room.room_id);
   }
 }
-
-spectatorRetentionMedia?.addEventListener("change", syncSpectatorRetentionControls);
 
 async function updateRoomPreservation(roomId, preserved, {
   fromModal = false, spectating = false, perspective = "",
@@ -1257,7 +1246,7 @@ async function updateRoomPreservation(roomId, preserved, {
     ? viewerPlayerIdFor(previousRoom) : perspective;
   const previousScope = roomListScope;
   const generation = roomSyncGeneration;
-  if ((spectator && !spectatorRetentionMedia?.matches) || retentionRequests.has(roomId) || deletionRequests.has(roomId)) return false;
+  if ((previousRoom && !isTerminal(previousRoom)) || retentionRequests.has(roomId) || deletionRequests.has(roomId)) return false;
   retentionRequests.add(roomId);
   syncSpectatorRetentionControls();
   try {
@@ -1333,8 +1322,7 @@ async function changeResultPreservation() {
 
 async function deleteRoom(summary) {
   const roomId = summary.room_id;
-  if (!isTerminal(summary) || (summary.spectating && !spectatorRetentionMedia?.matches)
-      || deletionRequests.has(roomId) || retentionRequests.has(roomId)) return;
+  if (!isTerminal(summary) || deletionRequests.has(roomId) || retentionRequests.has(roomId)) return;
   const confirmed = window.confirm(
     `确定删除房间 ${summary.room_id}？棋谱和聊天记录会一并永久删除，无法恢复。`
   );

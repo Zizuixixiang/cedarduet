@@ -553,7 +553,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
 .spectating-view .chat-compose,
 .spectating-view .chat-hint,
 .spectating-view #moveConfirm,
-.spectating-view #togglePreserveButton { display: none !important; }
+.spectating-view #togglePreserveButton:not([aria-hidden="false"]) { display: none !important; }
 
 .room-list { display: grid; gap: 8px; }
 .room-card {
@@ -685,7 +685,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   background: var(--purple-light);
   border-top: 2px dashed var(--purple);
 }
-.room-record-controls.spectator-retention-controls { display: none; }
 .room-retention {
   min-width: 0;
   color: var(--pink-dark);
@@ -5220,7 +5219,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     background: transparent;
     border-top: 1px solid var(--purple-light);
   }
-  #lobbyView .room-record-controls.spectator-retention-controls { display: grid; }
   #lobbyView .room-retention { min-width: 0; color: #756c7d; font-size: 14px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
   #lobbyView .room-record-button { color: #655176; min-width: 0; min-height: 40px; padding: 6px 12px; font-size: 16px; font-weight: 600; line-height: 1.5; white-space: normal; }
   #lobbyView .room-record-button.danger { color: #fff; background: #9b4961; border-color: #9b4961; }
@@ -5234,7 +5232,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     overflow-x: auto;
     overscroll-behavior-x: contain;
   }
-  .game-view.spectating-view #togglePreserveButton[aria-hidden="false"] { display: inline-flex !important; }
   .game-view #togglePreserveButton { font: 16px/1.5 system-ui, "Microsoft YaHei", sans-serif; min-height: 40px; padding: 6px 12px; }
   .game-view .result-banner-copy small { font: 14px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
   .game-view .battle-main-column { grid-row: 1; }
