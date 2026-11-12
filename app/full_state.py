@@ -45,7 +45,7 @@ def project_full_state(room: dict, player_id: str) -> dict:
     board = snapshot['board_state']
     if game_type == 'liars_dice' and game.is_party(room['board_state']):
         board['round_results'] = deepcopy(room['board_state'].get('round_results', []))
-    if game_type == 'ka_wu_xing':
+    if game_type == 'ka_wu_xing' and 'round_results' in board:
         board['round_results'] = deepcopy(room['board_state'].get('round_results', []))
     if game_type in RESTORE_MAP_FIELDS:
         public = framework.project_room_for_viewer(room, player_id)['board_state']

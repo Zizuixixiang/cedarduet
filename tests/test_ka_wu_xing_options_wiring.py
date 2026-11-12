@@ -14,7 +14,7 @@ from app.npc_personas import NpcPersona
 from tests.test_mahjong import participants
 
 OPTIONS = dict(double_hu=True, gang_discard_double=True, liang_liability=True,
-               consecutive_kong_double=True, horse_count=1, piao=3, joker='red', rounds=4)
+               consecutive_kong_double=True, horse_count=1, piao=3, joker='red')
 
 
 class KaWuXingOptionsWiringTests(unittest.TestCase):
@@ -79,7 +79,7 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
 
     def started_scoring_room(self, options=None):
         room = invites.create_invite('ka_wu_xing', 'ai', 'a101',
-                    target_player_count=3, stake=1, game_options=options or {'rounds': 4})
+                    target_player_count=3, stake=1, game_options=options or {})
         for pid in ('a202', 'a303'):
             invites.join_invite(room['invite_code'], 'ai', pid)
         room = invites.start_invite(room['room_id'], 'ai', 'a101')
@@ -103,15 +103,15 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
             conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?', (json.dumps(state), room['room_id']))
         for _ in range(4):
             room = framework.get_room(room['room_id'])
-            if room['board_state']['phase'] == 'round_end':
+            if room['board_state']['phase'] == 'finished':
                 break
             actor = room['current_player_id']
             action = next(a for a in GAMES['ka_wu_xing'].legal_actions_for(room['board_state'], actor)
                           if a['kind'] in ('discard', 'pass'))
             room = framework.play_move(room['room_id'], 'ai', actor,
                        {'action': 'act', 'action_id': action['action_id']}, expected_revision=room['revision'])
-        self.assertEqual(room['board_state']['phase'], 'round_end')
-        self.assertEqual(room['board_state']['cumulative_scores'], state['kong_scores'])
+        self.assertEqual(room['board_state']['phase'], 'finished')
+        self.assertEqual(room['result']['score_units'], state['kong_scores'])
         return room, balances
 
     def archive_after_timeout(self, room):
@@ -133,23 +133,19 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
         with database.connect() as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM chip_ledger').fetchone()[0], count)
 
-    def test_intermission_archive_keeps_cumulative_without_recharging_kongs(self):
+    def test_finished_hand_stays_finished_and_settles_kongs_once(self):
         room, before = self.completed_kong_round()
-        expected = dict(room['board_state']['cumulative_scores'])
-        archived = self.archive_after_timeout(room)
-        self.assertEqual(archived['status'], 'archived')
-        self.assertEqual(archived['result']['score_units'], expected)
-        self.assertEqual(set(archived['result']['round_score_units'].values()), {0})
-        self.assertEqual(set(archived['result']['score_breakdown']['kong'].values()), {0})
-        public = framework.project_room_for_viewer(archived, 'a101')['board_state']
-        self.assertEqual(public['phase'], 'finished')
-        self.assertIsNone(public['round_result'])
-        self.assertEqual(public['cumulative_scores'], expected)
-        self.assertEqual(public['game_result']['reason'], 'stale_archive')
-        self.assert_paid_once(archived, before, expected)
+        expected = dict(room['result']['score_units'])
+        reloaded = self.archive_after_timeout(room)
+        self.assertEqual(reloaded['status'], 'finished')
+        self.assertEqual(reloaded['result'], room['result'])
+        self.assert_paid_once(reloaded, before, expected)
+        with self.assertRaises(framework.DuelError):
+            framework.play_move(room['room_id'], 'ai', 'a101',
+                                {'action': 'act', 'action_id': 'next_round:1'}, expected_revision=room['revision'])
 
     def test_pending_second_hu_archive_keeps_accepted_win_kongs_and_correct_winner(self):
-        room, before = self.started_scoring_room({'rounds': 4, 'double_hu': True,
+        room, before = self.started_scoring_room({'double_hu': True,
                                                  'liang_liability': True, 'piao': 3})
         game = GAMES['ka_wu_xing']
         state = room['board_state']
@@ -169,9 +165,6 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
         state['drawn_tile_id'] = state['hands'][source][-1]['id']
         state['revealed'][first] = {'hand': list(state['hands'][first]), 'waits': ['B5']}
         state['kong_scores'] = {source: 4, first: -2, second: -2}
-        state['cumulative_scores'] = {source: -3, first: 1, second: 2}
-        state['round_results'] = [{'round_number': 1, 'score_units': dict(state['cumulative_scores'])}]
-        state['round_number'] = 2
         with database.write_transaction() as conn:
             conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?', (json.dumps(state), room['room_id']))
         room = framework.play_move(room['room_id'], 'ai', source,
@@ -181,7 +174,7 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
                     {'action': 'act', 'action_id': hu['action_id']}, expected_revision=room['revision'])
         self.assertEqual(room['current_player_id'], second)
         archived = self.archive_after_timeout(room)
-        expected = {source: -13, first: 13, second: 0}
+        expected = {source: -10, first: 12, second: -2}
         self.assertEqual(archived['status'], 'archived')
         self.assertEqual(archived['winner'], 'ai')
         self.assertEqual(archived['winner_player_id'], first)
@@ -193,29 +186,61 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
         public = framework.project_room_for_viewer(archived, second)['board_state']
         self.assertEqual(public['phase'], 'finished')
         self.assertIsNone(public['response_window'])
-        self.assertEqual(public['cumulative_scores'], expected)
+        self.assertEqual(public['game_result']['score_units'], expected)
         self.assert_paid_once(archived, before, expected)
 
-    def test_intermission_resignation_updates_public_final_scores_without_double_kongs(self):
-        room, before = self.completed_kong_round()
-        expected = dict(room['board_state']['cumulative_scores'])
+    def test_in_progress_resignation_keeps_kongs_once(self):
+        room, before = self.started_scoring_room()
+        state = room['board_state']
+        order = state['participant_order']
+        expected = dict(zip(order, (4, -2, -2)))
+        state['kong_scores'] = dict(expected)
+        with database.write_transaction() as conn:
+            conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?', (json.dumps(state), room['room_id']))
         quitter = 'a202'
         for pid in expected:
             expected[pid] += -2 if pid == quitter else 1
         finished = framework.resign(room['room_id'], 'ai', quitter)
         self.assertEqual(finished['status'], 'finished')
         self.assertEqual(finished['result']['score_units'], expected)
-        self.assertEqual(set(finished['result']['score_breakdown']['kong'].values()), {0})
         public = framework.project_room_for_viewer(finished, 'a101')['board_state']
         self.assertEqual(public['phase'], 'finished')
-        self.assertIsNone(public['round_result'])
-        self.assertEqual(public['cumulative_scores'], expected)
+        self.assertNotIn('cumulative_scores', public)
         self.assertEqual(public['game_result']['win_type'], 'resignation_liability')
-        self.assertEqual(public['game_result']['score_units'], expected)
         self.assert_paid_once(finished, before, expected)
 
+    def test_legacy_single_and_finished_multihand_are_read_only(self):
+        from copy import deepcopy
+        from app.full_state import project_full_state
+        game = GAMES['ka_wu_xing']
+        room, before = self.completed_kong_round()
+        for rounds in (1, 4, 8):
+            with self.subTest(rounds=rounds):
+                state = deepcopy(room['board_state'])
+                state['options']['rounds'] = rounds
+                state['round_number'] = rounds
+                state['round_results'] = [deepcopy(room['result']) for _ in range(rounds)]
+                state['cumulative_scores'] = {p: v * rounds for p, v in room['result']['score_units'].items()}
+                state['game_result'].update(match_complete=True, score_units=state['cumulative_scores'],
+                                           round_results=deepcopy(state['round_results']))
+                with database.write_transaction() as conn:
+                    conn.execute('UPDATE rooms SET board_state=? WHERE room_id=?', (json.dumps(state), room['room_id']))
+                stored = json.dumps(state)
+                loaded = framework.get_room(room['room_id'])
+                for pid in state['participant_order']:
+                    view = project_full_state(loaded, pid)
+                    self.assertEqual(view['private_state']['legal_actions'], [])
+                    self.assertNotIn('wall', view['board_state'])
+                    self.assertNotIn('hands', view['board_state'])
+                    if rounds > 1:
+                        self.assertEqual(view['board_state']['round_results'], state['round_results'])
+                        self.assertEqual(view['board_state']['cumulative_scores'], state['cumulative_scores'])
+                    self.assertEqual(game.score_units(state, state['game_result']), state['cumulative_scores'])
+                with database.connect() as conn:
+                    self.assertEqual(conn.execute('SELECT board_state FROM rooms WHERE room_id=?', (room['room_id'],)).fetchone()[0], stored)
+
     def test_options_rejected_for_mcr_and_invalid_values_do_not_create_rooms(self):
-        for game_type, options in [('mahjong', OPTIONS), ('ka_wu_xing', {'rounds': 3}),
+        for game_type, options in [('mahjong', OPTIONS), ('ka_wu_xing', {'rounds': 3}), ('ka_wu_xing', {'rounds': 4}), ('ka_wu_xing', {'rounds': 8}),
                 ('ka_wu_xing', {'double_hu': 1}), ('ka_wu_xing', {'piao': True}),
                 ('ka_wu_xing', {'horse_count': 2}), ('ka_wu_xing', {'joker': 'wild'}),
                 ('ka_wu_xing', {'unknown': True})]:
@@ -223,6 +248,9 @@ class KaWuXingOptionsWiringTests(unittest.TestCase):
                 with self.assertRaises(framework.DuelError):
                     invites.create_invite(game_type, 'ai', 'a101',
                         target_player_count=4 if game_type == 'mahjong' else 3, game_options=options)
+                with self.assertRaises(framework.DuelError):
+                    framework.create_room(game_type, 'human_first', 'human', 'p0',
+                        ordered_participants=participants()[:4 if game_type == 'mahjong' else 3], game_options=options)
         with database.connect() as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM rooms').fetchone()[0], 0)
 

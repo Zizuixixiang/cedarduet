@@ -13,7 +13,7 @@ from .games.mcp_incremental import changed, table_patch
 from .games.four_color_cards.mcp import FORMAT as FOUR_COLOR_FORMAT
 from .games.four_color_cards.common import GAME_TYPES as FOUR_COLOR_GAMES
 
-GAMES = frozenset(('monopoly', 'rummikub', 'bomb_plane', 'carcassonne')) | FOUR_COLOR_GAMES
+GAMES = frozenset(('monopoly', 'rummikub', 'bomb_plane', 'carcassonne', 'ka_wu_xing')) | FOUR_COLOR_GAMES
 VERSION = 2
 
 
@@ -40,6 +40,10 @@ def baseline(game, state):
 
 
 def private_baseline(name, state, pid):
+    if name == 'ka_wu_xing':
+        game = get_game(name)
+        viewer = {'player_id': pid}
+        return game.mcp_private_state(game.private_state(state, viewer, []), viewer, [])
     if name in FOUR_COLOR_GAMES:
         from .games.four_color_cards.mcp import private
         return private(get_game(name), state, pid)
@@ -63,6 +67,17 @@ COMMON = ('MCP v2: retain context. Ordinary reply r is the authoritative revisio
           'Unknown/v1 contexts automatically get this v2 bootstrap. '
           'private is only your delta. Notifications appear once when new; rooms/chips retain unread access.')
 FORMATS = {
+    'ka_wu_xing': ('events=[actor,action,delta]. delta uses mahjong_delta fields: '
+        'discard_added appends to player_id river; discard_removed removes the named tile; '
+        'meld_added appends, meld_changed replaces by index; response replaces response_window. '
+        'discards_changed/melds_changed replace the named players\' piles. '
+        'revealed_added merges newly revealed players; kong_added appends one kong_ledger entry. '
+        'Other keys replace. '
+        'private.+/- adds/removes tile objects by id from your hand; other private keys replace, '
+        'including legal_actions ([] clears). Keep unchanged choices until replaced. '
+        'Submit move={action:act,action_id:<one current legal_actions action_id>}. '
+        'liang is reveal-and-discard; hu/pass/peng/*gang use server action_ids. '
+        'private.hand appears only in bootstrap/full_state; full_state restores rules and results.'),
     **{name: FOUR_COLOR_FORMAT for name in FOUR_COLOR_GAMES},
     'monopoly': ('events=[actor,action,delta?]. Increment action_seq once per action (including resign/leave). '
         'delta: p=[id,cash,position,bankrupt,jailed,jail_turns] rows; t=[id,owner,level,mortgaged] rows; '
@@ -96,6 +111,15 @@ FORMATS = {
 
 
 def snapshot(room, pid, full):
+    if room['game_type'] == 'ka_wu_xing':
+        from . import framework as f
+        from .full_state import project_full_state
+        value = project_full_state(room, pid) if full else f.project_mcp_room_for_viewer(room, pid)
+        value['rules_text'] = get_game('ka_wu_xing').room_rules(room['board_state'])
+        value['move_format'] = FORMATS['ka_wu_xing']
+        if full:
+            value['protocol_guide'] = COMMON + ' ' + FORMATS['ka_wu_xing']
+        return value
     if room['game_type'] in FOUR_COLOR_GAMES:
         from .games.four_color_cards.mcp import snapshot as four_color_snapshot
         return four_color_snapshot(get_game(room['game_type']), room, pid, full)
@@ -134,6 +158,20 @@ def snapshot(room, pid, full):
 
 def encode_result(name, raw, prior, actor, action):
     """Encode canonical public results; no hidden state is accepted here."""
+    if name == 'ka_wu_xing':
+        delta = deepcopy(raw['mahjong_delta'])
+        if 'round_state' in delta:
+            # Historical ended matches only: do not send both old resets
+            # and their complete replacement. Canonical Web events stay intact.
+            delta = {'round_state': delta['round_state']}
+        else:
+            # A reveal adds exactly this actor; a completed kong appends one
+            # ledger entry. Do not repeat earlier revealed hands/kong history.
+            if 'revealed' in delta:
+                delta['revealed_added'] = {actor: delta.pop('revealed')[actor]}
+            if 'kong_ledger' in delta:
+                delta['kong_added'] = delta.pop('kong_ledger')[-1]
+        return [actor, action, delta]
     if name in FOUR_COLOR_GAMES:
         from .games.four_color_cards.mcp import delta
         return [actor, action, delta(raw['four_color_state'], prior.get('four_color_state', {}))]
@@ -267,7 +305,7 @@ def response(room_id, pid, *, consume=False, full=False, submitted=None, source_
                 out['snapshot'] = snapshot(room,pid,True)
             else:
                 private = changed(now_private,ctx.get('private',{}))
-                if name == 'rummikub' or name in FOUR_COLOR_GAMES:
+                if name in ('rummikub', 'ka_wu_xing') or name in FOUR_COLOR_GAMES:
                     before = ctx.get('private',{}).get('hand',[]); after = now_private['hand']
                     added = [t for t in after if t not in before]; removed = [t for t in before if t not in after]
                     private.pop('hand', None)

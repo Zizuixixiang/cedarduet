@@ -15,7 +15,8 @@
 | `horse_count` | 整数 `0` / `1` | `0` | 1为自摸后从剩余墙尾翻一马；无余牌不翻、不收费 |
 | `piao` | 整数 `0` / `1` / `3` / `5` | `0` | 每次胡牌、每个付款份额另付固定漂分 |
 | `joker` | `"none"` / `"red"` | `"none"` | 红中普通字牌 / 手牌红中万能 |
-| `rounds` | 整数 `1` / `4` / `8` | `1` | 单手或固定4/8局，最后一次结算累计钱包 |
+
+仅打一手，打完结束。旧 API 可传整数 `rounds=1`，该字段不再保存；`rounds=4/8` 及其他值明确拒绝。
 
 拒绝未知字段、非法枚举、数字冒充布尔、布尔冒充整数及其他游戏的专属选项。不支持多马；不能在出牌或加入房间时覆盖房规。
 
@@ -38,7 +39,7 @@
 - 马分：`horse_count=1` 时任意自摸胡牌后仅翻墙尾一张，筒条按点数1–9，中发白均为10，两家各额外付该值。没有余牌就无马分。马牌从墙中移入公开马牌区，不再参与摸牌；未翻的牌墙不公开。接炮、双响、抢杠、荒庄均不买马。
 - 杠分：直杠来源付2，补杠另两家各付1，暗杠另两家各付2。连续杠选项只改变本次完成杠的金额；抢补杠不收未完成杠，荒庄保留已记杠分。
 
-各项先按基础分分别记账，再合成该局 `score_units`；认输者赔另两家各1并保留当前杠分。`stake=0` 仅记分不移动钱包。非0底注在整场最终一次用累计净分乘底注：真实输家最多扣当前可用钱包，实际可付总额按赢家应得比例分配，整数余数按座次；不透支。`requested_settlement_deltas` 是余额裁剪前金额，`settlement_deltas` 是实际钱包变化。NPC 只记逻辑分。仅站内娱乐积分，无真实钱。
+各项先按基础分分别记账，再合成该局 `score_units`；认输者赔另两家各1并保留当前杠分。`stake=0` 仅记分不移动钱包。非0底注在单手结束时一次用本局净分乘底注：真实输家最多扣当前可用钱包，实际可付总额按赢家应得比例分配，整数余数按座次；不透支。`requested_settlement_deltas` 是余额裁剪前金额，`settlement_deltas` 是实际钱包变化。NPC 只记逻辑分。仅站内娱乐积分，无真实钱。
 
 ## 红中万能的明确边界
 
@@ -48,13 +49,13 @@
 
 亮倒听口按当前红中模式的自摸集合计算；听红中可能仅允许自摸，外来红中必须按自然字牌重新验胡，不能把全部听口理解为都可接炮。亮倒后固定手牌和听口不能更换，新摸红中可胡或原样打出。服务器产生完整合法动作，网页、MCP 与本地 NPC 使用同一判定，不接受客户端自报万能分配、番数或听口。
 
-## 连续轮庄与恢复
+## 单手结束与恢复
 
-`rounds=1` 保持原单手。4/8局每局结束进入 `phase="round_end"`，展示本局结果和累计分，不扣钱包；下一庄获得 `next_round:<round_number>` 合法动作，执行后才发下一局牌。普通胡由赢家下局坐庄；双响由点炮者坐庄。荒庄通常保庄；恰好一人亮倒则该亮倒者下局坐庄，两人或三人亮倒仍保原庄。认输直接结束整场，累计已完成各局和当前认输局分后只结算一次。
+胡牌（双响收齐胡/过响应）或荒庄后直接结束并结算，没有第二局动作。认输赔另两家各1并保留杠分。刷新、断线或服务重启恢复当前手牌与合法动作，不重新发牌，重复终局请求不重复扣筹码。
 
-`round_results` 保存逐局结果，`cumulative_scores` 保存累计基础分，连同局号、庄家、房规和合法动作持久保存。刷新、断线重连或服务重启不会重开已结束局；旧 revision、重复下一局动作及重复终局请求不能重复扣筹码。局间三名参与者保留原席位和身份。
+双响已确认胡但尚未完成响应时，超时归档保留已记杠分与已确认胡分；未确认的响应按过处理，不另收荒庄或认输分。其余单手归档保持原行为。
 
-多局房间连续7天没有行动会归档：累计已完成各局分数，加上未完局已记杠分与已确认胡牌，终局一次结算；尚未确认的胡响应按过处理，不另收荒庄或认输罚分。局间已经记入累计的杠分不重复收取。单局双响已有确认胡但尚未完成响应时，归档也保留已确认债务；其余旧单局归档保持原行为。
+旧单手存档照常加载；历史已结束多局的结果、累计分及逐局回顾只读保留，不迁移或改写存档，不恢复续局入口。
 
 ## MCP（按需 `get_guide(game="duel:ka_wu_xing")`）
 
@@ -63,14 +64,20 @@
 普通人机桌调用 `new`：
 
 ```json
-{"game_type":"ka_wu_xing","target_player_count":3,"fill_with_npcs":true,"stake":0,"game_options":{"double_hu":true,"gang_discard_double":true,"liang_liability":true,"consecutive_kong_double":true,"horse_count":1,"piao":3,"joker":"red","rounds":4}}
+{"game_type":"ka_wu_xing","target_player_count":3,"fill_with_npcs":true,"stake":0,"game_options":{"double_hu":true,"gang_discard_double":true,"liang_liability":true,"consecutive_kong_double":true,"horse_count":1,"piao":3,"joker":"red"}}
 ```
 
 本人小机加两名 NPC 在上述参数加 `"include_human":false`，无需模型供应商。三位不同账号/家庭的小机，由房主 `invite`，参数同上但省略补位；另两位分别鉴权调用 `join`，`params={"invite_code":"返回的邀请码"}`；房主 `start`，`params={"room_id":"返回房间号"}`。
 
-`state` 使用 `params={"room_id":"...","wait":false}`，刷新/恢复再加 `"full_state":true`。`move` 使用 `params={"room_id":"...","revision":当前版本,"move":{"action":"act","action_id":"服务端动作ID"}}`；只复制 `private_state.legal_actions` 中的 `action` / `action_id`，不提交 label、kind、番数或手牌。亮倒 ID 为 `liang:<实体牌ID>`，网页先选牌再确认“亮倒并打…”；局间开始 ID 为服务端返回的 `next_round:<round_number>`。
+`state` 使用 `params={"room_id":"...","wait":false}`，丢失上下文时加 `"full_state":true`。MCP v2 首次或旧协议迁移时返回 `bootstrap:true` 和 `room`（规则、牌桌、本人 `private_state`）；普通响应只给 `r`、未消费的 `events`、变化的 `private`，不能行动时带 `wait`。下一次 `move` 的 `revision` 使用响应 `r`。请求例：`params={"room_id":"...","revision":当前r,"move":{"action":"act","action_id":"服务端动作ID"}}`。
 
-`revealed` 是亮倒固定手牌和听口，`kong_scores` / `kong_ledger` 是完成杠账目。局末分别展示胡、马、漂、杠及累计分；`multiplier` 为倍数，不是国标番数。公共投影不含未公开手牌或牌墙；每位 AI 仅获得本人私有状态和当前可用动作。
+按顺序应用所有事件，包括自己的动作；`private.+/-` 按实体 ID 增删本人手牌，其余私有键替换，缺省不变、null 清空。合法动作以 bootstrap 的 `private_state.legal_actions` 为基线，后续 `private.legal_actions` 替换（空数组清空）；只复制当前动作的 `action` / `action_id`，不提交 label、kind、番数或手牌。亮倒 ID 为 `liang:<实体牌ID>`，网页先选牌再确认“亮倒并打…”。
+
+`events=[actor,action,delta]` 的 `revealed_added` 合并本次亮倒者，`kong_added` 追加本次杠账；不会重发之前的亮倒手牌或杠账。单手普通事件不发送 `round_state`。亮倒首次公开固定手牌、局末/终局公开结果及手牌属于必要信息。显式 `full_state` 返回独立可恢复的 `snapshot`（含规则、当前本人手牌/动作、完整局末回顾），原子跳过已覆盖动作，未读文字仍在下一次普通响应交付一次。未知上下文先 bootstrap；同账号重连沿用持久游标，不自动重发历史，丢包/丢上下文用 full_state，勿重放已成功 move。
+
+量化与复现见 [MCP token 验收](KA_WU_XING_MCP_TOKENS.md)。大厅标签按普通一次 state + move 的压缩 JSON 正文估算；bootstrap、full_state 与终局另计，根工具包装另计，范围不是计费上限。
+
+`revealed` 是亮倒固定手牌和听口，`kong_scores` / `kong_ledger` 是完成杠账目。终局分别展示胡、马、漂、杠及本局净分；`multiplier` 为倍数，不是国标番数。公共投影不含未公开手牌或牌墙；每位 AI 仅获得本人私有状态和当前可用动作。
 
 ## 来源与本版取舍
 

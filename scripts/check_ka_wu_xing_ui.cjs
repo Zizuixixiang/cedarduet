@@ -6,7 +6,7 @@ const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const staticRoot = path.join(root, 'app/static');
-const kwxOptions = {double_hu:true,gang_discard_double:true,liang_liability:true,consecutive_kong_double:true,horse_count:1,piao:3,joker:'red',rounds:4};
+const kwxOptions = {double_hu:true,gang_discard_double:true,liang_liability:true,consecutive_kong_double:true,horse_count:1,piao:3,joker:'red'};
 const python = process.env.DUEL_TEST_PYTHON || path.join(root, '.venv/bin/python');
 const fixtures = spawnSync(python, ['-c', String.raw`
 import json, tempfile
@@ -72,13 +72,18 @@ async function domCheck() {
  for(const [game,count] of [['mahjong',4],['ka_wu_xing',3],['mahjong',4]]) {
   w.run('selectedMachineIds.clear();["p1","p2","p3"].forEach(id=>selectedMachineIds.add(id));inviteMachineIds=new Set(["p1","p2"]);');
   select.value=game;select.dispatchEvent(new w.Event('change'));
+  const tokenLabel=w.document.getElementById('gameTokenEstimate');
+  assert.equal(tokenLabel.textContent,game==='ka_wu_xing'?'（约100–1000 token/轮）':'（约600–900 token/轮）');
+  if(game==='ka_wu_xing') {
+   for(const term of ['终局另计','cl100k_base','state','move','根工具包装另计','不是计费上限']) assert.ok(tokenLabel.title.includes(term));
+  } else assert.equal(tokenLabel.title,'');
   invite.value=game;invite.dispatchEvent(new w.Event('change'));
   assert.equal(w.document.querySelectorAll('.mahjong-rule-picker').length,0); // No redundant variant selector.
   assert.equal(w.document.querySelectorAll('#gameTypeRulePicker,#inviteGameRulePicker').length,game==='ka_wu_xing'?2:0);
   if(game==='ka_wu_xing') {
    for(const id of ['gameTypeRulePicker','inviteGameRulePicker']) {
     const picker=w.document.getElementById(id);
-    assert.equal(picker.querySelectorAll('select').length,4);
+    assert.equal(picker.querySelectorAll('select').length,3);
     assert.equal(picker.querySelectorAll('input[type=checkbox]').length,4);
     assert.equal(picker.querySelector('details').open,false);
     picker.querySelector('details').open=true;
@@ -148,7 +153,7 @@ async function checkRulePicker(page, id, game, width, output) {
  assert.equal(await picker.count(),game==='ka_wu_xing'?1:0);
  assert.equal(await page.locator('.mahjong-rule-picker').count(),0);
  if(game!=='ka_wu_xing') return;
- assert.equal(await picker.locator('select').count(),4);
+ assert.equal(await picker.locator('select').count(),3);
  assert.equal(await picker.locator('input[type=checkbox]').count(),4);
  await picker.locator('summary').click();
  assert.equal(await picker.locator('details').evaluate(e=>e.open),true);
@@ -216,6 +221,16 @@ async function browserCheck() {
    assert.deepEqual(await page.locator('#gameType option').evaluateAll(nodes=>nodes.map(n=>[n.value,n.textContent])),[['ka_wu_xing','襄阳卡五星 · 3人'],['mahjong','麻将 · 4人']]);
    for(const [game,count] of [['mahjong',4],['ka_wu_xing',3]]) {
     await page.selectOption('#gameType',game);
+    const tokenLabel=page.locator('#gameTokenEstimate');
+    assert.equal(await tokenLabel.textContent(),game==='ka_wu_xing'?'（约100–1000 token/轮）':'（约600–900 token/轮）');
+    const labelStyle=await tokenLabel.evaluate(el=>{
+     const r=el.getBoundingClientRect(),s=getComputedStyle(el),parent=el.parentElement.getBoundingClientRect();
+     return {font:s.fontSize,line:s.lineHeight,color:s.color,left:r.left,right:r.right,parentRight:parent.right};
+    });
+    assert.equal(labelStyle.font,'12px');
+    assert.equal(labelStyle.color,'rgb(201, 95, 114)');
+    assert.ok(labelStyle.left>=0 && labelStyle.right<=width,'token label overflow');
+    if(game==='ka_wu_xing') assert.ok((await tokenLabel.getAttribute('title')).includes('终局另计'));
     assert.equal(await page.locator('#targetPlayerCount').inputValue(),String(count));
     await checkRulePicker(page,'gameTypeRulePicker',game,width,output);
     if(width<600) assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'lobby overflow');

@@ -78,12 +78,12 @@ class KaWuXingOptionTests(unittest.TestCase):
         self.assertEqual(self.game.saved_options(self.game._empty_state(['p0', 'p1', 'p2'])),
                          self.game.OPTION_DEFAULTS)
         for options in ({'double_hu': 1}, {'piao': True}, {'piao': 2}, {'horse_count': 2},
-                        {'rounds': 3}, {'joker': True}, {'joker': 'wild'}, {'unknown': 1}, []):
+                        {'rounds': 3}, {'rounds': 4}, {'rounds': 8}, {'rounds': True}, {'rounds': '1'}, {'joker': True}, {'joker': 'wild'}, {'unknown': 1}, []):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 self.game.normalize_options(options)
 
     def test_double_win_restore_river_ownership_and_individual_scores(self):
-        state = self.double_state(rounds=4)
+        state = self.double_state()
         first = self.apply(state, 'p1', 'hu')
         self.assertIsNone(first.result)
         for player in ('p0', 'p1', 'p2'):
@@ -95,10 +95,11 @@ class KaWuXingOptionTests(unittest.TestCase):
                          self.game.legal_actions_for(first.state, 'p2'))
         self.assertEqual({a['kind'] for a in self.game.legal_actions_for(restored, 'p2')}, {'hu', 'pass'})
         ended = self.apply(restored, 'p2', 'hu')
-        result = ended.state['round_result']
+        result = ended.result
         self.assertTrue(result['double_hu'])
         self.assertEqual(result['winner_player_ids'], ['p1', 'p2'])
-        self.assertEqual(result['next_dealer_player_id'], 'p0')
+        self.assertEqual(ended.state['phase'], 'finished')
+        self.assertNotIn('next_dealer_player_id', result)
         self.assertEqual(result['score_units'], {'p0': -4, 'p1': 2, 'p2': 2})
         self.assertEqual(len(ended.state['discards']['p0']), 1)
         self.assertEqual(len({t['id'] for t in self.all_zones(ended.state)}), 84)
@@ -265,60 +266,42 @@ class KaWuXingOptionTests(unittest.TestCase):
         state['revealed']['p0']['waits'] = ['T9']
         self.assertFalse(any(a['kind'] == 'hu' for a in self.game.legal_actions_for(state, 'p0')))
 
-    def test_four_rounds_restore_dealer_and_cumulative_settle_once(self):
-        state = self.state({'p0': GAP + ['B5']}, {'rounds': 4, 'piao': 1})
-        expected = dict.fromkeys(['p0', 'p1', 'p2'], 0)
-        for number in range(1, 5):
-            # Replace only this isolated hand with a physical legal winning deal.
-            fixture = self.state({'p0': GAP + ['B5']}, state['options'])
-            for key in ('hands', 'melds', 'wall', 'discards', 'draw_context', 'kong_scores',
-                        'kong_ledger', 'revealed', 'response_window', 'horse_tiles'):
-                state[key] = fixture[key]
-            state['phase'] = state['flow']['phase'] = 'discard'
-            state['turn_player_id'] = 'p0'
+    def test_single_hand_ends_and_cannot_start_another(self):
+        for options in ({}, {'rounds': 1, 'piao': 1}):
+            state = self.state({'p0': GAP + ['B5']}, options)
             state['drawn_tile_id'] = state['hands']['p0'][-1]['id']
             ended = self.apply(state, 'p0', 'hu')
-            state = ended.state
-            for p, score in state['round_result']['score_units'].items():
-                expected[p] += score
-            self.assertEqual(state['cumulative_scores'], expected)
-            self.assertEqual(len(state['round_results']), number)
-            if number < 4:
-                self.assertIsNone(ended.result)
-                self.assertEqual(state['phase'], 'round_end')
-                self.assertIsNone(state['game_result'])
-                self.assertEqual(self.game.legal_actions_for(state, 'p1'), [])
-                state = json.loads(json.dumps(state))
-                state = self.apply(state, 'p0', 'next_round').state
-                self.assertEqual(state['round_number'], number + 1)
-                self.assertEqual(state['dealer_player_id'], 'p0')
-                self.assertEqual(state['cumulative_scores'], expected)
-                self.assertEqual(state['options']['rounds'], 4)
-            else:
-                self.assertTrue(ended.result['match_complete'])
-                self.assertEqual(ended.result['score_units'], expected)
-                self.assertEqual(self.game.settlement_deltas(state, ended.result, self.players, 3),
-                                 {p: score * 3 for p, score in expected.items()})
+            restored = json.loads(json.dumps(ended.state))
+            self.assertEqual(restored['phase'], 'finished')
+            self.assertEqual(restored['game_result'], ended.result)
+            self.assertEqual(self.game.settlement_deltas(restored, ended.result, self.players, 3),
+                             {p: v * 3 for p, v in ended.result['score_units'].items()})
+            for key in ('round_results', 'cumulative_scores', 'round_number'):
+                self.assertNotIn(key, restored)
+            for p in ('p0', 'p1', 'p2'):
+                self.assertEqual(self.game.legal_actions_for(restored, p), [])
+                with self.assertRaises(ValueError):
+                    self.game.apply_action(restored, {'action': 'act', 'action_id': 'next_round:1'}, {'player_id': p})
 
-    def test_draw_keeps_dealer_except_exactly_one_revealed(self):
-        for revealed, dealer in [([], 'p0'), (['p1'], 'p1'), (['p1', 'p2'], 'p0'),
-                                 (['p0', 'p1', 'p2'], 'p0')]:
+    def test_exhaustive_draw_ends_with_reveal_liability(self):
+        for revealed in ([], ['p1'], ['p1', 'p2'], ['p0', 'p1', 'p2']):
             with self.subTest(revealed=revealed):
-                state = self.state(options={'rounds': 4})
+                state = self.state()
                 state['revealed'] = {p: {'waits': [], 'hand': []} for p in revealed}
                 state['wall'] = []
-                # Avoid fabricated revealed actors having no drawn tile.
                 state['drawn_tile_id'] = state['hands']['p0'][0]['id']
-                ended = self.apply(state, 'p0', 'discard')
-                state = ended.state
+                state = self.apply(state, 'p0', 'discard').state
                 while state['phase'] == 'response':
                     state = self.apply(state, state['turn_player_id'], 'pass').state
-                self.assertEqual(state['phase'], 'round_end')
-                self.assertEqual(state['round_result']['next_dealer_player_id'], dealer)
-                self.assertTrue(state['round_result']['draw'])
-                self.assertEqual(sum(state['round_result']['score_units'].values()), 0)
+                self.assertEqual(state['phase'], 'finished')
+                result = state['game_result']
+                self.assertTrue(result['draw'])
+                self.assertEqual(result['score_units'],
+                                 {p: -(3 - len(revealed)) if p in revealed else len(revealed)
+                                  for p in state['participant_order']})
+                self.assertNotIn('next_dealer_player_id', result)
 
-    def test_all_options_four_round_npc_match_restore_each_action(self):
+    def test_all_options_single_hand_npc_restore_each_action(self):
         for seed in (0, 1):
             with self.subTest(seed=seed):
                 self.check_npc_match(seed)
@@ -326,7 +309,7 @@ class KaWuXingOptionTests(unittest.TestCase):
     def check_npc_match(self, seed):
         self.game = KaWuXing(random.Random(seed))
         options = dict(double_hu=True, gang_discard_double=True, liang_liability=True,
-                       consecutive_kong_double=True, horse_count=1, piao=3, joker='red', rounds=4)
+                       consecutive_kong_double=True, horse_count=1, piao=3, joker='red')
         state = self.game.configure(self.game.initialize(self.players), options)
         for _ in range(400):
             player = state['turn_player_id']
@@ -354,55 +337,25 @@ class KaWuXingOptionTests(unittest.TestCase):
                         for tile in state['hands'][p]:
                             self.assertNotIn(json.dumps(tile['id']), current)
             if applied.result:
-                self.assertEqual(state['round_number'], 4)
-                self.assertEqual(len(applied.result['round_results']), 4)
-                self.assertEqual(applied.result['score_units'], state['cumulative_scores'])
+                self.assertEqual(state['phase'], 'finished')
+                self.assertNotIn('round_results', state)
+                self.assertEqual(applied.result['score_units'], state['game_result']['score_units'])
                 self.assertEqual(sum(applied.result['score_units'].values()), 0)
                 break
         else:
             self.fail('NPC match did not finish within 400 legal actions')
 
-    def round_end_with_real_kong(self):
-        state = self.state({'p0': 'B1 B1 B1 B1 B2 B3 B4 T1 T2 T3 T7 T8 T9 J2'},
-                           {'rounds': 4})
+    def test_resignation_preserves_completed_kong_once(self):
+        state = self.state({'p0': 'B1 B1 B1 B1 B2 B3 B4 T1 T2 T3 T7 T8 T9 J2'})
         state['drawn_tile_id'] = state['hands']['p0'][-1]['id']
         state = self.apply(state, 'p0', 'concealed_gang', code='B1').state
-        self.assertEqual(state['kong_scores'], {'p0': 4, 'p1': -2, 'p2': -2})
-        state['wall'] = []
-        state = self.apply(state, 'p0', 'discard').state
-        while state['phase'] == 'response':
-            state = self.apply(state, state['turn_player_id'], 'pass').state
-        self.assertEqual(state['phase'], 'round_end')
-        return state
-
-    def test_intermission_resignation_does_not_repeat_completed_kong(self):
-        state = self.round_end_with_real_kong()
         before = deepcopy(state)
         result = self.game.result_for_resignation(state, 'p1', self.players)
-        self.assertEqual(result['score_breakdown']['kong'], {'p0': 0, 'p1': 0, 'p2': 0})
-        self.assertEqual(result['round_score_units'], {'p0': 1, 'p1': -2, 'p2': 1})
-        self.assertEqual(result['score_units'], {'p0': 5, 'p1': -4, 'p2': -1})
         self.assertEqual(state, before)
-        self.assertTrue(result['match_complete'])
+        self.assertEqual(result['score_units'], {'p0': 5, 'p1': -4, 'p2': -1})
+        self.assertEqual(self.game.settlement_deltas(state, result, self.players, 2),
+                         {'p0': 10, 'p1': -8, 'p2': -2})
 
-    def test_in_progress_resignation_includes_prior_round_and_current_kong_once(self):
-        intermission = self.round_end_with_real_kong()
-        current = self.apply(intermission, 'p0', 'next_round').state
-        # A separate legal deal lets this test exercise an actual completed
-        # kong without depending on shuffle luck in the second round.
-        fixture = self.state({'p0': 'B1 B1 B1 B1 B2 B3 B4 T1 T2 T3 T7 T8 T9 J2'},
-                             {'rounds': 4})
-        for key in ('hands', 'melds', 'wall', 'discards'):
-            current[key] = fixture[key]
-        current['drawn_tile_id'] = current['hands']['p0'][-1]['id']
-        current = self.apply(current, 'p0', 'concealed_gang', code='B1').state
-        self.assertEqual(current['cumulative_scores'], {'p0': 4, 'p1': -2, 'p2': -2})
-        result = self.game.result_for_resignation(current, 'p1', self.players)
-        self.assertEqual(result['round_score_units'], {'p0': 5, 'p1': -4, 'p2': -1})
-        self.assertEqual(result['score_units'], {'p0': 9, 'p1': -6, 'p2': -3})
-        self.assertEqual(len(result['round_results']), 1)
-        self.assertEqual(self.game.settlement_deltas(current, result, self.players, 2),
-                         {'p0': 18, 'p1': -12, 'p2': -6})
 
 
 if __name__ == '__main__':

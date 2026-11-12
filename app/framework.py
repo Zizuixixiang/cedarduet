@@ -1625,11 +1625,9 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
         archive_result = None
         if room['game_type'] == 'ka_wu_xing' and room['status'] == 'playing':
             game = get_game(room['game_type'])
-            if game.saved_options(state)['rounds'] > 1 or (state.get('response_window') or {}).get('accepted_wins'):
+            if (state.get('response_window') or {}).get('accepted_wins'):
                 archive_result = _attach_multiplayer_settlement(game, room, state, game.result_for_archive(state), conn=conn)
                 state['game_result'] = deepcopy(archive_result)
-                state['round_result'] = None
-                state['cumulative_scores'] = dict(archive_result['score_units'])
                 state['phase'] = state['flow']['phase'] = 'finished'
                 state['turn_player_id'] = None
                 state['response_window'] = None

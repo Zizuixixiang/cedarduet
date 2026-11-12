@@ -1,7 +1,8 @@
 # 四款 MCP v2：有状态行动增量
 
-仅 `monopoly/rummikub/bomb_plane/carcassonne` 使用 `app/mcp_minimal.py`。
-飞行棋为设计参考，飞行棋、UNO、五子棋等其他游戏仍走原协议。
+本文记录 `monopoly/rummikub/bomb_plane/carcassonne` 的 `app/mcp_minimal.py` 协议。
+后续接入的卡五星见 [卡五星 MCP 验收](KA_WU_XING_MCP_TOKENS.md)；四色牌与酒桌大话骰也有各自 v2 分支。
+飞行棋为设计参考，飞行棋、UNO、五子棋仍走原协议。
 Web 投影、NPC 策略、动作校验与原始 `room_messages` 不变。
 
 ## 响应与兼容

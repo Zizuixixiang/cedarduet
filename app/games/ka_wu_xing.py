@@ -90,13 +90,20 @@ def waits(codes, melds=()):
 
 class KaWuXing(Mahjong):
     game_type = 'ka_wu_xing'
+    mcp_event_key = 'mahjong_delta'
+
+    @staticmethod
+    def mcp_event(event, previous):
+        # Already an action delta; legacy read helpers need no extra transform.
+        return event
+
     display_name = '襄阳卡五星'
     min_players = max_players = recommended_players = 3
     allowed_player_counts = (3,)
     rules_text = (
         '【襄阳卡五星 · 基础规则】三人84张：筒、条各1–9及中发白各四张，无万、风、花。'
         '庄14张先打，闲家13张；任意对子作将，四面子一对或七对（四张可作两对）。'
-        '不能吃，可碰、直杠、补杠、暗杠；摸牌墙头，杠补墙尾。默认单手，可选4/8局。\n'
+        '不能吃，可碰、直杠、补杠、暗杠；摸牌墙头，杠补墙尾。仅打一手，打完结束。\n'
         '【倍数】平胡×1、碰碰胡×2、清一色×4、七对×4、龙七对×8、双龙及以上七对×16；'
         '七对族择一，不叠碰碰胡或四归一。非七对的非杠四张：含明碰为明四归一×2，否则暗四归一×4，'
         '多组只取最高一项。大三元×8/小三元×4互斥；手抓一（四副露剩单张成对）×4。'
@@ -120,7 +127,7 @@ class KaWuXing(Mahjong):
 
     OPTION_DEFAULTS = dict(double_hu=False, gang_discard_double=False,
                            liang_liability=False, consecutive_kong_double=False,
-                           horse_count=0, piao=0, joker='none', rounds=1)
+                           horse_count=0, piao=0, joker='none')
 
     @classmethod
     def normalize_options(cls, options=None, stake=0):
@@ -128,13 +135,18 @@ class KaWuXing(Mahjong):
             options = {}
         if not isinstance(options, dict):
             raise ValueError('卡五星 game_options 必须为对象')
+        options = dict(options)
+        if 'rounds' in options:
+            rounds = options.pop('rounds')
+            if type(rounds) is not int or rounds != 1:
+                raise ValueError('卡五星仅支持单手，rounds 只能为整数 1')
         if set(options) - set(cls.OPTION_DEFAULTS):
             raise ValueError('未知卡五星房规字段')
         normalized = {**cls.OPTION_DEFAULTS, **options}
         for key in ('double_hu', 'gang_discard_double', 'liang_liability', 'consecutive_kong_double'):
             if type(normalized[key]) is not bool:
                 raise ValueError(f'{key} 必须为布尔值')
-        for key, allowed in [('horse_count', (0, 1)), ('piao', (0, 1, 3, 5)), ('rounds', (1, 4, 8))]:
+        for key, allowed in [('horse_count', (0, 1)), ('piao', (0, 1, 3, 5))]:
             if type(normalized[key]) is not int or normalized[key] not in allowed:
                 raise ValueError(f'{key} 必须为 {allowed} 中的整数')
         if type(normalized['joker']) is not str or normalized['joker'] not in ('none', 'red'):
@@ -143,15 +155,16 @@ class KaWuXing(Mahjong):
 
     @classmethod
     def saved_options(cls, state):
-        return cls.normalize_options(state.get('options'))
+        # Read old ended matches without revalidating their retired round count.
+        # Creation always calls normalize_options directly. Never mutate saves.
+        options = dict(state.get('options') or {})
+        options.pop('rounds', None)
+        return cls.normalize_options(options)
 
     def configure(self, state, options=None):
         state = deepcopy(state)
         state['options'] = self.normalize_options(options)
         state['rules_version'] = 'xiangyang-84-v2'
-        state.setdefault('round_number', 1)
-        state.setdefault('round_results', [])
-        state.setdefault('cumulative_scores', dict.fromkeys(state.get('participant_order', []), 0))
         return state
 
     def room_rules(self, state):
@@ -171,12 +184,10 @@ class KaWuXing(Mahjong):
             details.append('同人未弃牌前连续完成杠按1/2/4倍计本次杠分，抢杠未成不收费。')
         if o['horse_count'] or o['piao'] or o['consecutive_kong_double']:
             details.append('马/漂/杠分不参与胡牌封顶。')
-        if o['rounds'] > 1:
-            details.append('赢家下局庄、双响点炮者庄；荒庄保庄，仅一人亮倒则该人庄。下一庄确认开局，整场结束一次结算钱包。')
         if o['joker'] == 'red':
             details.append('红中仅手里可万能；弃出可按普通红中接炮，禁止碰杠红中。有红中七对只普通七对，所有胡型不计四归一；实5配自然4、6才卡五星；三元不能替代发白。亮倒听口含自摸红中，接炮另按自然红中校验；亮倒锁听且禁碰杠。')
         return (f"【本房】{summary}；买马{o['horse_count']}张；固定漂{o['piao']}；"
-                f"{'红中万能' if o['joker'] == 'red' else '红中普通字牌'}；{o['rounds']}局。\n"
+                f"{'红中万能' if o['joker'] == 'red' else '红中普通字牌'}；单手结束。\n"
                 + ''.join(details) + '\n' + self.rules_text)
 
     @staticmethod
@@ -331,9 +342,6 @@ class KaWuXing(Mahjong):
 
     def legal_actions_for(self, state, player_id):
         if state.get('phase') == 'round_end':
-            if player_id == state.get('turn_player_id'):
-                return [dict(action='act', action_id=f"next_round:{state.get('round_number', 1)}",
-                             kind='next_round', label='开始下一局', public_label='开始下一局')]
             return []
         actions = super().legal_actions_for(state, player_id)
         if self.saved_options(state)['joker'] == 'red':
@@ -369,8 +377,6 @@ class KaWuXing(Mahjong):
     def apply_action(self, state, move, actor):
         player_id = str(actor['player_id'])
         action = self._resolve_action(state, player_id, move)
-        if action['kind'] == 'next_round':
-            return self._start_next_round(state, player_id)
         prepared = deepcopy(state)
         if action['kind'] != 'hu' and any(a['kind'] == 'hu' for a in self.legal_actions_for(state, player_id)):
             if player_id not in prepared['passed_hu']:
@@ -404,7 +410,7 @@ class KaWuXing(Mahjong):
         if applied.result is not None:
             applied.result['score_breakdown'] = self._score_breakdown(after, applied.result)
             applied.result['score_units'] = self.score_units(after, applied.result)
-            self._complete_round(applied)
+            self._complete_hand(applied)
         return applied
 
     def _double_response(self, state, action, player_id):
@@ -486,55 +492,15 @@ class KaWuXing(Mahjong):
         return components
 
     def score_units(self, state, result):
-        if result.get('match_complete'):
+        if 'score_units' in result:
             return dict(result['score_units'])
         components = self._score_breakdown(state, result)
         return {p: sum(scores[p] for scores in components.values()) for p in state['participant_order']}
 
-    def _next_dealer(self, state, result):
-        if result.get('draw'):
-            return next(iter(state['revealed'])) if len(state['revealed']) == 1 else state['dealer_player_id']
-        if len(result.get('winner_player_ids', [])) == 2:
-            return result['source_player_id']
-        return result['winner_player_id']
-
-    def _complete_round(self, applied):
+    def _complete_hand(self, applied):
         state, result = applied.state, applied.result
-        number = state.get('round_number', 1)
-        result['round_number'] = number
-        result['next_dealer_player_id'] = self._next_dealer(state, result)
-        # Snapshots are public only after this hand has ended; no wall is stored.
         result['terminal_hands'] = {p: [self._public_tile(t) for t in h] for p, h in state['hands'].items()}
-        state['round_result'] = deepcopy(result)
-        state.setdefault('round_results', []).append(deepcopy(result))
-        previous = state.get('cumulative_scores', {})
-        state['cumulative_scores'] = {p: previous.get(p, 0) + result['score_units'][p] for p in state['participant_order']}
-        if number < self.saved_options(state)['rounds']:
-            state['game_result'] = None
-            state['phase'] = state['flow']['phase'] = 'round_end'
-            state['turn_player_id'] = result['next_dealer_player_id']
-            applied.next_player_id = state['turn_player_id']
-            applied.result = None
-        else:
-            result.update(match_complete=True, round_score_units=dict(result['score_units']),
-                          score_units=dict(state['cumulative_scores']),
-                          round_results=deepcopy(state['round_results']))
-            best = max(state['cumulative_scores'].values())
-            result['match_winner_player_ids'] = [p for p, v in state['cumulative_scores'].items() if v == best]
-            state['game_result'] = deepcopy(result)
-
-    def _start_next_round(self, state, player_id):
-        order = state['participant_order']
-        fresh = self.initialize_for_first_player([dict(player_id=p, seat_index=i) for i, p in enumerate(order)], player_id)
-        after = deepcopy(state)
-        after.update(fresh)
-        after['options'] = self.saved_options(state)
-        after['rules_version'] = 'xiangyang-84-v2'
-        after['round_number'] = state.get('round_number', 1) + 1
-        after['flow']['round_number'] = after['round_number']
-        after['round_result'] = None
-        self._record_action(after, player_id, dict(kind='next_round', public_label='开始下一局'))
-        return MoveResult(state=after, next_player_id=player_id, turn_completed=False, note='开始下一局')
+        state['game_result'] = deepcopy(result)
 
     def settlement_deltas(self, state, result, participants, stake):
         if {p['player_id'] for p in participants} != set(state['participant_order']):
@@ -549,38 +515,26 @@ class KaWuXing(Mahjong):
             raise ValueError('已有玩家确认胡牌，请等待本次胡/过响应完成后再认输或离开')
         result = self.result_for_resignation(state, resigned_player_id, participants)
         state['game_result'] = result
-        state['round_result'] = None
-        state['cumulative_scores'] = dict(result['score_units'])
         state['phase'] = state['flow']['phase'] = 'finished'
         state['turn_player_id'] = None
         state['response_window'] = None
 
     def result_for_archive(self, state):
-        """Keep completed obligations when a v2 match times out.
-
-        Unfinished hands add only earned kongs and already accepted wins; no
-        fabricated wall-exhaustion or resignation penalty. An intermission's
-        completed hand is already included in the cumulative total.
-        """
+        """Keep accepted wins and earned kongs when a pending double win expires."""
         order = state['participant_order']
         window = state.get('response_window') or {}
         accepted = window.get('accepted_wins', [])
         result = dict(draw=True, reason='stale_archive', win_type='interrupted_hand')
         components = {k: dict.fromkeys(order, 0) for k in ('hu', 'kong', 'horse', 'piao', 'draw')}
-        if state.get('phase') != 'round_end':
-            components['kong'] = dict(state['kong_scores'])
+        components['kong'] = dict(state['kong_scores'])
         if accepted:
             wins = [self._winner_record(item['player_id'], item['action'], window['source_player_id']) for item in accepted]
             result.update(wins[0], draw=False, winner_results=wins,
                           winner_player_ids=[w['winner_player_id'] for w in wins])
             components = self._score_breakdown(state, result)
         current = {p: sum(c[p] for c in components.values()) for p in order}
-        cumulative = state.get('cumulative_scores', {})
-        scores = {p: cumulative.get(p, 0) + current[p] for p in order}
-        result.update(match_complete=True, score_units=scores, round_score_units=current,
-                      score_breakdown=components, round_results=deepcopy(state.get('round_results', [])),
-                      match_winner_player_ids=[p for p in order if scores[p] == max(scores.values())],
-                      result_text='超时归档：保留已完成各局、已记杠分及已确认胡牌；未确认胡牌按过，不另收荒庄或认输分。')
+        result.update(score_units=current, score_breakdown=components,
+                      result_text='超时归档：保留已记杠分及已确认胡牌；未确认胡牌按过，不另收荒庄或认输分。')
         return result
 
     def result_for_resignation(self, state, resigned_player_id, participants):
@@ -591,28 +545,21 @@ class KaWuXing(Mahjong):
                       resigned_player_id=resigned_player_id, winner_player_id=others[0], winning_player_ids=others,
                       result_text='认输者赔两家各1基础分，保留杠分')
         result['score_breakdown'] = self._score_breakdown(state, result)
-        if state.get('phase') == 'round_end':
-            # This hand already belongs to the cumulative score. Leaving the
-            # intermission only adds resignation liability, never its kongs.
-            result['score_breakdown']['kong'] = dict.fromkeys(state['participant_order'], 0)
-        current = {p: sum(c[p] for c in result['score_breakdown'].values()) for p in state['participant_order']}
-        previous = state.get('cumulative_scores', {}) if self.saved_options(state)['rounds'] > 1 else {}
-        result.update(match_complete=True, round_score_units=current,
-                      score_units={p: previous.get(p, 0) + current[p] for p in state['participant_order']},
-                      round_results=deepcopy(state.get('round_results', [])))
-        best = max(result['score_units'].values())
-        result['match_winner_player_ids'] = [p for p, v in result['score_units'].items() if v == best]
+        result['score_units'] = {p: sum(c[p] for c in result['score_breakdown'].values())
+                                 for p in state['participant_order']}
         return result
 
     def _project_public_state(self, state, participants, *, terminal):
-        public = super()._project_public_state(state, participants, terminal=terminal or state.get('phase') == 'round_end')
-        public.update(variant=self.game_type, round_label=f"襄阳卡五星 · 第{state.get('round_number', 1)}局",
+        public = super()._project_public_state(state, participants, terminal=terminal)
+        public.update(variant=self.game_type, round_label='襄阳卡五星 · 3人',
                       revealed=deepcopy(state['revealed']), kong_scores=dict(state['kong_scores']),
-                      kong_ledger=deepcopy(state['kong_ledger']), options=self.saved_options(state),
-                      round_number=state.get('round_number', 1), rounds=self.saved_options(state)['rounds'],
-                      round_result=deepcopy(state.get('round_result')),
-                      round_results=deepcopy(state.get('round_results', [])),
-                      cumulative_scores=deepcopy(state.get('cumulative_scores', dict.fromkeys(state['participant_order'], 0))))
+                      kong_ledger=deepcopy(state['kong_ledger']), options=self.saved_options(state))
+        # Read-only historical matches retain their original totals/reviews.
+        if terminal and state.get('options', {}).get('rounds', 1) > 1:
+            for key in ('round_number', 'round_result', 'round_results', 'cumulative_scores'):
+                if key in state:
+                    public[key] = deepcopy(state[key])
+            public['rounds'] = state['options']['rounds']
         # A shared winning discard is referenced by both hands for replay only;
         # authoritative physical ownership remains with the source river.
         if 'terminal_hands' in public:
@@ -627,16 +574,9 @@ class KaWuXing(Mahjong):
     def _public_delta(self, before_state, after_state, participants):
         delta = super()._public_delta(before_state, after_state, participants)
         public = self.public_state(after_state, participants)
-        for key in ('revealed', 'kong_scores', 'kong_ledger', 'round_result',
-                    'round_number', 'cumulative_scores', 'dealer_player_id', 'participant_order', 'seat_winds'):
+        for key in ('revealed', 'kong_scores', 'kong_ledger'):
             if before_state.get(key) != after_state.get(key):
                 delta[key] = deepcopy(public.get(key))
-        if after_state.get('phase') == 'round_end':
-            delta['terminal_hands'] = public['terminal_hands']
-        if before_state.get('round_number', 1) != after_state.get('round_number', 1):
-            # Round transitions replace the table atomically, without applying
-            # old river/meld deltas to a new deal.
-            delta['round_state'] = self.mcp_snapshot_state(public, {}, participants)
         for key in ('round_result', 'game_result'):
             if isinstance(delta.get(key), dict):
                 delta[key].pop('terminal_hands', None)
@@ -645,11 +585,11 @@ class KaWuXing(Mahjong):
 
     def mcp_snapshot_state(self, public_state, viewer, participants):
         snapshot = super().mcp_snapshot_state(public_state, viewer, participants)
-        # Keep per-hand scores available without reinjecting every past hand on
-        # reconnect/round transitions. Explicit full_state restores the reviews.
+        # Historical ended matches: full_state restores complete reviews.
         keys = ('round_number', 'draw', 'winner_player_ids', 'score_units', 'next_dealer_player_id')
-        snapshot['round_results'] = [{k: deepcopy(r[k]) for k in keys if k in r}
-                                     for r in snapshot.get('round_results', [])]
+        if 'round_results' in snapshot:
+            snapshot['round_results'] = [{k: deepcopy(r[k]) for k in keys if k in r}
+                                         for r in snapshot['round_results']]
         for key in ('round_result', 'game_result'):
             if isinstance(snapshot.get(key), dict):
                 snapshot[key].pop('terminal_hands', None)
@@ -680,7 +620,6 @@ class KaWuXing(Mahjong):
             return None
         def rank(a):
             kind = a['kind']
-            if kind == 'next_round': return (-1, 0)
             if kind == 'hu': return (0, 0)
             if a.get('declare_waits'): return (1, -len(a['declare_waits']))
             if kind.endswith('gang'): return (2, 0)

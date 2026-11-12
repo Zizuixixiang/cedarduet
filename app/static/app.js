@@ -220,7 +220,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.47" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.48" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
   ));
 }
 
@@ -777,7 +777,7 @@ function roomTurnText(targetRoom) {
 function authoritativeRoundText(targetRoom) {
   if (targetRoom?.game_type === "ka_wu_xing") {
     const state = targetRoom.board_state || {};
-    return state.round_number ? `第 ${state.round_number} / ${state.rounds || state.options?.rounds || 1} 局` : "";
+    return isTerminal(targetRoom) && state.rounds > 1 ? `历史第 ${state.round_number} / ${state.rounds} 局` : "";
   }
   if (!targetRoom || targetRoom.game_type !== "liars_dice") return "";
   const flow = targetRoom.board_state && targetRoom.board_state.flow;
@@ -1598,6 +1598,9 @@ function gameTokenEstimateLabel(gameType) {
     doudizhu: "约300–600 token/轮",
     liars_dice: "约50–150 token/轮",
     mahjong: "约600–900 token/轮",
+    // scripts/sample_ka_wu_xing_mcp.py in CedarToy: seeds 7/11/37, 0 stake,
+    // default + optional rules; ordinary state+move, rounded min–p95, not a cap.
+    ka_wu_xing: "约100–1000 token/轮",
     yahtzee: "约80–200 token/轮",
     uno: "约250–500 token/轮",
     jungle: "约30–120 token/轮",
@@ -1617,6 +1620,10 @@ function updateGameTokenEstimate() {
   if (!label) return;
   const estimate = gameTokenEstimateLabel(selectedGameType($("gameType")));
   label.textContent = estimate ? `（${estimate}）` : "";
+  if (selectedGameType($("gameType")) === "ka_wu_xing") {
+    label.title = "正常轮次MCP增量估算，首次进入/手动完整同步/终局另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复的压缩JSON正文，根工具包装另计；多人连续行动与合法选择会影响长度，不是计费上限。";
+    return;
+  }
   label.title = (["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes(selectedGameType($("gameType"))) || isFourColorGame(selectedGameType($("gameType"))))
     ? "正常轮次MCP增量估算，首次进入/手动完整同步另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复；多人连续行动、合法选择与终局结算会影响长度，不是计费上限。"
     : "";
@@ -4123,7 +4130,7 @@ function renderPrivateState(targetRoom) {
 function resultTextFor(targetRoom, timeline = []) {
   if (targetRoom.game_type === "ka_wu_xing" && isTerminal(targetRoom)) {
     const outcome = targetRoom.result || targetRoom.board_state?.game_result || {};
-    if ((targetRoom.game_options?.rounds || targetRoom.board_state?.options?.rounds || 1) > 1 && outcome.match_winner_player_ids?.length) {
+    if ((targetRoom.game_options?.rounds || targetRoom.board_state?.rounds || targetRoom.board_state?.options?.rounds || 1) > 1 && outcome.match_winner_player_ids?.length) {
       return `多局结束 · ${outcome.match_winner_player_ids.map(id => (targetRoom.participants || []).find(p => p.player_id === id)?.display_name || "玩家").join("、")} 累计领先`;
     }
     const winners = targetRoom.result?.winner_results || targetRoom.board_state?.game_result?.winner_results;
@@ -4324,7 +4331,7 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("copyRoomButton").title = `复制房间号 ${room.room_id}`;
   const resultText = resultTextFor(room, timeline);
   const kwxWinners = room.game_type === "ka_wu_xing" ? (room.result?.winner_results || room.board_state?.game_result?.winner_results || []) : [];
-  const kwxMatchWinners = room.game_type === "ka_wu_xing" && (room.game_options?.rounds || room.board_state?.options?.rounds || 1) > 1
+  const kwxMatchWinners = room.game_type === "ka_wu_xing" && (room.game_options?.rounds || room.board_state?.rounds || room.board_state?.options?.rounds || 1) > 1
     ? (room.result?.match_winner_player_ids || room.board_state?.game_result?.match_winner_player_ids || []) : [];
   const winner = kwxMatchWinners.length ? ` · ${kwxMatchWinners.map(id => participantByPlayerId(id)?.display_name || "玩家").join("、")} 累计领先`
     : kwxWinners.length > 1 ? ` · ${kwxWinners.map(w => participantByPlayerId(w.winner_player_id)?.display_name || "玩家").join("、")} 和牌`
