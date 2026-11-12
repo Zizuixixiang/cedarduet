@@ -73,7 +73,7 @@ async function domCheck() {
   w.run('selectedMachineIds.clear();["p1","p2","p3"].forEach(id=>selectedMachineIds.add(id));inviteMachineIds=new Set(["p1","p2"]);');
   select.value=game;select.dispatchEvent(new w.Event('change'));
   const tokenLabel=w.document.getElementById('gameTokenEstimate');
-  assert.equal(tokenLabel.textContent,game==='ka_wu_xing'?'（约100–1000 token/轮）':'（约600–900 token/轮）');
+  assert.equal(tokenLabel.textContent,game==='ka_wu_xing'?'（常见约400–550 token/轮）':'（约600–900 token/轮）');
   if(game==='ka_wu_xing') {
    for(const term of ['终局另计','cl100k_base','state','move','根工具包装另计','不是计费上限']) assert.ok(tokenLabel.title.includes(term));
   } else assert.equal(tokenLabel.title,'');
@@ -222,7 +222,7 @@ async function browserCheck() {
    for(const [game,count] of [['mahjong',4],['ka_wu_xing',3]]) {
     await page.selectOption('#gameType',game);
     const tokenLabel=page.locator('#gameTokenEstimate');
-    assert.equal(await tokenLabel.textContent(),game==='ka_wu_xing'?'（约100–1000 token/轮）':'（约600–900 token/轮）');
+    assert.equal(await tokenLabel.textContent(),game==='ka_wu_xing'?'（常见约400–550 token/轮）':'（约600–900 token/轮）');
     const labelStyle=await tokenLabel.evaluate(el=>{
      const r=el.getBoundingClientRect(),s=getComputedStyle(el),parent=el.parentElement.getBoundingClientRect();
      return {font:s.fontSize,line:s.lineHeight,color:s.color,left:r.left,right:r.right,parentRight:parent.right};

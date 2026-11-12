@@ -1599,8 +1599,9 @@ function gameTokenEstimateLabel(gameType) {
     liars_dice: "约50–150 token/轮",
     mahjong: "约600–900 token/轮",
     // scripts/sample_ka_wu_xing_mcp.py in CedarToy: seeds 7/11/37, 0 stake,
-    // default + optional rules; ordinary state+move, rounded min–p95, not a cap.
-    ka_wu_xing: "约100–1000 token/轮",
+    // default + optional rules; ordinary state+move, medians 412/514.
+    // This is a typical range, not the observed p95 (900–978).
+    ka_wu_xing: "常见约400–550 token/轮",
     yahtzee: "约80–200 token/轮",
     uno: "约250–500 token/轮",
     jungle: "约30–120 token/轮",
@@ -1621,7 +1622,7 @@ function updateGameTokenEstimate() {
   const estimate = gameTokenEstimateLabel(selectedGameType($("gameType")));
   label.textContent = estimate ? `（${estimate}）` : "";
   if (selectedGameType($("gameType")) === "ka_wu_xing") {
-    label.title = "正常轮次MCP增量估算，首次进入/手动完整同步/终局另计，不含guide/chat/模型思考。cl100k_base实测一次state增量与move回复的压缩JSON正文，根工具包装另计；多人连续行动与合法选择会影响长度，不是计费上限。";
+    label.title = "常见回合参考：默认中位412、全选中位514 token（cl100k_base 实测 state+move 压缩JSON正文）。复杂回合95分位约900–980 token，非上限。首次进入/手动完整同步/终局另计；根工具包装另计（中位约645–798），不含guide/chat/模型思考；不是计费上限。";
     return;
   }
   label.title = (["monopoly", "rummikub", "bomb_plane", "carcassonne"].includes(selectedGameType($("gameType"))) || isFourColorGame(selectedGameType($("gameType"))))
