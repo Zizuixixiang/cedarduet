@@ -674,3 +674,33 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 
 .mahjong-revealed { min-width: 0; }
 .mahjong-revealed-hand { display: flex; flex-wrap: wrap; gap: 1px; }
+
+/* Creation rules follow the dice picker: native controls, a single disclosure. */
+.kwx-rule-picker { min-width: 0; grid-column: 1 / -1; font: 14px/1.5 system-ui, sans-serif; }
+.kwx-room-options { min-width: 0; padding: 0 10px; border: 2px solid var(--purple-light); background: #faf8fd; line-height: 1.5; }
+.kwx-room-options > summary { min-height: 44px; cursor: pointer; padding-block: 12px; color: var(--text); font-weight: 600; }
+.kwx-rule-picker summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 0; list-style: none; }
+.kwx-rule-picker summary::-webkit-details-marker { display: none; }
+.kwx-rule-picker summary::after { content: ""; flex: 0 0 8px; height: 8px; margin-right: 4px; border-right: 2px solid var(--purple-darker); border-bottom: 2px solid var(--purple-darker); transform: rotate(45deg); }
+.kwx-rule-picker details[open] > summary::after { transform: rotate(225deg); }
+.kwx-rule-group { min-width: 0; margin: 0 0 12px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--purple-light); }
+.kwx-rule-group legend { padding: 0 8px 0 0; color: var(--text); font-size: inherit; font-weight: 600; }
+.kwx-option-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.kwx-option-fields .pixel-field { min-width: 0; align-content: start; grid-template-columns: minmax(0, 1fr); }
+.kwx-rule-picker :is(.pixel-field, .kwx-toggle-copy) > .kwx-option-title { color: var(--text); font-size: 14px; }
+.kwx-rule-picker .invite-note { display: block; margin: 0; font: 13px/1.5 system-ui, sans-serif; color: var(--text); overflow-wrap: anywhere; }
+.kwx-rule-picker .kwx-options-note { padding-bottom: 12px; }
+.kwx-option-fields select { min-width: 0; max-width: 100%; font-family: inherit; }
+.kwx-rule-toggle { display: flex; align-items: flex-start; min-width: 0; min-height: 44px; gap: 8px; padding-block: 4px; cursor: pointer; }
+.kwx-toggle-copy { display: grid; min-width: 0; gap: 4px; overflow-wrap: anywhere; }
+/* Native checkboxes keep their 18px glyph; the entire label is the touch target.
+   Include the desktop form selector so its generic 44px inputs cannot stretch it. */
+.kwx-rule-toggle input[type="checkbox"],
+#lobbyView .create-config .kwx-rule-toggle input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 2px 0 0; padding: 0; accent-color: var(--purple-darker); }
+.kwx-rule-picker :is(summary, input, select):focus-visible { outline: 2px solid var(--purple-darker); outline-offset: 2px; }
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  #lobbyView .create-config > .kwx-rule-picker { grid-area: 4 / 1 / 5 / -1; }
+  #gameTypeRulePicker .kwx-option-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.kwx-waiting-rules { white-space: pre-line; overflow-wrap: anywhere; font: 12px/1.5 system-ui, sans-serif; }
+.mahjong-round-history summary { cursor: pointer; min-height: 44px; padding-block: 12px; }

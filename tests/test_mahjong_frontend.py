@@ -65,7 +65,8 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("--mj-tile-w: 13.5px;", STYLES)
         self.assertIn("writing-mode: vertical-rl;", STYLES)
         self.assertIn("text-orientation: upright;", STYLES)
-        self.assertNotIn("rotate(", STYLES)
+        # Tile faces stay upright; the creation disclosure may rotate its caret.
+        self.assertNotIn("rotate(", STYLES.split("/* Creation rules", 1)[0])
 
     def test_authoritative_actions_mobile_widths_and_no_page_overflow(self):
         self.assertIn("context.legalActions", SCRIPT)
@@ -434,12 +435,13 @@ class Element {
  set className(value){this.classList.set(value);} get className(){return [...this.classList.names].join(" ");}
  appendChild(child){child.parentElement=this;this.children.push(child);return child;} append(...children){children.forEach(child=>this.appendChild(child));} replaceChildren(...children){this.children=[];this.append(...children);}
  querySelector(selector){return descendants(this).find(n=>hasClass(n,selector.slice(1)))||null;}
+ querySelectorAll(selector){return descendants(this).filter(n=>hasClass(n,selector.slice(1)));}
  setAttribute(name,value){this.attributes[name]=String(value);} addEventListener(name,listener){this.listeners[name]=listener;}
 }
 const styles=new Map();
 const document={head:{appendChild(n){if(n.id)styles.set(n.id,n);}},createElement(t){return new Element(t,document);},getElementById(id){return styles.get(id)||null;}};
 let renderer=null;
-const window={document,DuelGameUI:{register(type,value){assert.ok(["mahjong","ka_wu_xing"].includes(type));if(renderer)assert.equal(renderer,value);renderer=value;}}};
+const window={document,DuelGameUI:{register(type,value){assert.ok(["mahjong","ka_wu_xing"].includes(type));if(renderer){assert.equal(renderer.renderBoard,value.renderBoard);assert.equal(renderer.renderControls,value.renderControls);}renderer=value;}}};
 vm.runInNewContext(fs.readFileSync("app/static/games/mahjong.js","utf8"),{window,document,console,Math,Map,Set,Number,String,Boolean,Array,Object,Promise});
 function descendants(root){const out=[];const visit=n=>{out.push(n);n.children.forEach(visit);};root.children.forEach(visit);return out;}
 function hasClass(node,name){return node.classList&&node.classList.contains(name);}

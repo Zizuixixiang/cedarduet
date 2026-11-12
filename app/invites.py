@@ -103,6 +103,8 @@ def create_invite(game_type, role, player_id, *, target_player_count, stake=0,
         now = _now()
         initial_state = (liars_dice_setup.initial_selection(game_options, target_player_count)
                          if liars_dice_setup.manual_teams(game_options) else dict(game_options))
+        if game_type == "ka_wu_xing":
+            initial_state = game.configure({}, game_options)
         if game_type == 'liars_dice' and game_options.get('mode') == 'party':
             initial_state['scoring_rules_version'] = liars_dice_setup.SCORING_RULES_VERSION
         conn.execute("""INSERT INTO rooms
@@ -237,7 +239,7 @@ def start_invite(room_id, role, player_id, *, fill_with_npcs=False):
         # (teams, colors, dealer rules) remain the plugin's responsibility.
         try:
             state, first = _initialize_opening_state(game, members, members[0]["player_id"],
-                normalize_game_options(game, game.saved_options(room["board_state"]) if room["game_type"] == "liars_dice" else None, room["stake"]), team_assignments=teams)
+                normalize_game_options(game, game.saved_options(room["board_state"]) if room["game_type"] in {"liars_dice", "ka_wu_xing"} else None, room["stake"]), team_assignments=teams)
         except (ValueError, KeyError, TypeError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
         if room['game_type'] == 'liars_dice' and state.get('mode') == 'party':

@@ -1,11 +1,12 @@
 // Local assets and disposable DB only. --dom checks interaction/structure;
-// default Playwright additionally checks 360/430/1280px geometry and screenshots.
+// default Playwright additionally checks 360/390/430/1280px geometry and screenshots.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const staticRoot = path.join(root, 'app/static');
+const kwxOptions = {double_hu:true,gang_discard_double:true,liang_liability:true,consecutive_kong_double:true,horse_count:1,piao:3,joker:'red',rounds:4};
 const python = process.env.DUEL_TEST_PYTHON || path.join(root, '.venv/bin/python');
 const fixtures = spawnSync(python, ['-c', String.raw`
 import json, tempfile
@@ -51,10 +52,12 @@ async function domCheck() {
    ...(body?.game_type?{room:fixture.rooms[body.game_type]}:{})})};
  };
  w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
+ w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
  w.HTMLElement.prototype.scrollIntoView=function(){};
  w.eval(script('game_ui_registry.js')); w.eval(script('games/mahjong.js')); w.eval(app);
  w.fixture=fixture; w.run(setup);
- assert.equal(w.DuelGameUI.get('mahjong'),w.DuelGameUI.get('ka_wu_xing'));
+ for(const hook of ['renderBoard','renderControls']) assert.equal(w.DuelGameUI.get('mahjong')[hook],w.DuelGameUI.get('ka_wu_xing')[hook]);
+ assert.equal(typeof w.DuelGameUI.get('ka_wu_xing').renderRulePicker,'function');
  assert.equal(w.DuelGameUI.get('mahjong').renderRulePicker,undefined);
  const select=w.document.getElementById('gameType');
  w.document.getElementById('gameCategory').value='card';
@@ -70,7 +73,24 @@ async function domCheck() {
   w.run('selectedMachineIds.clear();["p1","p2","p3"].forEach(id=>selectedMachineIds.add(id));inviteMachineIds=new Set(["p1","p2"]);');
   select.value=game;select.dispatchEvent(new w.Event('change'));
   invite.value=game;invite.dispatchEvent(new w.Event('change'));
-  assert.equal(w.document.querySelectorAll('#gameTypeRulePicker,#inviteGameRulePicker,.mahjong-rule-picker').length,0);
+  assert.equal(w.document.querySelectorAll('.mahjong-rule-picker').length,0); // No redundant variant selector.
+  assert.equal(w.document.querySelectorAll('#gameTypeRulePicker,#inviteGameRulePicker').length,game==='ka_wu_xing'?2:0);
+  if(game==='ka_wu_xing') {
+   for(const id of ['gameTypeRulePicker','inviteGameRulePicker']) {
+    const picker=w.document.getElementById(id);
+    assert.equal(picker.querySelectorAll('select').length,4);
+    assert.equal(picker.querySelectorAll('input[type=checkbox]').length,4);
+    assert.equal(picker.querySelector('details').open,false);
+    picker.querySelector('details').open=true;
+    for(const [key,value] of Object.entries(kwxOptions)) {
+     const input=picker.querySelector(`[data-kwx-option=${key}]`);
+     assert.ok(w.document.getElementById(input.getAttribute('aria-describedby')));
+     if(input.type==='checkbox') input.checked=value;
+     else input.value=String(value);
+     input.dispatchEvent(new w.Event('change'));
+    }
+   }
+  }
   assert.equal(w.run('selectedGameType($("gameType"))'),game);
   assert.equal(w.run('selectedGameRequirement().maxPlayers'),count);
   assert.equal(w.run('selectedGameRequirement().supportsNpcs'),true);
@@ -83,12 +103,25 @@ async function domCheck() {
   assert.equal([...w.document.querySelectorAll('#seatPreview .seat-preview-kind')].filter(n=>n.textContent==='NPC').length,count-2);
   assert.equal(w.document.getElementById('createButton').disabled,false);
   await w.run('createRoom()');
-  assert.deepEqual(requests.at(-1),{url:'/api/rooms',body:{ai_player:'p1',ai_players:['p1'],game_type:game,mode:w.document.getElementById('mode').value,stake:0,target_player_count:count,fill_with_npcs:true}});
+  assert.deepEqual(requests.at(-1),{url:'/api/rooms',body:{ai_player:'p1',ai_players:['p1'],game_type:game,mode:w.document.getElementById('mode').value,stake:0,target_player_count:count,fill_with_npcs:true,...(game==='ka_wu_xing'?{game_options:kwxOptions}:{})}});
   w.run('stopPolling()');
   w.document.getElementById('inviteSubmit').click();
   await new Promise(resolve=>setTimeout(resolve,0));
-  assert.deepEqual(requests.at(-1),{url:'/api/invites',body:{game_type:game,target_player_count:count,ai_players:count===3?['p1']:['p1','p2'],stake:0,timeout_takeover_seconds:0}});
+  assert.deepEqual(requests.at(-1),{url:'/api/invites',body:{game_type:game,target_player_count:count,ai_players:count===3?['p1']:['p1','p2'],stake:0,timeout_takeover_seconds:0,...(game==='ka_wu_xing'?{game_options:kwxOptions}:{})}});
   assert.equal(w.document.getElementById('inviteError').textContent,'');
+  if(game==='ka_wu_xing') {
+   for(let reopen=0;reopen<2;reopen++) {
+    await w.run('showInviteDialog("create")');
+    const picker=w.document.getElementById('inviteGameRulePicker');
+    assert.equal(picker.querySelector('details').open,false);
+    for(const [key,value] of Object.entries(kwxOptions)) {
+     const input=picker.querySelector(`[data-kwx-option=${key}]`);
+     assert.equal(input.type==='checkbox'?input.checked:input.value,typeof value==='boolean'?value:String(value));
+    }
+    assert.deepEqual(JSON.parse(w.run('JSON.stringify(selectedGameOptions($("inviteGame")))')),kwxOptions);
+    w.document.getElementById('inviteDismiss').click();
+   }
+  }
   w.run('stopPolling()');
  }
  for(const [game,count] of [['ka_wu_xing',3],['mahjong',4]]) {
@@ -105,7 +138,57 @@ async function domCheck() {
   else assert.equal(w.document.querySelectorAll('.mahjong-terminal-row').length,3);
  }
  } finally {dom.window.close();}
- console.log('PASS: independent ordinary/invite options and POST payloads, fixed 3/4 players, AI limits/NPC fill, shared renderer/private hand DOM (no layout engine)');
+ console.log('PASS: independent ordinary/invite options and POST payloads, invite dialog reopen, fixed 3/4 players, AI limits/NPC fill, shared renderer/private hand DOM (no layout engine)');
+}
+
+// Use the actual expanded native controls, including touch hit targets and
+// helper typography; this branch requires a real browser, not jsdom.
+async function checkRulePicker(page, id, game, width, output) {
+ const picker=page.locator('#'+id);
+ assert.equal(await picker.count(),game==='ka_wu_xing'?1:0);
+ assert.equal(await page.locator('.mahjong-rule-picker').count(),0);
+ if(game!=='ka_wu_xing') return;
+ assert.equal(await picker.locator('select').count(),4);
+ assert.equal(await picker.locator('input[type=checkbox]').count(),4);
+ await picker.locator('summary').click();
+ assert.equal(await picker.locator('details').evaluate(e=>e.open),true);
+ for(const [key,value] of Object.entries(kwxOptions)) {
+  const input=picker.locator(`[data-kwx-option=${key}]`);
+  await input.scrollIntoViewIfNeeded();
+  if(typeof value==='boolean') {
+   await input.setChecked(value);
+   await input.focus();
+   await input.press('Space');
+   assert.equal(await input.isChecked(),!value);
+   await input.press('Space');
+   assert.equal(await input.isChecked(),value);
+  } else await input.selectOption(String(value));
+  const geometry=await input.evaluate(e=>{
+   const r=e.getBoundingClientRect(), target=e.type==='checkbox'?e.closest('label'):e;
+   const touch=target.getBoundingClientRect();
+   const help=document.getElementById(e.getAttribute('aria-describedby'));
+   const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+   return {x:touch.x,right:touch.right,height:touch.height,hit:hit===e || e.contains(hit),
+    controlSize:parseFloat(getComputedStyle(e.type==='checkbox'?target.querySelector('.kwx-option-title'):e).fontSize),helpSize:parseFloat(getComputedStyle(help).fontSize)};
+  });
+  assert.ok(geometry.x>=0 && geometry.right<=width,'rule field clipped');
+  assert.ok(geometry.height>=44,'rule field touch target below 44px');
+  assert.ok(geometry.hit,'rule field covered by another element');
+  assert.ok(geometry.helpSize<=geometry.controlSize,'rule help must remain secondary');
+ }
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'expanded rules overflow');
+ const selectId=id==='gameTypeRulePicker'?'gameType':'inviteGame';
+ assert.deepEqual(await page.evaluate(selectId=>window.run(`selectedGameOptions(document.getElementById('${selectId}'))`),selectId),kwxOptions);
+ await picker.locator('summary').focus();
+ await picker.locator('summary').press('Enter');
+ assert.equal(await picker.locator('details').evaluate(e=>e.open),false);
+ await picker.locator('summary').press('Enter');
+ assert.equal(await picker.locator('details').evaluate(e=>e.open),true);
+ assert.deepEqual(await page.evaluate(selectId=>window.run(`selectedGameOptions(document.getElementById('${selectId}'))`),selectId),kwxOptions);
+ await picker.screenshot({path:path.join(output,`rules-${selectId}-${width}.png`)});
+ // Restore focus/scroll to the top before checking surrounding form controls.
+ await picker.locator('summary').scrollIntoViewIfNeeded();
+ await picker.locator('summary').focus();
 }
 
 async function browserCheck() {
@@ -114,7 +197,7 @@ async function browserCheck() {
  fs.mkdirSync(output,{recursive:true});
  const browser=await chromium.launch({headless:true,args:['--no-sandbox'], ...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
  try {
-  for(const width of [360,430,1280]) {
+  for(const width of [360,390,430,1280]) {
    const page=await browser.newPage({viewport:{width,height:900},hasTouch:width<600,isMobile:width<600});
    const errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.route('**/*',route=>{
@@ -134,7 +217,7 @@ async function browserCheck() {
    for(const [game,count] of [['mahjong',4],['ka_wu_xing',3]]) {
     await page.selectOption('#gameType',game);
     assert.equal(await page.locator('#targetPlayerCount').inputValue(),String(count));
-    assert.equal(await page.locator('#gameTypeRulePicker').count(),0);
+    await checkRulePicker(page,'gameTypeRulePicker',game,width,output);
     if(width<600) assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'lobby overflow');
     await page.screenshot({path:path.join(output,`picker-${game}-${width}.png`),fullPage:false});
     assert.equal(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),width<600,'screenshot changed input emulation');
@@ -145,7 +228,7 @@ async function browserCheck() {
    for(const [game,count] of [['mahjong',4],['ka_wu_xing',3]]) {
     await page.selectOption('#inviteGame',game);
     assert.equal(await page.locator('#inviteCount').inputValue(),String(count));
-    assert.equal(await page.locator('#inviteGameRulePicker').count(),0);
+    await checkRulePicker(page,'inviteGameRulePicker',game,width,output);
     await page.screenshot({path:path.join(output,`invite-${game}-${width}.png`),fullPage:false});
    }
    await page.locator('#inviteDismiss').click();
@@ -171,7 +254,7 @@ async function browserCheck() {
    assert.equal(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),width<600);
    assert.deepEqual(errors,[]);await page.close();
   }
-  console.log(`PASS: browser widths 360/430/1280; screenshots ${output}`);
+  console.log(`PASS: browser widths 360/390/430/1280; screenshots ${output}`);
  } finally {await browser.close();}
 }
 (process.argv.includes('--dom')?domCheck():browserCheck()).catch(error=>{console.error(error);process.exitCode=1;});

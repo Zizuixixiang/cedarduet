@@ -220,7 +220,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.43" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.45" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
   ));
 }
 
@@ -775,6 +775,10 @@ function roomTurnText(targetRoom) {
 }
 
 function authoritativeRoundText(targetRoom) {
+  if (targetRoom?.game_type === "ka_wu_xing") {
+    const state = targetRoom.board_state || {};
+    return state.round_number ? `第 ${state.round_number} / ${state.rounds || state.options?.rounds || 1} 局` : "";
+  }
   if (!targetRoom || targetRoom.game_type !== "liars_dice") return "";
   const flow = targetRoom.board_state && targetRoom.board_state.flow;
   const roundNumber = flow && flow.round_number;
@@ -1623,6 +1627,7 @@ function selectedGameType(select) {
 }
 
 function selectedGameOptions(select) {
+  if (select.value === "ka_wu_xing") return JSON.parse(select.dataset.kwxRules || "{}");
   if (select.value !== "liars_dice") return undefined;
   const mode = select.dataset.diceMode || "classic";
   return {mode, literal_dice: mode === "party" && select.dataset.literalDice === "true",
@@ -4116,6 +4121,14 @@ function renderPrivateState(targetRoom) {
 }
 
 function resultTextFor(targetRoom, timeline = []) {
+  if (targetRoom.game_type === "ka_wu_xing" && isTerminal(targetRoom)) {
+    const outcome = targetRoom.result || targetRoom.board_state?.game_result || {};
+    if ((targetRoom.game_options?.rounds || targetRoom.board_state?.options?.rounds || 1) > 1 && outcome.match_winner_player_ids?.length) {
+      return `多局结束 · ${outcome.match_winner_player_ids.map(id => (targetRoom.participants || []).find(p => p.player_id === id)?.display_name || "玩家").join("、")} 累计领先`;
+    }
+    const winners = targetRoom.result?.winner_results || targetRoom.board_state?.game_result?.winner_results;
+    if (winners?.length > 1) return `一炮双响 · ${winners.map(w => (targetRoom.participants || []).find(p => p.player_id === w.winner_player_id)?.display_name || "玩家").join("、")} 和牌`;
+  }
   if (targetRoom.game_type === "liars_dice" && targetRoom.board_state?.mode === "party" && isTerminal(targetRoom)) {
     return targetRoom.result?.result_text || "酒桌局已结束，本局积分和回合记录已保留。";
   }
@@ -4310,7 +4323,12 @@ function renderGame(nextRoom, message = "", timeline = []) {
   $("copyRoomButton").setAttribute("aria-label", `复制房间号 ${room.room_id}`);
   $("copyRoomButton").title = `复制房间号 ${room.room_id}`;
   const resultText = resultTextFor(room, timeline);
-  const winner = room.game_type === "liars_dice" && room.board_state.mode === "party" ? "" : room.winner === "draw"
+  const kwxWinners = room.game_type === "ka_wu_xing" ? (room.result?.winner_results || room.board_state?.game_result?.winner_results || []) : [];
+  const kwxMatchWinners = room.game_type === "ka_wu_xing" && (room.game_options?.rounds || room.board_state?.options?.rounds || 1) > 1
+    ? (room.result?.match_winner_player_ids || room.board_state?.game_result?.match_winner_player_ids || []) : [];
+  const winner = kwxMatchWinners.length ? ` · ${kwxMatchWinners.map(id => participantByPlayerId(id)?.display_name || "玩家").join("、")} 累计领先`
+    : kwxWinners.length > 1 ? ` · ${kwxWinners.map(w => participantByPlayerId(w.winner_player_id)?.display_name || "玩家").join("、")} 和牌`
+    : room.game_type === "liars_dice" && room.board_state.mode === "party" ? "" : room.winner === "draw"
     ? " · 和棋"
     : (room.winner_player_id
       ? ` · ${(participantByPlayerId(room.winner_player_id) || {}).display_name || room.winner_player_id} 胜`
@@ -4813,6 +4831,10 @@ function showInviteStakePreview(code, invitation) {
   const i = invitation;
   const seconds = Number(i.timeout_takeover_seconds || (i.timeout_takeover ? 90 : 0));
   $("invitePreview").textContent = `${i.game_name} · ${i.participant_count}/${i.target_player_count} · 本局筹码 ${i.stake}/人${seconds ? ` · ${seconds} 秒超时接管` : ""}`;
+  if (i.game_type === "ka_wu_xing") {
+    const summary = registeredGameUIRenderer(i.game_type)?.roomOptionsSummary(i.game_options);
+    if (summary) $("invitePreview").textContent += ` · ${summary}`;
+  }
   previewedInviteCode = code;
   $("inviteSubmit").textContent = i.stake > 0 ? `同意押注 ${i.stake} 筹码并加入` : "确认加入";
 }
@@ -5026,6 +5048,9 @@ function renderInviteRoomPanel() {
     const timeoutSeconds = Number(room.timeout_takeover_seconds || (room.timeout_takeover ? 90 : 0));
     meta.textContent = `${room.game_name} · ${room.participants.length}/${room.target_player_count} 人 · ${room.stake > 0 ? `🪙${room.stake}/人` : "娱乐局"}${room.room_kind === "invite" && timeoutSeconds ? ` · ${timeoutSeconds} 秒超时接管` : ""}`;
     panel.appendChild(meta);
+  }
+  if (room.game_type === "ka_wu_xing") {
+    registeredGameUIRenderer(room.game_type)?.renderRoomRules(panel, room);
   }
   const members = document.createElement("section");
   members.className = "invite-room-members";

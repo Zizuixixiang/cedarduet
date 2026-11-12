@@ -1,5 +1,61 @@
 # 卡五星交接与验收（2026-11-04）
 
+本文为当时版本的历史验收快照；当前可选房规、红中语义和多局结算以 [KA_WU_XING.md](KA_WU_XING.md) 为准。
+
+## 2026-11-12：全部可选房规交付（未部署）
+
+本轮只编码、隔离测试与自审，未 commit、push、部署或回复 Issue；保留两个仓库原有未提交改动与吹牛骰子 artifacts。
+
+六组均已实现：一炮双响；杠上炮/亮倒包赔/连续杠分；自摸一马；固定漂0/1/3/5；红中万能；单手/4局/8局轮庄。八个选项只在创建时确定，普通网页、邀请、NPC与根 MCP 共用持久房规。具体语义及来源差异见现行 Guide。
+
+双响逐赢家独立计分，确认首胡后不能通过认输/离开撤销债务。多局按局记账，整场结束才移动钱包；认输与超时归档保留已发生债务且不重复收取已结算局分。红中不增加实体牌，弃出仅按自然红中，禁止碰杠红中，七对与番型限制见 Guide。
+
+### 本轮验证证据
+
+- Duel组合99项通过（33.683秒）：旧卡五星18、红中判型9、房规组合16、接线4、国标麻将14、麻将前端21、钱包13、吹牛骰子大厅4。之后新增3条归档/局间认输真实框架测试，接线模块7项整体再次通过（3.033秒）。合计102个不同测试。
+- 主站真实根MCP专项8项通过（25.112秒）：三账号路径Token/Bearer鉴权、普通/邀请/NPC房规、拒绝无效类型与范围、跨进程恢复、双响首胡后重连、亮倒包赔+漂+红中、4局累计、0底注/不足余额及重复结算。全部使用临时账号和隔离SQLite。
+- `test_mcp_schema_selection` + `test_duel_ai_only` 15项通过；Gemini数值enum兼容单项通过。公共根工具schema没有添加房规字段，专属字段仅在按需Guide及动态params中。
+- `scripts/persistence_check.py --duel-ka-wu-xing` 3项通过（与旧卡五星集成测试重合，不重复计数）。
+- 原 `scripts/check_ka_wu_xing_ui.cjs --dom`、新增 `tests/ka_wu_xing_options_dom.cjs`、主站 `scripts/check_mahjong_review_dom.cjs` 均通过；覆盖实际页面普通/邀请POST八选项、等待房规则、国标隔离、双赢家、局间开始、累计赢家、原有31类游戏结果弹窗。
+- JS语法检查及两个仓库 `git diff --check` 通过。全部规则打开的seed0/1 NPC四局回归逐动作JSON恢复，验证84实体牌ID唯一、每种四张及当前暗牌不公开。
+- 自审修复：根MCP遗漏房规透传；首胡后退出抹除债务；超时归档丢失累计；局间认输公开状态滞留上一局；最终复盘把累计分误标为本局分；现有DOM脚本仍假定两renderer完全同对象。没有未解决的测试失败。
+
+普通MCP快照避免重复完整历史手牌，`full_state=true` 按需恢复逐局复盘。四局结束seed0样本：公开投影40237字符，压缩快照8390字符（字符数，不是token数）。Guide从2267字符增至约5300字符，新增内容用于可调用字段、明确结算约束与规则来源，仅按需读取；默认房间规则826字符，全部选项房间规则1104字符。
+
+### 未完成的视觉验证
+
+本环境没有可用Chromium/Playwright；离线安装未命中缓存。DOM检查无布局引擎，**不能据此认定360/430px手机和1280px桌面的尺寸、遮挡或实际视觉已通过**。浏览器脚本已增加这三种宽度下展开房规、44px控件、说明字号、无横向溢出/遮挡及截图检查，需在有浏览器的环境复跑。未测试生产玩家、生产网络或真实Radix客户端。
+
+### 改动文件
+
+平台根目录：`cedar_backend/duel_bridge.py`、`tests_toy/test_duel_ka_wu_xing.py`、`docs/DUEL_KA_WU_XING_ACCEPTANCE.md`。
+
+独立vendor/duel目录：
+
+- 引擎：`app/games/ka_wu_xing.py`、新增 `app/games/kwx_joker.py`。
+- 接线：`app/framework.py`、`app/full_state.py`、`app/invites.py`、`app/main.py`、`app/models.py`。
+- 网页：`app/static/app.js`、`app/static/index.html`、`app/static/games/mahjong.js`、`app/static/games/mahjong.css`。
+- 验证：`scripts/check_ka_wu_xing_ui.cjs`、`tests/test_mahjong_frontend.py`、新增 `tests/test_kwx_joker.py`、`tests/test_kwx_options.py`、`tests/test_ka_wu_xing_options_wiring.py`、`tests/ka_wu_xing_options_dom.cjs`。
+- 文档：`README.md`、`docs/KA_WU_XING.md`、本文件。
+
+### 复跑与部署注意
+
+```sh
+# vendor/duel 下；仅读取现有venv，无需新增依赖
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest tests.test_ka_wu_xing tests.test_kwx_joker tests.test_kwx_options tests.test_ka_wu_xing_options_wiring tests.test_mahjong tests.test_mahjong_frontend tests.test_chips tests.test_liars_dice_lobby -q
+DUEL_TEST_PYTHON=$PWD/.venv/bin/python JSDOM_MODULE=/opt/cedartoy/node_modules/jsdom node scripts/check_ka_wu_xing_ui.cjs --dom
+node tests/ka_wu_xing_options_dom.cjs
+# 平台根目录下
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/opt/cedartoy/vendor/duel/.venv/lib/python3.10/site-packages:/opt/cedartoy/vendor/duel python3 -m unittest tests_toy.test_duel_ka_wu_xing -q
+python3 scripts/persistence_check.py --duel-ka-wu-xing
+```
+
+无SQLite schema迁移；新状态存在房间JSON中。未来验收后须同时发布Duel引擎、静态资源及主站桥接，涉及 `cedartoy-duel` 与 `cedartoy`，网关代码未改；使用既有supervisor配置。新JS/CSS缓存版本已递增。回滚时不能让旧引擎接管尚未结束的v2多局或双响响应状态；先处理这些房间或保留可读其状态的版本。禁止推vendor上游，禁止提交主仓库vendor指针变化。临时测试库与临时安装尝试目录已清理，原有用户产物保留。
+
+---
+
+以下为2026-11-04历史记录。
+
 代码位于 `feat/kawuxing-20261104`；仅修改隔离工作区，未 commit、push、部署或操作生产数据/进程。
 主站配套在 `/tmp/cedartoy-kawuxing-20261104`，分支 `feat/kawuxing-platform-20261104`。
 参考 [Radix Issue #2](https://github.com/Zizuixixiang/cedarduet/issues/2)。完整产品规则见 [KA_WU_XING.md](KA_WU_XING.md)。

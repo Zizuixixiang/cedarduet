@@ -101,9 +101,11 @@ def _decorate(room: dict) -> dict:
     game = get_game(room["game_type"])
     allowed_counts = game.resolved_allowed_player_counts()
     result = dict(room)
-    result["rules_text"] = _room_rules_text(game.room_rules(room["board_state"]) if game.game_type == "liars_dice" else game.rules_text)
+    result["rules_text"] = _room_rules_text(game.room_rules(room["board_state"]) if game.game_type in {"liars_dice", "ka_wu_xing"} else game.rules_text)
     result["move_format"] = game.move_format
     result["game_name"] = game.display_name
+    if game.game_type == "ka_wu_xing":
+        result["game_options"] = game.normalize_options(game.saved_options(room["board_state"]))
     if game.game_type == "liars_dice":
         result["game_options"] = game.normalize_options(game.saved_options(room["board_state"]))
         result["game_name"] += "·酒桌大话骰" if game.is_party(room["board_state"]) else "·原版淘汰赛"
@@ -307,7 +309,7 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         raise DuelError("当前参与者已经离开房间", 403)
     game = get_game(room["game_type"])
     participants = deepcopy(room.get("participants", []))
-    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]) or (room["game_type"] == "ka_wu_xing" and "hands" not in room["board_state"]))):
         projected = deepcopy(room)
         projected.pop("npc_unattended_turns", None)
         projected.pop("npc_turn_actions", None)
@@ -387,7 +389,7 @@ def project_mcp_snapshot_for_viewer(
     used by Web/bootstrap responses.
     """
     projected = project_room_for_viewer(room, viewer_player_id)
-    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]) or (room["game_type"] == "ka_wu_xing" and "hands" not in room["board_state"]))):
         return projected
     game = get_game(room["game_type"])
     viewer = _participant_by_id(projected, viewer_player_id)
@@ -456,7 +458,7 @@ def project_mcp_room_for_viewer(
 ) -> dict:
     """Return the one-time/turn MCP projection without changing Web state."""
     projected = project_room_for_viewer(room, viewer_player_id)
-    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]))):
+    if liars_dice_setup.has_selection(room) or (room.get("room_kind") == "invite" and (not room["board_state"] or (room["game_type"] == "liars_dice" and "dice_counts" not in room["board_state"]) or (room["game_type"] == "ka_wu_xing" and "hands" not in room["board_state"]))):
         return projected
     game = get_game(room["game_type"])
     if getattr(game, 'mcp_move_format', None):
@@ -1617,6 +1619,20 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
     ).fetchall()
     timestamp = _now()
     for stale in stale_rows:
+        row = conn.execute('SELECT * FROM rooms WHERE room_id = ?', (stale['room_id'],)).fetchone()
+        room = decode_room(row, conn)
+        state = room['board_state']
+        archive_result = None
+        if room['game_type'] == 'ka_wu_xing' and room['status'] == 'playing':
+            game = get_game(room['game_type'])
+            if game.saved_options(state)['rounds'] > 1 or (state.get('response_window') or {}).get('accepted_wins'):
+                archive_result = _attach_multiplayer_settlement(game, room, state, game.result_for_archive(state), conn=conn)
+                state['game_result'] = deepcopy(archive_result)
+                state['round_result'] = None
+                state['cumulative_scores'] = dict(archive_result['score_units'])
+                state['phase'] = state['flow']['phase'] = 'finished'
+                state['turn_player_id'] = None
+                state['response_window'] = None
         conn.execute(
             """
             UPDATE rooms
@@ -1630,6 +1646,11 @@ def _archive_stale_rooms(conn, room_id: str | None = None) -> int:
             """,
             (timestamp, timestamp, stale["room_id"]),
         )
+        if archive_result is not None:
+            archive_winner = next((p['role'] for p in room['participants'] if p['player_id'] == archive_result.get('winner_player_id')), 'draw')
+            conn.execute('UPDATE rooms SET board_state = ?, result_json = ?, winner_player_id = ?, winner = ? WHERE room_id = ?',
+                         (json.dumps(state, ensure_ascii=False), json.dumps(archive_result, ensure_ascii=False),
+                          archive_result.get('winner_player_id'), archive_winner, stale['room_id']))
         updated = conn.execute(
             "SELECT * FROM rooms WHERE room_id = ?",
             (stale["room_id"],),
@@ -1886,7 +1907,7 @@ def _room_can_start(room: dict, game) -> bool:
 
 def normalize_game_options(game, options=None, stake=0):
     try:
-        if game.game_type == "liars_dice":
+        if game.game_type in {"liars_dice", "ka_wu_xing"}:
             return game.normalize_options(options, stake)
         if options:
             raise ValueError("该游戏不支持开房选项")
@@ -1917,6 +1938,8 @@ def _initialize_opening_state(
         raise TypeError("游戏插件初始化必须返回 state 对象")
     if game.game_type == "liars_dice":
         state = game.configure(state, game_options, teams=team_assignments)
+    elif game.game_type == "ka_wu_xing":
+        state = game.configure(state, game_options)
     first_player_id = game.resolve_opening_player_id(
         state, proposed_first_player_id, participants
     )
@@ -2541,7 +2564,7 @@ def join_room(
                 prospective, room["mode"]
             )
             state, first_player_id = _initialize_opening_state(
-                game, prospective, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type == "liars_dice" else None
+                game, prospective, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type in {"liars_dice", "ka_wu_xing"} else None
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise DuelError(f"游戏插件初始化失败：{exc}") from exc
@@ -3617,7 +3640,7 @@ def leave_room(
                     remaining, room["mode"]
                 )
                 state, first_player_id = _initialize_opening_state(
-                    game, remaining, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type == "liars_dice" else None
+                    game, remaining, proposed_first_player_id, game.saved_options(room["board_state"]) if game.game_type in {"liars_dice", "ka_wu_xing"} else None
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise DuelError(f"游戏插件初始化失败：{exc}") from exc

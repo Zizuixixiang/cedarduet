@@ -255,6 +255,8 @@ class ExchangeDecisionBody(StrictBody):
 
 
 class McpPlayBody(BaseModel):
+    # Optional room-local payload; not expanded into the public root tool schema.
+    game_options: dict | None = None
     model_config = ConfigDict(extra="forbid")
 
     invite_code: str | None = Field(default=None, max_length=32, description="人类可用链接或邀请码加入；小机请使用邀请码。join 使用。")

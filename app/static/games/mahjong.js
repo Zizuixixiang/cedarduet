@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.42";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.45";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -31,6 +31,97 @@
     if (className) node.className = className;
     if (text !== "") node.textContent = text;
     return node;
+  }
+
+  // Same compact, native form controls as the existing dice room picker.
+  function renderRulePicker(target, select) {
+    ensureStyle();
+    target.className = "pixel-field kwx-rule-picker";
+    const details = el("details", "kwx-room-options");
+    details.appendChild(el("summary", "", "可选房规"));
+    const rules = JSON.parse(select.dataset.kwxRules || "{}");
+    const persist = () => { select.dataset.kwxRules = JSON.stringify(rules); };
+    const group = (title) => {
+      const fieldset = el("fieldset", "kwx-rule-group");
+      fieldset.appendChild(el("legend", "", title));
+      const fields = el("div", "kwx-option-fields");
+      fieldset.appendChild(fields);
+      details.appendChild(fieldset);
+      return fields;
+    };
+    const describe = (input, key, hint) => {
+      input.dataset.kwxOption = key;
+      const help = el("small", "invite-note", hint);
+      help.id = `${target.id}-${key}-hint`;
+      input.setAttribute("aria-describedby", help.id);
+      return help;
+    };
+    const scoring = group("胡牌与杠分");
+    [
+      ["double_hu", "一炮双响", "同一弃牌可两家胡，分别计分；关闭时近家优先。"],
+      ["gang_discard_double", "杠上炮 ×2", "杠后首次弃牌被胡翻倍，仍受番数封顶；不含抢补杠。"],
+      ["liang_liability", "亮倒包赔", "亮倒者接炮（含抢杠），点炮者付两家胡牌与漂分。"],
+      ["consecutive_kong_double", "连续杠翻倍", "同一摸打回合，第2杠起每次杠分再翻倍。"],
+    ].forEach(([key, title, hint]) => {
+      const label = el("label", "kwx-rule-toggle");
+      const input = el("input");
+      input.type = "checkbox";
+      input.checked = rules[key] ?? false;
+      input.setAttribute("aria-label", title);
+      input.addEventListener("change", () => { rules[key] = input.checked; persist(); });
+      const copy = el("span", "kwx-toggle-copy");
+      copy.append(el("span", "kwx-option-title", title), describe(input, key, hint));
+      label.append(input, copy);
+      scoring.appendChild(label);
+    });
+    const extras = group("额外玩法与局数");
+    const definitions = [
+      ["horse_count", "买马", [[0, "不买马"], [1, "自摸翻一马"]], "自摸从余墙尾翻1张，两家各付筒条点数（中发白10）；无余牌不买。"],
+      ["piao", "固定漂分", [[0, "不漂"], [1, "每家 1 分"], [3, "每家 3 分"], [5, "每家 5 分"]], "每次胡牌：自摸两家各付；接炮由点炮者付一份，亮倒包赔付两份。"],
+      ["joker", "红中", [["none", "普通字牌"], ["red", "赖子 · 万能牌"]], "赖子仍为84张；可补普通胡/七对，不可碰杠；打出按本牌，卡五星须实体4/5/6。"],
+      ["rounds", "局数", [[1, "单手"], [4, "4 局"], [8, "8 局"]], "赢家接庄，双响点炮者庄；荒庄保庄，仅一人亮倒则其接庄。多局累计，结束结算。"],
+    ];
+    definitions.forEach(([key, title, values, hint]) => {
+      const label = el("label", "pixel-field");
+      label.appendChild(el("span", "kwx-option-title", title));
+      const input = el("select"); input.setAttribute("aria-label", title);
+      values.forEach(([value, text]) => {const option = el("option", "", text); option.value = String(value); input.appendChild(option);});
+      input.value = String(rules[key] ?? values[0][0]);
+      input.addEventListener("change", () => {
+        rules[key] = values.find(([value]) => String(value) === input.value)[0];
+        persist();
+      });
+      label.append(input, describe(input, key, hint)); extras.appendChild(label);
+    });
+    details.appendChild(el("p", "invite-note kwx-options-note", "创建后固定。马、漂、杠分独立记账；马与漂不计番数封顶。"));
+    target.appendChild(details);
+  }
+
+  function renderRoomRules(target, room) {
+    ensureStyle();
+    const rules = el("details", "pixel-field kwx-room-options");
+    rules.appendChild(el("summary", "", "本房房规"));
+    rules.appendChild(el("p", "invite-note kwx-waiting-rules", room.rules_text || roomOptionsSummary(room.game_options)));
+    target.appendChild(rules);
+  }
+
+  function roomOptionsSummary(o = {}) {
+    const switches = [["double_hu", "双响"], ["gang_discard_double", "杠上炮×2"], ["liang_liability", "亮倒包赔"], ["consecutive_kong_double", "连续杠翻倍"]];
+    return `${o.rounds || 1}局 · ${o.joker === "red" ? "红中万能" : "红中普通"} · ${o.horse_count ? "自摸一马" : "不买马"} · 漂${o.piao || 0} · ${switches.map(([key, name]) => `${name}${o[key] ? "开" : "关"}`).join(" / ")}`;
+  }
+
+  function isRoundEnd(context) {
+    return context.state?.variant === "ka_wu_xing" && context.state?.phase === "round_end";
+  }
+
+  function handResult(context) {
+    return (isRoundEnd(context) ? context.state?.round_result : context.state?.game_result) || null;
+  }
+
+  function handWinners(context) {
+    const result = handResult(context);
+    const winners = Array.isArray(result?.winner_results) ? result.winner_results : result?.winner_player_id ? [result] : [];
+    return winners.filter(w => !w.draw && ["self_draw", "discard", "rob_kong"].includes(w.win_type));
   }
 
   function viewerSeat(context) {
@@ -198,7 +289,7 @@
   function statusNode(context) {
     const state = context.state || {};
     const status = el("section", "mahjong-center-status");
-    const primary = el("strong", "mahjong-round", state.variant === "ka_wu_xing" ? "襄阳卡五星 · 3人" : `${state.round_label || "东一局"} · 圈风${state.prevalent_wind || "东"}`);
+    const primary = el("strong", "mahjong-round", state.variant === "ka_wu_xing" ? (state.round_label || "襄阳卡五星 · 3人") : `${state.round_label || "东一局"} · 圈风${state.prevalent_wind || "东"}`);
     const wall = el("span", "mahjong-wall-count", `牌墙 ${Number(state.wall_remaining || 0)} 张`);
     const current = (context.participants || []).find(
       (item) => item.player_id === actionablePlayerId(context)
@@ -218,6 +309,7 @@
       const priority = {hu: "和牌", peng_gang: "碰/杠", chi: "吃"}[response.current_priority] || "响应";
       actionText = `等待 ${responder && (responder.display_name || responder.player_id) || "玩家"} ${priority}`;
     }
+    if (isRoundEnd(context)) actionText = `本局已结算 · 等待${current?.display_name || "下一庄"}开始下一局`;
     const action = el("span", "mahjong-current-action", actionText);
     status.append(primary, wall, action);
     return status;
@@ -282,20 +374,26 @@
   }
 
   function winningResult(context) {
-    if (!isTerminalState(context)) return null;
-    const result = (context.state || {}).game_result;
+    if (!isTerminalState(context) && !isRoundEnd(context)) return null;
+    const result = handWinners(context)[0];
     return result && !result.draw && result.winner_player_id
       && ["self_draw", "discard", "rob_kong"].includes(result.win_type)
       ? result : null;
   }
 
   function terminalSummary(context) {
+    if (["stale_archive", "resignation_liability"].includes(handResult(context)?.reason)) {
+      return handResult(context).result_text;
+    }
     const result = winningResult(context);
     const nameFor = (id) => ((context.participants || []).find(
       (item) => item.player_id === id
     ) || {}).display_name || "玩家";
+    if (handWinners(context).length > 1) {
+      return `一炮双响 · ${handWinners(context).map(w => `${nameFor(w.winner_player_id)} ×${w.multiplier}`).join("、")} · ${nameFor(handResult(context).source_player_id || handWinners(context)[0].source_player_id)}点炮`;
+    }
     if (!result) {
-      return (context.state || {}).game_result?.draw
+      return handResult(context)?.draw
         ? "流局 · 本手无人和牌"
         : "本手已结束 · 未产生和牌结算";
     }
@@ -312,40 +410,64 @@
     review.tabIndex = -1;
     review.setAttribute("aria-labelledby", "mahjongTerminalTitle");
     const demo = context.room?.terminal_reason === "mahjong_review_demo";
-    const title = el("h3", "mahjong-terminal-title", demo ? "演示房 · 终局复盘" : "终局复盘");
+    const title = el("h3", "mahjong-terminal-title", demo ? "演示房 · 终局复盘" : isRoundEnd(context) ? `第 ${context.state.round_number} 局复盘` : "终局复盘");
     title.id = "mahjongTerminalTitle";
     review.appendChild(title);
     if (demo) review.appendChild(el("p", "mahjong-terminal-note", "人工构造牌局 · 不计真实战绩、筹码或成就"));
     review.appendChild(el("p", "mahjong-terminal-summary", terminalSummary(context)));
     const result = winningResult(context);
-    const fans = result && Array.isArray(result.fans) ? result.fans : [];
-    if (fans.length) {
-      const list = el("ul", "mahjong-fans");
-      list.setAttribute("aria-label", "番型明细");
-      fans.forEach((fan) => {
-        const row = el("li", "mahjong-fan-row");
-        row.appendChild(el("span", "", fan.name || fan.name_en || "未命名番型"));
-        const multiplier = Number.isFinite(fan.points) && Number.isFinite(fan.count)
-          ? `${fan.points} 番 × ${fan.count}` : "倍率未记录";
-        row.appendChild(el("span", "", fan.multiplier ? `×${fan.multiplier}` : `${multiplier} · ${Number.isFinite(fan.fan) ? `${fan.fan} 番` : "番数未记录"}`));
-        list.appendChild(row);
-      });
-      review.appendChild(list);
-    } else if (result) {
-      review.appendChild(el("p", "mahjong-terminal-note", "本局未记录番型明细"));
-    }
+    handWinners(context).forEach((winnerResult) => {
+      const fans = Array.isArray(winnerResult.fans) ? winnerResult.fans : [];
+      if (handWinners(context).length > 1) review.appendChild(el("p", "mahjong-terminal-note", `${(participants.find(p => p.player_id === winnerResult.winner_player_id) || {}).display_name || "玩家"} · ×${winnerResult.multiplier}`));
+      if (fans.length) {
+        const list = el("ul", "mahjong-fans");
+        list.setAttribute("aria-label", "番型明细");
+        fans.forEach((fan) => {
+          const row = el("li", "mahjong-fan-row");
+          row.appendChild(el("span", "", fan.name || fan.name_en || "未命名番型"));
+          const multiplier = Number.isFinite(fan.points) && Number.isFinite(fan.count)
+            ? `${fan.points} 番 × ${fan.count}` : "倍率未记录";
+          row.appendChild(el("span", "", fan.multiplier ? `×${fan.multiplier}` : `${multiplier} · ${Number.isFinite(fan.fan) ? `${fan.fan} 番` : "番数未记录"}`));
+          list.appendChild(row);
+        });
+        review.appendChild(list);
+      } else if (result) {
+        review.appendChild(el("p", "mahjong-terminal-note", "本局未记录番型明细"));
+      }
+    });
     const state = context.state || {};
     const hands = state.terminal_hands || {};
     if (state.variant === "ka_wu_xing") {
-      review.appendChild(el("p", "mahjong-terminal-note", "牌型相乘后封顶，再计亮倒；杠分独立。"));
-      const units = (state.game_result || context.room?.result)?.score_units || {};
-      participants.forEach(p => review.appendChild(el("p", "mahjong-terminal-note",
-        `${p.display_name || "玩家"}：局分 ${units[p.player_id] ?? 0}（含杠分 ${state.kong_scores?.[p.player_id] ?? 0}）`)));
+      const outcome = handResult(context) || {};
+      const units = outcome.round_score_units || outcome.score_units || {};
+      review.appendChild(el("p", "mahjong-terminal-note", "胡牌倍数封顶后计亮倒；杠、马、漂及荒庄分独立。"));
+      const categories = {hu: "胡", kong: "杠", horse: "马", piao: "漂", draw: "荒庄"};
+      participants.forEach(p => {
+        const parts = outcome.score_breakdown
+          ? Object.entries(categories).map(([key, text]) => `${text} ${outcome.score_breakdown?.[key]?.[p.player_id] ?? 0}`)
+          : [`含杠分 ${state.kong_scores?.[p.player_id] ?? 0}`];
+        review.appendChild(el("p", "mahjong-terminal-note", `${p.display_name || "玩家"}：本局 ${units[p.player_id] ?? 0}（${parts.join(" / ")}） · 累计 ${state.cumulative_scores?.[p.player_id] ?? units[p.player_id] ?? 0}`));
+      });
+      if (isTerminalState(context) && context.room?.result?.settlement_deltas) {
+        participants.forEach(p => {
+          const actual = context.room.result.settlement_deltas[p.player_id];
+          const requested = context.room.result.requested_settlement_deltas?.[p.player_id];
+          if (actual !== undefined) review.appendChild(el("p", "mahjong-terminal-note", `${p.display_name || "玩家"}：实际筹码 ${actual}${requested !== undefined && requested !== actual ? `（应计 ${requested}，钱包封顶）` : ""}`));
+        });
+      }
+      if (outcome.horse_tiles?.length) review.appendChild(el("p", "mahjong-terminal-note", `买马：${outcome.horse_tiles.map(t => t.label || t.code || t).join("、")}`));
+      if (state.round_results?.length > 1) {
+        const history = el("details", "mahjong-round-history");
+        history.appendChild(el("summary", "mahjong-terminal-note", `已完成 ${state.round_results.length} 局 · 查看各局分数`));
+        state.round_results.forEach((r, i) => history.appendChild(el("p", "mahjong-terminal-note", `第 ${i + 1} 局 · ${participants.map(p => `${p.display_name || "玩家"} ${r.score_units?.[p.player_id] ?? 0}`).join(" / ")}`)));
+        review.appendChild(history);
+      }
     }
     const rows = el("div", "mahjong-terminal-rows");
     participants.forEach((participant) => {
       const playerId = participant.player_id;
-      const winner = result && result.winner_player_id === playerId;
+      const winnerResult = handWinners(context).find(w => w.winner_player_id === playerId);
+      const winner = Boolean(winnerResult);
       const row = el("section", "mahjong-terminal-row");
       row.dataset.playerId = playerId;
       row.classList.toggle("winner", Boolean(winner));
@@ -362,8 +484,8 @@
       let highlighted = false;
       tiles.forEach((tile) => {
         const node = publicTile(tile);
-        if (winner && !highlighted && result.winning_tile?.id != null
-            && String(tile.id) === String(result.winning_tile.id)) {
+        if (winner && !highlighted && winnerResult.winning_tile?.id != null
+            && String(tile.id) === String(winnerResult.winning_tile.id)) {
           highlighted = true;
           node.classList.add("winning-tile");
           node.setAttribute("aria-label", `${tile.label || tile.code} · 和牌张`);
@@ -410,7 +532,7 @@
     const discardTable = el("div", "mahjong-discard-table");
     participants.forEach((participant) => discardTable.appendChild(discardZone(participant, context)));
     center.appendChild(discardTable);
-    if (context.state?.variant === "ka_wu_xing" && !isTerminalState(context)) {
+    if (context.state?.variant === "ka_wu_xing" && !isTerminalState(context) && !isRoundEnd(context)) {
       participants.forEach(p => {
         const reveal = context.state.revealed?.[p.player_id];
         if (reveal) {
@@ -424,14 +546,13 @@
       });
     }
     table.appendChild(center);
-    if (isTerminalState(context)) {
+    if (isTerminalState(context) || isRoundEnd(context)) {
       delete context.uiState.mahjongSelectedTileId;
       const review = terminalReview(context, participants);
       context.board.replaceChildren(table, review);
       // On first entry Mahjong CSS loads asynchronously; scroll the winning
       // hand after its dimensions settle without scrolling the whole page.
-      const winningTile = review.querySelector(".winning-tile");
-      if (winningTile) {
+      review.querySelectorAll(".winning-tile").forEach((winningTile) => {
         const revealWinningTile = () => {
           if (winningTile.isConnected === false) return;
           const hand = winningTile.parentElement;
@@ -443,7 +564,7 @@
         revealWinningTile();
         if (styleLink && !styleLink.sheet) styleLink.addEventListener("load", revealWinningTile, {once: true});
         if (typeof global.requestAnimationFrame === "function") global.requestAnimationFrame(revealWinningTile);
-      }
+      });
     } else {
       const ownHand = ownHandNode(context);
       table.appendChild(ownHand.wrap);
@@ -547,7 +668,7 @@
       return;
     }
     if (!context.canMove) {
-      controls.appendChild(controlHint("等待其他玩家行动", "waiting"));
+      controls.appendChild(controlHint(isRoundEnd(context) ? "本局已结算 · 等待下一庄开始" : "等待其他玩家行动", "waiting"));
       context.controls.replaceChildren(controls);
       return;
     }
@@ -622,5 +743,5 @@
     renderControls,
   };
   global.DuelGameUI.register("mahjong", renderer);
-  global.DuelGameUI.register("ka_wu_xing", renderer);
+  global.DuelGameUI.register("ka_wu_xing", {...renderer, renderRulePicker, renderRoomRules, roomOptionsSummary});
 }(window));

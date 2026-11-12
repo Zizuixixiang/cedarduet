@@ -1798,6 +1798,8 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
         raise DuelError("system NPC 不是可认证账号，不能通过 MCP 冒充", 403)
     if body.full_state and body.action != "state":
         raise DuelError("full_state 只适用于 state 动作")
+    if body.game_options is not None and (body.action not in {"new", "invite"} or body.game_type != "ka_wu_xing"):
+        raise DuelError("game_options 仅用于创建卡五星房间，房规开局后不可修改")
     if body.action == "catalog":
         return {
             "ok": True,
@@ -1834,7 +1836,7 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
 
     if body.action == "invite":
         room = create_invite(require(body.game_type, "invite 需要 game_type"), "ai", body.player_id,
-                             game_options=body.move if body.game_type == "liars_dice" else None,
+                             game_options=body.move if body.game_type == "liars_dice" else body.game_options,
                              target_player_count=body.target_player_count, stake=body.stake,
                              timeout_takeover=body.timeout_takeover,
                              timeout_takeover_seconds=body.timeout_takeover_seconds,
@@ -1950,7 +1952,7 @@ async def _mcp_play_impl(body: McpPlayBody, wait_lease=None):
             stake=body.stake,
             ordered_participants=ordered_participants,
             enforce_trusted_pair=body.include_human,
-            game_options=body.move if game.game_type == "liars_dice" else None,
+            game_options=body.move if game.game_type == "liars_dice" else body.game_options,
             target_player_count=target_count,
         )
         await _schedule_current_system_npc(room)
