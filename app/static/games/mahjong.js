@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.45";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.46";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -58,10 +58,10 @@
     };
     const scoring = group("胡牌与杠分");
     [
-      ["double_hu", "一炮双响", "同一弃牌可两家胡，分别计分；关闭时近家优先。"],
-      ["gang_discard_double", "杠上炮 ×2", "杠后首次弃牌被胡翻倍，仍受番数封顶；不含抢补杠。"],
-      ["liang_liability", "亮倒包赔", "亮倒者接炮（含抢杠），点炮者付两家胡牌与漂分。"],
-      ["consecutive_kong_double", "连续杠翻倍", "同一摸打回合，第2杠起每次杠分再翻倍。"],
+      ["double_hu", "一炮双响", "同牌两家胡，分别结算。"],
+      ["gang_discard_double", "杠上炮 ×2", "杠后首次出牌被胡，番数×2。"],
+      ["liang_liability", "亮倒包赔", "亮倒者接炮，点炮者付两份。"],
+      ["consecutive_kong_double", "连续杠翻倍", "同回合第2杠起，杠分逐次翻倍。"],
     ].forEach(([key, title, hint]) => {
       const label = el("label", "kwx-rule-toggle");
       const input = el("input");
@@ -76,10 +76,10 @@
     });
     const extras = group("额外玩法与局数");
     const definitions = [
-      ["horse_count", "买马", [[0, "不买马"], [1, "自摸翻一马"]], "自摸从余墙尾翻1张，两家各付筒条点数（中发白10）；无余牌不买。"],
-      ["piao", "固定漂分", [[0, "不漂"], [1, "每家 1 分"], [3, "每家 3 分"], [5, "每家 5 分"]], "每次胡牌：自摸两家各付；接炮由点炮者付一份，亮倒包赔付两份。"],
-      ["joker", "红中", [["none", "普通字牌"], ["red", "赖子 · 万能牌"]], "赖子仍为84张；可补普通胡/七对，不可碰杠；打出按本牌，卡五星须实体4/5/6。"],
-      ["rounds", "局数", [[1, "单手"], [4, "4 局"], [8, "8 局"]], "赢家接庄，双响点炮者庄；荒庄保庄，仅一人亮倒则其接庄。多局累计，结束结算。"],
+      ["horse_count", "买马", [[0, "不买马"], [1, "自摸翻一马"]], "自摸翻1张马，两家按马点付分。"],
+      ["piao", "固定漂分", [[0, "不漂"], [1, "每家 1 分"], [3, "每家 3 分"], [5, "每家 5 分"]], "每次胡牌，按所选分数另付漂分。"],
+      ["joker", "红中", [["none", "普通字牌"], ["red", "赖子 · 万能牌"]], "选赖子时，红中万能且不可碰杠。"],
+      ["rounds", "局数", [[1, "单手"], [4, "4 局"], [8, "8 局"]], "单手、4局或8局，结束统一结算。"],
     ];
     definitions.forEach(([key, title, values, hint]) => {
       const label = el("label", "pixel-field");
@@ -93,7 +93,7 @@
       });
       label.append(input, describe(input, key, hint)); extras.appendChild(label);
     });
-    details.appendChild(el("p", "invite-note kwx-options-note", "创建后固定。马、漂、杠分独立记账；马与漂不计番数封顶。"));
+    details.appendChild(el("p", "invite-note kwx-options-note", "房规创建后固定。"));
     target.appendChild(details);
   }
 

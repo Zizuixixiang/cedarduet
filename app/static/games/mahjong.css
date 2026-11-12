@@ -698,6 +698,14 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 .kwx-rule-toggle input[type="checkbox"],
 #lobbyView .create-config .kwx-rule-toggle input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 2px 0 0; padding: 0; accent-color: var(--purple-darker); }
 .kwx-rule-picker :is(summary, input, select):focus-visible { outline: 2px solid var(--purple-darker); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .kwx-option-fields { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .kwx-rule-group { margin-bottom: 8px; padding-top: 6px; }
+  .kwx-rule-toggle { padding-block: 2px; }
+  .kwx-toggle-copy { gap: 2px; }
+  .kwx-option-fields .pixel-field { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: center; gap: 2px 8px; }
+  .kwx-option-fields .pixel-field > .invite-note { grid-column: 1 / -1; }
+}
 @media (min-width: 900px) and (hover: hover) and (pointer: fine) {
   #lobbyView .create-config > .kwx-rule-picker { grid-area: 4 / 1 / 5 / -1; }
   #gameTypeRulePicker .kwx-option-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
