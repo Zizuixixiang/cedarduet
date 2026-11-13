@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.48";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.49";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
