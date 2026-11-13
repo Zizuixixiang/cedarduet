@@ -8,7 +8,7 @@ from typing import Literal
 
 from .database import connect, decode_room, write_transaction
 from . import liars_dice_setup
-from .desktop_demo import is_desktop_demo, desktop_demo_sql
+from .desktop_demo import is_desktop_demo, is_kwx_review_demo, desktop_demo_sql
 from .games import get_game, stake_presentation
 from .games.base import MoveResult
 from .notifications import create_notification, mark_notifications_read
@@ -117,7 +117,7 @@ def _decorate(room: dict) -> dict:
                 room["board_state"], saved_result.get("reason", "session_ended"))}
     if is_desktop_demo(room):
         result["demo"] = True
-        result["game_name"] = "【演示】" + game.display_name
+        result["game_name"] = ("【演示/只读】" if is_kwx_review_demo(room) else "【演示】") + game.display_name
     result["min_players"] = allowed_counts[0]
     result["max_players"] = allowed_counts[-1]
     result["allowed_player_counts"] = list(allowed_counts)
@@ -375,6 +375,11 @@ def project_room_for_viewer(room: dict, viewer_player_id: str) -> dict:
         from .takeover import temporary_takeover_active
 
         projected["viewer"]["temporary_takeover_active"] = temporary_takeover_active(room, viewer_player_id)
+    if is_kwx_review_demo(room):
+        private_state["legal_actions"] = []
+        # Reuse Web's existing read-only interaction mode, with the human's own hand.
+        projected["spectating"] = True
+        projected["read_only"] = True
     projected["action_note"] = public_state.get("last_action_note", "")
     return projected
 
@@ -964,7 +969,7 @@ def list_human_rooms(
         item["ai_names"] = ai_labels
         item["game_name"] = get_game(item["game_type"]).display_name
         if item.pop("desktop_demo", False):
-            item["game_name"] = "【演示】" + item["game_name"]
+            item["game_name"] = ("【演示/只读】" if item["game_type"] == "ka_wu_xing" else "【演示】") + item["game_name"]
         pending_csv = item.pop("pending_for_csv", None)
         item["pending_for"] = pending_csv.split(",") if pending_csv else []
         item.update(stake_presentation(item["game_type"], item["stake"]))

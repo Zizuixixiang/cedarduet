@@ -758,6 +758,7 @@ function turnLabel(turn, aiPlayerId, currentActor = null, targetRoom = null) {
 }
 
 function roomTurnText(targetRoom) {
+  if (targetRoom.read_only && targetRoom.demo) return "演示房 · 只读中盘";
   if (isTerminal(targetRoom)) {
     return "对局已结束";
   }
@@ -4258,12 +4259,12 @@ function roomActionNotice(targetRoom, message, humanCanMove) {
 }
 
 function renderSpectatorPerspective() {
-  if (room.spectating) {
+  if (room.spectating && !room.read_only) {
     setRoomListScope("machines");
     spectatorPerspectives.set(room.room_id, viewerPlayerIdFor(room));
   }
   $("gameView").classList.toggle("spectating-view", Boolean(room.spectating));
-  $("spectatorPerspective").classList.toggle("hidden", !room.spectating);
+  $("spectatorPerspective").classList.toggle("hidden", !room.spectating || room.read_only);
   const choices = room.spectator_choices || [];
   const select = $("spectatorSelect");
   const signature = JSON.stringify(choices);

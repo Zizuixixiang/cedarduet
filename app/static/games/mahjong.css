@@ -668,8 +668,19 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
   min-height: 0;
 }
 .three-player .mahjong-discard-table {
-  grid-template-rows: minmax(100px, 1fr) auto;
-  grid-template-areas: "dl . dr" "db db db";
+  /* Both rows reserve space even when empty; content may grow without clipping.
+     Explicit columns also prevent an implicit third track on desktop. */
+  flex: 1 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(100px, 1fr) minmax(100px, 1fr);
+  grid-template-areas: "dl dr" "db db";
+  gap: 4px;
+}
+.three-player .mahjong-discard-grid {
+  --mj-discard-row-step: var(--mj-discard-h);
+  flex: 0 0 auto;
+  row-gap: 2px;
+  padding: 2px;
 }
 
 .mahjong-revealed { min-width: 0; }

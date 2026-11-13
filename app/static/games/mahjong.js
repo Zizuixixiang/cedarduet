@@ -667,7 +667,7 @@
       return;
     }
     if (!context.canMove) {
-      controls.appendChild(controlHint("等待其他玩家行动", "waiting"));
+      controls.appendChild(controlHint(context.room?.read_only ? "演示房 · 只读" : "等待其他玩家行动", "waiting"));
       context.controls.replaceChildren(controls);
       return;
     }
@@ -728,7 +728,7 @@
       controls.appendChild(confirmation);
     }
     if (!controls.children.length) {
-      controls.appendChild(controlHint("等待其他玩家行动", "waiting"));
+      controls.appendChild(controlHint(context.room?.read_only ? "演示房 · 只读" : "等待其他玩家行动", "waiting"));
     }
     context.controls.replaceChildren(controls);
   }

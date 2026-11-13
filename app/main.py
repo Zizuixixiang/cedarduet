@@ -23,6 +23,7 @@ from .invites import create_invite, join_invite, start_invite, preview_invite, r
 from .takeover import TakeoverScheduler
 from .models import InviteCreateBody, InviteJoinBody, InviteStartBody
 from .database import init_db
+from .desktop_demo import is_kwx_review_demo, KWX_DEMO_OWNER
 from .full_state import LEGACY_GAMES, full_state_response
 from .framework import (
     DuelError,
@@ -1564,6 +1565,14 @@ async def human_state(
     if not any(p["player_id"] == player_id for p in snapshot["participants"]):
         return JSONResponse(spectator_response(snapshot, request, perspective),
                             headers={"Cache-Control": "private, no-store"})
+    if is_kwx_review_demo(snapshot):
+        if player_id != KWX_DEMO_OWNER:
+            raise DuelError("演示房仅供所属人类账号查看", 403)
+        return JSONResponse({
+            "ok": True, "status": "ok", "message": "演示房 · 只读中盘",
+            "room": project_room_for_viewer(snapshot, player_id),
+            "timeline": [], "poll_after_ms": 3000,
+        }, headers={"Cache-Control": "private, no-store"})
     latest_room = get_room(
         room_id, "human", player_id, opponent_id=opponent_id
     )
