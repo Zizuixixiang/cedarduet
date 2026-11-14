@@ -169,7 +169,8 @@ class MahjongFrontendStructureTests(unittest.TestCase):
         self.assertIn("text-orientation: upright;", name)
         self.assertIn("line-height: 1;", name)
         self.assertEqual(STYLES.count("writing-mode:"), 1)
-        self.assertEqual(STYLES.count("text-orientation:"), 1)
+        self.assertEqual(STYLES.count("text-orientation:"), 2)
+        self.assertIn("text-orientation: mixed;", STYLES)
 
         identity_selector = (
             ".position-left .mahjong-seat-identity,\n"

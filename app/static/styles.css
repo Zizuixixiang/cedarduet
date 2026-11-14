@@ -4224,10 +4224,10 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
 }
 
-/* Mahjong rooms use the wide workspace without widening other games or chat. */
+/* Keep Mahjong table and chat together at a bounded desktop width. */
 @media (min-width: 900px) {
   .duel-main:has(> .game-view:not(.hidden) > .battle-stage:is([data-game-type="ka_wu_xing"], [data-game-type="mahjong"])) {
-    width: min(1840px, calc(100% - 40px));
+    width: min(1460px, calc(100% - 40px));
   }
   .game-view > .battle-stage:is([data-game-type="ka_wu_xing"], [data-game-type="mahjong"]) {
     width: 100%;
