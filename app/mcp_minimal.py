@@ -114,7 +114,7 @@ def snapshot(room, pid, full):
     if room['game_type'] == 'ka_wu_xing':
         from . import framework as f
         from .full_state import project_full_state
-        value = project_full_state(room, pid) if full else f.project_mcp_room_for_viewer(room, pid)
+        value = project_full_state(f._decorate(room), pid) if full else f.project_mcp_room_for_viewer(room, pid)
         value['rules_text'] = get_game('ka_wu_xing').room_rules(room['board_state'])
         value['move_format'] = FORMATS['ka_wu_xing']
         if full:

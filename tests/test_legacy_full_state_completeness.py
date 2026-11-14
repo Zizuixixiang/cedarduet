@@ -3,7 +3,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from app import framework, full_state
+from app import framework, full_state, mcp_minimal
 from app.games import GAMES
 from tests import test_legacy_full_state as legacy
 from tests.full_state_support import LEGACY, choose, isolated_scenario_database
@@ -79,10 +79,11 @@ class FullStateCompletenessTests(unittest.IsolatedAsyncioTestCase):
                     actual = await self.cold_snapshot(room, pid)
                     game = GAMES[name]
                     expected_rules = (game.room_rules(room['board_state'])
-                                      if name == 'liars_dice' else game.rules_text)
+                                      if name in {'liars_dice', 'ka_wu_xing'} else game.rules_text)
                     self.assertEqual(actual['rules_text'], expected_rules, (name, pid))
                     self.assertEqual(actual['move_format'],
-                                     getattr(game, 'mcp_move_format', game.move_format), (name, pid))
+                                     mcp_minimal.FORMATS[name] if name == 'ka_wu_xing'
+                                     else getattr(game, 'mcp_move_format', game.move_format), (name, pid))
                     reference = framework.project_mcp_snapshot_for_viewer(room, pid)
                     canonical = framework.project_room_for_viewer(room, pid)['board_state']
                     # Preserve ALL existing dynamic/public/private data, not just
