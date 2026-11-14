@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.49";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.51";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -227,6 +227,7 @@
       "strong", "mahjong-seat-name",
       `${participant.display_name || participant.player_id}${isViewer ? "（你）" : ""}`
     );
+    name.title = name.textContent;
     const badges = el("span", "mahjong-seat-badges");
     badges.appendChild(el("i", "mahjong-wind", String(state.seat_winds && state.seat_winds[participant.player_id] || "?")));
     if (participant.player_id === state.dealer_player_id) {

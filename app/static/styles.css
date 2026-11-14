@@ -4224,6 +4224,18 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   }
 }
 
+/* Mahjong rooms use the wide workspace without widening other games or chat. */
+@media (min-width: 900px) {
+  .duel-main:has(> .game-view:not(.hidden) > .battle-stage:is([data-game-type="ka_wu_xing"], [data-game-type="mahjong"])) {
+    width: min(1840px, calc(100% - 40px));
+  }
+  .game-view > .battle-stage:is([data-game-type="ka_wu_xing"], [data-game-type="mahjong"]) {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) clamp(260px, 20vw, 300px);
+    column-gap: 16px;
+  }
+}
+
 @media (max-width: 1100px) {
   .create-form { grid-template-columns: 1fr 1fr; }
   .multiplayer-options { grid-column: 1 / -1; }
@@ -5613,7 +5625,7 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   .game-view .doudizhu-seat-name,
   .game-view .gandengyan-opponent-name,
   .game-view .guandan-seat-name,
-  .game-view .mahjong-seat .mahjong-seat-name,
+  .game-view .mahjong-seat:is(.position-top, .position-bottom) .mahjong-seat-name,
   .game-view .uno-opponent strong,
   .game-view .gm-player-name strong,
   .game-view .mp-seat-copy strong,
@@ -5675,12 +5687,8 @@ h2 { color: var(--purple-darker); font-size: 15px; }
     position: static; display: block; width: fit-content; margin-top: 5px; transform: none; font-size: 14px;
   }
   .game-view .go-player-rail { flex-wrap: wrap; }
-  .game-view .mahjong-table { --mj-side: clamp(130px, 18cqw, 170px); }
   .game-view .mahjong-seat-identity { flex-wrap: wrap; }
-  .game-view .mahjong-seat .mahjong-seat-name { writing-mode: horizontal-tb; }
   .game-view .mahjong-seat-badges { flex-wrap: wrap; }
-  .game-view .mahjong-seat.position-left .mahjong-seat-identity,
-  .game-view .mahjong-seat.position-right .mahjong-seat-identity { grid-template-rows: auto auto auto; align-content: start; gap: 6px; }
   .game-view .mahjong-seat.position-top .mahjong-turn-indicator,
   .game-view .mahjong-seat.position-bottom .mahjong-turn-indicator { position: static; align-self: start; width: fit-content; }
   .game-view .mahjong-center-status { grid-template-columns: minmax(0, 1fr); }

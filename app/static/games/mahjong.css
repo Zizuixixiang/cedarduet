@@ -549,6 +549,37 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
   .mahjong-own-hand-scroll .mahjong-tile-face { font-size: clamp(47px, 6cqw, 70px); }
 }
 
+/* Both variants share compact desktop rails and a fourteen-tile hand.
+   Keep the phone rules and horizontal-scroll fallback below unchanged. */
+@media (min-width: 900px) {
+  .battle-stage:is([data-game-type="mahjong"], [data-game-type="ka_wu_xing"]) .board-frame > .board {
+    width: 100%;
+    max-width: 100%;
+    container-type: inline-size;
+  }
+  .mahjong-table {
+    /* Padding/border + avatar + a small gap + sideways backs; no empty rail. */
+    --mj-side: calc(52px + var(--mj-back-h));
+  }
+  .mahjong-seat:is(.position-left, .position-right) .mahjong-seat-identity {
+    height: auto;
+    align-self: center;
+    grid-template-rows: auto minmax(0, auto) auto;
+    gap: 4px;
+  }
+  .mahjong-seat:is(.position-left, .position-right) .mahjong-seat-name {
+    max-height: 180px;
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+  }
+  .mahjong-own-hand-scroll .mahjong-tile {
+    width: clamp(36px, 4.35cqw, 46px);
+    height: clamp(51px, 6.1cqw, 66px);
+  }
+  .mahjong-own-hand-scroll .mahjong-tile-face {
+    font-size: clamp(47px, 5.65cqw, 60px);
+  }
+}
+
 @media (max-width: 600px) {
   /* The compact review must not make its fit-content board frame shrink on wider phones. */
   .board-frame:has(> .mahjong-board-layout .mahjong-terminal-review) { width: 100%; }
