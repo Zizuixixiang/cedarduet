@@ -5,25 +5,32 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.catalog_support import EXPECTED_GAME_TYPES, EXPECTED_GAMES_BY_CATEGORY
+
 from app import database, framework
 from app.games import GAMES, GAME_CATEGORIES, game_catalog
 
 
 class GameCategoryTests(unittest.TestCase):
-    def test_four_categories_and_four_tabletop_games(self):
+    def test_ka_wu_xing_capabilities_are_distinct_from_four_player_mahjong(self):
+        catalog = {g['game_type']: g for g in game_catalog()}
+        game = catalog['ka_wu_xing']
+        self.assertEqual(game['category'], 'card')
+        self.assertEqual(game['allowed_player_counts'], [3])
+        self.assertEqual((game['min_players'], game['max_players'],
+                          game['recommended_players']), (3, 3, 3))
+        for capability in ('supports_npcs', 'uses_local_npc_strategy',
+                           'supports_stakes', 'supports_multiplayer_stakes'):
+            self.assertTrue(game[capability], capability)
+        self.assertEqual(catalog['mahjong']['allowed_player_counts'], [4])
+
+    def test_four_categories_cover_the_reviewed_catalog(self):
         self.assertEqual(GAME_CATEGORIES, {'board', 'card', 'dice', 'tabletop'})
-        categories = {g['game_type']: g['category'] for g in game_catalog()}
-        expected = {
-            'board': {'aeroplane_chess', 'banqi', 'checkers', 'chess', 'chinese_checkers',
-                      'connect4', 'dots_boxes', 'go', 'gomoku', 'jungle', 'junqi',
-                      'othello', 'tictactoe', 'xiangqi'},
-            'card': {'four_color_tenhu', 'four_color_jiuzhi', 'four_color_qunhu', 'blackjack', 'doudizhu', 'gandengyan', 'guandan', 'mahjong',
-                     'texas_holdem', 'train_cards', 'uno', 'zhajinhua'},
-            'dice': {'liars_dice', 'yahtzee'},
-            'tabletop': {'bomb_plane', 'monopoly', 'rummikub', 'carcassonne', 'gem_merchant', 'monopoly_plus'},
-        }
+        catalog = game_catalog()
+        self.assertCountEqual([g['game_type'] for g in catalog], EXPECTED_GAME_TYPES)
+        categories = {g['game_type']: g['category'] for g in catalog}
         self.assertEqual({category: {g for g, c in categories.items() if c == category}
-                          for category in GAME_CATEGORIES}, expected)
+                          for category in GAME_CATEGORIES}, EXPECTED_GAMES_BY_CATEGORY)
         with patch.object(GAMES['rummikub'], 'category', 'unknown'):
             with self.assertRaisesRegex(ValueError, 'board/card/dice/tabletop'):
                 game_catalog()

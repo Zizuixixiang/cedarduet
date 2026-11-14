@@ -1110,8 +1110,12 @@ assert.ok(!target.classList.contains("current-turn-avatar"));
         self.assertIn("font-size: 16px;", STYLES)
         self.assertIn("header.append(roundLabel, separator, title)", renderer)
         self.assertIn("result.appendChild(header)", renderer)
-        self.assertIn("/static/styles.css?v=0.9.54", HTML)
-        self.assertIn("/static/app.js?v=0.9.66", HTML)
+        # Follow the actual entry-point assets, while still requiring cache keys.
+        for asset, source in (("styles.css", STYLES), ("app.js", SCRIPT)):
+            urls = re.findall(r'(?:href|src)="(/static/' + re.escape(asset) + r'\?v=[^"\s]+)"', HTML)
+            self.assertEqual(len(urls), 1, asset)
+            asset_path = ROOT / "app" / urls[0].split("?", 1)[0].lstrip("/")
+            self.assertEqual(asset_path.read_text(encoding="utf-8"), source)
         self.assertNotIn(".game-view .liars-result-title,", STYLES)
         self.assertNotIn("上一轮：", renderer)
         board_style = STYLES[

@@ -5,6 +5,8 @@ import unittest
 from copy import deepcopy
 from unittest.mock import patch
 
+from tests.catalog_support import EXPECTED_GAME_TYPES
+
 from app import database, framework, main
 from app.games.liars_dice import LiarsDice
 from app.games import liars_dice_party as rules
@@ -242,9 +244,8 @@ class PartyFinalTransportTests(support.LiarsDiceMcpTests):
         again=await self.call(room,action='state')
         self.assertNotIn('events',again)
 
-    async def test_mcp_catalog_stays_34(self):
+    async def test_mcp_catalog_keeps_party_as_a_mode_of_liars_dice(self):
         response=await self.client.post('/mcp/play',json={'action':'catalog','player_id':'ai-1','game_type':'liars_dice'})
         self.assertEqual(response.status_code,200)
-        # The actual platform's get_guide route is tested in tests_toy. Catalog
-        # remains compatible and doesn't invent a 35th game.
-        self.assertEqual(len(response.json()['games']),34)
+        # Party is a mode, not another catalog entry; unrelated new games remain visible.
+        self.assertCountEqual([g["game_type"] for g in response.json()["games"]], EXPECTED_GAME_TYPES)

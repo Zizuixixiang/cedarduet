@@ -75,6 +75,7 @@ class NpcVisibleActionPacingTests(unittest.IsolatedAsyncioTestCase):
         "go",
         "guandan",
         "junqi",
+        "ka_wu_xing",
         "liars_dice",
         "mahjong",
         "monopoly",
@@ -176,16 +177,20 @@ class NpcVisibleActionPacingTests(unittest.IsolatedAsyncioTestCase):
             turn_runner=apply_turn,
             action_sleeper=record_delay,
         )
-        rooms = [
-            self.room(0),
-            self.room(1),
-            self.room(2, current_player_id="human-1"),
-        ]
-        with patch("app.npc_scheduler.get_room", side_effect=rooms):
-            outcome = await scheduler._drain_room("PACETEST")
-        self.assertEqual(outcome, "idle")
-        self.assertEqual(actions, ["PACETEST", "PACETEST"])
-        self.assertEqual(delays, [2, 2])
+        for game_type in ('train_cards', 'ka_wu_xing'):
+            with self.subTest(game_type=game_type):
+                delays.clear()
+                actions.clear()
+                rooms = [
+                    self.room(0, game_type=game_type),
+                    self.room(1, game_type=game_type),
+                    self.room(2, current_player_id="human-1", game_type=game_type),
+                ]
+                with patch("app.npc_scheduler.get_room", side_effect=rooms):
+                    outcome = await scheduler._drain_room("PACETEST")
+                self.assertEqual(outcome, "idle")
+                self.assertEqual(actions, ["PACETEST", "PACETEST"])
+                self.assertEqual(delays, [2, 2])
 
     async def test_liars_dice_keeps_its_existing_unmodified_flow(self):
         delays = []

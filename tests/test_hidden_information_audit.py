@@ -20,6 +20,7 @@ FULL_TERMINAL_REVIEW_REASONS = {
     "guandan": "opponent hands stay private during play and remaining hands are shown at terminal",
     "junqi": "unrevealed ranks stay private during play and the terminal board is reviewable",
     "liars_dice": "current dice stay private during bidding and terminal dice are reviewable",
+    "ka_wu_xing": "liang exposes only the fixed hand/waits during play; remaining hands and concealed kongs are reviewable at terminal, never the undrawn wall",
     "mahjong": "concealed hands and concealed-kong faces become reviewable only at terminal",
     "rummikub": "remaining entity racks are revealed only by terminal projection; ordinary public/private views and pool order stay private",
     "train_cards": "future personal pile order stays private during play and is reviewable at terminal",
@@ -90,6 +91,61 @@ class HiddenInformationCatalogAuditTests(unittest.TestCase):
                     type(GAMES[game_type]).terminal_public_state,
                     GamePlugin.terminal_public_state,
                 )
+
+    def test_ka_wu_xing_terminal_review_reveals_hands_and_kongs_but_never_wall(self):
+        game = type(GAMES['ka_wu_xing'])(random.Random(37))
+        people = [{'player_id': f'audit-{i}', 'role': 'human'} for i in range(3)]
+        initial = game.initialize(people)
+        # A physical 84-tile fixture with one concealed kong and a live wall.
+        tiles = game.build_wall()
+        kong = [t for t in tiles if t['code'] == 'T9']
+        remaining = [t for t in tiles if t['code'] != 'T9']
+        random.Random(37).shuffle(remaining)
+        for person, count in zip(people, (14, 10, 13)):
+            initial['hands'][person['player_id']] = remaining[:count]
+            del remaining[:count]
+        initial['wall'] = remaining
+        initial['melds']['audit-1'] = [dict(kind='concealed_gang', tiles=kong,
+            engine_tile='T9', offer=0, source_player_id=None)]
+        initial['drawn_tile_id'] = initial['hands']['audit-0'][-1]['id']
+
+        for ending in ('playing', 'draw', 'resignation', 'archive'):
+            state = deepcopy(initial)
+            if ending == 'draw':
+                # Exhaust the wall through public discards for the draw fixture.
+                state['discards']['audit-2'].extend(state['wall'])
+                state['wall'] = []
+                game._finish_draw(state)
+            elif ending == 'resignation':
+                game.apply_resignation(state, 'audit-0', people)
+            before = deepcopy(state)
+            terminal = ending != 'playing'
+            public = (game.terminal_public_state if terminal else game.public_state)(state, people)
+            with self.subTest(ending=ending):
+                self.assertNotIn('wall', public)
+                self.assertNotIn('hands', public)
+                self.assertEqual('terminal_hands' in public, terminal)
+                if terminal:
+                    for pid, hand in state['hands'].items():
+                        self.assertCountEqual([t['id'] for t in public['terminal_hands'][pid]],
+                                              [t['id'] for t in hand])
+                    self.assertEqual(public['melds']['audit-1'][0]['tiles'],
+                                     [game._public_tile(t) for t in kong])
+                for viewer in people:
+                    pid = viewer['player_id']
+                    private = game.private_state(state, viewer, people)
+                    self.assertCountEqual([t['id'] for t in private['hand']],
+                                          [t['id'] for t in state['hands'][pid]])
+                    encoded = json.dumps({'public': public, 'private': private})
+                    secrets = list(state['wall'])
+                    if not terminal:
+                        secrets += [t for other, hand in state['hands'].items()
+                                    if other != pid for t in hand]
+                        if pid != 'audit-1':
+                            secrets += kong
+                    for tile in secrets:
+                        self.assertNotIn(json.dumps(tile['id']), encoded)
+                self.assertEqual(state, before, 'projection must not mutate the save')
 
     def test_four_color_departure_does_not_reveal_hands_or_future_draws(self):
         for name in ("four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu"):

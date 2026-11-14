@@ -1,4 +1,4 @@
-"""Explicit legacy-game resync only; never used by bootstrap or turn replies.
+"""Shared explicit resync projection; never used by bootstrap or turn replies.
 
 Resync must work without the initial bootstrap. Keep static maps and rule
 parameters alongside the live position. Private hands and legal actions are
@@ -12,7 +12,8 @@ from .games import get_game
 from .games.tools import public_card_state
 
 
-# 原协议（非 MCP v2）游戏的显式 resync 白名单；gem_merchant 为后加入的原协议游戏。
+# 共用显式 resync 投影的游戏；卡五星 MCP v2 复用此快照构建器，
+# 但请求路由和游标由 mcp_minimal 管理，其余游戏使用 legacy 响应。
 LEGACY_GAMES = frozenset('''aeroplane_chess banqi blackjack tictactoe texas_holdem
 train_cards gomoku go gandengyan guandan othello connect4 checkers chess
 chinese_checkers dots_boxes doudizhu liars_dice mahjong ka_wu_xing yahtzee uno jungle junqi

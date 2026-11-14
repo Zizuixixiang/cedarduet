@@ -76,9 +76,15 @@ const assets = path.resolve(__dirname, '../app/static');
   assert.equal(JSON.parse(d.getElementById('gameType').dataset.kwxRules).double_hu,true);
   assert.equal(d.querySelectorAll('#duel-game-style-mahjong').length,1);
   const cssUrl=new URL(d.getElementById('duel-game-style-mahjong').href);
+  assert.equal(cssUrl.pathname,'/static/games/mahjong.css');
+  assert.ok(cssUrl.searchParams.get('v'),'stylesheet has a cache key');
   assert.ok(fs.existsSync(path.join(assets,cssUrl.pathname.replace('/static/',''))));
   const appSource=fs.readFileSync(path.join(assets,'app.js'),'utf8');
-  assert.ok(appSource.includes(`/static/games/mahjong.js${cssUrl.search}`),'renderer and stylesheet cache versions agree');
+  // JS and CSS change independently; verify each referenced asset and cache key.
+  const rendererUrls=appSource.match(/\/static\/games\/mahjong\.js\?v=[^"\s]+/g) || [];
+  assert.equal(rendererUrls.length,1,'one versioned renderer entry');
+  const rendererUrl=new URL(rendererUrls[0],w.location.href);
+  assert.ok(fs.existsSync(path.join(assets,rendererUrl.pathname.replace('/static/',''))));
   const appUrl=new URL(d.querySelector('script[src*="/static/app.js"]').src);
   assert.ok(appUrl.search && fs.existsSync(path.join(assets,'app.js')));
   const ids=[...d.querySelectorAll('[id]')].map(e=>e.id);

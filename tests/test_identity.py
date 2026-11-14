@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 import httpx
 
+from tests.catalog_support import EXPECTED_GAME_TYPES, EXPECTED_GAMES_BY_CATEGORY
+
 from app import database, framework
 from app import main as main_module
 from app.framework import create_room, resign
@@ -155,57 +157,14 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["identity_label"], "南山君 · 2 只已绑定小机")
-        self.assertEqual(len(payload["games"]), 34)
+        self.assertCountEqual([g["game_type"] for g in payload["games"]], EXPECTED_GAME_TYPES)
         self.assertIn("monopoly", {game["game_type"] for game in payload["games"]})
         games = {game["game_type"]: game for game in payload["games"]}
         self.assertEqual(
             {game_type: game["category"] for game_type, game in games.items()},
-            {
-                "four_color_tenhu": "card",
-                "four_color_jiuzhi": "card",
-                "four_color_qunhu": "card",
-                "monopoly": "tabletop",
-                "rummikub": "tabletop",
-                "bomb_plane": "tabletop",
-                "carcassonne": "tabletop",
-                "gem_merchant": "tabletop",
-                "monopoly_plus": "tabletop",
-                "tictactoe": "board",
-                "gomoku": "board",
-                "go": "board",
-                "othello": "board",
-                "connect4": "board",
-                "banqi": "board",
-                "checkers": "board",
-                "chess": "board",
-                "dots_boxes": "board",
-                "liars_dice": "dice",
-                "yahtzee": "dice",
-                "jungle": "board",
-                "junqi": "board",
-                "xiangqi": "board",
-                "aeroplane_chess": "board",
-                "chinese_checkers": "board",
-                "uno": "card",
-                "blackjack": "card",
-                "texas_holdem": "card",
-                "gandengyan": "card",
-
-
-
-                "train_cards": "card",
-
-                "doudizhu": "card",
-
-
-                "guandan": "card",
-
-                "mahjong": "card",
-
-
-                "zhajinhua": "card",
-
-            },
+            {game_type: category
+             for category, game_types in EXPECTED_GAMES_BY_CATEGORY.items()
+             for game_type in game_types},
         )
         self.assertEqual(
             {game_type: game["display_name"] for game_type, game in games.items()},
@@ -250,6 +209,7 @@ class HumanIdentityApiTests(unittest.IsolatedAsyncioTestCase):
                 "guandan": "掼蛋",
 
                 "mahjong": "麻将",
+                "ka_wu_xing": "襄阳卡五星",
 
 
                 "zhajinhua": "炸金花",

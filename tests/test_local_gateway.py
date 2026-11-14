@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import httpx
 
+from tests.catalog_support import EXPECTED_GAME_TYPES
+
 from app import database
 from app import main as main_module
 from app.local_config import local_identity_headers
@@ -102,7 +104,7 @@ class LocalGatewayTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(catalog.status_code, 200, catalog.text)
-        self.assertEqual(len(catalog.json()["games"]), 34)
+        self.assertCountEqual([g["game_type"] for g in catalog.json()["games"]], EXPECTED_GAME_TYPES)
         self.assertTrue({"rummikub", "monopoly", "bomb_plane", "carcassonne"} <= {g["game_type"] for g in catalog.json()["games"]})
 
         room = await self.client.post(

@@ -19,7 +19,7 @@ def isolated_scenario_database():
 
 LEGACY = '''aeroplane_chess banqi blackjack tictactoe texas_holdem train_cards
 gomoku go gandengyan guandan othello connect4 checkers chess chinese_checkers
-dots_boxes doudizhu liars_dice mahjong yahtzee uno jungle junqi xiangqi zhajinhua
+dots_boxes doudizhu liars_dice mahjong ka_wu_xing yahtzee uno jungle junqi xiangqi zhajinhua
 gem_merchant monopoly_plus'''.split()
 
 

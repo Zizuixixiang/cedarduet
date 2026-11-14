@@ -36,7 +36,7 @@ class LegacyFullStateTests(unittest.IsolatedAsyncioTestCase):
                          (json.dumps(state), pid, room['room_id']))
         return framework.get_room(room['room_id'])
 
-    async def test_all_25_safe_information_and_submit_ready_actions(self):
+    async def test_all_shared_full_state_games_preserve_information_and_submit_ready_actions(self):
         self.assertEqual(set(LEGACY), full_state.LEGACY_GAMES)
         for name in LEGACY:
             with self.subTest(game=name), isolated_scenario_database():
@@ -47,6 +47,10 @@ class LegacyFullStateTests(unittest.IsolatedAsyncioTestCase):
                     self.addCleanup(rng_patch.stop)
                 room = self.room(name)
                 pid = room['current_player_id']
+                if name == 'ka_wu_xing':
+                    # v2 must establish its context before an explicit resync.
+                    boot = await self.call(room, pid, action='state')
+                    self.assertTrue(boot['bootstrap'])
                 old = framework.project_mcp_snapshot_for_viewer(room, pid)
                 raw = deepcopy(room)
                 new = (await self.call(room, pid, action='state', full_state=True))['snapshot']
@@ -74,6 +78,39 @@ class LegacyFullStateTests(unittest.IsolatedAsyncioTestCase):
         following = await self.call(room, action='state')
         self.assertEqual([e['message'] for e in following['events']], ['快照后聊天'])
         self.assertNotIn('events', await self.call(room, action='state'))
+
+    async def test_ka_wu_xing_shared_snapshot_keeps_v2_routing_privacy_and_cursors(self):
+        room = self.room('ka_wu_xing')
+        with patch.object(main, 'full_state_response', side_effect=AssertionError('legacy response')):
+            for pid in ('p0', 'p1', 'p2'):
+                # Unknown v2 context bootstraps even when full_state was requested.
+                boot = await self.call(room, pid, action='state', wait=False, full_state=True)
+                self.assertTrue(boot['bootstrap'])
+                sender = 'p2' if pid == 'p1' else 'p1'
+                framework.post_message(room['room_id'], 'ai', sender, f'resync-{pid}')
+                reply = await self.call(room, pid, action='state', wait=False, full_state=True)
+                self.assertTrue(reply['full_state'])
+                self.assertEqual(reply['r'], room['revision'])
+                self.assertNotIn('events', reply)
+                snapshot = reply['snapshot']
+                self.assertEqual(snapshot['rules_text'], GAMES['ka_wu_xing'].room_rules(room['board_state']))
+                self.assertTrue(snapshot['protocol_guide'])
+                encoded = json.dumps(snapshot)
+                secrets = list(room['board_state']['wall']) + [
+                    tile for other, hand in room['board_state']['hands'].items()
+                    if other != pid for tile in hand]
+                for tile in secrets:
+                    self.assertNotIn(json.dumps(tile['id']), encoded)
+                following = await self.call(room, pid, action='state', wait=False)
+                self.assertIn(f'resync-{pid}', json.dumps(following.get('events', [])))
+                self.assertNotIn('events', await self.call(room, pid, action='state', wait=False))
+            await self.call(room, 'p0', action='state', wait=False)  # consume other viewers' chats
+            full = await self.call(room, 'p0', action='state', wait=False, full_state=True)
+            move = choose(full['snapshot'])
+            moved = await self.call(room, 'p0', action='move', move=move, revision=full['r'])
+            self.assertEqual(moved['r'], full['r'] + 1)
+            self.assertNotIn('events', await self.call(room, 'p0', action='state', wait=False, full_state=True))
+            self.assertNotIn('events', await self.call(room, 'p0', action='state', wait=False))
 
     async def test_bounded_cursor_preserves_concurrent_newer_moves_and_visibility(self):
         room = self.room('tictactoe')

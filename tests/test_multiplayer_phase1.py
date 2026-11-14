@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import httpx
 
+from tests.catalog_support import EXPECTED_GAME_TYPES
+
 from app import database, framework
 from app import main as main_module
 from app.games import GAMES, game_catalog
@@ -257,7 +259,7 @@ class MultiplayerFrameworkTests(unittest.TestCase):
             for item in game_catalog()
             if not item["game_type"].startswith("dummy_")
         }
-        self.assertEqual(len(production), 34)
+        self.assertEqual(set(production), EXPECTED_GAME_TYPES)
         self.assertEqual(production["rummikub"]["allowed_player_counts"], [2, 3, 4])
         self.assertEqual(production["rummikub"]["category"], "tabletop")
         self.assertFalse(production["rummikub"]["supports_stakes"])

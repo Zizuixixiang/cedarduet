@@ -492,14 +492,14 @@ class NpcSpeechCadenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state["speech_pending"], 0)
         self.assertEqual(state["last_attempt_status"], "sent")
 
-    def test_production_local_strategy_game_set_is_unchanged(self):
+    def test_production_local_strategy_game_set_is_explicitly_audited(self):
         local_games = {
             game_type for game_type, plugin in GAMES.items()
             if plugin.supports_npcs and plugin.uses_local_npc_strategy
         }
         self.assertEqual(
             local_games,
-            {"four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu", "go", "junqi", "train_cards", "texas_holdem", "mahjong", "monopoly", "monopoly_plus", "rummikub", "bomb_plane", "carcassonne"},
+            {"four_color_tenhu", "four_color_jiuzhi", "four_color_qunhu", "go", "junqi", "train_cards", "texas_holdem", "mahjong", "ka_wu_xing", "monopoly", "monopoly_plus", "rummikub", "bomb_plane", "carcassonne"},
         )
         provider_games = {
             game_type for game_type, plugin in GAMES.items()

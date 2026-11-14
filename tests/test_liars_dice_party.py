@@ -6,6 +6,8 @@ import unittest
 from copy import deepcopy
 from unittest.mock import patch
 
+from tests.catalog_support import EXPECTED_GAME_TYPES
+
 from app import framework, invites, full_state, npc_controller
 from app.games import GAMES, game_catalog
 from app.games.liars_dice import LiarsDice
@@ -19,7 +21,7 @@ class PartyRulesTests(unittest.TestCase):
         self.state = self.game.configure(self.game.initialize(self.people), {"mode": "party", "rush_open": False})
 
     def test_opening_thresholds_and_options(self):
-        self.assertEqual(len(game_catalog()), 34)
+        self.assertCountEqual([g["game_type"] for g in game_catalog()], EXPECTED_GAME_TYPES)
         for count in range(2, 7):
             state = self.game.configure(self.game.initialize(support.participants(count)), {"mode": "party"})
             minimum = (3 * count + 1) // 2
