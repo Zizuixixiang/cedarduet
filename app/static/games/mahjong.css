@@ -420,12 +420,12 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
   border-radius: 9px;
   background: #f5fbf7;
   color: #173f34;
-  font: 400 13px/1.5 system-ui, "Microsoft YaHei", sans-serif;
+  font: 400 12px/1.5 system-ui, "Microsoft YaHei", sans-serif;
   scroll-margin-top: 16px;
 }
 .mahjong-terminal-review:focus { outline: 2px solid #c89427; outline-offset: 2px; }
-.mahjong-terminal-title { margin: 0; font-size: 20px; font-weight: 800; color: #76540c; }
-.mahjong-terminal-summary { margin: 6px 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.mahjong-terminal-title { margin: 0; font-size: 16px; font-weight: 800; color: #76540c; }
+.mahjong-terminal-summary { margin: 6px 0; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
 .mahjong-terminal-total { font-size: 1.15em; font-weight: 800; color: #76540c; white-space: nowrap; }
 .mahjong-fans { margin: 8px 0; padding: 0; list-style: none; }
 .mahjong-fan-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; padding: 3px 0; border-bottom: 1px solid #dcefe8; }
@@ -433,11 +433,12 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 .mahjong-terminal-row { min-width: 0; padding: 8px; display: grid; gap: 4px; border: 1px solid #b9d4c9; border-radius: 7px; }
 .mahjong-terminal-row.winner { border-color: #c89427; background: #fff9e9; }
 .mahjong-terminal-player { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
-.mahjong-terminal-name { overflow-wrap: anywhere; font-size: 15px; font-weight: 750; }
-.mahjong-terminal-score { margin-left: auto; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; color: #76540c; }
-.mahjong-score-breakdown { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.mahjong-terminal-name { overflow-wrap: anywhere; font-size: 13px; font-weight: 750; }
+.mahjong-terminal-score { margin-left: auto; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; color: #76540c; }
+.mahjong-score-breakdown { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
 .mahjong-fan-row > :last-child { font-weight: 750; font-variant-numeric: tabular-nums; }
-.mahjong-terminal-seat, .mahjong-terminal-note { font-size: 12px; color: #315f50; }
+.mahjong-terminal-seat, .mahjong-terminal-note { font-size: 11px; color: #315f50; }
+.mahjong-terminal-hand-count { white-space: nowrap; }
 .mahjong-winner-badge { padding: 1px 5px; border-radius: 4px; background: #f2c95f; color: #5c3b00; font-size: 11px; font-weight: 700; }
 .mahjong-terminal-hand, .mahjong-terminal-melds { position: relative; min-width: 0; display: flex; gap: 3px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
 .mahjong-terminal-hand:focus-visible, .mahjong-terminal-melds:focus-visible { outline: 2px solid #2c6b58; }

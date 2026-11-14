@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.55";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.56";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -472,9 +472,11 @@
       const row = el("section", "mahjong-terminal-row");
       row.dataset.playerId = playerId;
       row.classList.toggle("winner", Boolean(winner));
+      const tiles = Array.isArray(hands[playerId]) ? hands[playerId] : [];
       const heading = el("div", "mahjong-terminal-player");
       heading.appendChild(el("strong", "mahjong-terminal-name", participant.display_name || "玩家"));
       heading.appendChild(el("span", "mahjong-terminal-seat", `座位 ${Number(participant.seat_index) + 1} · ${(state.seat_winds || {})[playerId] || "?"}风`));
+      heading.appendChild(el("span", "mahjong-terminal-note mahjong-terminal-hand-count", `手牌 · ${tiles.length} 张`));
       if (winner) heading.appendChild(el("span", "mahjong-winner-badge", "和牌"));
       const outcome = handResult(context) || {};
       const units = outcome.round_score_units || outcome.score_units || {};
@@ -495,8 +497,6 @@
         const requested = context.room?.result?.requested_settlement_deltas?.[playerId];
         if (actual !== undefined) row.appendChild(el("p", "mahjong-terminal-note", `实际筹码 ${actual}${requested !== undefined && requested !== actual ? `（应计 ${requested}，钱包封顶）` : ""}`));
       }
-      const tiles = Array.isArray(hands[playerId]) ? hands[playerId] : [];
-      row.appendChild(el("span", "mahjong-terminal-note", `手牌 · ${tiles.length} 张`));
       const hand = el("div", "mahjong-terminal-hand");
       hand.tabIndex = 0;
       hand.setAttribute("aria-label", `${participant.display_name || "玩家"}终局手牌，可横向滚动`);

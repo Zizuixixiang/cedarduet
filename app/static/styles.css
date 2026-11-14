@@ -3327,8 +3327,6 @@ h2 { color: var(--purple-darker); font-size: 15px; }
   min-height: 0;
   display: grid;
   align-content: start;
-  /* Short conversations sit by the composer; overflowing history stays reachable. */
-  align-content: safe end;
   gap: 3px;
   overflow-y: auto;
   overflow-anchor: none;
