@@ -481,7 +481,7 @@
       const heading = el("div", "mahjong-terminal-player");
       heading.appendChild(el("strong", "mahjong-terminal-name", participant.display_name || "玩家"));
       heading.appendChild(el("span", "mahjong-terminal-seat", `座位 ${Number(participant.seat_index) + 1} · ${(state.seat_winds || {})[playerId] || "?"}风`));
-      heading.appendChild(el("span", "mahjong-terminal-note mahjong-terminal-hand-count", `手牌 ${tiles.length}张`));
+      heading.appendChild(el("span", "mahjong-terminal-note mahjong-terminal-hand-count", `手牌${tiles.length}张`));
       if (winner) heading.appendChild(el("span", "mahjong-winner-badge", "和牌"));
       const outcome = handResult(context) || {};
       const units = outcome.round_score_units || outcome.score_units || {};

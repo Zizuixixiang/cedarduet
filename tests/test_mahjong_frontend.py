@@ -782,7 +782,7 @@ for(const variant of ["mahjong","ka_wu_xing"]) {
   assert.equal(value.uiState.mahjongSelectedTileId,undefined);
   const own=nodes.find(n=>hasClass(n,"mahjong-seat")&&n.dataset.playerId==="viewer");
   assert.equal(descendants(own).filter(n=>hasClass(n,"mahjong-meld")).length,1);
-  assert.ok(nodes.some(n=>hasClass(n,"mahjong-terminal-hand-count")&&n.textContent==="手牌 10张"));
+  assert.ok(nodes.some(n=>hasClass(n,"mahjong-terminal-hand-count")&&n.textContent==="手牌10张"));
  }
  privateState.hand=hand;
 }
