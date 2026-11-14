@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.54";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.55";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -357,16 +357,24 @@
     const drawnId = context.privateState && context.privateState.drawn_tile_id;
     (context.privateState && context.privateState.hand || []).forEach((tile) => {
       const node = publicTile(tile, {button: true});
-      const selectable = !terminal && discardById.has(String(tile.id));
+      const selectable = !terminal && context.canMove && discardById.has(String(tile.id));
       node.disabled = !selectable;
       node.classList.toggle("selected", selected === tile.id);
       node.classList.toggle("drawn", drawnId === tile.id);
       node.setAttribute("aria-pressed", String(selected === tile.id));
       node.addEventListener("click", () => {
-        if (terminal || !selectable) return;
+        if (terminal || !selectable || context.uiState.mahjongSubmitting
+            || (context.helpers.canMove && !context.helpers.canMove())) return;
         saveHandScroll(context, scroll);
-        context.uiState.mahjongSelectedTileId = selected === tile.id ? null : tile.id;
-        context.helpers.rerender();
+        context.uiState.mahjongSelectedTileId = context.uiState.mahjongSelectedTileId === tile.id ? null : tile.id;
+        // Selection changes only the hand and action bar, not the table DOM.
+        scroll.querySelectorAll(".mahjong-tile").forEach((button) => {
+          const on = context.uiState.mahjongSelectedTileId != null
+            && button.dataset.cardId === String(context.uiState.mahjongSelectedTileId);
+          button.classList.toggle("selected", on);
+          button.setAttribute("aria-pressed", String(on));
+        });
+        renderControls(context);
       });
       scroll.appendChild(node);
     });
@@ -415,7 +423,14 @@
     title.id = "mahjongTerminalTitle";
     review.appendChild(title);
     if (demo) review.appendChild(el("p", "mahjong-terminal-note", "人工构造牌局 · 不计真实战绩、筹码或成就"));
-    review.appendChild(el("p", "mahjong-terminal-summary", terminalSummary(context)));
+    const summaryText = terminalSummary(context);
+    const summary = el("p", "mahjong-terminal-summary");
+    const total = summaryText.match(/总计 (?:×\d+|\d+ 番)$/);
+    if (total) {
+      summary.textContent = summaryText.slice(0, total.index);
+      summary.appendChild(el("strong", "mahjong-terminal-total", total[0]));
+    } else summary.textContent = summaryText;
+    review.appendChild(summary);
     const result = winningResult(context);
     handWinners(context).forEach((winnerResult) => {
       const fans = Array.isArray(winnerResult.fans) ? winnerResult.fans : [];
@@ -440,22 +455,7 @@
     const hands = state.terminal_hands || {};
     if (state.variant === "ka_wu_xing") {
       const outcome = handResult(context) || {};
-      const units = outcome.round_score_units || outcome.score_units || {};
       review.appendChild(el("p", "mahjong-terminal-note", "胡牌倍数封顶后计亮倒；杠、马、漂及荒庄分独立。"));
-      const categories = {hu: "胡", kong: "杠", horse: "马", piao: "漂", draw: "荒庄"};
-      participants.forEach(p => {
-        const parts = outcome.score_breakdown
-          ? Object.entries(categories).map(([key, text]) => `${text} ${outcome.score_breakdown?.[key]?.[p.player_id] ?? 0}`)
-          : [`含杠分 ${state.kong_scores?.[p.player_id] ?? 0}`];
-        review.appendChild(el("p", "mahjong-terminal-note", `${p.display_name || "玩家"}：本局 ${units[p.player_id] ?? 0}（${parts.join(" / ")}）${state.rounds > 1 ? ` · 历史累计 ${state.cumulative_scores?.[p.player_id] ?? 0}` : ""}`));
-      });
-      if (isTerminalState(context) && context.room?.result?.settlement_deltas) {
-        participants.forEach(p => {
-          const actual = context.room.result.settlement_deltas[p.player_id];
-          const requested = context.room.result.requested_settlement_deltas?.[p.player_id];
-          if (actual !== undefined) review.appendChild(el("p", "mahjong-terminal-note", `${p.display_name || "玩家"}：实际筹码 ${actual}${requested !== undefined && requested !== actual ? `（应计 ${requested}，钱包封顶）` : ""}`));
-        });
-      }
       if (outcome.horse_tiles?.length) review.appendChild(el("p", "mahjong-terminal-note", `买马：${outcome.horse_tiles.map(t => t.label || t.code || t).join("、")}`));
       if (state.round_results?.length > 1) {
         const history = el("details", "mahjong-round-history");
@@ -476,7 +476,25 @@
       heading.appendChild(el("strong", "mahjong-terminal-name", participant.display_name || "玩家"));
       heading.appendChild(el("span", "mahjong-terminal-seat", `座位 ${Number(participant.seat_index) + 1} · ${(state.seat_winds || {})[playerId] || "?"}风`));
       if (winner) heading.appendChild(el("span", "mahjong-winner-badge", "和牌"));
+      const outcome = handResult(context) || {};
+      const units = outcome.round_score_units || outcome.score_units || {};
+      const score = units[playerId];
+      if (Number.isFinite(score)) {
+        const total = el("strong", "mahjong-terminal-score", `${score > 0 ? "+" : ""}${score}`);
+        total.setAttribute("aria-label", `本局 ${score} 分`);
+        heading.appendChild(total);
+      }
       row.appendChild(heading);
+      if (state.variant === "ka_wu_xing") {
+        const categories = {hu: "胡", kong: "杠", horse: "马", piao: "漂", draw: "荒庄"};
+        const parts = outcome.score_breakdown
+          ? Object.entries(categories).map(([key, text]) => `${text} ${outcome.score_breakdown?.[key]?.[playerId] ?? 0}`)
+          : [`含杠分 ${state.kong_scores?.[playerId] ?? 0}`];
+        row.appendChild(el("p", "mahjong-score-breakdown", `本局计分 · ${parts.join(" / ")}${state.rounds > 1 ? ` · 历史累计 ${state.cumulative_scores?.[playerId] ?? 0}` : ""}`));
+        const actual = context.room?.result?.settlement_deltas?.[playerId];
+        const requested = context.room?.result?.requested_settlement_deltas?.[playerId];
+        if (actual !== undefined) row.appendChild(el("p", "mahjong-terminal-note", `实际筹码 ${actual}${requested !== undefined && requested !== actual ? `（应计 ${requested}，钱包封顶）` : ""}`));
+      }
       const tiles = Array.isArray(hands[playerId]) ? hands[playerId] : [];
       row.appendChild(el("span", "mahjong-terminal-note", `手牌 · ${tiles.length} 张`));
       const hand = el("div", "mahjong-terminal-hand");
@@ -522,6 +540,14 @@
       ariaLabel: context.state?.variant === "ka_wu_xing" ? "三人襄阳卡五星麻将桌" : "四人国标麻将桌",
     });
     context.board.classList.add("mahjong-board-layout");
+    const perspective = `${context.room?.room_id || ""}:${context.viewer?.player_id || ""}`;
+    const samePerspective = context.board.dataset.mahjongPerspective === perspective;
+    const previousTable = samePerspective && context.board.querySelector(".mahjong-table");
+    const previousHand = samePerspective && context.board.querySelector(".mahjong-own-hand-scroll");
+    context.board.dataset.mahjongPerspective = perspective;
+    const focusedTile = previousHand?.contains?.(global.document.activeElement)
+      ? global.document.activeElement.dataset.cardId : null;
+    if (previousHand) saveHandScroll(context, previousHand);
     const table = el("div", "mahjong-table");
     if (context.state?.variant === "ka_wu_xing") table.classList.add("three-player");
     const participants = [...(context.participants || [])].sort(
@@ -569,8 +595,19 @@
     } else {
       const ownHand = ownHandNode(context);
       table.appendChild(ownHand.wrap);
-      context.board.replaceChildren(table);
+      if (previousTable && previousTable.parentElement === context.board) {
+        previousTable.className = table.className;
+        previousTable.replaceChildren(...table.children);
+        context.board.replaceChildren(previousTable);
+      } else {
+        context.board.replaceChildren(table);
+      }
       restoreHandScroll(context, ownHand.scroll);
+      if (focusedTile) {
+        const tile = [...ownHand.scroll.querySelectorAll(".mahjong-tile")]
+          .find(node => node.dataset.cardId === focusedTile && !node.disabled);
+        tile?.focus({preventScroll: true});
+      }
     }
   }
 
@@ -587,6 +624,8 @@
     );
     if (uiState.mahjongSubmitting || !canMove()) return false;
     uiState.mahjongSubmitting = true;
+    const hadFocus = global.document.activeElement === button;
+    if (hadFocus) context.controls.querySelector(".mahjong-controls")?.focus?.({preventScroll: true});
     button.disabled = true;
     let submitted = false;
     try {
@@ -599,6 +638,7 @@
       if (!submitted) {
         uiState.mahjongSubmitting = false;
         button.disabled = !canMove();
+        if (hadFocus && !button.disabled && button.isConnected !== false) button.focus?.({preventScroll: true});
       }
     }
   }
@@ -640,7 +680,9 @@
       if (context.uiState.mahjongSubmitting) return;
       if (requiresConfirmation) {
         context.uiState.mahjongPendingActionId = action.action_id;
-        context.helpers.rerender();
+        renderControls(context);
+        // Land on cancel so a repeated Enter cannot accidentally confirm.
+        context.controls.querySelector(".mahjong-confirm-cancel")?.focus?.({preventScroll: true});
         return;
       }
       await submitAction(action, context, button);
@@ -658,6 +700,13 @@
     return hint;
   }
 
+  function replaceControls(context, controls) {
+    const restoreFocus = context.controls.contains?.(global.document.activeElement);
+    controls.tabIndex = -1;
+    context.controls.replaceChildren(controls);
+    if (restoreFocus) controls.focus?.({preventScroll: true});
+  }
+
   function renderControls(context) {
     const legal = Array.isArray(context.legalActions) ? context.legalActions : [];
     const controls = el("div", "mahjong-controls");
@@ -665,12 +714,12 @@
       delete context.uiState.mahjongPendingActionId;
       delete context.uiState.mahjongSelectedTileId;
       controls.appendChild(controlHint("本手已结束", "terminal"));
-      context.controls.replaceChildren(controls);
+      replaceControls(context, controls);
       return;
     }
     if (!context.canMove) {
       controls.appendChild(controlHint(context.room?.read_only ? "演示房 · 只读" : "等待其他玩家行动", "waiting"));
-      context.controls.replaceChildren(controls);
+      replaceControls(context, controls);
       return;
     }
     const pendingAction = legal.find(
@@ -680,42 +729,49 @@
     if (context.uiState.mahjongPendingActionId && !pendingAction) {
       delete context.uiState.mahjongPendingActionId;
     }
-    const selected = context.uiState.mahjongSelectedTileId;
-    const discard = legal.find(
-      (action) => action.kind === "discard" && action.action_id === `discard:${selected}`
-    );
-    if (discard) {
-      const submit = actionButton({...discard, label: discard.label || "打出所选牌"}, context);
-      submit.classList.add("mahjong-discard-button");
-      controls.appendChild(submit);
-    }
-    const declaration = legal.find(a => a.action_id === `liang:${selected}`);
-    if (declaration) controls.appendChild(actionButton(declaration, context, {requiresConfirmation: true}));
-    legal.filter((action) => action.kind !== "discard").forEach(
-      (action) => controls.appendChild(actionButton(action, context, {
-        requiresConfirmation: CONFIRMED_ACTION_KINDS.has(action.kind),
-      }))
-    );
-    const hasDiscard = legal.some((action) => action.kind === "discard");
-    if (hasDiscard && !discard && !pendingAction) {
-      controls.appendChild(controlHint("请选择一张手牌打出", "select"));
+    if (!pendingAction) {
+      const selected = context.uiState.mahjongSelectedTileId;
+      const discard = legal.find(
+        (action) => action.kind === "discard" && action.action_id === `discard:${selected}`
+      );
+      if (discard) {
+        const submit = actionButton({...discard, label: discard.label || "打出所选牌"}, context);
+        submit.classList.add("mahjong-discard-button");
+        controls.appendChild(submit);
+      }
+      const declaration = legal.find(a => a.action_id === `liang:${selected}`);
+      if (declaration) controls.appendChild(actionButton(declaration, context, {requiresConfirmation: true}));
+      legal.filter((action) => action.kind !== "discard").forEach(
+        (action) => controls.appendChild(actionButton(action, context, {
+          requiresConfirmation: CONFIRMED_ACTION_KINDS.has(action.kind),
+        }))
+      );
+      const hasDiscard = legal.some((action) => action.kind === "discard");
+      if (hasDiscard && !discard && !pendingAction) {
+        controls.appendChild(controlHint("请选择一张手牌打出", "select"));
+      }
     }
     if (pendingAction) {
       const pendingLabel = actionDisplayLabel(pendingAction);
       const confirmation = el("div", "mahjong-confirmation");
       confirmation.setAttribute("role", "group");
       confirmation.setAttribute("aria-label", "确认麻将响应");
-      confirmation.appendChild(el(
-        "span",
-        "mahjong-confirmation-copy",
-        `已选择：${pendingLabel}`
-      ));
+      const copy = el("span", "mahjong-confirmation-copy", `已选择：${pendingLabel}`);
+      copy.setAttribute("role", "status");
+      confirmation.appendChild(copy);
       const cancel = el("button", "mahjong-confirm-cancel", "取消");
       cancel.type = "button";
-      cancel.addEventListener("click", () => {
+      const cancelPending = () => {
         if (context.uiState.mahjongSubmitting) return;
         delete context.uiState.mahjongPendingActionId;
-        context.helpers.rerender();
+        renderControls(context);
+        const original = [...context.controls.querySelectorAll(".mahjong-action")]
+          .find(node => node.dataset.actionId === pendingAction.action_id);
+        original?.focus?.({preventScroll: true});
+      };
+      cancel.addEventListener("click", cancelPending);
+      confirmation.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") { event.preventDefault(); cancelPending(); }
       });
       const confirm = el(
         "button",
@@ -732,7 +788,7 @@
     if (!controls.children.length) {
       controls.appendChild(controlHint(context.room?.read_only ? "演示房 · 只读" : "等待其他玩家行动", "waiting"));
     }
-    context.controls.replaceChildren(controls);
+    replaceControls(context, controls);
   }
 
   const renderer = {

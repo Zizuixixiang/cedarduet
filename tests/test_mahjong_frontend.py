@@ -642,7 +642,7 @@ assert.equal(nodes.some(n=>hasClass(n,"mahjong-discard-label")&&n.textContent.in
  const value=makeContext();renderer.renderBoard(value.context);let nodes=descendants(value.board);
  let scroller=nodes.find(n=>hasClass(n,"mahjong-own-hand-scroll"));scroller.scrollLeft=88;
  const tile=nodes.find(n=>n.tag==="button"&&n.dataset.cardId==="h1");tile.listeners.click();
- assert.equal(value.uiState.mahjongSelectedTileId,"h1");assert.equal(value.rerenders(),1);
+ assert.equal(value.uiState.mahjongSelectedTileId,"h1");assert.equal(value.rerenders(),0);
  assert.equal(value.uiState.mahjongHandScrollLeft,88);
  value.board.replaceChildren();renderer.renderBoard(value.context);nodes=descendants(value.board);
  scroller=nodes.find(n=>hasClass(n,"mahjong-own-hand-scroll"));assert.equal(scroller.scrollLeft,88);
@@ -654,6 +654,7 @@ assert.equal(nodes.some(n=>hasClass(n,"mahjong-discard-label")&&n.textContent.in
  assert.equal(value.uiState.mahjongPendingActionId,"concealed:1");
 
  renderer.renderControls(value.context);controls=descendants(value.controls);
+ assert.equal(controls.filter(n=>hasClass(n,"mahjong-action")).length,0);
  const cancel=controls.find(n=>hasClass(n,"mahjong-confirm-cancel"));cancel.listeners.click();
  assert.equal(value.submitted.length,1);
  assert.equal(value.uiState.mahjongPendingActionId,undefined);
@@ -776,7 +777,9 @@ assert.match(highlights[0].attributes["aria-label"],/和牌张/);
 assert.equal(nodes.filter(n=>hasClass(n,"mahjong-fan-row")).length,2);
 assert.ok(nodes.some(n=>n.textContent==="1 番 × 2 · 2 番"));
 assert.equal(nodes.filter(n=>n.textContent.includes("总计")).length,1);
-assert.ok(nodes.some(n=>n.textContent.includes("东座 和牌 · 点炮和 · 南座点炮 · 总计 10 番")));
+const summary=nodes.find(n=>hasClass(n,"mahjong-terminal-summary"));
+assert.equal(summary.textContent+descendants(summary).map(n=>n.textContent).join(""),"东座 和牌 · 点炮和 · 南座点炮 · 总计 10 番");
+assert.equal(nodes.find(n=>hasClass(n,"mahjong-terminal-total")).tag,"strong");
 assert.equal(descendants(value.board).filter(n=>hasClass(n,"mahjong-own-hand-wrap")).length,0);
 for(const [kind,word] of [["self_draw","自摸"],["rob_kong","抢杠和"],["discard","点炮和"]]){
  state.game_result.win_type=kind;state.game_result.source_player_id=kind==="self_draw"?null:"south";

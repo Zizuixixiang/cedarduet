@@ -220,7 +220,7 @@ async function loadCatalogGameRenderers(games) {
       ))
   )];
   await Promise.allSettled(gameTypes.map(
-    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.54" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
+    (gameType) => Promise.resolve().then(() => registry.load(gameType, gameType === "aeroplane_chess" ? "/static/games/aeroplane_chess.js?v=0.9.41" : gameType === "gem_merchant" ? "/static/games/gem_merchant.js?v=3" : (gameType === "four_color_tenhu" ? "/static/games/four_color_tenhu.js?v=0.9.30" : (gameType === "mahjong" ? "/static/games/mahjong.js?v=0.9.55" : (gameType === "uno" ? "/static/games/uno.js?v=0.9.29" : null)))))
   ));
 }
 
@@ -3494,12 +3494,18 @@ function renderBoard(timeline = currentTimeline) {
   const state = room.board_state;
   const board = $("board");
   const controls = $("gameControls");
-  board.replaceChildren();
-  board.className = "board";
-  board.removeAttribute("style");
-  controls.replaceChildren();
-  controls.classList.add("hidden");
   const renderer = registeredGameUIRenderer(room.game_type);
+  // Mahjong updates its mounted table and hand scroller across revisions.
+  // Clearing them here also discards focus and the browser's scroll anchor.
+  const retainedMahjong = renderer && ["mahjong", "ka_wu_xing"].includes(room.game_type)
+    && board.classList.contains(room.game_type) && board.classList.contains("mahjong-board-layout");
+  if (!retainedMahjong) {
+    board.replaceChildren();
+    board.className = "board";
+    board.removeAttribute("style");
+    controls.replaceChildren();
+    controls.classList.add("hidden");
+  }
   syncMoveConfirmationVisibility(renderer);
   if (renderer) {
     renderRegisteredGameUI(renderer, board, timeline);
@@ -4539,7 +4545,10 @@ async function submitMove(movePayload, {sideAction = false} = {}) {
     return true;
   } catch (error) {
     if (roomSyncIsCurrent(generation, targetRoomId)) {
-      showNotice(error.message, true);
+      // A transient Mahjong move error must not insert a new row above the
+      // table. Reuse the live-region toast while the action remains retryable.
+      if (["mahjong", "ka_wu_xing"].includes(room.game_type)) toast(error.message);
+      else showNotice(error.message, true);
       updateMoveConfirmation();
     }
     return false;
