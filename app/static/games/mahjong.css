@@ -558,12 +558,16 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
     container-type: inline-size;
   }
   .mahjong-table {
-    --mj-side: calc(44px + var(--mj-back-h));
+    --mj-side-back-w: clamp(20px, 2.1cqw, 24px);
+    --mj-side: calc(44px + var(--mj-side-back-w) * 1.55);
     min-height: 0;
   }
   .mahjong-seat:is(.position-left, .position-right) {
-    /* Do not stretch a white panel to the height of the discard area. */
-    align-self: start;
+    --mj-back-w: var(--mj-side-back-w);
+    --mj-back-h: calc(var(--mj-back-w) * 1.55);
+    /* Stretch the light frame, but keep all content rows packed at the top. */
+    align-self: stretch;
+    align-content: start;
     grid-template-rows: auto auto auto;
     background: rgb(255 255 250 / 20%);
     box-shadow: none;
