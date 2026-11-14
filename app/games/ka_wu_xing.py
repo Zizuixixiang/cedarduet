@@ -113,8 +113,8 @@ class KaWuXing(Mahjong):
         '自摸平胡可胡；点炮须最终至少×2；抢杠×2可胡。\n'
         '【亮倒】在本人出牌时选择“亮倒并打…”：弃牌后必须听牌，公开固定听口及余手牌。'
         '此后只能胡或打刚摸的牌，禁止碰和任何杠；只公开固定手牌，不公开新摸暗牌。'
-        '荒庄：每位亮倒者向每位未亮倒者付1基础分；全亮/全未亮均不赔，不另查叫；包赔默认关。\n'
-        '【响应】胡优先于碰杠，同级按距出牌者近者先响应，默认单和，可选弃牌一炮双响；抢补杠单和。'
+        '荒庄：每位亮倒者向每位未亮倒者付1基础分；全亮/全未亮均不赔，不另查叫。\n'
+        '【响应】胡优先于碰杠，同级按距出牌者近者先响应，弃牌单和/一炮双响按本房设置；抢补杠单和。'
         '过合法胡（包括自摸不胡）后，至本人下次摸牌前不能接炮或抢杠。最后一张弃牌只可胡。'
         '补杠先检查抢杠，未完成不收杠分；暗杠不可抢。\n'
         '【积分】直杠来源付2，补杠另两家各付1，暗杠另两家各付2；杠分单独记账，荒庄保留。'
@@ -173,6 +173,13 @@ class KaWuXing(Mahjong):
                    ('gang_discard_double', '杠上炮×2'), ('liang_liability', '亮倒包赔两份'),
                    ('consecutive_kong_double', '连续杠分翻倍')] if o[key]]
         summary = '、'.join(enabled) or '单和、普通杠分、不包赔'
+        return (f"【本房】{summary}；买马{o['horse_count']}张；固定漂{o['piao']}；"
+                f"{'红中万能' if o['joker'] == 'red' else '红中普通字牌'}；单手结束。\n"
+                + self._option_rule_details(o) + '\n' + self.rules_text)
+
+    @staticmethod
+    def _option_rule_details(o):
+        # Shared explanations for room projections and the NPC-only summary.
         details = []
         if o['liang_liability']:
             details.append('赢家亮倒接炮/抢杠时，来源付两份胡分和漂分。')
@@ -186,9 +193,7 @@ class KaWuXing(Mahjong):
             details.append('马/漂/杠分不参与胡牌封顶。')
         if o['joker'] == 'red':
             details.append('红中仅手里可万能；弃出可按普通红中接炮，禁止碰杠红中。有红中七对只普通七对，所有胡型不计四归一；实5配自然4、6才卡五星；三元不能替代发白。亮倒听口含自摸红中，接炮另按自然红中校验；亮倒锁听且禁碰杠。')
-        return (f"【本房】{summary}；买马{o['horse_count']}张；固定漂{o['piao']}；"
-                f"{'红中万能' if o['joker'] == 'red' else '红中普通字牌'}；单手结束。\n"
-                + ''.join(details) + '\n' + self.rules_text)
+        return ''.join(details)
 
     @staticmethod
     def build_wall():
@@ -611,8 +616,26 @@ class KaWuXing(Mahjong):
             return min(hand_shanten(hand[:i] + hand[i+1:]) for i in range(len(hand))), 'after_best_discard'
         return None, 'unavailable'
 
-    def npc_compact_rules(self, *args):
-        return '三人84张卡五星，不能吃，只选服务端legal_actions；平胡自摸可胡，接炮至少×2。'
+    def npc_compact_rules(self, state, actor=None, participants=None):
+        o = self.saved_options(state)
+        # Spell out disabled options too; never send the full base rules on
+        # every NPC decision/speech request or infer settings from defaults.
+        options = [
+            '弃牌一炮双响' if o['double_hu'] else '弃牌单响（单和）',
+            '杠上炮开（×2，计入牌型封顶）' if o['gang_discard_double'] else '杠上炮关（不额外翻倍）',
+            '亮倒包赔开' if o['liang_liability'] else '亮倒包赔关（接炮/抢杠来源付一份）',
+            '连续杠分翻倍开' if o['consecutive_kong_double'] else '连续杠分翻倍关（每杠按普通杠分）',
+            f"买马{o['horse_count']}张", f"固定漂{o['piao']}",
+            '红中万能' if o['joker'] == 'red' else '红中普通字牌',
+        ]
+        return (
+            '三人84张卡五星，单手结束，不能吃，只选服务端legal_actions；平胡自摸可胡，接炮至少×2。'
+            '【本房】' + '；'.join(options) + '。抢补杠始终单和。'
+            + self._option_rule_details(o)
+            + '牌型封顶×8（双龙及以上七对×16），之后赢家亮倒再×2。'
+            '亮倒须打后听牌，锁听且只能胡或打新摸牌、禁碰杠；荒庄每位亮倒者向每位未亮倒者付1。'
+            '自摸两家各付，接炮/抢杠来源付；直杠来源付2，补杠两家各1，暗杠两家各2，荒庄保留杠分。'
+        )
 
     def choose_local_npc_action(self, state, actor, participants):
         actions = self.legal_actions_for(state, str(actor['player_id']))
