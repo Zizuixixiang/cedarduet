@@ -729,6 +729,34 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
 .mahjong-revealed { min-width: 0; }
 .mahjong-revealed-hand { display: flex; flex-wrap: wrap; gap: 1px; }
 
+/* Desktop table proportions: avoid a squat 1100px-wide board. The phone
+   layout and its multi-line information bar stay unchanged. */
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  .mahjong-table,
+  .mahjong-table.three-player {
+    min-height: clamp(600px, 64cqw, 700px);
+  }
+  .game-view .mahjong-center-status {
+    display: flex;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 8px 10px;
+  }
+  .game-view .mahjong-wall-count {
+    flex: 0 0 auto;
+    text-align: left;
+  }
+  .game-view .mahjong-current-action {
+    grid-column: auto;
+    min-width: 0;
+    flex: 1 1 0;
+    text-align: right;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
 /* Creation rules follow the dice picker: native controls, a single disclosure. */
 .kwx-rule-picker { min-width: 0; grid-column: 1 / -1; font: 14px/1.5 system-ui, sans-serif; }
 .kwx-room-options { min-width: 0; padding: 0 10px; border: 2px solid var(--purple-light); background: #faf8fd; line-height: 1.5; }

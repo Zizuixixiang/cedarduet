@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.52";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.53";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -311,6 +311,7 @@
       actionText = `等待 ${responder && (responder.display_name || responder.player_id) || "玩家"} ${priority}`;
     }
     const action = el("span", "mahjong-current-action", actionText);
+    action.title = actionText;
     status.append(primary, wall, action);
     return status;
   }
