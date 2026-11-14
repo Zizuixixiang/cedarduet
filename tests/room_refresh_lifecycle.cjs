@@ -87,6 +87,7 @@ function harness() {
     h.context.window.history.state={duelView:'room',duelBackToLobby:true};
     await h.run('backToLobby()');h.run('resumeRoomRefresh();');await h.advance();
     assert.equal(h.context.backCalls,1);assert.equal(h.calls.filter(c=>c.path.startsWith('/api/rooms/')).length,2);
+    h.run("roomListScope='machines'"); // Normal spectator originated in the spectator tab.
     await h.run('backToLobby({fromHistory:true})'); // spectator lobby needs no whoami mock
     assert.equal(h.run('room'),null);assert.equal(h.timers.size,0);
   }
@@ -106,6 +107,7 @@ function harness() {
   }
   {
     const h=harness();h.current('ai',true);h.run('startRoomPolling();');await h.advance();h.calls[0].ignoreAbort=true;
+    h.run("roomListScope='machines'");
     await h.run('backToLobby({fromHistory:true})');h.reply(0,{data:h.roomData('ROOM1',99,'ai',true)});await h.flush();
     assert.equal(h.renders.length,0);assert.equal(h.run('room'),null);assert.equal(h.timers.size,0);
   }
@@ -117,7 +119,20 @@ function harness() {
     h.reply(1,{data:h.roomData('ROOM2',1,'ai',true,'AI-9')});await h.flush();await h.advance();
     assert(h.calls[2].path.includes('perspective=AI-9'));h.run('stopPolling();');await h.flush();
   }
-  console.log('PASS switch / back / hidden opening: stale responses discarded, pending target resumes or cancels');
+  {
+    // Frozen human-owned demo is read_only/spectating but lives under "mine".
+    // Leaving must fetch whoami; spectator refresh alone leaves "正在读取房间…" stuck.
+    const h=harness();h.current('ai',true);
+    h.run("room.read_only=true;roomListScope='mine'");
+    const leaving=h.run('backToLobby({fromHistory:true})');
+    assert.equal(h.calls.length,1,'demo exit must refresh my rooms instead of spectator rooms');
+    assert.equal(h.calls[0].path,'/api/whoami');
+    h.reply(0,{data:{bound:true,games:[],wallet:{balance:0},machines:[],rooms:[],pending_invitations:[]}});
+    await leaving;
+    assert.equal(h.run('roomListScope'),'mine');
+    assert.equal(h.run('room'),null);
+  }
+  console.log('PASS switch / back / frozen demo exit: no stale room list or wrong scope');
   for(const header of ['12',new Date(1700000012000).toUTCString()]){
     const h=harness();h.current('human');h.run('startRoomPolling({immediate:true});');await h.advance();
     h.reply(0,{status:429,retryAfter:header,invalidJSON:true});await h.flush();assert.equal(h.run('roomRefreshDelay()'),12000);

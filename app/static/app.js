@@ -2185,7 +2185,6 @@ async function backToLobby({fromHistory = false} = {}) {
     window.history.back();
     return;
   }
-  const wasSpectating = Boolean(room?.spectating);
   room = null;
   roomLeaving = false;
   selectedJungleCell = null;
@@ -2198,7 +2197,8 @@ async function backToLobby({fromHistory = false} = {}) {
   closeNotificationModal();
   if (!fromHistory) writeRoomRoute(null, {mode: "replace"});
   showView("lobbyView");
-  if (wasSpectating && identity) await loadSpectatorRooms();
+  // A read-only demo is spectating but still lives under the My Rooms tab.
+  if (roomListScope === "machines" && identity) await loadSpectatorRooms();
   else await loadIdentity({quiet: true});
 }
 
