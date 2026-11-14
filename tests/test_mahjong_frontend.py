@@ -584,7 +584,8 @@ renderer.renderBoard(value.context);
 nodes=descendants(value.board);
 assert.equal(nodes.some(n=>hasClass(n,"mahjong-turn-indicator")),false);
 assert.equal(nodes.some(n=>hasClass(n,"mahjong-seat")&&hasClass(n,"current")),false);
-assert.equal(nodes.some(n=>hasClass(n,"mahjong-own-hand-wrap")),false);
+assert.equal(nodes.some(n=>hasClass(n,"mahjong-own-hand-wrap")&&!hasClass(n,"current")),true);
+assert.ok(nodes.filter(n=>hasClass(n,"mahjong-own-hand-scroll")).flatMap(descendants).every(n=>n.tag!=="button"||n.disabled));
 
 state.phase="discard";
 state.response_window=null;
@@ -760,6 +761,35 @@ assert.equal(southNodes.filter(n=>hasClass(n,"mahjong-tile-back")).length,12);
 assert.equal(southNodes.filter(n=>hasClass(n,"mahjong-tile")&&!hasClass(n,"mahjong-tile-back")).length,4);
 ''')
 
+    def test_terminal_own_hand_keeps_remaining_tiles_read_only(self):
+        self.run_node(r'''
+const hand=Array.from({length:10},(_,i)=>({...privateState.hand[0],id:`remaining-${i}`}));
+privateState.hand=hand;
+privateState.own_melds=[{kind:"peng",tiles:hand.slice(0,3)}];
+state.phase="finished";state.terminal_hands={viewer:hand};
+const value=makeContext();value.context.canMove=true;value.context.room.status="finished";
+value.uiState.mahjongSelectedTileId=hand[0].id;
+for(const variant of ["mahjong","ka_wu_xing"]) {
+ state.variant=variant;
+ for(const source of ["private","public"]) {
+  if(source==="public")delete privateState.hand;
+  renderer.renderBoard(value.context);
+  const nodes=descendants(value.board),scroll=nodes.find(n=>hasClass(n,"mahjong-own-hand-scroll"));
+  assert.equal(scroll.children.length,10);
+  assert.deepEqual(scroll.children.map(n=>n.dataset.cardId),hand.map(t=>t.id));
+  assert.ok(scroll.children.every(n=>n.disabled&&!hasClass(n,"selected")));
+  scroll.children[0].listeners.click();
+  assert.equal(value.uiState.mahjongSelectedTileId,undefined);
+  const own=nodes.find(n=>hasClass(n,"mahjong-seat")&&n.dataset.playerId==="viewer");
+  assert.equal(descendants(own).filter(n=>hasClass(n,"mahjong-meld")).length,1);
+  assert.ok(nodes.some(n=>hasClass(n,"mahjong-terminal-hand-count")&&n.textContent==="手牌 10张"));
+ }
+ privateState.hand=hand;
+}
+value.context.viewer={player_id:"spectator"};renderer.renderBoard(value.context);
+assert.equal(descendants(value.board).filter(n=>hasClass(n,"mahjong-own-hand-wrap")).length,0);
+''')
+
     def test_terminal_review_seats_fans_and_unique_physical_winning_tile(self):
         self.run_node(r'''
 state.phase="finished";
@@ -780,7 +810,7 @@ assert.equal(nodes.filter(n=>n.textContent.includes("总计")).length,1);
 const summary=nodes.find(n=>hasClass(n,"mahjong-terminal-summary"));
 assert.equal(summary.textContent+descendants(summary).map(n=>n.textContent).join(""),"东座 和牌 · 点炮和 · 南座点炮 · 总计 10 番");
 assert.equal(nodes.find(n=>hasClass(n,"mahjong-terminal-total")).tag,"strong");
-assert.equal(descendants(value.board).filter(n=>hasClass(n,"mahjong-own-hand-wrap")).length,0);
+assert.equal(descendants(value.board).filter(n=>hasClass(n,"mahjong-own-hand-wrap")).length,1);
 for(const [kind,word] of [["self_draw","自摸"],["rob_kong","抢杠和"],["discard","点炮和"]]){
  state.game_result.win_type=kind;state.game_result.source_player_id=kind==="self_draw"?null:"south";
  assert.ok(renderer.terminalSummary(value.context).includes(word));

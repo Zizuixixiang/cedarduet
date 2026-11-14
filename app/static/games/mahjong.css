@@ -542,7 +542,7 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
   }
   .mahjong-discard-label { font-size: 10px; margin-bottom: 4px; }
   .mahjong-discard-grid .mahjong-tile-face { font-size: calc(var(--mj-discard-w) * 1.25); }
-  .mahjong-meld .mahjong-tile-face { font-size: calc(var(--mj-tile-w) * 1.18); }
+  .mahjong-meld .mahjong-tile-face { font-size: calc(var(--mj-tile-w) * 1.18 * var(--mj-meld-scale, 1)); }
   .mahjong-own-hand-scroll {
     justify-content: safe center;
     gap: 3px;
@@ -589,6 +589,13 @@ button.mahjong-tile:focus-visible { outline: 2px solid #2c6b58; outline-offset: 
     grid-template-rows: auto auto auto;
     background: rgb(255 255 250 / 20%);
     box-shadow: none;
+  }
+  /* A vertical triplet is visually taller than a horizontal one. Keep side
+     melds slightly smaller, without changing the opponent's concealed backs. */
+  .mahjong-seat:is(.position-left, .position-right) .mahjong-seat-melds { --mj-meld-scale: .88; }
+  .mahjong-seat-melds .mahjong-tile:not(.mahjong-tile-back) {
+    width: calc(var(--mj-tile-w) * var(--mj-meld-scale, 1));
+    height: calc(var(--mj-tile-h) * var(--mj-meld-scale, 1));
   }
   .mahjong-seat:is(.position-left, .position-right) .mahjong-seat-identity {
     height: auto;

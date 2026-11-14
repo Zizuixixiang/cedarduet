@@ -2,7 +2,7 @@
   "use strict";
 
   const STYLE_ID = "duel-game-style-mahjong";
-  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.56";
+  const STYLE_HREF = "/static/games/mahjong.css?v=0.9.57";
   const POSITION_ORDER = ["bottom", "right", "top", "left"];
   const TILE_UNICODE = Object.freeze({
     W1: "🀇", W2: "🀈", W3: "🀉", W4: "🀊", W5: "🀋",
@@ -340,7 +340,7 @@
     const head = el("div", "mahjong-own-hand-head");
     const shanten = context.privateState && context.privateState.shanten;
     const basis = context.privateState && context.privateState.shanten_basis;
-    head.textContent = shanten === null || shanten === undefined
+    head.textContent = terminal ? "剩余手牌 · 只读" : shanten === null || shanten === undefined
       ? "我的手牌"
       : `我的手牌 · ${shanten === 0 ? "听牌" : `${shanten} 向听`}${basis === "after_best_discard" ? "（最佳打牌后）" : ""}`;
     const scroll = el("div", "mahjong-own-hand-scroll");
@@ -354,8 +354,13 @@
       discardById.set(id, action);
     });
     const selected = terminal ? null : context.uiState.mahjongSelectedTileId;
-    const drawnId = context.privateState && context.privateState.drawn_tile_id;
-    (context.privateState && context.privateState.hand || []).forEach((tile) => {
+    const drawnId = !terminal && context.privateState?.drawn_tile_id;
+    // Live rooms only use the viewer's private hand. Public terminal hands are
+    // a fallback for historical projections without a private hand field.
+    const hand = Array.isArray(context.privateState?.hand) ? context.privateState.hand
+      : terminal && viewerId ? (context.state?.terminal_hands?.[viewerId]
+        || context.state?.game_result?.terminal_hands?.[viewerId] || []) : [];
+    hand.forEach((tile) => {
       const node = publicTile(tile, {button: true});
       const selectable = !terminal && context.canMove && discardById.has(String(tile.id));
       node.disabled = !selectable;
@@ -452,7 +457,7 @@
       }
     });
     const state = context.state || {};
-    const hands = state.terminal_hands || {};
+    const hands = state.terminal_hands || state.game_result?.terminal_hands || {};
     if (state.variant === "ka_wu_xing") {
       const outcome = handResult(context) || {};
       review.appendChild(el("p", "mahjong-terminal-note", "胡牌倍数封顶后计亮倒；杠、马、漂及荒庄分独立。"));
@@ -476,7 +481,7 @@
       const heading = el("div", "mahjong-terminal-player");
       heading.appendChild(el("strong", "mahjong-terminal-name", participant.display_name || "玩家"));
       heading.appendChild(el("span", "mahjong-terminal-seat", `座位 ${Number(participant.seat_index) + 1} · ${(state.seat_winds || {})[playerId] || "?"}风`));
-      heading.appendChild(el("span", "mahjong-terminal-note mahjong-terminal-hand-count", `手牌 · ${tiles.length} 张`));
+      heading.appendChild(el("span", "mahjong-terminal-note mahjong-terminal-hand-count", `手牌 ${tiles.length}张`));
       if (winner) heading.appendChild(el("span", "mahjong-winner-badge", "和牌"));
       const outcome = handResult(context) || {};
       const units = outcome.round_score_units || outcome.score_units || {};
@@ -575,6 +580,10 @@
     table.appendChild(center);
     if (isTerminalState(context)) {
       delete context.uiState.mahjongSelectedTileId;
+      if (participants.some(p => p.player_id === context.viewer?.player_id)) {
+        const ownHand = ownHandNode(context);
+        table.appendChild(ownHand.wrap);
+      }
       const review = terminalReview(context, participants);
       context.board.replaceChildren(table, review);
       // On first entry Mahjong CSS loads asynchronously; scroll the winning
